@@ -72,6 +72,11 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${CMS_LOG_MAX_SIZE:-500m}"
+        max-file: "${CMS_LOG_MAX_FILES:-10}"
 
 volumes:
   cms-pgdata:
