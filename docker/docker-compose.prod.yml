@@ -33,7 +33,9 @@ services:
   db-init:
     build:
       context: ..
-    env_file: ../.env
+    env_file:
+      - path: ../.env
+        required: false
     depends_on:
       db:
         condition: service_healthy
@@ -45,7 +47,9 @@ services:
   cms:
     build:
       context: ..
-    env_file: ../.env
+    env_file:
+      - path: ../.env
+        required: false
     depends_on:
       db-init:
         condition: service_completed_successfully
