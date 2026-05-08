@@ -80,12 +80,19 @@ def generate_cms_toml() -> str:
     rws_username = _get("CMS_RWS_USERNAME", "rws")
     rws_password = _get("CMS_RWS_PASSWORD", "")
 
+    bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
+    telegram_configured = bool(bot_token and chat_id)
+    telegram_service_line = (
+        '\nTelegramBot = [["localhost", 27000]]' if telegram_configured else ""
+    )
+
     worker_entries = ", ".join(f'["localhost", {26000 + i}]' for i in range(worker_count))
     cws_entries = ", ".join(f'["localhost", {cws_rpc_port + i}]' for i in range(cws_count))
     cws_ports = "[" + ", ".join(str(cws_http_port + i) for i in range(cws_count)) + "]"
     cws_addrs = "[" + ", ".join(f'"{listen_addr}"' for _ in range(cws_count)) + "]"
 
-    return f"""\
+    toml = f"""\
 [global]
 file_log_debug = {log_debug}
 stream_log_detailed = false
@@ -99,7 +106,7 @@ EvaluationService = [["localhost", 25000]]
 Worker = [{worker_entries}]
 ContestWebServer = [{cws_entries}]
 AdminWebServer = [["localhost", {aws_rpc_port}]]
-ProxyService = [["localhost", 28600]]
+ProxyService = [["localhost", 28600]]{telegram_service_line}
 
 [database]
 url = "{_toml_str(db_url)}"
@@ -125,6 +132,14 @@ num_proxies_used = {num_proxies}
 [proxy_service]
 rankings = ["http://{_url_quote(rws_username, safe="")}:{_url_quote(rws_password, safe="")}@localhost:{rws_http_port}/"]
 """
+
+    if telegram_configured:
+        toml += (
+            f'\n[telegram_bot]\n'
+            f'bot_token = "{_toml_str(bot_token)}"\n'
+            f'chat_id = "{_toml_str(chat_id)}"\n'
+        )
+    return toml
 
 
 def generate_cms_ranking_toml() -> str:
