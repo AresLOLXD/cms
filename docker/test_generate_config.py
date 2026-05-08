@@ -119,3 +119,30 @@ def test_supervisord_multiple_workers(monkeypatch):
     conf = gc.generate_supervisord_conf()
     assert "cmsWorker 0" in conf
     assert "cmsWorker 1" in conf
+
+
+def test_cms_toml_no_telegram_by_default(monkeypatch):
+    _set(monkeypatch)
+    toml = gc.generate_cms_toml()
+    assert "[telegram_bot]" not in toml
+    assert "TelegramBot" not in toml
+
+
+def test_cms_toml_telegram_section(monkeypatch):
+    _set(monkeypatch, {
+        "CMS_TELEGRAM_BOT_TOKEN": "123456:ABC-DEF",
+        "CMS_TELEGRAM_CHAT_ID": "-1001234567890",
+    })
+    toml = gc.generate_cms_toml()
+    assert "[telegram_bot]" in toml
+    assert 'bot_token = "123456:ABC-DEF"' in toml
+    assert 'chat_id = "-1001234567890"' in toml
+    assert 'TelegramBot = [["localhost", 27000]]' in toml
+
+
+def test_cms_toml_telegram_partial(monkeypatch):
+    # Only one var set — no telegram block should appear
+    _set(monkeypatch, {"CMS_TELEGRAM_BOT_TOKEN": "123456:ABC-DEF"})
+    toml = gc.generate_cms_toml()
+    assert "[telegram_bot]" not in toml
+    assert "TelegramBot" not in toml
