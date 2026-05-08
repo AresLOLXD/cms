@@ -6,10 +6,10 @@ set -euo pipefail
 python3 /home/cmsuser/generate_config.py
 
 # Validate that the config file parses without errors before starting any service.
-python3 -c "import cms.conf" 2>&1 || {
+if ! python3 -c "import cms.conf"; then
     echo "ERROR: CMS config failed to parse. Check your environment variables." >&2
     exit 1
-}
+fi
 
 # Remove stale socket files left by previous container runs.
 rm -f /home/cmsuser/cms/run/*.sock 2>/dev/null || true
