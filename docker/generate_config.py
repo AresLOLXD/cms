@@ -165,6 +165,9 @@ def generate_supervisord_conf() -> str:
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
     contest_id = _require("CMS_CONTEST_ID")
+    bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
+    telegram_configured = bool(bot_token and chat_id)
 
     def program(name: str, command: str, priority: int) -> str:
         return (
@@ -211,6 +214,11 @@ def generate_supervisord_conf() -> str:
         )
 
     blocks.append(program("cmsadminwebserver", "cmsAdminWebServer 0", 60))
+
+    if telegram_configured:
+        blocks.append(
+            program("cmstelegrambot", f"cmsTelegramBot 0 -c {contest_id}", 65)
+        )
 
     return "\n".join(blocks)
 
