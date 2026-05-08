@@ -1,0 +1,76 @@
+# Production Docker Compose for CMS.
+#
+# Usage:
+#   With bundled PostgreSQL:   docker compose -f docker/docker-compose.prod.yml --profile localdb up -d
+#   With external PostgreSQL:  docker compose -f docker/docker-compose.prod.yml up -d
+#
+# Requires a .env file at the repo root. Copy .env.example and fill in the values.
+
+services:
+
+  # ── PostgreSQL (optional — only active with --profile localdb) ────────────
+  db:
+    profiles: ["localdb"]
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - cms-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Database initialization (run once, then exits) ────────────────────────
+  # This service initializes the CMS database schema. It runs cmsInitDB and
+  # exits. The main cms service waits for this to complete before starting.
+  # Re-running it on an existing database is safe (uses CREATE TABLE IF NOT EXISTS).
+  db-init:
+    build:
+      context: ..
+    env_file: ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
+    command: ["cmsInitDB"]
+    restart: "no"
+
+  # ── CMS (all services managed by supervisord) ─────────────────────────────
+  cms:
+    build:
+      context: ..
+    env_file: ../.env
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    volumes:
+      - cms-data:/home/cmsuser/cms/lib
+      - cms-logs:/home/cmsuser/cms/log
+      - cms-cache:/home/cmsuser/cms/cache
+    tmpfs:
+      - /home/cmsuser/cms/run
+    privileged: true
+    cgroup: host
+    ports:
+      - "${CMS_CWS_HTTP_PORT:-8888}:${CMS_CWS_HTTP_PORT:-8888}"
+      - "${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
+      - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  cms-pgdata:
+  cms-data:
+  cms-logs:
+  cms-cache:
