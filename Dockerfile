@@ -1,19 +1,41 @@
 # syntax=docker/dockerfile:1
-# Supported combinations: ubuntu:noble, debian:bookworm.
+# Supported base images: ubuntu:noble, debian:bookworm.
 ARG BASE_IMAGE=ubuntu:noble
+
+# ─── Stage 1: Build rekarel compiler (Node.js) and C++ interpreter ────────────
+FROM ${BASE_IMAGE} AS rekarel-builder
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
+#!/bin/bash -ex
+    export DEBIAN_FRONTEND=noninteractive
+    rm -f /etc/apt/apt.conf.d/docker-clean
+    apt-get update
+    apt-get install -y build-essential libexpat-dev curl ca-certificates
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+EOF
+
+# Install rekarel compiler CLI.
+RUN npm install -g @rekarel/cli
+
+# Build the C++ Karel interpreter from source (no pre-built binaries for v2.3.1).
+# The binary is statically linked (-static flag in the Makefile), so it has
+# no runtime library dependencies and copies cleanly to the runtime stage.
+RUN mkdir -p /build && \
+    curl -fsSL "https://api.github.com/repos/kishtarn555/rekarel-cpp-interpreter/tarball/v2.3.1" \
+        | tar xz --strip-components=1 -C /build && \
+    cd /build && mkdir bin && make karel
+
+# ─── Stage 2: CMS runtime ─────────────────────────────────────────────────────
 FROM ${BASE_IMAGE}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
 #!/bin/bash -ex
     export DEBIAN_FRONTEND=noninteractive
-    # Don't delete all the .deb files after install, as that would make the
-    # cache useless.
     rm -f /etc/apt/apt.conf.d/docker-clean
-    # Note that we use apt-get here instead of plain apt, because plain apt
-    # also deletes .deb files after successful install.
     apt-get update
-    apt-get upgrade -y
     PACKAGES=(
         build-essential
         cppreference-doc-en-html
@@ -27,6 +49,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libpq-dev
         libyaml-dev
         mono-mcs
+        nodejs
         php-cli
         postgresql-client
         pypy3
@@ -37,6 +60,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         rustc
         shared-mime-info
         sudo
+        supervisor
         wait-for-it
         zip
     )
@@ -58,20 +82,21 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     sed -i 's@^cg_root .*@cg_root = /sys/fs/cgroup@' /etc/isolate
 EOF
 
-# Create cmsuser user with sudo privileges and access to isolate
+# Create cmsuser (uid 2000). Sudo is scoped to /usr/bin/isolate only.
 RUN <<EOF
 #!/bin/bash -ex
-    # Need to set user ID manually: otherwise it'd be 1000 on debian
-    # and 1001 on ubuntu.
-    # 1001 is taken by `isolate`.
     useradd -ms /bin/bash -u 2000 cmsuser
-    usermod -aG sudo cmsuser
     usermod -aG isolate cmsuser
-    # Disable sudo password
-    echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+    echo 'cmsuser ALL=(ALL) NOPASSWD: /usr/bin/isolate' >> /etc/sudoers
 EOF
 
-# Set cmsuser as default user
+# Copy rekarel artifacts from the builder stage.
+# rekarel: Node.js CLI script (needs nodejs at runtime — installed above via apt).
+# karel: statically-linked C++ binary (no runtime deps).
+COPY --from=rekarel-builder /usr/local/bin/rekarel /usr/local/bin/rekarel
+COPY --from=rekarel-builder /usr/local/lib/node_modules/@rekarel /usr/local/lib/node_modules/@rekarel
+COPY --from=rekarel-builder /build/bin/karel /usr/local/bin/karel
+
 USER cmsuser
 ENV LANG=C.UTF-8
 
@@ -85,8 +110,22 @@ ENV PATH="/home/cmsuser/cms/bin:$PATH"
 
 COPY --chown=cmsuser:cmsuser . /home/cmsuser/src
 
-RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py cms --devel
+# Install CMS without dev dependencies (no pytest, coverage, beautifulsoup4).
+RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py cms
 
+# Install the cms_rekarel Karel language plugin.
+RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 \
+    pip install git+https://github.com/AresLOLXD/cms_rekarel.git
+
+# Copy config-generation script and entrypoint into the image.
+COPY --chown=cmsuser:cmsuser docker/generate_config.py /home/cmsuser/generate_config.py
+COPY --chown=cmsuser:cmsuser docker/entrypoint.sh /home/cmsuser/entrypoint.sh
+RUN chmod +x /home/cmsuser/entrypoint.sh
+
+# Bake dev/test configs for backward compatibility with docker-compose.dev.yml
+# and docker-compose.test.yml. These are pre-generated and referenced by
+# CMS_CONFIG in those compose files — the entrypoint skips generation when
+# CMS_CONFIG already points to an existing file.
 RUN <<EOF
 #!/bin/bash -ex
     sed 's|/cmsuser:your_password_here@localhost:5432/cmsdb"|/postgres@testdb:5432/cmsdbfortesting"|' \
@@ -97,4 +136,5 @@ RUN <<EOF
     sed -i 's/127.0.0.1/0.0.0.0/' ../cms/etc/cms_ranking.toml
 EOF
 
-CMD ["/bin/bash"]
+ENTRYPOINT ["/home/cmsuser/entrypoint.sh"]
+CMD ["supervisord", "--nodaemon", "-c", "/home/cmsuser/cms/etc/supervisord.conf"]
