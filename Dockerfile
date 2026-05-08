@@ -17,6 +17,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 EOF
 
 # Install rekarel compiler CLI.
+# NodeSource on Ubuntu uses /usr as global prefix; override so the COPY
+# commands in the runtime stage can reference /usr/local paths consistently.
+RUN npm config set prefix /usr/local
 RUN npm install -g @rekarel/cli
 
 # Build the C++ Karel interpreter from source (no pre-built binaries for v2.3.1).
