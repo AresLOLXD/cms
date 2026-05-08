@@ -8,8 +8,13 @@ supervisord.conf is only generated when CMS_CONTEST_ID is set.
 
 import os
 import sys
+from urllib.parse import quote as _url_quote
 
 INSECURE_SECRET_KEY = "8e045a51e4b102ea803c06f92841a1fb"
+
+
+def _toml_str(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _require(var: str) -> str:
@@ -45,8 +50,25 @@ def generate_cms_toml() -> str:
     db_url = _require("CMS_DB_URL")
     secret_key = _require("CMS_SECRET_KEY")
     listen_addr = _get("CMS_LISTEN_ADDRESS", "0.0.0.0")
-    num_proxies = _get_int("CMS_NUM_PROXIES_USED", 0)
-    log_debug = _get("CMS_LOG_DEBUG", "false").lower()
+
+    raw_log = _get("CMS_LOG_DEBUG", "false").lower()
+    if raw_log not in ("true", "false"):
+        print(
+            f"ERROR: CMS_LOG_DEBUG must be 'true' or 'false', got {raw_log!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    log_debug = raw_log
+
+    raw_proxies = os.environ.get("CMS_NUM_PROXIES_USED", "0")
+    try:
+        num_proxies = int(raw_proxies)
+    except ValueError:
+        print(
+            f"ERROR: CMS_NUM_PROXIES_USED must be an integer, got {raw_proxies!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
@@ -80,14 +102,14 @@ AdminWebServer = [["localhost", {aws_rpc_port}]]
 ProxyService = [["localhost", 28600]]
 
 [database]
-url = "{db_url}"
+url = "{_toml_str(db_url)}"
 debug = false
 
 [worker]
 keep_sandbox = false
 
 [web_server]
-secret_key = "{secret_key}"
+secret_key = "{_toml_str(secret_key)}"
 tornado_debug = false
 
 [contest_web_server]
@@ -101,7 +123,7 @@ listen_port = {aws_http_port}
 num_proxies_used = {num_proxies}
 
 [proxy_service]
-rankings = ["http://{rws_username}:{rws_password}@localhost:{rws_http_port}/"]
+rankings = ["http://{_url_quote(rws_username, safe="")}:{_url_quote(rws_password, safe="")}@localhost:{rws_http_port}/"]
 """
 
 
@@ -114,8 +136,8 @@ def generate_cms_ranking_toml() -> str:
     return f"""\
 bind_address = "{listen_addr}"
 http_port = {rws_http_port}
-username = "{rws_username}"
-password = "{rws_password}"
+username = "{_toml_str(rws_username)}"
+password = "{_toml_str(rws_password)}"
 realm_name = "Scoreboard"
 buffer_size = 100
 
