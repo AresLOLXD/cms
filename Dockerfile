@@ -23,9 +23,11 @@ RUN npm install -g @rekarel/cli
 # The binary is statically linked (-static flag in the Makefile), so it has
 # no runtime library dependencies and copies cleanly to the runtime stage.
 RUN mkdir -p /build && \
-    curl -fsSL "https://api.github.com/repos/kishtarn555/rekarel-cpp-interpreter/tarball/v2.3.1" \
+    curl -fsSL "https://github.com/kishtarn555/rekarel-cpp-interpreter/archive/refs/tags/v2.3.1.tar.gz" \
         | tar xz --strip-components=1 -C /build && \
-    cd /build && mkdir bin && make karel
+    cd /build && mkdir -p bin && make karel && \
+    ldd bin/karel 2>&1 | grep -q "not a dynamic executable" || \
+        { echo "ERROR: karel binary is not statically linked"; exit 1; }
 
 # ─── Stage 2: CMS runtime ─────────────────────────────────────────────────────
 FROM ${BASE_IMAGE}
@@ -94,7 +96,7 @@ EOF
 # rekarel: Node.js CLI script (needs nodejs at runtime — installed above via apt).
 # karel: statically-linked C++ binary (no runtime deps).
 COPY --from=rekarel-builder /usr/local/bin/rekarel /usr/local/bin/rekarel
-COPY --from=rekarel-builder /usr/local/lib/node_modules/@rekarel /usr/local/lib/node_modules/@rekarel
+COPY --from=rekarel-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=rekarel-builder /build/bin/karel /usr/local/bin/karel
 
 USER cmsuser
