@@ -206,11 +206,11 @@ def generate_supervisord_conf() -> str:
         blocks.append(program(f"cmsworker{i}", f"cmsWorker {i}", 40))
 
     blocks.append(program("cmsproxyservice", "cmsProxyService 0", 50))
-    blocks.append(program("cmsrankingwebserver", "cmsRankingWebServer 0", 55))
+    blocks.append(program("cmsrankingwebserver", "cmsRankingWebServer", 55))
 
     for i in range(cws_count):
         blocks.append(
-            program(f"cmscontestwebserver{i}", f"cmsContestWebServer {i} {contest_id}", 60)
+            program(f"cmscontestwebserver{i}", f"cmsContestWebServer {i} -c {contest_id}", 60)
         )
 
     blocks.append(program("cmsadminwebserver", "cmsAdminWebServer 0", 60))
