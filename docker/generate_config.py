@@ -224,11 +224,12 @@ def generate_supervisord_conf() -> str:
 
 
 def main() -> None:
-    config_path = _get("CMS_CONFIG", "/home/cmsuser/cms/etc/cms.toml")
+    explicit_config = os.environ.get("CMS_CONFIG")
+    config_path = explicit_config or "/home/cmsuser/cms/etc/cms.toml"
     ranking_config_path = _get("CMS_RANKING_CONFIG", "/home/cmsuser/cms/etc/cms_ranking.toml")
     supervisord_path = "/home/cmsuser/cms/etc/supervisord.conf"
 
-    if os.path.isfile(config_path):
+    if explicit_config and os.path.isfile(config_path):
         print(f"Using existing config: {config_path}", file=sys.stderr)
     else:
         validate_required()
