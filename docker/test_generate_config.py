@@ -146,3 +146,21 @@ def test_cms_toml_telegram_partial(monkeypatch):
     toml = gc.generate_cms_toml()
     assert "[telegram_bot]" not in toml
     assert "TelegramBot" not in toml
+
+
+def test_supervisord_no_telegram_by_default(monkeypatch):
+    _set(monkeypatch)
+    conf = gc.generate_supervisord_conf()
+    assert "cmstelegrambot" not in conf
+    assert "cmsTelegramBot" not in conf
+
+
+def test_supervisord_telegram_program(monkeypatch):
+    _set(monkeypatch, {
+        "CMS_TELEGRAM_BOT_TOKEN": "123456:ABC-DEF",
+        "CMS_TELEGRAM_CHAT_ID": "-1001234567890",
+        "CMS_CONTEST_ID": "3",
+    })
+    conf = gc.generate_supervisord_conf()
+    assert "cmstelegrambot" in conf
+    assert "cmsTelegramBot 0 -c 3" in conf
