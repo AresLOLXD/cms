@@ -62,7 +62,7 @@ services:
       - "${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
       - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]
+      test: ["CMD-SHELL", "curl -sfL http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
