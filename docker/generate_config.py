@@ -214,13 +214,12 @@ def main() -> None:
             f.write(generate_cms_toml())
         print(f"Generated {config_path}", file=sys.stderr)
 
-    if os.path.isfile(ranking_config_path):
-        print(f"Using existing ranking config: {ranking_config_path}", file=sys.stderr)
-    else:
-        os.makedirs(os.path.dirname(ranking_config_path), exist_ok=True)
-        with open(ranking_config_path, "w") as f:
-            f.write(generate_cms_ranking_toml())
-        print(f"Generated {ranking_config_path}", file=sys.stderr)
+    # Always overwrite the ranking config so env var credentials (CMS_RWS_USERNAME/
+    # CMS_RWS_PASSWORD) are used instead of the sample credentials baked by install.py.
+    os.makedirs(os.path.dirname(ranking_config_path), exist_ok=True)
+    with open(ranking_config_path, "w") as f:
+        f.write(generate_cms_ranking_toml())
+    print(f"Generated {ranking_config_path}", file=sys.stderr)
 
     if os.environ.get("CMS_CONTEST_ID"):
         os.makedirs(os.path.dirname(supervisord_path), exist_ok=True)

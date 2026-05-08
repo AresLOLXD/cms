@@ -77,7 +77,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/isolate.asc]" \
         "http://www.ucw.cz/isolate/debian/ ${CODENAME}-isolate main" \
         >/etc/apt/sources.list.d/isolate.list
-    curl https://www.ucw.cz/isolate/debian/signing-key.asc \
+    curl -fsSL https://www.ucw.cz/isolate/debian/signing-key.asc \
         >/etc/apt/keyrings/isolate.asc
     apt-get update
     apt-get install -y isolate
