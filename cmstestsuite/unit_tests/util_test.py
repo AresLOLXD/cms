@@ -21,13 +21,16 @@
 
 import netifaces
 import os
+import sys
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import Mock
 
 import cms.util
 from cms import Address, ServiceCoord, \
     get_safe_shard, get_service_address, get_service_shards, rmtree
+from cms.util import contest_id_from_args
 
 
 fake_async_config = {
@@ -191,6 +194,74 @@ class TestRmtree(unittest.TestCase):
         """Test failure on a missing directory."""
         with self.assertRaises(FileNotFoundError):
             rmtree(os.path.join(self.tmpdir, "missing"))
+
+
+class TestContestIdFromArgs(unittest.TestCase):
+    """Test contest_id_from_args env-var fallback and non-TTY behavior."""
+
+    def setUp(self):
+        # Patch is_contest_id to always return True so we don't need a DB.
+        patcher = unittest.mock.patch("cms.db.is_contest_id", return_value=True)
+        self.mock_is_contest_id = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _make_ask(self):
+        """Return a mock ask_contest that must NOT be called."""
+        m = unittest.mock.Mock(side_effect=AssertionError("ask_contest should not be called"))
+        return m
+
+    # ── existing -c flag behaviour (must not regress) ─────────────────────
+
+    def test_explicit_flag_uses_flag_value(self):
+        """When -c 23 is passed, return 23 without touching env or ask."""
+        result = contest_id_from_args("23", self._make_ask())
+        self.assertEqual(result, 23)
+
+    def test_all_flag_returns_none(self):
+        """When -c ALL is passed, return None (multi-contest mode)."""
+        result = contest_id_from_args("ALL", self._make_ask())
+        self.assertIsNone(result)
+
+    def test_invalid_flag_exits(self):
+        """When -c has a non-integer value, sys.exit(1) is called."""
+        with self.assertRaises(SystemExit):
+            contest_id_from_args("notanumber", self._make_ask())
+
+    # ── new env-var fallback ──────────────────────────────────────────────
+
+    def test_env_var_used_when_flag_absent(self):
+        """When -c is absent but CMS_CONTEST_ID=23 is set, return 23."""
+        with unittest.mock.patch.dict(os.environ, {"CMS_CONTEST_ID": "23"}):
+            result = contest_id_from_args(None, self._make_ask())
+        self.assertEqual(result, 23)
+
+    def test_env_var_invalid_exits(self):
+        """When CMS_CONTEST_ID is not an integer, sys.exit(1) is called."""
+        with unittest.mock.patch.dict(os.environ, {"CMS_CONTEST_ID": "bad"}):
+            with self.assertRaises(SystemExit):
+                contest_id_from_args(None, self._make_ask())
+
+    # ── non-TTY fail-fast ─────────────────────────────────────────────────
+
+    def test_no_env_no_tty_exits(self):
+        """When -c absent, no env var, and stdin is not a TTY, sys.exit(1)."""
+        env = {k: v for k, v in os.environ.items() if k != "CMS_CONTEST_ID"}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            with unittest.mock.patch("sys.stdin") as mock_stdin:
+                mock_stdin.isatty.return_value = False
+                with self.assertRaises(SystemExit):
+                    contest_id_from_args(None, self._make_ask())
+
+    def test_no_env_with_tty_calls_ask(self):
+        """When -c absent, no env var, but stdin IS a TTY, ask_contest is called."""
+        ask = unittest.mock.Mock(return_value=5)
+        env = {k: v for k, v in os.environ.items() if k != "CMS_CONTEST_ID"}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            with unittest.mock.patch("sys.stdin") as mock_stdin:
+                mock_stdin.isatty.return_value = True
+                result = contest_id_from_args(None, ask)
+        self.assertEqual(result, 5)
+        ask.assert_called_once()
 
 
 if __name__ == "__main__":
