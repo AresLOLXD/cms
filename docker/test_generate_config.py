@@ -100,7 +100,7 @@ def test_supervisord_single_cws_worker(monkeypatch):
     conf = gc.generate_supervisord_conf()
     assert "cmsLogService 0" in conf
     assert "cmsWorker 0" in conf
-    assert "cmsContestWebServer 0 1" in conf
+    assert "cmsContestWebServer 0 -c 1" in conf
     assert "cmsAdminWebServer 0" in conf
     # LogService must have the lowest priority number (starts first)
     log_priority = int(conf.split("cmsLogService")[0].rsplit("priority=", 1)[-1].split("\n")[0])
@@ -110,8 +110,8 @@ def test_supervisord_single_cws_worker(monkeypatch):
 def test_supervisord_multiple_cws(monkeypatch):
     _set(monkeypatch, {"CMS_CWS_COUNT": "2", "CMS_CONTEST_ID": "5"})
     conf = gc.generate_supervisord_conf()
-    assert "cmsContestWebServer 0 5" in conf
-    assert "cmsContestWebServer 1 5" in conf
+    assert "cmsContestWebServer 0 -c 5" in conf
+    assert "cmsContestWebServer 1 -c 5" in conf
 
 
 def test_supervisord_multiple_workers(monkeypatch):
@@ -164,3 +164,20 @@ def test_supervisord_telegram_program(monkeypatch):
     conf = gc.generate_supervisord_conf()
     assert "cmstelegrambot" in conf
     assert "cmsTelegramBot 0 -c 3" in conf
+
+
+def test_supervisord_evaluation_and_proxy_get_contest_flag(monkeypatch):
+    _set(monkeypatch, {"CMS_CONTEST_ID": "23"})
+    conf = gc.generate_supervisord_conf()
+    assert "cmsEvaluationService 0 -c 23" in conf
+    assert "cmsProxyService 0 -c 23" in conf
+
+
+def test_supervisord_evaluation_and_proxy_no_flag_when_all(monkeypatch):
+    _set(monkeypatch, {"CMS_CONTEST_ID": "ALL"})
+    conf = gc.generate_supervisord_conf()
+    assert "cmsEvaluationService 0 -c" not in conf
+    assert "cmsProxyService 0 -c" not in conf
+    # services still present without flag
+    assert "cmsEvaluationService 0" in conf
+    assert "cmsProxyService 0" in conf
