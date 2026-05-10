@@ -115,7 +115,7 @@ Everything else has a sensible default and can be left as-is on the first try.
 server):**
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml --profile localdb up -d
+docker compose -f docker/docker-compose.prod.yml --env-file .env --profile localdb up -d
 ```
 
 This starts PostgreSQL, initializes the database, and then starts all CMS
@@ -126,7 +126,7 @@ services automatically.
 Set `CMS_DB_URL` in your `.env` to point to your server, then run:
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml up -d
+docker compose -f docker/docker-compose.prod.yml --env-file .env up -d
 ```
 
 ### Step 4 — Import a contest and get its ID
@@ -139,7 +139,7 @@ your `.env` with that value.
 To apply the change, restart CMS:
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml restart cms
+docker compose -f docker/docker-compose.prod.yml --env-file .env restart cms
 ```
 
 ### Ports
@@ -157,17 +157,17 @@ By default the following ports are exposed. You can change all of them in
 
 **View live logs:**
 ```bash
-docker compose -f docker/docker-compose.prod.yml logs -f cms
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f cms
 ```
 
 **Stop everything:**
 ```bash
-docker compose -f docker/docker-compose.prod.yml down
+docker compose -f docker/docker-compose.prod.yml --env-file .env down
 ```
 
 **Stop and delete all data (including the database — be careful):**
 ```bash
-docker compose -f docker/docker-compose.prod.yml down -v
+docker compose -f docker/docker-compose.prod.yml --env-file .env down -v
 ```
 
 **Run multiple Contest Web Server instances (for load balancing):**
@@ -179,7 +179,7 @@ Point your load balancer (e.g. nginx) at those two ports.
 **Reset the database (first boot only, dangerous on a running contest):**
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml run --rm db-init
+docker compose -f docker/docker-compose.prod.yml --env-file .env run --rm db-init
 ```
 
 ### Troubleshooting
@@ -197,6 +197,10 @@ the Admin interface.
 
 **Port already in use:**
 Change the corresponding `CMS_*_HTTP_PORT` variable in `.env` and restart.
+Make sure to always pass `--env-file .env` — without it, Docker Compose cannot
+read the file because it lives in the repo root while the compose file is in
+`docker/`, so the port variables fall back to their hardcoded defaults
+(8888/8889/8890) regardless of what you set in `.env`.
 
 ---
 

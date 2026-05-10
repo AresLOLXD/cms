@@ -1,8 +1,19 @@
 # Production Docker Compose for CMS.
 #
-# Usage:
-#   With bundled PostgreSQL:   docker compose -f docker/docker-compose.prod.yml --profile localdb up -d
-#   With external PostgreSQL:  docker compose -f docker/docker-compose.prod.yml up -d
+# Usage (always run from the REPO ROOT so --env-file resolves correctly):
+#
+#   With bundled PostgreSQL:
+#     docker compose -f docker/docker-compose.prod.yml --env-file .env --profile localdb up -d
+#
+#   With external PostgreSQL:
+#     docker compose -f docker/docker-compose.prod.yml --env-file .env up -d
+#
+# NOTE: --env-file .env is required.
+# Docker Compose only reads .env automatically when the file sits next to the
+# compose file. Because this file lives in docker/ and .env is at the repo root,
+# variable substitution (${CMS_CWS_HTTP_PORT}, etc.) silently falls back to the
+# hardcoded defaults (8888/8889/8890) if --env-file is omitted, causing port
+# conflicts if those defaults are already in use on the host.
 #
 # Requires a .env file at the repo root. Copy .env.example and fill in the values.
 
