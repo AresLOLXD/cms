@@ -165,6 +165,7 @@ def generate_supervisord_conf() -> str:
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
     contest_id = _require("CMS_CONTEST_ID")
+    contest_flag = f" -c {contest_id}" if contest_id != "ALL" else ""
     bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
     telegram_configured = bool(bot_token and chat_id)
@@ -199,13 +200,13 @@ def generate_supervisord_conf() -> str:
         program("cmslogservice", "cmsLogService 0", 10),
         program("cmsresourceservice", "cmsResourceService 0", 20),
         program("cmsscoringservice", "cmsScoringService 0", 30),
-        program("cmsevaluationservice", "cmsEvaluationService 0", 30),
+        program("cmsevaluationservice", f"cmsEvaluationService 0{contest_flag}", 30),
     ]
 
     for i in range(worker_count):
         blocks.append(program(f"cmsworker{i}", f"cmsWorker {i}", 40))
 
-    blocks.append(program("cmsproxyservice", "cmsProxyService 0", 50))
+    blocks.append(program("cmsproxyservice", f"cmsProxyService 0{contest_flag}", 50))
     blocks.append(program("cmsrankingwebserver", "cmsRankingWebServer", 55))
 
     for i in range(cws_count):
