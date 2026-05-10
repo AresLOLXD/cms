@@ -255,7 +255,9 @@ def contest_id_from_args(
             sys.exit(1)
     else:
         env_id = os.environ.get("CMS_CONTEST_ID")
-        if env_id and env_id != "ALL":
+        if env_id == "ALL":
+            return None
+        elif env_id:
             try:
                 contest_id = int(env_id)
             except ValueError:

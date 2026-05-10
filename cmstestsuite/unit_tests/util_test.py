@@ -241,6 +241,12 @@ class TestContestIdFromArgs(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 contest_id_from_args(None, self._make_ask())
 
+    def test_env_var_all_returns_none(self):
+        """When CMS_CONTEST_ID=ALL and -c absent, return None (multi-contest)."""
+        with unittest.mock.patch.dict(os.environ, {"CMS_CONTEST_ID": "ALL"}):
+            result = contest_id_from_args(None, self._make_ask())
+        self.assertIsNone(result)
+
     # ── non-TTY fail-fast ─────────────────────────────────────────────────
 
     def test_no_env_no_tty_exits(self):
