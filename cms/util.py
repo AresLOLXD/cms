@@ -254,7 +254,23 @@ def contest_id_from_args(
             logger.critical("Unable to parse contest id '%s'", args_contest_id)
             sys.exit(1)
     else:
-        contest_id = ask_contest()
+        env_id = os.environ.get("CMS_CONTEST_ID")
+        if env_id and env_id != "ALL":
+            try:
+                contest_id = int(env_id)
+            except ValueError:
+                logger.critical(
+                    "CMS_CONTEST_ID env var is not a valid integer: %r", env_id
+                )
+                sys.exit(1)
+        elif not sys.stdin.isatty():
+            logger.critical(
+                "No contest id given via -c and stdin is not a TTY. "
+                "Set CMS_CONTEST_ID or pass -c CONTEST_ID."
+            )
+            sys.exit(1)
+        else:
+            contest_id = ask_contest()
 
     # Test if there is a contest with the given contest id.
     from cms.db import is_contest_id
