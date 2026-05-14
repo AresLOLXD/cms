@@ -110,20 +110,27 @@ def offer_sample_contest() -> bool:
         if session.query(Contest).count() > 0:
             return True
 
-        answer = input(
-            "No contests found. Create a sample contest? [y/N]: "
-        ).strip()
-        if answer.lower() != "y":
-            return True
+    answer = input(
+        "No contests found. Create a sample contest? [y/N]: "
+    ).strip()
+    if answer.lower() != "y":
+        return True
 
-        group = Group(name="Default")
-        contest = Contest(
-            name="sample",
-            description="Sample Contest",
-            groups=[group],
-            main_group=group,
-        )
-        session.add(contest)
-        session.commit()
-        logger.info("Sample contest 'sample' created.")
+    with SessionGen() as session:
+        try:
+            group = Group(name="Default")
+            contest = Contest(
+                name="sample",
+                description="Sample Contest",
+                groups=[group],
+                main_group=group,
+            )
+            session.add(contest)
+            session.commit()
+        except IntegrityError:
+            logger.info(
+                "Sample contest already exists (created concurrently), skipping."
+            )
+            return True
+    logger.info("Sample contest 'sample' created.")
     return True
