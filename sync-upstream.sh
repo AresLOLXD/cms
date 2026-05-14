@@ -34,11 +34,11 @@ if [[ "$local_sha" == "$upstream_sha" ]]; then
   exit 0
 fi
 
-commit_count=$(git rev-list HEAD.."$UPSTREAM_REMOTE/$UPSTREAM_BRANCH" --count)
+before_sha=$(git rev-parse HEAD)
 
-echo "Merging $UPSTREAM_REMOTE/$UPSTREAM_BRANCH ($commit_count new commit(s))..."
+echo "Merging $UPSTREAM_REMOTE/$UPSTREAM_BRANCH..."
 if ! git merge "$UPSTREAM_REMOTE/$UPSTREAM_BRANCH" --no-edit; then
-  git merge --abort
+  git merge --abort 2>/dev/null || true
   echo "" >&2
   echo "Error: merge conflicts detected. Aborted." >&2
   echo "To sync manually:" >&2
@@ -47,6 +47,8 @@ if ! git merge "$UPSTREAM_REMOTE/$UPSTREAM_BRANCH" --no-edit; then
   echo "  git push $ORIGIN_REMOTE $LOCAL_BRANCH" >&2
   exit 1
 fi
+
+commit_count=$(git rev-list "$before_sha"..HEAD --count)
 
 echo "Pushing to $ORIGIN_REMOTE/$LOCAL_BRANCH..."
 git push "$ORIGIN_REMOTE" "$LOCAL_BRANCH"
