@@ -23,8 +23,7 @@ import logging
 import os
 import sys
 
-from cms.db import Admin, Contest, SessionGen, init_db
-from cms.db.user import Group
+from cms.db import Admin, SessionGen
 from cmscommon.crypto import hash_password
 
 logger = logging.getLogger(__name__)
