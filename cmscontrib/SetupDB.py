@@ -25,8 +25,7 @@ import sys
 
 from sqlalchemy.exc import IntegrityError
 
-from cms.db import Admin, Contest, SessionGen
-from cms.db.user import Group
+from cms.db import Admin, Contest, Group, SessionGen
 from cmscommon.crypto import hash_password
 
 logger = logging.getLogger(__name__)
