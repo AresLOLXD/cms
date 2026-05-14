@@ -25,7 +25,7 @@ DB_URL="$(_env_var CMS_DB_URL "")"
 PSQL_URL="${DB_URL/postgresql+psycopg2/postgresql}"
 
 echo "Fetching contests from database..."
-if CONTESTS=$(psql "$PSQL_URL" -t -A \
+if CONTESTS=$("${COMPOSE_CMD[@]}" exec -T cms psql "$PSQL_URL" -t -A \
     -c "SELECT id || ' - ' || name FROM contests ORDER BY id;" 2>/dev/null); then
   :
 elif CONTESTS=$("${COMPOSE_CMD[@]}" exec -T db psql \
