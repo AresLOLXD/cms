@@ -561,3 +561,20 @@ class DatabaseMixin(DatabaseObjectGeneratorMixin):
         team = self.get_team(**kwargs)
         self.session.add(team)
         return team
+
+    def add_admin(self, **kwargs):
+        """Create an admin and add it to the session."""
+        from cms.db import Admin
+        from cmscommon.crypto import build_password
+        args = {
+            "name": unique_unicode_id(),
+            "username": unique_unicode_id(),
+            "authentication": build_password("password", "plaintext"),
+            "enabled": True,
+            "permission_all": True,
+        }
+        args.update(kwargs)
+        admin = Admin(**args)
+        self.session.add(admin)
+        self.session.commit()
+        return admin
