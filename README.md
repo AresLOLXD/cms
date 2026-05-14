@@ -86,7 +86,7 @@ required — just follow the steps below.
 ### Step 1 — Get the code
 
 ```bash
-git clone https://github.com/cms-dev/cms.git
+git clone https://github.com/AresLOLXD/cms.git
 cd cms
 ```
 
@@ -104,8 +104,11 @@ in the values marked `CHANGE_ME`:
 | Variable | What it is |
 |----------|-----------|
 | `CMS_SECRET_KEY` | A random 16-byte key used to protect cookies. Generate one with the command shown in the file. |
-| `CMS_CONTEST_ID` | The numeric ID of the contest you want to run (you get this after importing a contest). |
 | `CMS_DB_URL` | The connection string to the PostgreSQL database. |
+| `POSTGRES_PASSWORD` | Password for the Docker-managed PostgreSQL database (required for Option A). Must match the password in `CMS_DB_URL`. |
+| `CMS_ADMIN_USER` | Username for the initial admin account created on first run. Can be removed after the first deploy. |
+| `CMS_ADMIN_PASSWORD` | Password for the initial admin account created on first run. Can be removed after the first deploy. |
+| `CMS_CONTEST_ID` | The numeric ID of the contest to serve. You get this from the Admin interface after importing a contest — set it then and restart. |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
@@ -217,6 +220,9 @@ Run them from the repo root — they read `.env` automatically.
 | `./logs.sh` | Follow live logs for all services. |
 | `./status.sh` | Show the running status of all containers. |
 | `./contest.sh` | Switch the active contest: lists available contests from the database, prompts for a new ID, and updates `CMS_CONTEST_ID` in `.env`. Optionally restarts services to apply the change. |
+| `./sync-upstream.sh` | Merge the latest changes from the upstream `cms-dev/cms` repository into this fork and push to `origin`. Requires an `upstream` remote: `git remote add upstream https://github.com/cms-dev/cms.git`. |
+
+For more detail on each script see [docs/docker-scripts.md](docs/docker-scripts.md).
 
 ---
 
