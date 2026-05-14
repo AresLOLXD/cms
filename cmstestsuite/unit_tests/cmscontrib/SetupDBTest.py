@@ -81,48 +81,34 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_partial_env_only_password_returns_false(self):
         """Returns False when only CMS_ADMIN_PASSWORD is set."""
-        saved_user = os.environ.pop("CMS_ADMIN_USER", None)
-        try:
-            with patch("sys.stdin.isatty", return_value=False), \
-                 patch.dict("os.environ", {"CMS_ADMIN_PASSWORD": "s3cr3t"}, clear=False):
-                result = ensure_first_admin()
-        finally:
-            if saved_user is not None:
-                os.environ["CMS_ADMIN_USER"] = saved_user
+        with patch("sys.stdin.isatty", return_value=False), \
+             patch.dict("os.environ", {"CMS_ADMIN_PASSWORD": "s3cr3t"}, clear=False):
+            os.environ.pop("CMS_ADMIN_USER", None)
+            result = ensure_first_admin()
         self.assertFalse(result)
         self.session.expire_all()
         self.assertEqual(self._admin_count(), 0)
 
     def test_no_tty_no_env_warns_and_returns_true(self):
         """Returns True (non-fatal) when no TTY and no env vars."""
-        saved_user = os.environ.pop("CMS_ADMIN_USER", None)
-        saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
-        try:
-            with patch("sys.stdin.isatty", return_value=False):
-                result = ensure_first_admin()
-        finally:
-            if saved_user is not None:
-                os.environ["CMS_ADMIN_USER"] = saved_user
-            if saved_pass is not None:
-                os.environ["CMS_ADMIN_PASSWORD"] = saved_pass
+        with patch("sys.stdin.isatty", return_value=False), \
+             patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CMS_ADMIN_USER", None)
+            os.environ.pop("CMS_ADMIN_PASSWORD", None)
+            result = ensure_first_admin()
         self.assertTrue(result)
         self.session.expire_all()
         self.assertEqual(self._admin_count(), 0)
 
     def test_interactive_creates_admin(self):
         """Creates admin from interactive TTY prompt."""
-        saved_user = os.environ.pop("CMS_ADMIN_USER", None)
-        saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
-        try:
-            with patch("sys.stdin.isatty", return_value=True), \
-                 patch("builtins.input", return_value="interadmin"), \
-                 patch("getpass.getpass", side_effect=["mypassword", "mypassword"]):
-                result = ensure_first_admin()
-        finally:
-            if saved_user is not None:
-                os.environ["CMS_ADMIN_USER"] = saved_user
-            if saved_pass is not None:
-                os.environ["CMS_ADMIN_PASSWORD"] = saved_pass
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch.dict("os.environ", {}, clear=False), \
+             patch("builtins.input", return_value="interadmin"), \
+             patch("getpass.getpass", side_effect=["mypassword", "mypassword"]):
+            os.environ.pop("CMS_ADMIN_USER", None)
+            os.environ.pop("CMS_ADMIN_PASSWORD", None)
+            result = ensure_first_admin()
         self.assertTrue(result)
         self.session.expire_all()
         a = self._get_admin("interadmin")
@@ -131,19 +117,14 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_interactive_mismatch_3_times_returns_false(self):
         """Returns False after 3 password confirmation mismatches."""
-        saved_user = os.environ.pop("CMS_ADMIN_USER", None)
-        saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
-        try:
-            with patch("sys.stdin.isatty", return_value=True), \
-                 patch("builtins.input", return_value="interadmin"), \
-                 patch("getpass.getpass",
-                       side_effect=["pw1", "bad", "pw2", "bad", "pw3", "bad"]):
-                result = ensure_first_admin()
-        finally:
-            if saved_user is not None:
-                os.environ["CMS_ADMIN_USER"] = saved_user
-            if saved_pass is not None:
-                os.environ["CMS_ADMIN_PASSWORD"] = saved_pass
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch.dict("os.environ", {}, clear=False), \
+             patch("builtins.input", return_value="interadmin"), \
+             patch("getpass.getpass",
+                   side_effect=["pw1", "bad", "pw2", "bad", "pw3", "bad"]):
+            os.environ.pop("CMS_ADMIN_USER", None)
+            os.environ.pop("CMS_ADMIN_PASSWORD", None)
+            result = ensure_first_admin()
         self.assertFalse(result)
         self.session.expire_all()
         self.assertEqual(self._admin_count(), 0)

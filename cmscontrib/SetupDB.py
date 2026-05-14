@@ -22,6 +22,7 @@ import getpass
 import logging
 import os
 import sys
+from datetime import datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 
@@ -115,9 +116,16 @@ def offer_sample_contest() -> bool:
     if answer.lower() != "y":
         return True
 
+    now = datetime.utcnow()
     with SessionGen() as session:
         try:
-            group = Group(name="Default")
+            group = Group(
+                name="Default",
+                start=now,
+                stop=now + timedelta(hours=24),
+                analysis_start=now + timedelta(hours=24),
+                analysis_stop=now + timedelta(hours=24),
+            )
             contest = Contest(
                 name="sample",
                 description="Sample Contest",
