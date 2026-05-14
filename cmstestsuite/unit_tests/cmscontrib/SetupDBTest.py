@@ -171,7 +171,8 @@ class TestOfferSampleContest(DatabaseMixin, unittest.TestCase):
         """Returns True immediately when a contest already exists."""
         from cmscontrib.SetupDB import offer_sample_contest
         self.add_contest()
-        with patch("sys.stdin.isatty", return_value=True):
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", side_effect=AssertionError("should not prompt")):
             result = offer_sample_contest()
         self.assertTrue(result)
         self.session.expire_all()
