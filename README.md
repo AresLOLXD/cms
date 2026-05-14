@@ -204,6 +204,22 @@ read the file because it lives in the repo root while the compose file is in
 
 ---
 
+### Helper scripts
+
+The repo root contains convenience wrappers around the `docker compose` commands.
+Run them from the repo root — they read `.env` automatically.
+
+| Script | What it does |
+|--------|-------------|
+| `./up.sh` | Start services. Asks whether to use a local Docker-managed database (`--profile localdb`) and whether to rebuild the image. |
+| `./down.sh` | Stop and remove all containers. |
+| `./restart.sh` | `down` followed by `up` (prompts again for local DB / rebuild). |
+| `./logs.sh` | Follow live logs for all services. |
+| `./status.sh` | Show the running status of all containers. |
+| `./contest.sh` | Switch the active contest: lists available contests from the database, prompts for a new ID, and updates `CMS_CONTEST_ID` in `.env`. Optionally restarts services to apply the change. |
+
+---
+
 Testimonials
 ------------
 
