@@ -39,11 +39,11 @@ same regardless of the path used to reach it.
 from datetime import timedelta
 
 
-from cms.db import engine, metadata, Announcement, Contest, Dataset, Evaluation, \
-    Executable, File, Group, Manager, Message, Participation, Question, Session, \
-    Statement, Submission, SubmissionResult, Task, Team, Testcase, User, \
-    UserTest, UserTestResult, drop_db, init_db, Token, UserTestFile, \
-    UserTestManager
+from cms.db import engine, metadata, Admin, Announcement, Contest, Dataset, \
+    Evaluation, Executable, File, Group, Manager, Message, Participation, \
+    Question, Session, Statement, Submission, SubmissionResult, Task, Team, \
+    Testcase, User, UserTest, UserTestResult, drop_db, init_db, Token, \
+    UserTestFile, UserTestManager
 from cms.db.filecacher import DBBackend
 from cmstestsuite.unit_tests.testidgenerator import unique_long_id, \
     unique_unicode_id, unique_digest
@@ -564,7 +564,6 @@ class DatabaseMixin(DatabaseObjectGeneratorMixin):
 
     def add_admin(self, **kwargs):
         """Create an admin and add it to the session."""
-        from cms.db import Admin
         from cmscommon.crypto import build_password
         args = {
             "name": unique_unicode_id(),
@@ -576,5 +575,6 @@ class DatabaseMixin(DatabaseObjectGeneratorMixin):
         args.update(kwargs)
         admin = Admin(**args)
         self.session.add(admin)
+        # Commit so ensure_first_admin's internal SessionGen can see the seeded admin.
         self.session.commit()
         return admin
