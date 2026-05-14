@@ -120,36 +120,27 @@ Everything else has a sensible default and can be left as-is on the first try.
 
 ### Step 3 — Start CMS
 
-**Option A — Let Docker run the database for you (recommended for a single
-server):**
-
 ```bash
-docker compose -f docker/docker-compose.prod.yml --env-file .env --profile localdb up -d
+./up.sh
 ```
 
-This starts PostgreSQL, initializes the database, and then starts all CMS
-services automatically.
+The script asks two questions:
+- **Use local database (Docker)?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly.
+- **Rebuild image?** — answer `n` on the first run (or when nothing has changed).
 
-**Option B — Use an existing PostgreSQL server:**
-
-Set `CMS_DB_URL` in your `.env` to point to your server, then run:
-
-```bash
-docker compose -f docker/docker-compose.prod.yml --env-file .env up -d
-```
-
-### Step 4 — Import a contest and get its ID
+### Step 4 — Import a contest and set it as active
 
 Open the Admin interface in your browser at `http://your-server:8889`.
 Use `cmscontrib` tools (e.g. `cmsImportContest`) to import your contest.
-The contest ID appears in the Admin interface — update `CMS_CONTEST_ID` in
-your `.env` with that value.
 
-To apply the change, restart CMS:
+Then run:
 
 ```bash
-docker compose -f docker/docker-compose.prod.yml --env-file .env restart cms
+./contest.sh
 ```
+
+This lists all contests in the database, prompts you to pick one, updates
+`CMS_CONTEST_ID` in `.env`, and optionally restarts services to apply the change.
 
 ### Ports
 
@@ -166,12 +157,12 @@ By default the following ports are exposed. You can change all of them in
 
 **View live logs:**
 ```bash
-docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f cms
+./logs.sh
 ```
 
 **Stop everything:**
 ```bash
-docker compose -f docker/docker-compose.prod.yml --env-file .env down
+./down.sh
 ```
 
 **Stop and delete all data (including the database — be careful):**
@@ -194,7 +185,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env run --rm db-ini
 ### Troubleshooting
 
 **The container exits immediately:**
-Check the logs with `docker compose ... logs cms`. The most common causes are:
+Check the logs with `./logs.sh`. The most common causes are:
 - `CMS_SECRET_KEY` is still set to the example value — generate a real one.
 - `CMS_DB_URL` is wrong or the database is unreachable.
 - cgroups are not available on your machine — check that you are on a modern
