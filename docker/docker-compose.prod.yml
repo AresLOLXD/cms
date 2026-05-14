@@ -51,7 +51,7 @@ services:
       db:
         condition: service_healthy
         required: false
-    command: ["cmsInitDB"]
+    command: ["cmsSetupDB"]
     restart: "no"
 
   # ── CMS (all services managed by supervisord) ─────────────────────────────
