@@ -141,7 +141,7 @@ def setup_db() -> bool:
     return: True on success, False if a required step failed.
 
     """
-    init_db()
+    init_db()  # raises on failure; return value is always True
     if not ensure_first_admin():
         return False
     offer_sample_contest()
