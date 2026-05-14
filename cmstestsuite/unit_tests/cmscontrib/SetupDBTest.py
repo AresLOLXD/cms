@@ -18,6 +18,7 @@
 
 """Tests for the SetupDB script."""
 
+import os
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Admin
 from cmscommon.crypto import validate_password
+from cmscontrib.SetupDB import ensure_first_admin
 
 
 class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
@@ -46,7 +48,6 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
     def test_skips_if_admin_exists(self):
         """Returns True immediately when an admin already exists."""
         self.add_admin(username="existing")
-        from cmscontrib.SetupDB import ensure_first_admin
         result = ensure_first_admin()
         self.assertTrue(result)
         self.session.expire_all()
@@ -54,7 +55,6 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_creates_admin_from_env(self):
         """Creates admin from CMS_ADMIN_USER / CMS_ADMIN_PASSWORD env vars."""
-        from cmscontrib.SetupDB import ensure_first_admin
         env = {"CMS_ADMIN_USER": "sysadmin", "CMS_ADMIN_PASSWORD": "s3cr3t"}
         with patch("sys.stdin.isatty", return_value=False), \
              patch.dict("os.environ", env, clear=False):
@@ -67,23 +67,20 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_partial_env_only_user_returns_false(self):
         """Returns False when only CMS_ADMIN_USER is set."""
-        from cmscontrib.SetupDB import ensure_first_admin
-        env = {"CMS_ADMIN_USER": "sysadmin"}
-        with patch("sys.stdin.isatty", return_value=False), \
-             patch.dict("os.environ", env, clear=False), \
-             patch.dict("os.environ", {"CMS_ADMIN_PASSWORD": ""}, clear=False):
-            # ensure CMS_ADMIN_PASSWORD is absent
-            import os
-            os.environ.pop("CMS_ADMIN_PASSWORD", None)
-            result = ensure_first_admin()
+        saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
+        try:
+            with patch("sys.stdin.isatty", return_value=False), \
+                 patch.dict("os.environ", {"CMS_ADMIN_USER": "sysadmin"}, clear=False):
+                result = ensure_first_admin()
+        finally:
+            if saved_pass is not None:
+                os.environ["CMS_ADMIN_PASSWORD"] = saved_pass
         self.assertFalse(result)
         self.session.expire_all()
         self.assertEqual(self._admin_count(), 0)
 
     def test_partial_env_only_password_returns_false(self):
         """Returns False when only CMS_ADMIN_PASSWORD is set."""
-        from cmscontrib.SetupDB import ensure_first_admin
-        import os
         saved_user = os.environ.pop("CMS_ADMIN_USER", None)
         try:
             with patch("sys.stdin.isatty", return_value=False), \
@@ -98,8 +95,6 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_no_tty_no_env_warns_and_returns_true(self):
         """Returns True (non-fatal) when no TTY and no env vars."""
-        from cmscontrib.SetupDB import ensure_first_admin
-        import os
         saved_user = os.environ.pop("CMS_ADMIN_USER", None)
         saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
         try:
@@ -116,8 +111,6 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_interactive_creates_admin(self):
         """Creates admin from interactive TTY prompt."""
-        from cmscontrib.SetupDB import ensure_first_admin
-        import os
         saved_user = os.environ.pop("CMS_ADMIN_USER", None)
         saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
         try:
@@ -138,8 +131,6 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
 
     def test_interactive_mismatch_3_times_returns_false(self):
         """Returns False after 3 password confirmation mismatches."""
-        from cmscontrib.SetupDB import ensure_first_admin
-        import os
         saved_user = os.environ.pop("CMS_ADMIN_USER", None)
         saved_pass = os.environ.pop("CMS_ADMIN_PASSWORD", None)
         try:

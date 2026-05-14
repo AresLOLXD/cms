@@ -23,6 +23,8 @@ import logging
 import os
 import sys
 
+from sqlalchemy.exc import IntegrityError
+
 from cms.db import Admin, SessionGen
 from cmscommon.crypto import hash_password
 
@@ -72,13 +74,21 @@ def ensure_first_admin() -> bool:
             )
             return True
 
+        if not username:
+            logger.error("Admin username cannot be empty.")
+            return False
+
         admin = Admin(
             username=username,
             authentication=hash_password(password),
             name=username,
             permission_all=True,
         )
-        session.add(admin)
-        session.commit()
+        try:
+            session.add(admin)
+            session.commit()
+        except IntegrityError:
+            logger.error("An admin with username '%s' already exists.", username)
+            return False
         logger.info("Admin '%s' created.", username)
         return True
