@@ -117,6 +117,7 @@ setup(
         "scripts/cmsProxyService",
         "scripts/cmsRankingWebServer",
         "scripts/cmsInitDB",
+        "scripts/cmsSetupDB",
         "scripts/cmsDropDB",
     ],
     entry_points={

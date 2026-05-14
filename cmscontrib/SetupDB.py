@@ -25,7 +25,7 @@ import sys
 
 from sqlalchemy.exc import IntegrityError
 
-from cms.db import Admin, Contest, Group, SessionGen
+from cms.db import Admin, Contest, Group, SessionGen, init_db
 from cmscommon.crypto import hash_password
 
 logger = logging.getLogger(__name__)
@@ -132,4 +132,17 @@ def offer_sample_contest() -> bool:
             )
             return True
     logger.info("Sample contest 'sample' created.")
+    return True
+
+
+def setup_db() -> bool:
+    """Initialize DB schema, create first admin, offer sample contest.
+
+    return: True on success, False if a required step failed.
+
+    """
+    init_db()
+    if not ensure_first_admin():
+        return False
+    offer_sample_contest()
     return True
