@@ -38,7 +38,7 @@ services:
       start_period: 10s
 
   # ── Database initialization (run once, then exits) ────────────────────────
-  # This service initializes the CMS database schema. It runs cmsInitDB and
+  # This service initializes the CMS database schema. It runs cmsSetupDB and
   # exits. The main cms service waits for this to complete before starting.
   # Re-running it on an existing database is safe (uses CREATE TABLE IF NOT EXISTS).
   db-init:
