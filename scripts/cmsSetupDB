@@ -39,9 +39,9 @@ def main():
     """Parse arguments and perform operation.
 
     """
+    test_db_connection()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
-    test_db_connection()
     success = setup_db()
     return 0 if success else 1
 
