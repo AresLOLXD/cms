@@ -9,13 +9,14 @@ _env_var() {
   local val="${!name:-}"
   if [[ -z "$val" && -f "$REPO_ROOT/.env" ]]; then
     val=$(grep -m1 -E "^${name}=" "$REPO_ROOT/.env" | cut -d= -f2-)
+    val="${val#\"}" ; val="${val%\"}"   # strip surrounding double-quotes if present
   fi
   echo "${val:-$default}"
 }
 
 PROJECT_NAME="$(_env_var CMS_PROJECT_NAME cms-prod)"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.prod.yml"
-COMPOSE_CMD="docker compose -f $COMPOSE_FILE --env-file $REPO_ROOT/.env -p $PROJECT_NAME"
+COMPOSE_CMD=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
 
 # ask_yes_no "Question text?" "y|n"
 # Prints an interactive prompt. Returns 0 for yes, 1 for no.

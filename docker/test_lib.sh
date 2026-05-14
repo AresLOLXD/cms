@@ -2,7 +2,7 @@
 # Automated smoke tests for docker/_lib.sh
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PASS=0
 FAIL=0
 
@@ -63,11 +63,11 @@ fi
 
 # ── COMPOSE_CMD ───────────────────────────────────────────────────────────────
 
-result=$(bash -c "source '$REPO_ROOT/docker/_lib.sh'; echo \$COMPOSE_CMD")
-if [[ "$result" == *"docker compose"* && "$result" == *"docker-compose.prod.yml"* ]]; then
-  check "COMPOSE_CMD contains 'docker compose' and compose file path" "ok"
+result=$(bash -c "source '$REPO_ROOT/docker/_lib.sh'; echo \"\${COMPOSE_CMD[*]}\"")
+if [[ "$result" == *"docker compose"* && "$result" == *"docker-compose.prod.yml"* && "$result" == *"--env-file"* && "$result" == *"-p"* ]]; then
+  check "COMPOSE_CMD contains docker compose, compose file, --env-file, and -p" "ok"
 else
-  check "COMPOSE_CMD contains 'docker compose' and compose file path" "got '$result'"
+  check "COMPOSE_CMD contains docker compose, compose file, --env-file, and -p" "got '$result'"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
