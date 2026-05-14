@@ -10,6 +10,12 @@ Homepage: <http://cms-dev.github.io/>
 
 [🌍 Help translate CMS in your language using Weblate!](https://hosted.weblate.org/engage/cms/)
 
+> **This is a fork of [cms-dev/cms](https://github.com/cms-dev/cms) maintained for the
+> [Olimpiada Mexicana de Informática (OMI)](https://www.olimpiadadeinformatica.org.mx/).
+> Its main addition is a Docker-based deployment workflow that lets you go from
+> a fresh machine to a running contest in minutes — no manual dependency
+> installation required. See the [Deploy with Docker](#deploy-with-docker) section below.**
+
 Introduction
 ------------
 
