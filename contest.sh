@@ -20,15 +20,21 @@ echo ""
 
 # Try to list available contests from the running db container
 ADMIN_PORT="$(_env_var CMS_AWS_HTTP_PORT 8889)"
-DB_USER="$(_env_var POSTGRES_USER cms)"
-DB_NAME="$(_env_var POSTGRES_DB cmsdb)"
+DB_URL="$(_env_var CMS_DB_URL "")"
+# psql accepts postgresql:// but not the SQLAlchemy +psycopg2 driver suffix
+PSQL_URL="${DB_URL/postgresql+psycopg2/postgresql}"
 
 echo "Fetching contests from database..."
-CONTESTS=$(
-  "${COMPOSE_CMD[@]}" exec -T db psql -U "$DB_USER" -d "$DB_NAME" \
-    -c "SELECT id, name FROM contests ORDER BY id;" \
-    2>/dev/null
-) || CONTESTS=""
+if CONTESTS=$(psql "$PSQL_URL" -t -A \
+    -c "SELECT id || ' - ' || name FROM contests ORDER BY id;" 2>/dev/null); then
+  :
+elif CONTESTS=$("${COMPOSE_CMD[@]}" exec -T db psql \
+    -U "$(_env_var POSTGRES_USER cms)" -d "$(_env_var POSTGRES_DB cmsdb)" \
+    -t -A -c "SELECT id || ' - ' || name FROM contests ORDER BY id;" 2>/dev/null); then
+  :
+else
+  CONTESTS=""
+fi
 
 if [[ -z "$CONTESTS" || "$CONTESTS" == *"(0 rows)"* ]]; then
   echo "No contests found in the database."
