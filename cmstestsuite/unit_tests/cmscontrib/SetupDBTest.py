@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
-from cms.db import Admin
+from cms.db import Admin, Contest
 from cmscommon.crypto import validate_password
 from cmscontrib.SetupDB import ensure_first_admin
 
@@ -147,6 +147,58 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
         self.assertFalse(result)
         self.session.expire_all()
         self.assertEqual(self._admin_count(), 0)
+
+
+class TestOfferSampleContest(DatabaseMixin, unittest.TestCase):
+
+    def tearDown(self):
+        self.delete_data()
+        super().tearDown()
+
+    def _contest_count(self):
+        return self.session.query(Contest).count()
+
+    def test_skips_when_no_tty(self):
+        """Returns True immediately when there is no TTY (Docker/CI)."""
+        from cmscontrib.SetupDB import offer_sample_contest
+        with patch("sys.stdin.isatty", return_value=False):
+            result = offer_sample_contest()
+        self.assertTrue(result)
+        self.session.expire_all()
+        self.assertEqual(self._contest_count(), 0)
+
+    def test_skips_if_contest_exists(self):
+        """Returns True immediately when a contest already exists."""
+        from cmscontrib.SetupDB import offer_sample_contest
+        self.add_contest()
+        with patch("sys.stdin.isatty", return_value=True):
+            result = offer_sample_contest()
+        self.assertTrue(result)
+        self.session.expire_all()
+        self.assertEqual(self._contest_count(), 1)
+
+    def test_creates_sample_contest_when_confirmed(self):
+        """Creates a sample contest when user answers 'y'."""
+        from cmscontrib.SetupDB import offer_sample_contest
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="y"):
+            result = offer_sample_contest()
+        self.assertTrue(result)
+        self.session.expire_all()
+        self.assertEqual(self._contest_count(), 1)
+        contest = self.session.query(Contest).one()
+        self.assertEqual(contest.name, "sample")
+        self.assertEqual(contest.description, "Sample Contest")
+
+    def test_skips_when_declined(self):
+        """Does not create a contest when user declines."""
+        from cmscontrib.SetupDB import offer_sample_contest
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", return_value="N"):
+            result = offer_sample_contest()
+        self.assertTrue(result)
+        self.session.expire_all()
+        self.assertEqual(self._contest_count(), 0)
 
 
 if __name__ == "__main__":
