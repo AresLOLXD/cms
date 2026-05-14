@@ -111,6 +111,30 @@ A `docs/docker-scripts.md` user-facing guide covering:
 - All `.env` variables with examples
 - Troubleshooting (DB not reachable, no contests found)
 
+## Implementation Agents
+
+| Task | Agent | Reason |
+|---|---|---|
+| `docker/_lib.sh` | `voltagent-dev-exp:cli-developer` | Shell scripting, CLI interface design |
+| `up.sh`, `down.sh`, `status.sh`, `logs.sh`, `restart.sh` | `voltagent-dev-exp:cli-developer` | Same profile; parallelizable once `_lib.sh` exists |
+| `contest.sh` | `voltagent-dev-exp:cli-developer` | CLI + DB query logic via `docker exec` |
+| Update `.env.example` | `claude` (main agent) | Simple file edit, no specialist needed |
+| `docs/docker-scripts.md` | `voltagent-dev-exp:documentation-engineer` | User-facing technical documentation |
+
+**Task dependency order:**
+
+```
+1. docker/_lib.sh         ← must go first (all scripts depend on it)
+         ↓
+2. up.sh / down.sh /      ← parallel, all depend on _lib.sh
+   status.sh / logs.sh /
+   restart.sh / contest.sh
+         ↓
+3. .env.example update    ← simple edit, after scripts are stable
+         ↓
+4. docs/docker-scripts.md ← last, documents the finished scripts
+```
+
 ## Out of Scope
 
 - Dev or test compose files (existing `cms-dev.sh`, `cms-test.sh` remain unchanged).
