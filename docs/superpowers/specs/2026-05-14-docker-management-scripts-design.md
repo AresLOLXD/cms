@@ -111,6 +111,13 @@ A `docs/docker-scripts.md` user-facing guide covering:
 - All `.env` variables with examples
 - Troubleshooting (DB not reachable, no contests found)
 
+**Audience:** users with basic Linux knowledge (cd, ls, running scripts) but no Docker experience.  
+This means:
+- No Docker jargon without a one-line plain-language explanation (e.g., "image — the packaged application, like a zip file").
+- Explain what each script *does* in plain terms before showing the command.
+- Troubleshooting section uses symptom-first language ("If the page doesn't load…") not error-code-first.
+- No assumptions about knowing `docker compose`, containers, volumes, or profiles.
+
 ## Implementation Agents
 
 | Task | Agent | Reason |
