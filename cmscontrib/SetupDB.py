@@ -25,7 +25,8 @@ import sys
 
 from sqlalchemy.exc import IntegrityError
 
-from cms.db import Admin, SessionGen
+from cms.db import Admin, Contest, SessionGen
+from cms.db.user import Group
 from cmscommon.crypto import hash_password
 
 logger = logging.getLogger(__name__)
@@ -92,3 +93,37 @@ def ensure_first_admin() -> bool:
             return False
         logger.info("Admin '%s' created.", username)
         return True
+
+
+def offer_sample_contest() -> bool:
+    """Offer to create a minimal sample contest when running interactively.
+
+    Skips silently when there is no TTY or a contest already exists.
+
+    return: Always True (this step is never fatal).
+
+    """
+    if not sys.stdin.isatty():
+        return True
+
+    with SessionGen() as session:
+        if session.query(Contest).count() > 0:
+            return True
+
+        answer = input(
+            "No contests found. Create a sample contest? [y/N]: "
+        ).strip()
+        if answer.lower() != "y":
+            return True
+
+        group = Group(name="Default")
+        contest = Contest(
+            name="sample",
+            description="Sample Contest",
+            groups=[group],
+            main_group=group,
+        )
+        session.add(contest)
+        session.commit()
+        logger.info("Sample contest 'sample' created.")
+    return True
