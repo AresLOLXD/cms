@@ -44,6 +44,8 @@ services:
   db-init:
     build:
       context: ..
+      args:
+        CMS_LOADER_VERSION: ${CMS_LOADER_VERSION:-main}
     env_file:
       - path: ../.env
         required: false

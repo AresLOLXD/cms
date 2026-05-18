@@ -43,12 +43,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     export DEBIAN_FRONTEND=noninteractive
     rm -f /etc/apt/apt.conf.d/docker-clean
     apt-get update
-    apt-get install -y build-essential curl ca-certificates git
+    apt-get install -y curl ca-certificates git
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y nodejs
+    npm install -g pnpm
 EOF
-
-RUN npm install -g pnpm
 
 RUN git clone --branch "${CMS_LOADER_VERSION}" --depth 1 \
         https://github.com/AresLOLXD/CMS-Loader.git /build && \
