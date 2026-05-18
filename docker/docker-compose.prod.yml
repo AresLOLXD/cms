@@ -58,6 +58,8 @@ services:
   cms:
     build:
       context: ..
+      args:
+        CMS_LOADER_VERSION: ${CMS_LOADER_VERSION:-main}
     env_file:
       - path: ../.env
         required: false
@@ -76,6 +78,7 @@ services:
       - "${CMS_CWS_HTTP_PORT:-8888}:${CMS_CWS_HTTP_PORT:-8888}"
       - "${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
       - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
+      - "${CMS_LOADER_PORT:-9995}:${CMS_LOADER_PORT:-9995}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sfL http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]
       interval: 15s
