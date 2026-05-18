@@ -221,6 +221,30 @@ def generate_supervisord_conf() -> str:
             program("cmstelegrambot", f"cmsTelegramBot 0 -c {contest_id}", 65)
         )
 
+    loader_secret = os.environ.get("CMS_LOADER_SESSION_SECRET", "")
+    loader_user   = os.environ.get("CMS_LOADER_ADMIN_USER", "")
+    loader_pass   = os.environ.get("CMS_LOADER_ADMIN_PASSWORD", "")
+    loader_port   = _get_int("CMS_LOADER_PORT", 9995)
+
+    if loader_secret and loader_user and loader_pass:
+        env_str = (
+            f'SESSION_SECRET="%(ENV_CMS_LOADER_SESSION_SECRET)s",'
+            f'ADMIN_USER="%(ENV_CMS_LOADER_ADMIN_USER)s",'
+            f'ADMIN_PASSWORD="%(ENV_CMS_LOADER_ADMIN_PASSWORD)s",'
+            f'PORT="{loader_port}",'
+            f'NODE_ENV="production"'
+        )
+        blocks.append(
+            f"[program:cmsloader]\n"
+            f"priority=70\n"
+            f"directory=/home/cmsuser/cms-loader\n"
+            f"command=node dist/index.js\n"
+            f"environment={env_str}\n"
+            "autostart=true\nautorestart=true\n"
+            "stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n"
+            "stderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n"
+        )
+
     return "\n".join(blocks)
 
 
