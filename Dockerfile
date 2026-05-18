@@ -32,7 +32,32 @@ RUN mkdir -p /build && \
     ldd bin/karel 2>&1 | grep -q "not a dynamic executable" || \
         { echo "ERROR: karel binary is not statically linked"; exit 1; }
 
-# ─── Stage 2: CMS runtime ─────────────────────────────────────────────────────
+# ─── Stage 2: Build CMS-Loader (Node.js/TypeScript) ──────────────────────────
+FROM ${BASE_IMAGE} AS loader-builder
+
+ARG CMS_LOADER_VERSION=main
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
+#!/bin/bash -ex
+    export DEBIAN_FRONTEND=noninteractive
+    rm -f /etc/apt/apt.conf.d/docker-clean
+    apt-get update
+    apt-get install -y build-essential curl ca-certificates git
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+EOF
+
+RUN npm install -g pnpm
+
+RUN git clone --branch "${CMS_LOADER_VERSION}" --depth 1 \
+        https://github.com/AresLOLXD/CMS-Loader.git /build && \
+    cd /build && \
+    pnpm install && \
+    pnpm run build && \
+    pnpm prune --prod
+
+# ─── Stage 3: CMS runtime ─────────────────────────────────────────────────────
 FROM ${BASE_IMAGE}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -101,6 +126,16 @@ EOF
 COPY --from=rekarel-builder /usr/local/bin/rekarel /usr/local/bin/rekarel
 COPY --from=rekarel-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=rekarel-builder /build/bin/karel /usr/local/bin/karel
+
+# Copy CMS-Loader build artifacts from the loader-builder stage.
+# Only dist/ and production node_modules/ are copied — TypeScript compiler
+# and pnpm are discarded.
+COPY --from=loader-builder --chown=cmsuser:cmsuser \
+    /build/dist         /home/cmsuser/cms-loader/dist
+COPY --from=loader-builder --chown=cmsuser:cmsuser \
+    /build/node_modules /home/cmsuser/cms-loader/node_modules
+COPY --from=loader-builder --chown=cmsuser:cmsuser \
+    /build/package.json /home/cmsuser/cms-loader/package.json
 
 USER cmsuser
 ENV LANG=C.UTF-8
