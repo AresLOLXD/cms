@@ -222,9 +222,9 @@ def generate_supervisord_conf() -> str:
         )
 
     loader_secret = os.environ.get("CMS_LOADER_SESSION_SECRET", "")
-    loader_user   = os.environ.get("CMS_LOADER_ADMIN_USER", "")
-    loader_pass   = os.environ.get("CMS_LOADER_ADMIN_PASSWORD", "")
-    loader_port   = _get_int("CMS_LOADER_PORT", 9995)
+    loader_user = os.environ.get("CMS_LOADER_ADMIN_USER", "")
+    loader_pass = os.environ.get("CMS_LOADER_ADMIN_PASSWORD", "")
+    loader_port = _get_int("CMS_LOADER_PORT", 9995)
 
     if loader_secret and loader_user and loader_pass:
         env_str = (
