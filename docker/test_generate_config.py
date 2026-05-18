@@ -206,14 +206,26 @@ def test_supervisord_cmsloader_all_vars_set(monkeypatch):
     assert "ADMIN_PASSWORD=" in conf
     assert 'NODE_ENV="production"' in conf
     assert "directory=/home/cmsuser/cms-loader" in conf
+    assert 'PORT="9995"' in conf
 
 
 def test_supervisord_cmsloader_partial_vars_skipped(monkeypatch):
-    # Missing any one credential → CMS-Loader must not appear.
+    # Missing password → CMS-Loader must not appear.
     _set(monkeypatch, {
         "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
         "CMS_LOADER_ADMIN_USER": "admin",
         # CMS_LOADER_ADMIN_PASSWORD intentionally omitted
+    })
+    conf = gc.generate_supervisord_conf()
+    assert "cmsloader" not in conf
+
+
+def test_supervisord_cmsloader_partial_no_secret(monkeypatch):
+    # Missing session secret → CMS-Loader must not appear.
+    _set(monkeypatch, {
+        "CMS_LOADER_ADMIN_USER": "admin",
+        "CMS_LOADER_ADMIN_PASSWORD": "hunter2",
+        # CMS_LOADER_SESSION_SECRET intentionally omitted
     })
     conf = gc.generate_supervisord_conf()
     assert "cmsloader" not in conf
