@@ -181,3 +181,51 @@ def test_supervisord_evaluation_and_proxy_no_flag_when_all(monkeypatch):
     # services still present without flag
     assert "cmsEvaluationService 0" in conf
     assert "cmsProxyService 0" in conf
+
+
+def test_supervisord_no_cmsloader_by_default(monkeypatch):
+    # CMS-Loader must NOT appear when credentials are absent.
+    _set(monkeypatch)
+    conf = gc.generate_supervisord_conf()
+    assert "cmsloader" not in conf
+    assert "cms-loader" not in conf
+
+
+def test_supervisord_cmsloader_all_vars_set(monkeypatch):
+    # CMS-Loader appears when all three credentials are provided.
+    _set(monkeypatch, {
+        "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
+        "CMS_LOADER_ADMIN_USER": "admin",
+        "CMS_LOADER_ADMIN_PASSWORD": "hunter2",
+    })
+    conf = gc.generate_supervisord_conf()
+    assert "[program:cmsloader]" in conf
+    assert "node dist/index.js" in conf
+    assert "SESSION_SECRET=" in conf
+    assert "ADMIN_USER=" in conf
+    assert "ADMIN_PASSWORD=" in conf
+    assert 'NODE_ENV="production"' in conf
+    assert "directory=/home/cmsuser/cms-loader" in conf
+
+
+def test_supervisord_cmsloader_partial_vars_skipped(monkeypatch):
+    # Missing any one credential → CMS-Loader must not appear.
+    _set(monkeypatch, {
+        "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
+        "CMS_LOADER_ADMIN_USER": "admin",
+        # CMS_LOADER_ADMIN_PASSWORD intentionally omitted
+    })
+    conf = gc.generate_supervisord_conf()
+    assert "cmsloader" not in conf
+
+
+def test_supervisord_cmsloader_custom_port(monkeypatch):
+    # Custom port is reflected in the environment string.
+    _set(monkeypatch, {
+        "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
+        "CMS_LOADER_ADMIN_USER": "admin",
+        "CMS_LOADER_ADMIN_PASSWORD": "hunter2",
+        "CMS_LOADER_PORT": "9000",
+    })
+    conf = gc.generate_supervisord_conf()
+    assert 'PORT="9000"' in conf
