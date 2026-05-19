@@ -6,7 +6,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/docker/_lib.sh"
 
 RANKING_LIB="/home/cmsuser/cms/lib/ranking"
-SUPERVISORCTL=(supervisorctl -c /home/cmsuser/cms/etc/supervisord.conf)
 
 CLEAR_RESULTS=false
 CLEAR_USERS=false
