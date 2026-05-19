@@ -13,6 +13,7 @@ class TestMxStates(unittest.TestCase):
     def test_keys_are_three_uppercase_letters(self):
         for code in MX_STATES:
             self.assertEqual(len(code), 3)
+            self.assertTrue(code.isascii())
             self.assertTrue(code.isupper())
             self.assertTrue(code.isalpha())
 

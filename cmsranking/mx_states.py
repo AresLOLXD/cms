@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
+"""ISO 3166-2:MX state codes mapped to their full Spanish names."""
+
 MX_STATES: dict[str, str] = {
     "AGU": "Aguascalientes",
     "BCA": "Baja California",
     "BCS": "Baja California Sur",
     "CAM": "Campeche",
     "CHH": "Chihuahua",
-    "CHI": "Chiapas",
+    "CHP": "Chiapas",
     "CMX": "Ciudad de México",
     "COA": "Coahuila",
     "COL": "Colima",
