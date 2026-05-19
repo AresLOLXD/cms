@@ -16,7 +16,6 @@ import argparse
 import io
 import logging
 import os
-import time
 from importlib.resources import files
 from urllib.parse import quote
 
@@ -88,18 +87,9 @@ def _fetch_flag_png(wikimedia_filename: str, width: int) -> bytes:
     """Fetch a PNG thumbnail from Wikimedia Commons via Special:FilePath redirect."""
     encoded = quote(wikimedia_filename, safe="._-")
     url = _WIKIMEDIA_FILE_PATH.format(filename=encoded, width=width)
-    for attempt in range(5):
-        response = requests.get(url, timeout=30, headers={"User-Agent": "cms-flag-downloader/1.0"})
-        if response.status_code == 429:
-            wait = 10 * (2 ** attempt)
-            logger.warning("Rate limited; retrying %s in %ds (attempt %d/5)...",
-                           wikimedia_filename, wait, attempt + 1)
-            time.sleep(wait)
-            continue
-        response.raise_for_status()
-        return response.content
+    response = requests.get(url, timeout=30, headers={"User-Agent": "cms-flag-downloader/1.0"})
     response.raise_for_status()
-    return response.content  # unreachable, satisfies type checker
+    return response.content
 
 
 def download_flags(output_dir: str, states: list[str] | None = None) -> None:
