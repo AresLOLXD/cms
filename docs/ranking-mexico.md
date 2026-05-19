@@ -12,8 +12,8 @@ This fork ships two enhancements to the Ranking Web Server targeted at the OMI:
 On startup, `cmsRankingWebServer` calls `seed_flags_and_teams`, which:
 
 1. Copies the 32 bundled state flag PNG files into `lib_dir/flags/` (default:
-   `.venv/lib/ranking/flags/`), without overwriting files you have placed there
-   manually.
+   `.venv/lib/ranking/flags/`), overwriting any existing copies of those bundled
+   files.
 2. Scans `lib_dir/flags/` for image files (`.png`, `.jpg`, `.gif`, `.bmp`) and
    creates a **team** entry for each filename stem not yet registered.
 
@@ -85,5 +85,4 @@ pip install "cms[contrib]"
 ## Custom logo
 
 To replace the default CMS logo shown in the ranking server, see the
-[Custom logo](RankingWebServer.rst#custom-logo) section in
-`docs/RankingWebServer.rst`.
+"Custom logo" section in [docs/RankingWebServer.rst](RankingWebServer.rst).
