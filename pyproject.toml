@@ -63,6 +63,10 @@ devel = [
     # is incompatible with the old version of babel we need.
     # "Sphinx>=1.8,<1.9",
 ]
+contrib = [
+    # Only for cmscontrib scripts that process images
+    "Pillow>=10",
+]
 
 [build-system]
 requires = ["setuptools==82.0.0", "babel==2.12.1"]
