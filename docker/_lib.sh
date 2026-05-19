@@ -47,9 +47,12 @@ ask_yes_no() {
 _set_env_var() {
   local key="$1" value="$2"
   local env_file="$REPO_ROOT/.env"
-  local tmp_file="${env_file}.tmp"
+  local tmp_file
+  tmp_file=$(mktemp "${env_file}.XXXXXX")
+  local escaped_value
+  escaped_value=$(printf '%s' "$value" | sed 's/[|&\]/\\&/g')
   if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
-    sed "s|^${key}=.*|${key}=${value}|" "$env_file" > "$tmp_file"
+    sed "s|^${key}=.*|${key}=${escaped_value}|" "$env_file" > "$tmp_file"
   else
     { cat "$env_file" 2>/dev/null; echo "${key}=${value}"; } > "$tmp_file"
   fi
@@ -63,9 +66,11 @@ _do_up() {
     exit 1
   fi
 
+  local up_cmd=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
+
   if ask_yes_no "Use local PostgreSQL container?" "n"; then
     _set_env_var "CMS_USE_LOCALDB" "true"
-    COMPOSE_CMD+=(--profile localdb)
+    up_cmd+=(--profile localdb)
   else
     _set_env_var "CMS_USE_LOCALDB" "false"
   fi
@@ -75,5 +80,5 @@ _do_up() {
     up_args+=(--build)
   fi
 
-  "${COMPOSE_CMD[@]}" up -d --wait "${up_args[@]}"
+  "${up_cmd[@]}" up -d --wait "${up_args[@]}"
 }
