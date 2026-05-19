@@ -1,81 +1,64 @@
-Contest Management System
-=========================
-
-Homepage: <http://cms-dev.github.io/>
+Contest Management System — OMI Fork
+=====================================
 
 [![Build Status](https://github.com/cms-dev/cms/actions/workflows/main.yml/badge.svg)](https://github.com/cms-dev/cms/actions)
-[![Codecov](https://codecov.io/gh/cms-dev/cms/branch/main/graph/badge.svg)](https://codecov.io/gh/cms-dev/cms)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE.txt)
 [![Get support on Telegram](https://img.shields.io/badge/Questions%3F-Join%20the%20Telegram%20group!-%2326A5E4?style=flat&logo=telegram)](https://t.me/contestms)
-[![Translation status](https://hosted.weblate.org/widget/cms/svg-badge.svg)](https://hosted.weblate.org/engage/cms/)
 
-[🌍 Help translate CMS in your language using Weblate!](https://hosted.weblate.org/engage/cms/)
-
-> **This is a fork of [cms-dev/cms](https://github.com/cms-dev/cms) maintained for the
+> **Fork of [cms-dev/cms](https://github.com/cms-dev/cms) — maintained for the
 > [Olimpiada Mexicana de Informática (OMI)](https://www.olimpiadadeinformatica.org.mx/).
-> Its main addition is a Docker-based deployment workflow that lets you go from
-> a fresh machine to a running contest in minutes — no manual dependency
-> installation required. See the [Deploy with Docker](#deploy-with-docker) section below.**
+> Distributed under the same license as the original project (AGPL-3.0).**
 
-Introduction
-------------
+---
 
-CMS, or Contest Management System, is a distributed system for running
-and (to some extent) organizing a programming contest.
+## Quick Start
 
-CMS has been designed to be general and to handle many different types
-of contests, tasks, scorings, etc. Nonetheless, CMS has been
-explicitly build to be used in the 2012 International Olympiad in
-Informatics, held in September 2012 in Italy.
+No Docker experience required. Run these four commands on a Linux machine:
 
+```bash
+# 1. Get the code
+git clone https://github.com/AresLOLXD/cms.git && cd cms
 
-Download
---------
+# 2. Configure
+cp .env.example .env
+# Open .env in any editor and fill in the values marked CHANGE_ME
 
-**For end-users it's best to download the latest stable version of CMS,
-which can be found already packaged at <http://cms-dev.github.io/>.**
+# 3. Start
+./up.sh
 
-This git repository, which contains the development version in its
-main branch, is intended for developers and everyone interested in
-contributing or just curious to see how the code works and wanting to
-hack on it.
+# 4. Open the Admin interface
+#    http://your-server:8889  ← import your contest here
+#    http://your-server:8888  ← contestants log in here
+#    http://your-server:8890  ← public scoreboard
+```
 
+> Need more detail? See [Deploy with Docker](#deploy-with-docker) below.
 
-Support
--------
+---
 
-To learn how to install and use CMS, please read the **documentation**,
-available at <https://cms.readthedocs.org/>.
+## About this fork
 
-If you have questions or need help troubleshooting some problem, contact us in
-the **chat** on [Telegram](https://t.me/contestms), or write on the **support
-mailing list** <contestms-support@googlegroups.com>, where no registration is
-required (you can see the archives on [Google
-Groups](https://groups.google.com/forum/#!forum/contestms-support)).
+This fork was built for the OMI, but **anyone can use it**. It adds a
+Docker-based deployment workflow and several OMI-specific integrations on top
+of the upstream CMS project, so you can go from a fresh machine to a running
+contest without manually installing dependencies.
 
-To help with the troubleshooting, you can upload on some online pastebin the
-relevant **log files**, that you can find in `/var/local/log/cms/`.
+---
 
-If you encountered a bug, please file an
-[issue](https://github.com/cms-dev/cms/issues) on **GitHub** following the
-instructions in the issue template.
+## Features
 
-**Please don't file issues to ask for help**, we are happy to help on the
-mailing list or on Telegram, and it is more likely somebody will answer your
-query sooner.
+| Feature | Description | Doc |
+|---------|-------------|-----|
+| Docker deployment | Stand up the full system with `./up.sh` | [Deploy with Docker](#deploy-with-docker) |
+| Helper scripts | `up`, `down`, `logs`, `restart`, `contest`, `sync-upstream` | [docs/docker-scripts.md](docs/docker-scripts.md) |
+| CMS-Loader | Bulk-import users and participations via CSV from the browser | [docs/cms-loader.md](docs/cms-loader.md) |
+| Rekarel | Karel compiler and interpreter bundled in the Docker image | [docs/rekarel.md](docs/rekarel.md) |
+| Ranking: flags and teams | Real Mexican state flags + automatic team registration on startup | [docs/ranking-mexico.md](docs/ranking-mexico.md) |
+| Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
 
-You can subscribe to <contestms-announce@googlegroups.com> to receive
-**announcements** of new releases and other important news. Register on
-[Google Groups](https://groups.google.com/forum/#!forum/contestms-announce).
+---
 
-For **development** queries, you can write to
-<contestms-discuss@googlegroups.com> and as before subscribe or see the
-archives on
-[Google Groups](https://groups.google.com/forum/#!forum/contestms-discuss).
-
-
-
-Deploy with Docker
-------------------
+## Deploy with Docker
 
 This guide explains how to run CMS using Docker. No prior Docker experience is
 required — just follow the steps below.
@@ -204,7 +187,7 @@ read the file because it lives in the repo root while the compose file is in
 
 ---
 
-### Helper scripts
+## Helper scripts
 
 The repo root contains convenience wrappers around the `docker compose` commands.
 Run them from the repo root — they read `.env` automatically.
@@ -223,12 +206,15 @@ For more detail on each script see [docs/docker-scripts.md](docs/docker-scripts.
 
 ---
 
-Testimonials
-------------
+## Upstream project
 
-CMS has been used in several official and unofficial contests. Please
-find an updated list at <http://cms-dev.github.io/testimonials.html>.
+CMS was originally created by the cms-dev community and is used in IOI and
+many other programming contests worldwide. This fork does not modify the core
+evaluation engine, scoring system, or database schema.
 
-If you used CMS for a contest, selection, or a similar event, and want
-to publicize this information, we would be more than happy to hear
-from you and add it to that list.
+- **Upstream repository:** <https://github.com/cms-dev/cms>
+- **Upstream documentation:** <https://cms.readthedocs.org/>
+- **Support (upstream):** [Telegram](https://t.me/contestms) · <contestms-support@googlegroups.com>
+
+If you used CMS for a contest and want to appear on the testimonials list,
+see <http://cms-dev.github.io/testimonials.html>.
