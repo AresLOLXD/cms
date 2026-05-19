@@ -57,6 +57,20 @@ class TestResizeToCanvas(unittest.TestCase):
         out = Image.open(io.BytesIO(result))
         self.assertEqual(out.size, (160, 100))
 
+    def test_rgba_source_blends_alpha_onto_white(self):
+        # Semi-transparent red pixel on transparent background →
+        # result should be pinkish (blended with white), not pure red or pure white
+        img = Image.new("RGBA", (160, 100), (255, 0, 0, 128))  # 50% transparent red
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        result = _resize_to_canvas(buf.getvalue(), 160, 100)
+        out = Image.open(io.BytesIO(result)).convert("RGB")
+        r, g, b = out.getpixel((80, 50))
+        # Should be between pure white (255,255,255) and pure red (255,0,0)
+        self.assertGreater(r, 200)  # reddish
+        self.assertGreater(g, 100)  # blended with white
+        self.assertGreater(b, 100)  # blended with white
+
 
 if __name__ == "__main__":
     unittest.main()

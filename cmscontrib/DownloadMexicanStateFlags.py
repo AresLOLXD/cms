@@ -12,20 +12,9 @@ Usage:
     .venv/bin/python cmscontrib/DownloadMexicanStateFlags.py --output-dir /tmp/flags
 """
 
-import argparse
 import io
-import logging
-import os
-from importlib.resources import files
-from urllib.parse import quote
 
-import requests
 from PIL import Image
-
-logger = logging.getLogger(__name__)
-
-TARGET_WIDTH = 160
-TARGET_HEIGHT = 100
 
 
 def _resize_to_canvas(data: bytes, width: int, height: int) -> bytes:
