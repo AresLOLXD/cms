@@ -63,7 +63,11 @@ A participation links a user to a contest. The required columns are:
 | `contest_id` | Numeric ID shown in the Admin interface |
 | `team` | Team code (e.g. `JAL`). Must match an existing team. |
 
+Teams are managed in the Admin interface (`http://your-server:8889`). Find the team codes there before preparing your participation CSV.
+
 Use the **Import Participations** form in the UI to upload the CSV.
+
+On success, a confirmation message is shown in the UI. Users can then log in immediately via the Contest Web Server at `http://your-server:8888`.
 
 ## Version pinning
 
