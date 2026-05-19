@@ -1,7 +1,7 @@
 Contest Management System — OMI Fork
 =====================================
 
-[![Build Status](https://github.com/cms-dev/cms/actions/workflows/main.yml/badge.svg)](https://github.com/cms-dev/cms/actions)
+[![Build Status](https://github.com/AresLOLXD/cms/actions/workflows/main.yml/badge.svg)](https://github.com/AresLOLXD/cms/actions)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE.txt)
 [![Get support on Telegram](https://img.shields.io/badge/Questions%3F-Join%20the%20Telegram%20group!-%2326A5E4?style=flat&logo=telegram)](https://t.me/contestms)
 
