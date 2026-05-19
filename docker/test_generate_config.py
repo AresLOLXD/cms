@@ -200,7 +200,7 @@ def test_supervisord_cmsloader_all_vars_set(monkeypatch):
     })
     conf = gc.generate_supervisord_conf()
     assert "[program:cmsloader]" in conf
-    assert "node dist/index.js" in conf
+    assert "/home/cmsuser/cms-loader/node_modules/.bin/tsx src/index.ts" in conf
     assert "SESSION_SECRET=" in conf
     assert "ADMIN_USER=" in conf
     assert "ADMIN_PASSWORD=" in conf

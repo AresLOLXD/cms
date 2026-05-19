@@ -238,7 +238,7 @@ def generate_supervisord_conf() -> str:
             f"[program:cmsloader]\n"
             f"priority=70\n"
             f"directory=/home/cmsuser/cms-loader\n"
-            f"command=node dist/index.js\n"
+            f"command=/home/cmsuser/cms-loader/node_modules/.bin/tsx src/index.ts\n"
             f"environment={env_str}\n"
             "autostart=true\nautorestart=true\n"
             "stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n"
