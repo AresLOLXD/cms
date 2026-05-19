@@ -108,9 +108,9 @@ Supported formats: `.png`, `.jpg`, `.gif`, `.bmp`.
 
 ### Bundled default flags
 
-The 32 Mexican state flags are bundled with the package and copied to `lib_dir/flags/` every time the server starts. If you want to permanently replace one of the default state flags, place your image at `lib_dir/flags/<CODE>.png` **after** the server has started (or stop the server, replace the file, then start again — the startup copy runs before requests are served, so replace it after).
+The 32 Mexican state flags are bundled with the package and copied to `lib_dir/flags/` every time the server starts, overwriting whatever was there. This means package updates automatically refresh the default flags.
 
-> **Note:** The startup copy always overwrites bundled flag files. To permanently use a custom image for a Mexican state code, you would need to modify the bundled resources in the package itself.
+> **To permanently replace a bundled state flag**, modify the source image directly in `cmsranking/flags/<CODE>.png` inside the package installation (e.g., `.venv/lib/python3.x/site-packages/cmsranking/flags/`). That file is what gets copied on every startup.
 
 ### User face images
 
