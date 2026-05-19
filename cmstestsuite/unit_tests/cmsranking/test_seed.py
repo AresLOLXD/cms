@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import os
+import shutil
 import struct
 import tempfile
 import unittest
 import zlib
+from importlib.resources import files
 
 from cmsranking.seed import _copy_bundled_flags, _register_teams_from_flags
 from cmsranking.Store import Store
@@ -39,7 +41,6 @@ class TestRegisterTeamsFromFlags(unittest.TestCase):
         self.team_store = _make_team_store(self._tmp)
 
     def tearDown(self):
-        import shutil
         shutil.rmtree(self._tmp)
 
     def _add_image(self, filename):
@@ -95,14 +96,15 @@ class TestCopyBundledFlags(unittest.TestCase):
         os.makedirs(self.flags_dir)
 
     def tearDown(self):
-        import shutil
         shutil.rmtree(self._tmp)
 
     def test_copies_all_bundled_flags(self):
         _copy_bundled_flags(self.flags_dir)
-        files = os.listdir(self.flags_dir)
-        self.assertEqual(len(files), 32)
-        self.assertIn("JAL.png", files)
+        copied = sorted(os.listdir(self.flags_dir))
+        bundled = files("cmsranking") / "flags"
+        expected = sorted(r.name for r in bundled.iterdir() if r.is_file())
+        self.assertCountEqual(copied, expected)
+        self.assertIn("JAL.png", copied)
 
     def test_overwrites_existing_file(self):
         target = os.path.join(self.flags_dir, "JAL.png")
