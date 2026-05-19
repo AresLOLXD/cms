@@ -18,13 +18,21 @@ PROJECT_NAME="$(_env_var CMS_PROJECT_NAME cms-prod)"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.prod.yml"
 COMPOSE_CMD=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
 
+# Append --profile localdb if CMS_USE_LOCALDB=true is persisted in .env
+if [[ "$(_env_var CMS_USE_LOCALDB false)" == "true" ]]; then
+  COMPOSE_CMD+=(--profile localdb)
+fi
+
+# shellcheck disable=SC2034  # used by scripts that source this file
+SUPERVISORCTL=(supervisorctl -c /home/cmsuser/cms/etc/supervisord.conf)
+
 # ask_yes_no "Question text?" "y|n"
 # Prints an interactive prompt. Returns 0 for yes, 1 for no.
 ask_yes_no() {
   local question="$1" default="${2:-n}" prompt answer
   [[ "$default" == "y" ]] && prompt="[Y/n]" || prompt="[y/N]"
   while true; do
-    read -r -p "$question $prompt " answer
+    read -r -p "$question $prompt " answer || break
     answer="${answer:-$default}"
     case "${answer,,}" in
       y|yes) return 0 ;;
@@ -32,4 +40,40 @@ ask_yes_no() {
       *) echo "Please answer y or n." ;;
     esac
   done
+  [[ "${default,,}" == "y" ]] && return 0 || return 1
+}
+
+# _set_env_var KEY VALUE — atomically write or update KEY=VALUE in .env
+_set_env_var() {
+  local key="$1" value="$2"
+  local env_file="$REPO_ROOT/.env"
+  local tmp_file="${env_file}.tmp"
+  if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
+    sed "s|^${key}=.*|${key}=${value}|" "$env_file" > "$tmp_file"
+  else
+    { cat "$env_file" 2>/dev/null; echo "${key}=${value}"; } > "$tmp_file"
+  fi
+  mv "$tmp_file" "$env_file"
+}
+
+# _do_up — Docker preflight, localdb choice (persisted), optional rebuild, compose up --wait
+_do_up() {
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: Docker daemon is not running or not accessible." >&2
+    exit 1
+  fi
+
+  if ask_yes_no "Use local PostgreSQL container?" "n"; then
+    _set_env_var "CMS_USE_LOCALDB" "true"
+    COMPOSE_CMD+=(--profile localdb)
+  else
+    _set_env_var "CMS_USE_LOCALDB" "false"
+  fi
+
+  local up_args=()
+  if ask_yes_no "Rebuild image?" "n"; then
+    up_args+=(--build)
+  fi
+
+  "${COMPOSE_CMD[@]}" up -d --wait "${up_args[@]}"
 }
