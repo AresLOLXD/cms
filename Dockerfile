@@ -35,7 +35,7 @@ RUN mkdir -p /build && \
 # ─── Stage 2: Build CMS-Loader (Node.js/TypeScript) ──────────────────────────
 FROM ${BASE_IMAGE} AS loader-builder
 
-ARG CMS_LOADER_VERSION=main
+ARG CMS_LOADER_VERSION=v1.0.6
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
