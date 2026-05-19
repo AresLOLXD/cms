@@ -71,6 +71,7 @@ _do_up() {
   if ask_yes_no "Use local PostgreSQL container?" "n"; then
     _set_env_var "CMS_USE_LOCALDB" "true"
     up_cmd+=(--profile localdb)
+    COMPOSE_CMD+=(--profile localdb)
   else
     _set_env_var "CMS_USE_LOCALDB" "false"
   fi
@@ -80,5 +81,5 @@ _do_up() {
     up_args+=(--build)
   fi
 
-  "${up_cmd[@]}" up -d --wait "${up_args[@]}"
+  "${up_cmd[@]}" up -d --wait --wait-timeout 90 "${up_args[@]}"
 }
