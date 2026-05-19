@@ -57,7 +57,7 @@ There are also other ways to insert data into RWS: send custom HTTP requests or 
 Logo, flags and faces
 ---------------------
 
-RWS can also display a custom global logo, a flag for each team and a photo ("face") for each user. The only way to add these is to put them directly in the data directory of RWS:
+RWS can also display a custom global logo, a flag for each team and a photo ("face") for each user. The only way to add these is to put them directly in the data directory of RWS (the ``lib_dir`` parameter; see :ref:`rankingwebserver_default-lib-dir-location` for the default location):
 
 * the logo has to be saved right in the data directory, named "logo" with an appropriate extension (e.g. :file:`logo.png`), with a recommended resolution of 200x160;
 * the flag for a team has to be saved in the "flags" subdirectory, named as the team's name with an appropriate extension (e.g. :file:`ITA.png`);
@@ -201,4 +201,89 @@ The suggested setup (the one that we also used at the IOI 2012) is to make RWS l
 At the IOI 2012, we had only one server, running on a 2 GHz machine, and we were able to serve about 1500 clients simultaneously (and, probably, we were limited to this value by a misconfiguration of nginx). This is to say that you'll likely need only one public RWS server.
 
 If you're starting RWS on your server remotely, for example via SSH, make sure the ``screen`` command is your friend :-).
+
+Managing flags, teams, and user faces
+-------------------------------------
+
+Flags and auto-registered teams
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When :program:`cmsRankingWebServer` starts, it:
+
+1. Copies the 32 bundled Mexican state flag images into ``lib_dir/flags/``,
+   overwriting any previous copies of those bundled files.
+2. Scans ``lib_dir/flags/`` for image files (``.png``, ``.jpg``, ``.gif``,
+   ``.bmp``) and creates a **team** entry for each filename stem not yet
+   registered. If multiple files share the same stem (e.g. ``JAL.png`` and
+   ``JAL.jpg``), only one team is created.
+
+The team name is derived from the filename stem: if it matches a known
+Mexican state code (e.g. ``JAL``), the full state name is used
+(``Jalisco``). Otherwise the stem itself becomes the team name.
+
+Teams are only *created*, never automatically updated or deleted. Once a
+team exists it can be renamed or modified through the admin interface
+without losing changes on the next restart.
+
+**Replacing a default state flag**
+
+Replace the file at ``lib_dir/flags/<CODE>.png`` while the server is
+running. The new image is served immediately — no restart required.
+
+To make the change permanent (so it survives server restarts), also
+replace the source file inside the package installation::
+
+    <venv>/lib/python3.x/site-packages/cmsranking/flags/<CODE>.png
+
+**Adding a custom team with a flag**
+
+1. Place an image file at ``lib_dir/flags/<YOUR_CODE>.png``.
+2. Restart :program:`cmsRankingWebServer`.
+3. A team with key ``YOUR_CODE`` is created automatically. To set a
+   friendlier display name, edit the team from the admin interface.
+
+**Supported image formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
+
+User face images
+~~~~~~~~~~~~~~~~
+
+To display a photo for a contestant, place an image at::
+
+    lib_dir/faces/<username>.<ext>
+
+where ``<username>`` is the contestant's login username. The image is
+served automatically — no registration or server restart required. If no
+image is found, a generic placeholder is shown.
+
+**Supported image formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
+
+Custom logo
+~~~~~~~~~~~
+
+To display a custom logo in the ranking server, place an image file directly
+in ``lib_dir`` (see :ref:`rankingwebserver_default-lib-dir-location` for the
+default path)::
+
+    lib_dir/logo.png   ← or .jpg, .gif, .bmp
+
+The server serves it automatically at ``/logo`` — no restart required. Remove
+the file to revert to the bundled default CMS logo.
+
+**Recommended resolution:** 200×160 px.
+
+**Supported formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
+
+.. _rankingwebserver_default-lib-dir-location:
+
+Default ``lib_dir`` location
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Unless overridden in ``cms_ranking.toml``, ``lib_dir`` defaults to::
+
+    <venv-prefix>/lib/ranking/
+
+For example::
+
+    .venv/lib/ranking/flags/   ← flag images
+    .venv/lib/ranking/faces/   ← user face images
 
