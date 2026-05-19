@@ -60,6 +60,7 @@ PACKAGE_DATA = {
         "static/img/*.*",
         "static/lib/*.*",
         "static/*.*",
+        "flags/*.*",
     ],
     "cmstestsuite": [
         "code/*.*",
