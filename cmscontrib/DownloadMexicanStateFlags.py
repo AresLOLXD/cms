@@ -16,6 +16,7 @@ import argparse
 import io
 import logging
 import os
+import time
 from importlib.resources import files
 from urllib.parse import quote
 
@@ -59,22 +60,22 @@ WIKIMEDIA_FLAGS: dict[str, str] = {
     "HID": "Flag_of_Hidalgo.svg",
     "JAL": "Flag_of_Jalisco.svg",
     "MEX": "Flag_of_the_State_of_Mexico.svg",
-    "MIC": "Flag_of_Michoacán.svg",
+    "MIC": "Bandera_del_Estado_de_Michoacán.svg",
     "MOR": "Flag_of_Morelos.svg",
     "NAY": "Flag_of_Nayarit.svg",
-    "NLE": "Flag_of_Nuevo_León.svg",
+    "NLE": "Flag_of_Nuevo_Leon.svg",
     "OAX": "Flag_of_Oaxaca.svg",
     "PUE": "Flag_of_Puebla.svg",
-    "QUE": "Flag_of_Querétaro.svg",
+    "QUE": "Flag_of_Queretaro.svg",
     "ROO": "Flag_of_Quintana_Roo.svg",
     "SIN": "Flag_of_Sinaloa.svg",
-    "SLP": "Flag_of_San_Luis_Potosí.svg",
+    "SLP": "Flag_of_San_Luis_Potosi.svg",
     "SON": "Flag_of_Sonora.svg",
     "TAB": "Flag_of_Tabasco.svg",
     "TAM": "Flag_of_Tamaulipas.svg",
     "TLA": "Flag_of_Tlaxcala.svg",
     "VER": "Flag_of_Veracruz.svg",
-    "YUC": "Flag_of_Yucatán.svg",
+    "YUC": "Flag_of_Yucatan.svg",
     "ZAC": "Flag_of_Zacatecas.svg",
 }
 
@@ -87,9 +88,18 @@ def _fetch_flag_png(wikimedia_filename: str, width: int) -> bytes:
     """Fetch a PNG thumbnail from Wikimedia Commons via Special:FilePath redirect."""
     encoded = quote(wikimedia_filename, safe="._-")
     url = _WIKIMEDIA_FILE_PATH.format(filename=encoded, width=width)
-    response = requests.get(url, timeout=30, headers={"User-Agent": "cms-flag-downloader/1.0"})
+    for attempt in range(5):
+        response = requests.get(url, timeout=30, headers={"User-Agent": "cms-flag-downloader/1.0"})
+        if response.status_code == 429:
+            wait = 10 * (2 ** attempt)
+            logger.warning("Rate limited; retrying %s in %ds (attempt %d/5)...",
+                           wikimedia_filename, wait, attempt + 1)
+            time.sleep(wait)
+            continue
+        response.raise_for_status()
+        return response.content
     response.raise_for_status()
-    return response.content
+    return response.content  # unreachable, satisfies type checker
 
 
 def download_flags(output_dir: str, states: list[str] | None = None) -> None:
