@@ -48,6 +48,7 @@ from cmsranking.Config import PublicConfig, load_config
 from cmsranking.Contest import Contest
 from cmsranking.Entity import InvalidData
 from cmsranking.Scoring import ScoringStore
+from cmsranking.seed import seed_flags_and_teams
 from cmsranking.Store import Store
 from cmsranking.Subchange import Subchange
 from cmsranking.Submission import Submission
@@ -605,6 +606,8 @@ def main() -> int:
     stores["user"].load_from_disk()
     stores["submission"].load_from_disk()
     stores["subchange"].load_from_disk()
+
+    seed_flags_and_teams(config.lib_dir, stores["team"])
 
     stores["scoring"] = ScoringStore(stores)
     stores["scoring"].init_store()
