@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""ISO 3166-2:MX state codes mapped to their full Spanish names."""
+"""Mexican state codes (project-internal) mapped to their full names."""
 
 MX_STATES: dict[str, str] = {
     "AGU": "Aguascalientes",
@@ -8,7 +8,7 @@ MX_STATES: dict[str, str] = {
     "BCS": "Baja California Sur",
     "CAM": "Campeche",
     "CHH": "Chihuahua",
-    "CHP": "Chiapas",
+    "CHI": "Chiapas",
     "CMX": "Ciudad de México",
     "COA": "Coahuila",
     "COL": "Colima",
@@ -24,15 +24,15 @@ MX_STATES: dict[str, str] = {
     "NLE": "Nuevo León",
     "OAX": "Oaxaca",
     "PUE": "Puebla",
-    "QUE": "Querétaro",
+    "QUE": "Queretaro",
     "ROO": "Quintana Roo",
     "SIN": "Sinaloa",
-    "SLP": "San Luis Potosí",
+    "SLP": "San Luis Potosi",
     "SON": "Sonora",
     "TAB": "Tabasco",
     "TAM": "Tamaulipas",
     "TLA": "Tlaxcala",
     "VER": "Veracruz",
-    "YUC": "Yucatán",
+    "YUC": "Yucatan",
     "ZAC": "Zacatecas",
 }
