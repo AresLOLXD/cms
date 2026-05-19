@@ -27,21 +27,26 @@ if $CLEAR_CONTESTS && ! $CLEAR_RESULTS; then
   echo "orphaned submission records in the ranking. Consider also clearing results."
 fi
 
+if ! ask_yes_no "Proceed? This cannot be undone." "n"; then
+  echo "Aborted."
+  exit 0
+fi
+
 if $CLEAR_RESULTS || $CLEAR_USERS || $CLEAR_CONTESTS; then
   echo "Stopping ranking server..."
   "${COMPOSE_CMD[@]}" exec cms supervisorctl stop cmsrankingwebserver
 
   DELETE_CMD="rm -f"
   if $CLEAR_RESULTS; then
-    DELETE_CMD="$DELETE_CMD $RANKING_LIB/submissions/*.json $RANKING_LIB/subchanges/*.json"
+    DELETE_CMD="$DELETE_CMD '${RANKING_LIB}/submissions/*.json' '${RANKING_LIB}/subchanges/*.json'"
   fi
   if $CLEAR_USERS; then
-    DELETE_CMD="$DELETE_CMD $RANKING_LIB/users/*.json"
+    DELETE_CMD="$DELETE_CMD '${RANKING_LIB}/users/*.json'"
   fi
   if $CLEAR_CONTESTS; then
-    DELETE_CMD="$DELETE_CMD $RANKING_LIB/tasks/*.json $RANKING_LIB/contests/*.json"
+    DELETE_CMD="$DELETE_CMD '${RANKING_LIB}/tasks/*.json' '${RANKING_LIB}/contests/*.json'"
   fi
-  "${COMPOSE_CMD[@]}" exec cms sh -c "$DELETE_CMD"
+  "${COMPOSE_CMD[@]}" exec -T cms sh -c "$DELETE_CMD"
 
   echo "Starting ranking server..."
   "${COMPOSE_CMD[@]}" exec cms supervisorctl start cmsrankingwebserver
