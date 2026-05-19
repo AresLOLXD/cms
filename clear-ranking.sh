@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/docker/_lib.sh"
 
 RANKING_LIB="/home/cmsuser/cms/lib/ranking"
+SUPERVISORCTL=(supervisorctl -c /home/cmsuser/cms/etc/supervisord.conf)
 
 CLEAR_RESULTS=false
 CLEAR_USERS=false
@@ -34,7 +35,7 @@ fi
 
 if $CLEAR_RESULTS || $CLEAR_USERS || $CLEAR_CONTESTS; then
   echo "Stopping ranking server..."
-  "${COMPOSE_CMD[@]}" exec -T cms supervisorctl stop cmsrankingwebserver
+  "${COMPOSE_CMD[@]}" exec -T cms "${SUPERVISORCTL[@]}" stop cmsrankingwebserver
 
   DELETE_CMD="rm -f"
   if $CLEAR_RESULTS; then
@@ -49,11 +50,11 @@ if $CLEAR_RESULTS || $CLEAR_USERS || $CLEAR_CONTESTS; then
   "${COMPOSE_CMD[@]}" exec -T cms sh -c "$DELETE_CMD"
 
   echo "Starting ranking server..."
-  "${COMPOSE_CMD[@]}" exec -T cms supervisorctl start cmsrankingwebserver
+  "${COMPOSE_CMD[@]}" exec -T cms "${SUPERVISORCTL[@]}" start cmsrankingwebserver
 fi
 
 if $REGENERATE; then
   echo "Restarting proxy service..."
-  "${COMPOSE_CMD[@]}" exec -T cms supervisorctl restart cmsproxyservice
+  "${COMPOSE_CMD[@]}" exec -T cms "${SUPERVISORCTL[@]}" restart cmsproxyservice
   echo "Scores will appear in the ranking within ~6 minutes."
 fi
