@@ -50,6 +50,14 @@ def _register_teams_from_flags(flags_dir: str, team_store: Store) -> None:
             logger.warning("Could not register team '%s'.", stem, exc_info=True)
 
 
+def seed_logo(lib_dir: str) -> None:
+    """Copy the bundled logo to lib_dir, overwriting any existing file."""
+    src = files("cmsranking") / "static" / "img" / "logo.png"
+    dest = os.path.join(lib_dir, "logo.png")
+    with open(dest, "wb") as f:
+        f.write(src.read_bytes())
+
+
 def seed_flags_and_teams(lib_dir: str, team_store: Store) -> None:
     """Copy bundled flags and auto-register teams on ranking server startup."""
     flags_dir = os.path.join(lib_dir, "flags")

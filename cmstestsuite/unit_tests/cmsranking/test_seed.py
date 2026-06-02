@@ -8,7 +8,7 @@ import unittest
 import zlib
 from importlib.resources import files
 
-from cmsranking.seed import _copy_bundled_flags, _register_teams_from_flags
+from cmsranking.seed import _copy_bundled_flags, _register_teams_from_flags, seed_logo
 from cmsranking.Store import Store
 from cmsranking.Team import Team
 
@@ -121,6 +121,33 @@ class TestCopyBundledFlags(unittest.TestCase):
         for name in os.listdir(self.flags_dir):
             ext = os.path.splitext(name)[1].lower()
             self.assertIn(ext, {".png", ".jpg", ".jpeg", ".gif", ".bmp"})
+
+
+class TestSeedLogo(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp)
+
+    def test_copies_bundled_logo_to_lib_dir(self):
+        seed_logo(self._tmp)
+        dest = os.path.join(self._tmp, "logo.png")
+        self.assertTrue(os.path.isfile(dest))
+        with open(dest, "rb") as f:
+            content = f.read()
+        self.assertTrue(content.startswith(b"\x89PNG"))
+
+    def test_overwrites_existing_logo(self):
+        dest = os.path.join(self._tmp, "logo.png")
+        with open(dest, "wb") as f:
+            f.write(b"old content")
+        seed_logo(self._tmp)
+        with open(dest, "rb") as f:
+            content = f.read()
+        self.assertNotEqual(content, b"old content")
+        self.assertTrue(content.startswith(b"\x89PNG"))
 
 
 if __name__ == "__main__":
