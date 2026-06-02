@@ -19,8 +19,7 @@ Flags are seeded to `lib_dir/flags/` at startup via `seed_flags_and_teams`.
 The logo and faces have no equivalent mechanism:
 
 - The logo falls back to `cmsranking/static/img/logo.png` only when nothing
-  exists in `lib_dir/` — no seeding occurs. The file lives in `static/img/`
-  rather than alongside `flags/` and `faces/`, which is inconsistent.
+  exists in `lib_dir/` — no seeding occurs.
 - Faces have no bundled directory at all; `lib_dir/faces/` must be populated
   manually after each container start.
 
@@ -36,7 +35,7 @@ the package, start the server, everything is available.
 | Asset | Source in package | Destination in `lib_dir` |
 |-------|-------------------|--------------------------|
 | Flags | `cmsranking/flags/` (existing) | `lib_dir/flags/` |
-| Logo | `cmsranking/logo.png` *(move from `static/img/`)* | `lib_dir/logo.png` |
+| Logo | `cmsranking/static/img/logo.png` (existing) | `lib_dir/logo.png` |
 | Faces | `cmsranking/faces/` *(new directory)* | `lib_dir/faces/` |
 
 ### Seeding behavior
@@ -44,7 +43,7 @@ the package, start the server, everything is available.
 **Logo** — always overwrites `lib_dir/logo.png` on startup. To use a
 temporary custom logo, place a file at `lib_dir/logo.{ext}` while the server
 is running; it is served immediately but overwritten on next restart. To make
-a permanent change, replace `cmsranking/logo.png` in the package.
+a permanent change, replace `cmsranking/static/img/logo.png` in the package.
 
 **Faces** — same pattern as flags: all images bundled in `cmsranking/faces/`
 are copied to `lib_dir/faces/`, overwriting any existing file with the same
@@ -62,7 +61,7 @@ add participant face images here (e.g., `JAL001.png`).
 ```python
 def seed_logo(lib_dir: str) -> None:
     """Copy the bundled logo to lib_dir, overwriting any existing file."""
-    src = files("cmsranking") / "logo.png"
+    src = files("cmsranking") / "static" / "img" / "logo.png"
     dest = os.path.join(lib_dir, "logo.png")
     with open(dest, "wb") as f:
         f.write(src.read_bytes())
@@ -94,16 +93,8 @@ seed_faces(config.lib_dir)
 **`pyproject.toml`** — ensure `cmsranking/faces/` is included as package
 data (verify `[tool.setuptools.package-data]` covers it).
 
-**`cmsranking/RankingWebServer.py`** — also update the `ImageHandler` fallback
-path for `/logo` from `static/img/logo.png` to `cmsranking/logo.png`:
-
-```python
-ImageHandler(
-    os.path.join(config.lib_dir, '%(name)s'),
-    os.path.join(web_dir, '..', 'logo.png')),  # fallback to package root
-```
-
-The `ImageHandler` routing for `/faces` is unchanged.
+No other code changes required. The `ImageHandler` routing for `/logo` and
+`/faces` is unchanged.
 
 ### Error handling
 
@@ -133,9 +124,12 @@ New test cases for `seed_faces`:
 
 ## Documentation changes
 
-**`docs/ranking-mexico.md`** — update "Custom logo" section and add a
-"Participant faces" section describing the seeding mechanism and the two
-customization paths (permanent via package vs. temporary via `lib_dir`).
+**`docs/ranking-mexico.md`** — update "Custom logo" section to explain:
+- Replace `cmsranking/static/img/logo.png` to permanently change the logo.
+- Placing a file at `lib_dir/logo.{ext}` works temporarily (overwritten on restart).
+
+Add a "Participant faces" section describing the same two customization paths
+for faces (`cmsranking/faces/<code>.png` for permanent, `lib_dir/faces/` for temporary).
 
 **`docs/RankingWebServer.rst`** — add equivalent sections for logo and faces.
 
@@ -145,10 +139,9 @@ customization paths (permanent via package vs. temporary via `lib_dir`).
 
 | File | Change |
 |------|--------|
-| `cmsranking/logo.png` | Move from `cmsranking/static/img/logo.png` |
 | `cmsranking/faces/` | New directory for bundled face images |
 | `cmsranking/seed.py` | Add `seed_logo` and `seed_faces` functions |
-| `cmsranking/RankingWebServer.py` | Import and call `seed_logo`, `seed_faces`; update fallback path |
+| `cmsranking/RankingWebServer.py` | Import and call `seed_logo`, `seed_faces` |
 | `pyproject.toml` | Verify `faces/` is included in package data |
 | `cmstestsuite/unit_tests/cmsranking/test_seed.py` | Add test cases for both functions |
 | `docs/ranking-mexico.md` | Update logo section, add faces section |
