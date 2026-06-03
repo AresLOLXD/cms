@@ -7,8 +7,9 @@ import tempfile
 import unittest
 import zlib
 from importlib.resources import files
+from unittest.mock import MagicMock, patch
 
-from cmsranking.seed import _copy_bundled_flags, _register_teams_from_flags, seed_logo
+from cmsranking.seed import _copy_bundled_flags, _register_teams_from_flags, seed_faces, seed_logo
 from cmsranking.Store import Store
 from cmsranking.Team import Team
 
@@ -148,6 +149,74 @@ class TestSeedLogo(unittest.TestCase):
             content = f.read()
         self.assertNotEqual(content, b"old content")
         self.assertTrue(content.startswith(b"\x89PNG"))
+
+
+class TestSeedFaces(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp)
+
+    def _fake_resource(self, filename: str, content: bytes) -> MagicMock:
+        r = MagicMock()
+        r.name = filename
+        r.is_file.return_value = True
+        r.read_bytes.return_value = content
+        return r
+
+    def _patch_faces(self, resources: list) -> "AbstractContextManager":
+        mock_bundled = MagicMock()
+        mock_bundled.iterdir.return_value = resources
+
+        def truediv(_, key):
+            return mock_bundled
+
+        mock_pkg = MagicMock()
+        mock_pkg.__truediv__ = truediv
+        return patch("cmsranking.seed.files", return_value=mock_pkg)
+
+    def test_copies_bundled_faces_to_lib_dir(self):
+        content = _make_png(r=255, g=0, b=0)
+        resources = [self._fake_resource("USER001.png", content)]
+        with self._patch_faces(resources):
+            seed_faces(self._tmp)
+        dest = os.path.join(self._tmp, "faces", "USER001.png")
+        self.assertTrue(os.path.isfile(dest))
+        with open(dest, "rb") as f:
+            self.assertEqual(f.read(), content)
+
+    def test_overwrites_existing_face(self):
+        faces_dir = os.path.join(self._tmp, "faces")
+        os.makedirs(faces_dir)
+        dest = os.path.join(faces_dir, "USER001.png")
+        with open(dest, "wb") as f:
+            f.write(b"old content")
+        new_content = _make_png(r=0, g=255, b=0)
+        resources = [self._fake_resource("USER001.png", new_content)]
+        with self._patch_faces(resources):
+            seed_faces(self._tmp)
+        with open(dest, "rb") as f:
+            self.assertEqual(f.read(), new_content)
+
+    def test_preserves_custom_faces_not_in_bundle(self):
+        faces_dir = os.path.join(self._tmp, "faces")
+        os.makedirs(faces_dir)
+        custom = os.path.join(faces_dir, "CUSTOM.png")
+        with open(custom, "wb") as f:
+            f.write(_make_png())
+        resources = [self._fake_resource("USER001.png", _make_png())]
+        with self._patch_faces(resources):
+            seed_faces(self._tmp)
+        self.assertTrue(os.path.isfile(custom))
+
+    def test_empty_bundle_does_not_raise(self):
+        with self._patch_faces([]):
+            try:
+                seed_faces(self._tmp)
+            except Exception as exc:
+                self.fail(f"seed_faces raised {exc!r} on empty bundle")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,19 @@ def seed_logo(lib_dir: str) -> None:
         f.write(src.read_bytes())
 
 
+def seed_faces(lib_dir: str) -> None:
+    """Copy all bundled face images to lib_dir/faces/, overwriting existing."""
+    faces_dir = os.path.join(lib_dir, "faces")
+    os.makedirs(faces_dir, exist_ok=True)
+    bundled = files("cmsranking") / "faces"
+    for resource in bundled.iterdir():
+        if resource.is_file() and \
+                os.path.splitext(resource.name)[1].lower() in _IMAGE_EXTS:
+            dest = os.path.join(faces_dir, resource.name)
+            with open(dest, "wb") as f:
+                f.write(resource.read_bytes())
+
+
 def seed_flags_and_teams(lib_dir: str, team_store: Store) -> None:
     """Copy bundled flags and auto-register teams on ranking server startup."""
     flags_dir = os.path.join(lib_dir, "flags")
