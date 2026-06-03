@@ -59,7 +59,7 @@ _set_env_var() {
   mv "$tmp_file" "$env_file"
 }
 
-# _do_up — Docker preflight, localdb choice (persisted), optional rebuild, compose up --wait
+# _do_up — Docker preflight, localdb choice (persisted), selective rebuild, compose up --wait
 _do_up() {
   if ! docker info >/dev/null 2>&1; then
     echo "ERROR: Docker daemon is not running or not accessible." >&2
@@ -68,7 +68,12 @@ _do_up() {
 
   local up_cmd=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
 
-  if ask_yes_no "Use local PostgreSQL container?" "n"; then
+  local current_localdb
+  current_localdb="$(_env_var CMS_USE_LOCALDB false)"
+  local localdb_default
+  [[ "$current_localdb" == "true" ]] && localdb_default="y" || localdb_default="n"
+
+  if ask_yes_no "Use local PostgreSQL container?" "$localdb_default"; then
     _set_env_var "CMS_USE_LOCALDB" "true"
     up_cmd+=(--profile localdb)
     COMPOSE_CMD+=(--profile localdb)
@@ -76,10 +81,16 @@ _do_up() {
     _set_env_var "CMS_USE_LOCALDB" "false"
   fi
 
-  local up_args=()
-  if ask_yes_no "Rebuild image?" "n"; then
-    up_args+=(--build)
-  fi
+  local choice
+  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only\n  4) CMS only\n"
+  read -r -p "Choice [1-4]: " choice
+  choice="${choice:-1}"
 
-  "${up_cmd[@]}" up -d --wait --wait-timeout 90 "${up_args[@]}"
+  case "$choice" in
+    2) "${up_cmd[@]}" build ;;
+    3) "${up_cmd[@]}" build ranking ;;
+    4) "${up_cmd[@]}" build cms db-init ;;
+  esac
+
+  "${up_cmd[@]}" up -d --wait --wait-timeout 90
 }

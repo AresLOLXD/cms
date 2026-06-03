@@ -70,6 +70,29 @@ else
   check "COMPOSE_CMD contains docker compose, compose file, --env-file, and -p" "got '$result'"
 fi
 
+# ── localdb default ───────────────────────────────────────────────────────────
+
+result=$(CMS_USE_LOCALDB=true bash -c "source '$REPO_ROOT/docker/_lib.sh'; _env_var CMS_USE_LOCALDB false")
+if [[ "$result" == "true" ]]; then
+  check "_env_var CMS_USE_LOCALDB returns 'true' when set in env" "ok"
+else
+  check "_env_var CMS_USE_LOCALDB returns 'true' when set in env" "got '$result'"
+fi
+
+result=$(CMS_USE_LOCALDB=false bash -c "source '$REPO_ROOT/docker/_lib.sh'; _env_var CMS_USE_LOCALDB false")
+if [[ "$result" == "false" ]]; then
+  check "_env_var CMS_USE_LOCALDB returns 'false' when set to false" "ok"
+else
+  check "_env_var CMS_USE_LOCALDB returns 'false' when set to false" "got '$result'"
+fi
+
+result=$(CMS_USE_LOCALDB="" bash -c "source '$REPO_ROOT/docker/_lib.sh'; _env_var CMS_USE_LOCALDB false")
+if [[ "$result" == "false" ]]; then
+  check "_env_var CMS_USE_LOCALDB falls back to default when unset" "ok"
+else
+  check "_env_var CMS_USE_LOCALDB falls back to default when unset" "got '$result'"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
