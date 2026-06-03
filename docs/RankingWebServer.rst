@@ -273,6 +273,31 @@ the file to revert to the bundled default CMS logo.
 
 **Supported formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
 
+Custom logo
+-----------
+
+To permanently change the ranking server logo, replace
+``cmsranking/static/img/logo.png`` in the package. On every server startup,
+this file is copied automatically to ``lib_dir/logo.png`` and served at
+``/logo``.
+
+To use a temporary logo without modifying the package, place a file directly
+at ``lib_dir/logo.{png,jpg,gif,bmp}`` while the server is running — it is
+served immediately but will be overwritten on the next restart.
+
+Participant faces
+-----------------
+
+Place participant face images in ``cmsranking/faces/`` (e.g., ``JAL001.png``).
+On every server startup, all images in that directory are copied to
+``lib_dir/faces/`` and served at ``/faces/<filename>``. Files already in
+``lib_dir/faces/`` that are not in the bundle are preserved.
+
+To use a temporary face without modifying the package, place a file directly
+at ``lib_dir/faces/<code>.{png,jpg,gif,bmp}`` while the server is running —
+it is served immediately but will be overwritten on the next restart if a
+bundled image with the same name exists.
+
 .. _rankingwebserver_default-lib-dir-location:
 
 Default ``lib_dir`` location
