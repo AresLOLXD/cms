@@ -166,7 +166,7 @@ class TestSeedFaces(unittest.TestCase):
         r.read_bytes.return_value = content
         return r
 
-    def _patch_faces(self, resources: list) -> "AbstractContextManager":
+    def _patch_faces(self, resources: list):
         mock_bundled = MagicMock()
         mock_bundled.iterdir.return_value = resources
 
