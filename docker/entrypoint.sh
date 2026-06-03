@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Generate cms.toml (skipped if CMS_CONFIG already points to an existing file),
 # cms_ranking.toml, and supervisord.conf (only when CMS_CONTEST_ID is set).
+# Set CMS_RANKING_ONLY=true to write only cms_ranking.toml (ranking container).
 python3 /home/cmsuser/generate_config.py
 
 # Validate that the config file parses without errors before starting any service.

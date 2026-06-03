@@ -4,6 +4,8 @@
 Called by entrypoint.sh at container startup. If CMS_CONFIG already points to
 an existing file, cms.toml generation is skipped (preserves dev/test compat).
 supervisord.conf is only generated when CMS_CONTEST_ID is set.
+Set CMS_RANKING_ONLY=true to skip cms.toml and supervisord.conf entirely and
+write only cms_ranking.toml (used by the standalone ranking container).
 """
 
 import os
