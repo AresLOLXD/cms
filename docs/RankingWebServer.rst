@@ -247,34 +247,21 @@ replace the source file inside the package installation::
 User face images
 ~~~~~~~~~~~~~~~~
 
-To display a photo for a contestant, place an image at::
+Place participant face images in ``cmsranking/faces/`` (e.g., ``JAL001.png``).
+On every server startup, all images in that directory are copied to
+``lib_dir/faces/`` and served at ``/faces/<filename>``. Files already in
+``lib_dir/faces/`` that are not in the bundle are preserved.
 
-    lib_dir/faces/<username>.<ext>
-
-where ``<username>`` is the contestant's login username. The image is
-served automatically — no registration or server restart required. If no
-image is found, a generic placeholder is shown.
+To use a temporary face without modifying the package, place a file directly
+at ``lib_dir/faces/<username>.<ext>`` while the server is running — it is
+served immediately but will be overwritten on the next restart if a bundled
+image with the same name exists. If no image is found, a generic placeholder
+is shown.
 
 **Supported image formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
 
 Custom logo
 ~~~~~~~~~~~
-
-To display a custom logo in the ranking server, place an image file directly
-in ``lib_dir`` (see :ref:`rankingwebserver_default-lib-dir-location` for the
-default path)::
-
-    lib_dir/logo.png   ← or .jpg, .gif, .bmp
-
-The server serves it automatically at ``/logo`` — no restart required. Remove
-the file to revert to the bundled default CMS logo.
-
-**Recommended resolution:** 200×160 px.
-
-**Supported formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
-
-Custom logo
------------
 
 To permanently change the ranking server logo, replace
 ``cmsranking/static/img/logo.png`` in the package. On every server startup,
@@ -285,18 +272,9 @@ To use a temporary logo without modifying the package, place a file directly
 at ``lib_dir/logo.{png,jpg,gif,bmp}`` while the server is running — it is
 served immediately but will be overwritten on the next restart.
 
-Participant faces
------------------
+**Recommended resolution:** 200×160 px.
 
-Place participant face images in ``cmsranking/faces/`` (e.g., ``JAL001.png``).
-On every server startup, all images in that directory are copied to
-``lib_dir/faces/`` and served at ``/faces/<filename>``. Files already in
-``lib_dir/faces/`` that are not in the bundle are preserved.
-
-To use a temporary face without modifying the package, place a file directly
-at ``lib_dir/faces/<code>.{png,jpg,gif,bmp}`` while the server is running —
-it is served immediately but will be overwritten on the next restart if a
-bundled image with the same name exists.
+**Supported formats:** ``.png``, ``.jpg``, ``.gif``, ``.bmp``
 
 .. _rankingwebserver_default-lib-dir-location:
 
