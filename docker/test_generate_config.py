@@ -241,3 +241,43 @@ def test_supervisord_cmsloader_custom_port(monkeypatch):
     })
     conf = gc.generate_supervisord_conf()
     assert 'PORT="9000"' in conf
+
+
+def test_cms_toml_proxy_uses_default_localhost_rws_host(monkeypatch):
+    _set(monkeypatch)
+    toml = gc.generate_cms_toml()
+    assert "@localhost:8890/" in toml
+
+
+def test_cms_toml_proxy_uses_custom_rws_host(monkeypatch):
+    _set(monkeypatch, {"CMS_RWS_HOST": "ranking"})
+    toml = gc.generate_cms_toml()
+    assert "@ranking:8890/" in toml
+    assert "@localhost" not in toml
+
+
+def test_supervisord_no_ranking_webserver(monkeypatch):
+    _set(monkeypatch)
+    conf = gc.generate_supervisord_conf()
+    assert "cmsRankingWebServer" not in conf
+    assert "cmsrankingwebserver" not in conf
+
+
+def test_ranking_only_mode_skips_cms_toml(monkeypatch, tmp_path):
+    monkeypatch.setenv("CMS_RANKING_ONLY", "true")
+    monkeypatch.setenv("CMS_RANKING_CONFIG", str(tmp_path / "ranking.toml"))
+    monkeypatch.delenv("CMS_DB_URL", raising=False)
+    monkeypatch.delenv("CMS_SECRET_KEY", raising=False)
+    gc.main()  # must not SystemExit
+    assert (tmp_path / "ranking.toml").exists()
+    assert "http_port" in (tmp_path / "ranking.toml").read_text()
+
+
+def test_ranking_only_mode_skips_supervisord(monkeypatch, tmp_path):
+    monkeypatch.setenv("CMS_RANKING_ONLY", "true")
+    monkeypatch.setenv("CMS_CONTEST_ID", "1")
+    monkeypatch.setenv("CMS_RANKING_CONFIG", str(tmp_path / "ranking.toml"))
+    monkeypatch.delenv("CMS_DB_URL", raising=False)
+    monkeypatch.delenv("CMS_SECRET_KEY", raising=False)
+    gc.main()
+    assert not (tmp_path / "supervisord.conf").exists()

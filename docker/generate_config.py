@@ -79,6 +79,7 @@ def generate_cms_toml() -> str:
     rws_http_port = _get_int("CMS_RWS_HTTP_PORT", 8890)
     rws_username = _get("CMS_RWS_USERNAME", "rws")
     rws_password = _get("CMS_RWS_PASSWORD", "")
+    rws_host = _get("CMS_RWS_HOST", "localhost")
 
     bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
@@ -130,7 +131,7 @@ listen_port = {aws_http_port}
 num_proxies_used = {num_proxies}
 
 [proxy_service]
-rankings = ["http://{_url_quote(rws_username, safe="")}:{_url_quote(rws_password, safe="")}@localhost:{rws_http_port}/"]
+rankings = ["http://{_url_quote(rws_username, safe="")}:{_url_quote(rws_password, safe="")}@{rws_host}:{rws_http_port}/"]
 """
 
     if telegram_configured:
@@ -207,7 +208,6 @@ def generate_supervisord_conf() -> str:
         blocks.append(program(f"cmsworker{i}", f"cmsWorker {i}", 40))
 
     blocks.append(program("cmsproxyservice", f"cmsProxyService 0{contest_flag}", 50))
-    blocks.append(program("cmsrankingwebserver", "cmsRankingWebServer", 55))
 
     for i in range(cws_count):
         blocks.append(
@@ -249,33 +249,33 @@ def generate_supervisord_conf() -> str:
 
 
 def main() -> None:
-    explicit_config = os.environ.get("CMS_CONFIG")
-    config_path = explicit_config or "/home/cmsuser/cms/etc/cms.toml"
+    ranking_only = os.environ.get("CMS_RANKING_ONLY", "").lower() == "true"
     ranking_config_path = _get("CMS_RANKING_CONFIG", "/home/cmsuser/cms/etc/cms_ranking.toml")
     supervisord_path = "/home/cmsuser/cms/etc/supervisord.conf"
 
-    if explicit_config and os.path.isfile(config_path):
-        print(f"Using existing config: {config_path}", file=sys.stderr)
-    else:
-        validate_required()
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, "w") as f:
-            f.write(generate_cms_toml())
-        print(f"Generated {config_path}", file=sys.stderr)
+    if not ranking_only:
+        explicit_config = os.environ.get("CMS_CONFIG")
+        config_path = explicit_config or "/home/cmsuser/cms/etc/cms.toml"
+        if explicit_config and os.path.isfile(config_path):
+            print(f"Using existing config: {config_path}", file=sys.stderr)
+        else:
+            validate_required()
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, "w") as f:
+                f.write(generate_cms_toml())
+            print(f"Generated {config_path}", file=sys.stderr)
 
-    # Always overwrite the ranking config so env var credentials (CMS_RWS_USERNAME/
-    # CMS_RWS_PASSWORD) are used instead of the sample credentials baked by install.py.
     os.makedirs(os.path.dirname(ranking_config_path), exist_ok=True)
     with open(ranking_config_path, "w") as f:
         f.write(generate_cms_ranking_toml())
     print(f"Generated {ranking_config_path}", file=sys.stderr)
 
-    if os.environ.get("CMS_CONTEST_ID"):
+    if not ranking_only and os.environ.get("CMS_CONTEST_ID"):
         os.makedirs(os.path.dirname(supervisord_path), exist_ok=True)
         with open(supervisord_path, "w") as f:
             f.write(generate_supervisord_conf())
         print(f"Generated {supervisord_path}", file=sys.stderr)
-    else:
+    elif not ranking_only:
         print("CMS_CONTEST_ID not set — skipping supervisord.conf generation.", file=sys.stderr)
 
 
