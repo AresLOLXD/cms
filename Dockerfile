@@ -160,8 +160,8 @@ COPY --chown=cmsuser:cmsuser . /home/cmsuser/src
 RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py cms
 
 # Install the cms_rekarel Karel language plugin.
-RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 \
-    pip install git+https://github.com/AresLOLXD/cms_rekarel.git
+# No pip cache mount: always fetch fresh from GitHub on every build.
+RUN pip install --no-cache-dir git+https://github.com/AresLOLXD/cms_rekarel.git
 
 # Copy config-generation script and entrypoint into the image.
 COPY --chown=cmsuser:cmsuser docker/generate_config.py /home/cmsuser/generate_config.py
