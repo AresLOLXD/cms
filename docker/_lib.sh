@@ -82,14 +82,17 @@ _do_up() {
   fi
 
   local choice
-  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only\n  4) CMS only\n"
-  read -r -p "Choice [1-4]: " choice
+  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only\n  4) CMS only\n  5) CMS only (no cache)\n  6) Ranking only (no cache)\n  7) All services (no cache)\n"
+  read -r -p "Choice [1-7]: " choice
   choice="${choice:-1}"
 
   case "$choice" in
     2) "${up_cmd[@]}" build ;;
     3) "${up_cmd[@]}" build ranking ;;
     4) "${up_cmd[@]}" build cms db-init ;;
+    5) "${up_cmd[@]}" build --no-cache cms db-init ;;
+    6) "${up_cmd[@]}" build --no-cache ranking ;;
+    7) "${up_cmd[@]}" build --no-cache ;;
   esac
 
   "${up_cmd[@]}" up -d --wait --wait-timeout 90
