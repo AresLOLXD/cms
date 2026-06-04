@@ -121,14 +121,12 @@ RUN <<EOF
 EOF
 
 # Copy rekarel artifacts from the builder stage.
-# rekarel: Node.js CLI script (needs nodejs at runtime — installed above via apt).
-#   Docker COPY resolves the npm symlink at /usr/local/bin/rekarel into a plain JS
-#   file, so Node.js module resolution starts from /usr/local/bin/ instead of inside
-#   node_modules. NODE_PATH makes the global lib/node_modules always visible.
+# rekarel: Node.js CLI — copy node_modules then recreate the npm symlink so that
+#   Node.js resolves require() relative to the package dir (where commander lives),
+#   not /usr/local/bin/ where there are no node_modules.
 # karel: statically-linked C++ binary (no runtime deps).
-COPY --from=rekarel-builder /usr/local/bin/rekarel /usr/local/bin/rekarel
 COPY --from=rekarel-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-ENV NODE_PATH=/usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/@rekarel/cli/dist/commands.cjs /usr/local/bin/rekarel
 COPY --from=rekarel-builder /build/bin/karel /usr/local/bin/karel
 
 # Copy CMS-Loader build artifacts from the loader-builder stage.
