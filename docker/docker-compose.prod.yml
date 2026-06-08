@@ -72,7 +72,7 @@ services:
       - cms-data:/home/cmsuser/cms/lib
       - cms-logs:/home/cmsuser/cms/log
       - cms-cache:/home/cmsuser/cms/cache
-      - ./dumps:/home/cmsuser/cms/dumps
+      - ../dumps:/home/cmsuser/cms/dumps
     tmpfs:
       - /home/cmsuser/cms/run
     privileged: true
