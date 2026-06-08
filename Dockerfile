@@ -49,11 +49,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     npm install -g pnpm
 EOF
 
+ARG CMS_LOADER_BASE_PATH=/
 RUN git clone --branch "${CMS_LOADER_VERSION}" --depth 1 \
         https://github.com/AresLOLXD/CMS-Loader.git /build && \
     cd /build && \
     pnpm install && \
-    pnpm run build && \
+    VITE_BASE_PATH="${CMS_LOADER_BASE_PATH}" pnpm run build && \
     pnpm prune --prod --ignore-scripts
 
 # ─── Stage 3: CMS runtime ─────────────────────────────────────────────────────
