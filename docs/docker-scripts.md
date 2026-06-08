@@ -163,7 +163,11 @@ Then restart with `./restart.sh`.
 
 ### The system starts but "There is no contest with the specified id"
 
-`CMS_CONTEST_ID` in your `.env` is set to a contest that does not exist in the database. This is normal on a fresh install — no contests have been created yet. Run `./contest.sh` after creating or importing your first contest to set the correct ID.
+`CMS_CONTEST_ID` is required — without it, `supervisord.conf` is not generated and no services start at all. On a fresh install the contest does not exist in the database yet, so `cmsContestWebServer` and `cmsProxyService` will crash-loop. This is normal.
+
+The admin server (`cmsAdminWebServer`) still starts and is available at port 8889. Use it to create or import your first contest. Once the contest exists, supervisord retries the failed services automatically. If they do not recover within a minute, run `./restart.sh`.
+
+Afterwards, run `./contest.sh` to confirm the ID is correct.
 
 ### Permission denied when running a script
 
