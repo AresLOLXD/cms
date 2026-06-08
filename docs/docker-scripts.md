@@ -115,6 +115,26 @@ Clears ranking data from the running container. Asks what to delete — results 
 
 If you choose to regenerate, `ProxyService` is restarted and will re-push all scored submissions to the ranking. Scores appear on the scoreboard within ~6 minutes.
 
+### export.sh
+
+Creates a backup of contest data as a `.zip` file in the `dumps/` folder. Asks which contests to back up, the filename to use, and whether to leave out submissions, user accounts, or generated files.
+
+```bash
+./export.sh
+```
+
+The backup file is saved to `dumps/` at the project root and is ready to use immediately after the script finishes.
+
+### import.sh
+
+Restores contest data from a `.zip` backup file created by `export.sh`. Lists the available backups in `dumps/`, lets you pick one, and walks you through the options — including whether to wipe the database first (useful for a full restore from scratch).
+
+```bash
+./import.sh
+```
+
+> **Warning:** Choosing to wipe the database before importing will permanently delete all existing contest data. Only do this when you are sure you want to restore from the selected backup.
+
 ## Configuring the project name
 
 The `CMS_PROJECT_NAME` variable in `.env` (default: `cms-prod`) is used to group Docker containers on your machine. If you run only one copy of CMS, leave it as is. If you need to run two separate CMS setups on the same machine (for example, testing and production), change this to a different short name for the second one — something like `cms-test` or `cms-staging`. This prevents containers from different instances from conflicting. Keep it short and use lowercase letters and hyphens only.
