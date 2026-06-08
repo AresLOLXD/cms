@@ -149,6 +149,22 @@ The services might still be starting up — they can take 30-60 seconds to fully
 
 No contests have been imported yet. Use the Admin interface at [http://localhost:8889](http://localhost:8889) to create a new contest or import an existing one. Once you've imported a contest, run `./contest.sh` again and you should see it in the list.
 
+### The system fails to start with "Non-hexadecimal digit found"
+
+`CMS_SECRET_KEY` in your `.env` file must be a 32-character hexadecimal string (16 bytes). If you generated it with a tool that produces Base64 output (characters like `/`, `+`, or `=`), the admin server will crash with this error.
+
+Generate a valid key and update `.env` in one command:
+
+```bash
+NEW_KEY=$(openssl rand -hex 16) && sed -i "s|CMS_SECRET_KEY=.*|CMS_SECRET_KEY=${NEW_KEY}|" .env && grep CMS_SECRET_KEY .env
+```
+
+Then restart with `./restart.sh`.
+
+### The system starts but "There is no contest with the specified id"
+
+`CMS_CONTEST_ID` in your `.env` is set to a contest that does not exist in the database. This is normal on a fresh install — no contests have been created yet. Run `./contest.sh` after creating or importing your first contest to set the correct ID.
+
 ### Permission denied when running a script
 
 The script file doesn't have execute permission. Fix it by running:
