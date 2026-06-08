@@ -6,3 +6,4 @@ codecov/
 .venv/
 .git/
 .jj/
+dumps/
