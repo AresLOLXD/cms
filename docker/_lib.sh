@@ -97,3 +97,19 @@ _do_up() {
 
   "${up_cmd[@]}" up -d --wait --wait-timeout 90
 }
+
+# _run_timed LABEL CMD [ARGS...] — run CMD streaming output, print elapsed time.
+_run_timed() {
+  local label="$1"
+  shift
+  local start=$SECONDS
+  echo "$label"
+  "$@"
+  local rc=$? elapsed=$(( SECONDS - start ))
+  if [[ $rc -eq 0 ]]; then
+    printf "Done in %ds.\n" "$elapsed"
+  else
+    printf "Failed after %ds.\n" "$elapsed" >&2
+  fi
+  return $rc
+}
