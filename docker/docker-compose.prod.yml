@@ -61,9 +61,7 @@ services:
   ranking:
     build:
       context: ..
-      args:
-        CMS_LOADER_VERSION: ${CMS_LOADER_VERSION:-main}
-        CMS_LOADER_BASE_PATH: ${CMS_LOADER_BASE_PATH:-/}
+      dockerfile: docker/Dockerfile.ranking
     env_file:
       - path: ../.env
         required: false
