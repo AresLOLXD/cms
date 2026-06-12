@@ -63,6 +63,9 @@ def seed_faces(lib_dir: str) -> None:
     faces_dir = os.path.join(lib_dir, "faces")
     os.makedirs(faces_dir, exist_ok=True)
     bundled = files("cmsranking") / "faces"
+    if not bundled.is_dir():
+        logger.warning("No bundled faces directory found; check package installation.")
+        return
     for resource in bundled.iterdir():
         if resource.is_file() and \
                 os.path.splitext(resource.name)[1].lower() in _IMAGE_EXTS:
