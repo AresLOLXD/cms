@@ -35,7 +35,7 @@ ENV PATH="/home/cmsuser/cms/bin:$PATH"
 COPY --chown=cmsuser:cmsuser . /home/cmsuser/src
 
 # --skip-isolate: cmsRankingWebServer never runs sandboxed code, isolate is not installed here.
-RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py cms --skip-isolate
+RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py --skip-isolate cms
 
 COPY --chown=cmsuser:cmsuser docker/generate_config.py /home/cmsuser/generate_config.py
 COPY --chown=cmsuser:cmsuser docker/entrypoint.sh /home/cmsuser/entrypoint.sh
