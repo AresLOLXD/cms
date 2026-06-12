@@ -42,4 +42,4 @@ COPY --chown=cmsuser:cmsuser docker/entrypoint.sh /home/cmsuser/entrypoint.sh
 RUN chmod +x /home/cmsuser/entrypoint.sh
 
 ENTRYPOINT ["/home/cmsuser/entrypoint.sh"]
-CMD ["cmsRankingWebServer", "0"]
+CMD ["cmsRankingWebServer"]
