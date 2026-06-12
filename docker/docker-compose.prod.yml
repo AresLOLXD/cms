@@ -57,6 +57,28 @@ services:
     command: ["cmsSetupDB"]
     restart: "no"
 
+  # ── Ranking Web Server ────────────────────────────────────────────────────
+  ranking:
+    build:
+      context: ..
+      args:
+        CMS_LOADER_VERSION: ${CMS_LOADER_VERSION:-main}
+        CMS_LOADER_BASE_PATH: ${CMS_LOADER_BASE_PATH:-/}
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      CMS_RANKING_ONLY: "true"
+    command: ["cmsRankingWebServer", "0"]
+    ports:
+      - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${CMS_LOG_MAX_SIZE:-500m}"
+        max-file: "${CMS_LOG_MAX_FILES:-10}"
+
   # ── CMS (all services managed by supervisord) ─────────────────────────────
   cms:
     build:
@@ -67,6 +89,8 @@ services:
     env_file:
       - path: ../.env
         required: false
+    environment:
+      CMS_RWS_HOST: ${CMS_RWS_HOST:-ranking}
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -82,7 +106,6 @@ services:
     ports:
       - "${CMS_CWS_HTTP_PORT:-8888}:${CMS_CWS_HTTP_PORT:-8888}"
       - "${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
-      - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
       - "${CMS_LOADER_PORT:-9995}:${CMS_LOADER_PORT:-9995}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sfL http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]
