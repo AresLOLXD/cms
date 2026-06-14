@@ -41,7 +41,7 @@ else
 fi
 
 # ── 2. Output filename ─────────────────────────────────────────────────────
-default_name="export-$(date +%Y-%m-%d).zip"
+default_name="export-$(date +%Y-%m-%d).tar.gz"
 read -r -p "Output filename [dumps/${default_name}]: " filename
 filename="${filename:-$default_name}"
 # Strip leading dumps/ if the user typed it, to avoid dumps/dumps/
