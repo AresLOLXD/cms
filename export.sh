@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/docker/_lib.sh"
 
 mkdir -p "$REPO_ROOT/dumps"
+chown 2000:2000 "$REPO_ROOT/dumps"
 
 # ── 1. List available contests ─────────────────────────────────────────────
 DB_URL="$(_env_var CMS_DB_URL "")"
