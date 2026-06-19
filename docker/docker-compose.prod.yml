@@ -102,7 +102,7 @@ services:
     privileged: true
     cgroup: host
     ports:
-      - "${CMS_CWS_HTTP_PORT:-8888}:${CMS_CWS_HTTP_PORT:-8888}"
+      - "${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}:${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}"
       - "${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
       - "${CMS_LOADER_PORT:-9995}:${CMS_LOADER_PORT:-9995}"
     healthcheck:

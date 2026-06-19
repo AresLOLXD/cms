@@ -18,6 +18,10 @@ PROJECT_NAME="$(_env_var CMS_PROJECT_NAME cms-prod)"
 COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.prod.yml"
 COMPOSE_CMD=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
 
+_CWS_BASE_PORT="$(_env_var CMS_CWS_HTTP_PORT 8888)"
+_CWS_COUNT="$(_env_var CMS_CWS_COUNT 1)"
+export CMS_CWS_HTTP_PORT_END=$(( _CWS_BASE_PORT + _CWS_COUNT - 1 ))
+
 # Append --profile localdb if CMS_USE_LOCALDB=true is persisted in .env
 if [[ "$(_env_var CMS_USE_LOCALDB false)" == "true" ]]; then
   COMPOSE_CMD+=(--profile localdb)
