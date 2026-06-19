@@ -139,6 +139,74 @@ Restores contest data from a `.zip` backup file created by `export.sh`. Lists th
 
 The `CMS_PROJECT_NAME` variable in `.env` (default: `cms-prod`) is used to group Docker containers on your machine. If you run only one copy of CMS, leave it as is. If you need to run two separate CMS setups on the same machine (for example, testing and production), change this to a different short name for the second one — something like `cms-test` or `cms-staging`. This prevents containers from different instances from conflicting. Keep it short and use lowercase letters and hyphens only.
 
+## Scaling Contest Web Server
+
+By default, a single `cmsContestWebServer` instance handles all contestant traffic. If you
+need more capacity — typically for contests with hundreds of simultaneous users — you can
+run several instances behind a reverse proxy.
+
+### How it works
+
+Set `CMS_CWS_COUNT` in `.env` to the number of shards you want. Each shard listens on a
+consecutive port starting from `CMS_CWS_HTTP_PORT`:
+
+| Shard | Port |
+|-------|------|
+| 0 | `CMS_CWS_HTTP_PORT` (e.g. 8888) |
+| 1 | `CMS_CWS_HTTP_PORT + 1` (e.g. 8889) |
+| 2 | `CMS_CWS_HTTP_PORT + 2` (e.g. 8890) |
+
+All shard ports are automatically exposed on the host when you start with `./up.sh`.
+
+### Port conflict warning
+
+With the defaults (`CMS_CWS_HTTP_PORT=8888`, `CMS_AWS_HTTP_PORT=8889`), setting
+`CMS_CWS_COUNT=2` puts shard 1 on port 8889 — the same port as the Admin Web Server.
+When `CMS_CWS_COUNT > 1`, move `CMS_AWS_HTTP_PORT` above the CWS range:
+
+```
+CMS_CWS_COUNT=3
+CMS_CWS_HTTP_PORT=8888   # shards: 8888, 8889, 8890
+CMS_AWS_HTTP_PORT=8891   # must be >= CMS_CWS_HTTP_PORT + CMS_CWS_COUNT
+```
+
+### nginx configuration
+
+Your reverse proxy must balance incoming contestant requests across all shards. Here is a
+minimal nginx configuration for three shards (`CMS_CWS_COUNT=3`, base port 8888). Adapt
+the port numbers to match your `.env`:
+
+```nginx
+upstream cws {
+    ip_hash;                        # required: keeps each contestant on the same shard
+    server 127.0.0.1:8888;
+    server 127.0.0.1:8889;
+    server 127.0.0.1:8890;
+}
+
+server {
+    listen 80;
+    server_name contest.example.com;
+
+    location / {
+        proxy_pass         http://cws;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+> **`ip_hash` is required.** Without it, a contestant's requests may land on different
+> shards and their session will be lost. CMS stores session state in-process, not in a
+> shared store.
+
+Also set `CMS_NUM_PROXIES_USED=1` in `.env` so CMS logs the real contestant IP addresses
+instead of the proxy's address.
+
+After changing `.env`, run `./restart.sh` to apply.
+
 ## Troubleshooting
 
 ### The page doesn't load in my browser
