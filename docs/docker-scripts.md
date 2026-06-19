@@ -160,14 +160,15 @@ All shard ports are automatically exposed on the host when you start with `./up.
 
 ### Port conflict warning
 
-With the defaults (`CMS_CWS_HTTP_PORT=8888`, `CMS_AWS_HTTP_PORT=8889`), setting
-`CMS_CWS_COUNT=2` puts shard 1 on port 8889 — the same port as the Admin Web Server.
-When `CMS_CWS_COUNT > 1`, move `CMS_AWS_HTTP_PORT` above the CWS range:
+With the defaults (`CMS_CWS_HTTP_PORT=8888`, `CMS_AWS_HTTP_PORT=8889`, `CMS_RWS_HTTP_PORT=8890`), setting
+`CMS_CWS_COUNT > 1` puts shards on ports that may collide with other servers.
+When `CMS_CWS_COUNT > 1`, move both `CMS_AWS_HTTP_PORT` and `CMS_RWS_HTTP_PORT` above the CWS range:
 
 ```
 CMS_CWS_COUNT=3
 CMS_CWS_HTTP_PORT=8888   # shards: 8888, 8889, 8890
 CMS_AWS_HTTP_PORT=8891   # must be >= CMS_CWS_HTTP_PORT + CMS_CWS_COUNT
+CMS_RWS_HTTP_PORT=8892   # must also be outside the CWS shard range
 ```
 
 ### nginx configuration

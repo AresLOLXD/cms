@@ -20,6 +20,10 @@ COMPOSE_CMD=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "
 
 _CWS_BASE_PORT="$(_env_var CMS_CWS_HTTP_PORT 8888)"
 _CWS_COUNT="$(_env_var CMS_CWS_COUNT 1)"
+if (( _CWS_COUNT < 1 )); then
+  echo "ERROR: CMS_CWS_COUNT must be >= 1 (got: ${_CWS_COUNT})" >&2
+  exit 1
+fi
 export CMS_CWS_HTTP_PORT_END=$(( _CWS_BASE_PORT + _CWS_COUNT - 1 ))
 
 # Append --profile localdb if CMS_USE_LOCALDB=true is persisted in .env
