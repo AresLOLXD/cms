@@ -28,6 +28,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${CMS_TIMEZONE:-UTC}
     volumes:
       - cms-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -50,6 +51,8 @@ services:
     env_file:
       - path: ../.env
         required: false
+    environment:
+      TZ: ${CMS_TIMEZONE:-UTC}
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +70,7 @@ services:
         required: false
     environment:
       CMS_RANKING_ONLY: "true"
+      TZ: ${CMS_TIMEZONE:-UTC}
     command: ["cmsRankingWebServer"]
     ports:
       - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
@@ -89,6 +93,7 @@ services:
         required: false
     environment:
       CMS_RWS_HOST: ${CMS_RWS_HOST:-ranking}
+      TZ: ${CMS_TIMEZONE:-UTC}
     depends_on:
       db-init:
         condition: service_completed_successfully
