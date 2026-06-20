@@ -59,7 +59,7 @@ echo ""
 _run_timed "Exporting to dumps/${filename} (this may take several minutes)..." \
   "${COMPOSE_CMD[@]}" exec cms \
   cmsDumpExporter "${CONTEST_FLAGS[@]+"${CONTEST_FLAGS[@]}"}" "${EXCL_FLAGS[@]+"${EXCL_FLAGS[@]}"}" \
-  "/home/cmsuser/cms/dumps/${filename}"
+  -- "/home/cmsuser/cms/dumps/${filename}"
 
 # ── 5. Confirm ─────────────────────────────────────────────────────────────
 host_path="$REPO_ROOT/dumps/${filename}"
