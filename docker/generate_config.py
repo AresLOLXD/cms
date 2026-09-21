@@ -62,6 +62,16 @@ def generate_cms_toml() -> str:
         sys.exit(1)
     log_debug = raw_log
 
+    raw_two_phase = _get("CMS_TWO_PHASE_EVALUATION", "false").lower()
+    if raw_two_phase not in ("true", "false"):
+        print(
+            f"ERROR: CMS_TWO_PHASE_EVALUATION must be 'true' or 'false', "
+            f"got {raw_two_phase!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    two_phase_evaluation = raw_two_phase
+
     raw_proxies = os.environ.get("CMS_NUM_PROXIES_USED", "0")
     try:
         num_proxies = int(raw_proxies)
@@ -100,6 +110,7 @@ def generate_cms_toml() -> str:
 [global]
 file_log_debug = {log_debug}
 stream_log_detailed = false
+two_phase_evaluation = {two_phase_evaluation}
 
 [services]
 LogService = [["localhost", 29000]]

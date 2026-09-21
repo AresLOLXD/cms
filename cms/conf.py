@@ -70,6 +70,7 @@ class GlobalConfig:
     backdoor: bool = False
     file_log_debug: bool = False
     stream_log_detailed: bool = False
+    two_phase_evaluation: bool = False
     log_dir: str = default_path("log")
     cache_dir: str = default_path("cache")
     data_dir: str = default_path("lib")
