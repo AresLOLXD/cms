@@ -542,6 +542,18 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Committing evaluations...")
             session.commit()
 
+            # Two-phase fail-fast: for any group whose screening just
+            # finished and failed, synthesize skipped evaluations for its
+            # remaining testcases so the submission can complete without
+            # running them. See cms/grading/twophase.py.
+            if twophase.enabled():
+                for type_, object_id, dataset_id, _ in by_object_and_type.keys():
+                    if type_ == ESOperation.EVALUATION:
+                        submission_result = SubmissionResult.get_from_id(
+                            (object_id, dataset_id), session)
+                        if submission_result is not None:
+                            self._advance_two_phase(session, submission_result)
+
             num_testcases_per_dataset = dict()
             for type_, object_id, dataset_id, archive_sandbox in by_object_and_type.keys():
                 if type_ == ESOperation.EVALUATION:
@@ -573,6 +585,11 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                         (object_id, dataset_id), session)
                     if submission_result.evaluated():
                         self.evaluation_ended(submission_result, archive_sandbox)
+                    elif twophase.enabled():
+                        # Two-phase: some group's screening just passed;
+                        # push its now-unblocked operations.
+                        self.submission_enqueue_operations(
+                            submission_result.submission, archive_sandbox)
                 elif type_ == ESOperation.USER_TEST_COMPILATION:
                     user_test_result = UserTestResult.get_from_id(
                         (object_id, dataset_id), session)
