@@ -46,6 +46,7 @@ from cmscommon.datetime import make_timestamp
 from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
     SubmissionResult, Testcase, UserTest, UserTestResult, get_submissions, \
     get_submission_results, get_datasets_to_judge
+from cms.grading import twophase
 from cms.grading.Job import Job, JobGroup
 from cms.io import Executor, TriggeredService, rpc_method
 from .esoperations import ESOperation, get_relevant_operations, \
@@ -616,6 +617,53 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 logger.error(
                     "Unexpected exception while inserting worker result.",
                     exc_info=True)
+
+    def _advance_two_phase(self, session, submission_result):
+        """Two-phase fail-fast bookkeeping for one submission result.
+
+        For every group whose screening testcases are all evaluated and at
+        least one did not pass, synthesize a skipped evaluation (outcome 0)
+        for each of that group's remaining, non-screening testcases. This
+        lets the submission reach a complete evaluation (and hence be
+        scored) with the score type naturally scoring the failed group at
+        0, without spending CPU on the skipped testcases. No-op unless
+        two-phase is enabled, and no-op for groups still pending or already
+        passed screening.
+
+        session: the DB session to use.
+        submission_result: the submission result to advance.
+
+        """
+        dataset = submission_result.dataset
+        outcome_by_codename = {
+            e.codename: e.outcome for e in submission_result.evaluations}
+        status = twophase.group_screening_status(dataset, outcome_by_codename)
+        evaluated_ids = {
+            e.testcase_id for e in submission_result.evaluations}
+
+        created = 0
+        for codename, testcase in dataset.testcases.items():
+            if testcase.id in evaluated_ids or twophase.is_screening(codename):
+                continue
+            if status.get(twophase.group_of(codename), "passed") == "failed":
+                submission_result.evaluations += [Evaluation(
+                    text=["Saltado tras fallo en la fase de tamizaje"],
+                    outcome="0.0",
+                    execution_time=0.0,
+                    execution_wall_clock_time=0.0,
+                    execution_memory=0,
+                    evaluation_shard=None,
+                    evaluation_sandbox_paths=[],
+                    evaluation_sandbox_digests=[],
+                    testcase=testcase)]
+                created += 1
+
+        if created:
+            logger.info(
+                "Two-phase: synthesized %d skipped evaluation(s) for "
+                "submission %d(%d).", created,
+                submission_result.submission_id, submission_result.dataset_id)
+            session.commit()
 
     def write_results_one_row(
         self,
