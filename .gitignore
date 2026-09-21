@@ -18,3 +18,4 @@ codecov/
 test_logs/
 .env
 dumps/
+.superpowers/
