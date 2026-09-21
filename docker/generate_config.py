@@ -82,6 +82,7 @@ def generate_cms_toml() -> str:
     rws_username = _get("CMS_RWS_USERNAME", "rws")
     rws_password = _get("CMS_RWS_PASSWORD", "")
     rws_host = _get("CMS_RWS_HOST", "localhost")
+    es_bind_host = _get("CMS_ES_BIND_HOST", "localhost")
 
     bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
@@ -105,7 +106,7 @@ LogService = [["localhost", 29000]]
 ResourceService = [["localhost", 28000]]
 ScoringService = [["localhost", 28500]]
 Checker = [["localhost", 22000]]
-EvaluationService = [["localhost", 25000]]
+EvaluationService = [["{es_bind_host}", 25000]]
 Worker = [{worker_entries}]
 ContestWebServer = [{cws_entries}]
 AdminWebServer = [["localhost", {aws_rpc_port}]]
