@@ -35,6 +35,7 @@ from sqlalchemy import case, literal
 from cms.db import Dataset, Evaluation, Submission, SubmissionResult, \
     Task, Testcase, UserTest, UserTestResult
 from cms.db.session import Session
+from cms.grading import twophase
 from cms.io import PriorityQueue, QueueItem
 
 
@@ -199,16 +200,35 @@ def submission_get_operations(
         evaluated_testcase_ids = set(
             evaluation.testcase_id
             for evaluation in submission_result.evaluations)
+
+        # Two-phase fail-fast: withhold a group's non-screening testcases
+        # until that group's screening testcases have all been evaluated
+        # and passed. See cms/grading/twophase.py.
+        if twophase.enabled():
+            outcome_by_codename = {
+                evaluation.codename: evaluation.outcome
+                for evaluation in submission_result.evaluations}
+            screening_status = twophase.group_screening_status(
+                dataset, outcome_by_codename)
+        else:
+            screening_status = None
+
         for testcase_codename in dataset.testcases.keys():
             testcase_id = dataset.testcases[testcase_codename].id
-            if testcase_id not in evaluated_testcase_ids:
-                yield ESOperation(ESOperation.EVALUATION,
-                                  submission.id,
-                                  dataset.id,
-                                  testcase_codename,
-                                  archive_sandbox=archive_sandbox), \
-                    priority, \
-                    submission.timestamp
+            if testcase_id in evaluated_testcase_ids:
+                continue
+            if screening_status is not None \
+                    and not twophase.is_screening(testcase_codename):
+                group = twophase.group_of(testcase_codename)
+                if screening_status.get(group, "passed") != "passed":
+                    continue
+            yield ESOperation(ESOperation.EVALUATION,
+                              submission.id,
+                              dataset.id,
+                              testcase_codename,
+                              archive_sandbox=archive_sandbox), \
+                priority, \
+                submission.timestamp
 
 
 def user_test_get_operations(
