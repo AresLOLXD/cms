@@ -150,7 +150,6 @@ setup(
             "cmsRemoveUser=cmscontrib.RemoveUser:main",
             "cmsSolutionChecker=cmscontrib.SolutionChecker:main",
             "cmsSpoolExporter=cmscontrib.SpoolExporter:main",
-            "cmsMake=cmstaskenv.cmsMake:main",
             "cmsPrometheusExporter=cmscontrib.PrometheusExporter:main",
             "cmsTelegramBot=cmscontrib.TelegramBot:main",
         ],
