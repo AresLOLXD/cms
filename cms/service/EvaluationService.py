@@ -1100,6 +1100,18 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 elif level == "evaluation":
                     submission_result.invalidate_evaluation(testcase_id=testcase_id)
 
+            # Flush the invalidations (in particular, the deletion of
+            # invalidated Evaluation rows) to the database now. Without
+            # this, the DELETEs queued by invalidate_evaluation() above
+            # are still pending when submission_enqueue_operations()
+            # below (via _advance_two_phase(), for two-phase evaluation)
+            # may INSERT a new Evaluation for the same
+            # (submission, dataset, testcase), which would violate the
+            # unique constraint since SQLAlchemy does not guarantee the
+            # DELETE is flushed before the unrelated INSERT within the
+            # same unit of work.
+            session.flush()
+
             # Finally, we re-enqueue the operations for the
             # submissions.
             for submission in submissions:
