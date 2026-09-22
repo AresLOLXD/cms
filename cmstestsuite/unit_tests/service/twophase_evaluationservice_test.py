@@ -44,6 +44,7 @@ class TestAdvanceTwoPhase(DatabaseMixin, unittest.TestCase):
             codename: self.add_testcase(self.dataset, codename=codename)
             for codename in [
                 "s1-00-sample", "s1-01-scr-wa", "s1-02-normal", "s1-03-normal",
+                "s2-00-sample", "s2-01-scr-wa", "s2-02-normal",
             ]
         }
         self.submission, self.results = self.add_submission_with_results(
@@ -98,6 +99,35 @@ class TestAdvanceTwoPhase(DatabaseMixin, unittest.TestCase):
 
         codenames = {e.codename for e in self.result.evaluations}
         self.assertEqual(codenames, {"s1-00-sample", "s1-01-scr-wa"})
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    def test_two_groups_failed_group_synthesized_pending_group_untouched(
+            self):
+        # s1's screening fails; s2's screening is still pending (only its
+        # sample has been evaluated).
+        self.add_evaluation(
+            self.result, self.testcases["s1-00-sample"], outcome="1.0")
+        self.add_evaluation(
+            self.result, self.testcases["s1-01-scr-wa"], outcome="0.0")
+        self.add_evaluation(
+            self.result, self.testcases["s2-00-sample"], outcome="1.0")
+        self.session.flush()
+
+        service = EvaluationService(0)
+        service._advance_two_phase(self.session, self.result)
+
+        codenames = {e.codename for e in self.result.evaluations}
+        # s1's remaining testcases were synthesized as skipped, s2 was
+        # left completely untouched (no synthesized evaluations for its
+        # non-screening testcase, since its screening hasn't concluded).
+        self.assertEqual(
+            codenames,
+            {"s1-00-sample", "s1-01-scr-wa", "s1-02-normal", "s1-03-normal",
+             "s2-00-sample"})
+        for codename in ("s1-02-normal", "s1-03-normal"):
+            evaluation = next(
+                e for e in self.result.evaluations if e.codename == codename)
+            self.assertEqual(evaluation.outcome, "0.0")
 
 
 if __name__ == "__main__":

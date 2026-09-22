@@ -64,6 +64,21 @@ class TestIsScreening(unittest.TestCase):
         self.assertFalse(twophase.is_screening("s1-03-normal"))
         self.assertFalse(twophase.is_screening("000"))
 
+    def test_group_name_containing_scr_is_not_screening(self):
+        # The group name itself contains "scr", but the tag ("normal")
+        # does not: this must NOT be classified as screening.
+        self.assertFalse(twophase.is_screening("scr1-00-normal"))
+
+    def test_group_name_containing_sample_is_not_screening(self):
+        # Same as above, but with "sample" in the group name instead of
+        # the tag.
+        self.assertFalse(twophase.is_screening("sample-00-normal"))
+
+    def test_tag_containing_scr_is_screening_even_with_unrelated_group(self):
+        # The tag contains "scr" while the group name does not: this
+        # must be classified as screening.
+        self.assertTrue(twophase.is_screening("s1-04-scr-extra"))
+
 
 class TestGroupScreeningStatus(unittest.TestCase):
 
