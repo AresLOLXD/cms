@@ -57,9 +57,23 @@ def group_of(codename: str) -> str:
     return m.group(1) if m else ""
 
 
+def _tag_of(codename: str) -> str:
+    """Return the tag part of a testcase codename (see module docstring).
+
+    codename: a testcase codename, e.g. "s1-01-scr-wa".
+
+    return: the tag, e.g. "scr-wa", or "" if the codename does not follow
+        the "<group>-<nn>-<tag>" convention.
+
+    """
+    parts = codename.split("-", 2)
+    return parts[2] if len(parts) == 3 else ""
+
+
 def is_screening(codename: str) -> bool:
     """Return whether a testcase is a screening testcase."""
-    return "sample" in codename or "scr" in codename
+    tag = _tag_of(codename)
+    return tag == "sample" or "scr" in tag
 
 
 def _passed(outcome: str | None) -> bool:
