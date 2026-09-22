@@ -77,6 +77,10 @@ EVALUATION_MESSAGES = MessageCollection([
                  N_("Execution failed because the return code was nonzero"),
                  N_("Your submission failed because it exited with a return "
                     "code different from 0.")),
+    HumanMessage("skipped",
+                 N_("Skipped after screening phase failure"),
+                 N_("This testcase was not run because the screening "
+                    "testcases for its subtask did not pass.")),
 ])
 
 

@@ -131,6 +131,12 @@ msgstr ""
 msgid "Your submission failed because it exited with a return code different from 0."
 msgstr ""
 
+msgid "Skipped after screening phase failure"
+msgstr ""
+
+msgid "This testcase was not run because the screening testcases for its subtask did not pass."
+msgstr ""
+
 msgid "Execution completed successfully"
 msgstr ""
 

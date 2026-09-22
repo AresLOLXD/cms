@@ -48,8 +48,10 @@ from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
     get_submission_results, get_datasets_to_judge
 from cms.grading import twophase
 from cms.grading.Job import Job, JobGroup
+from cms.grading.steps import EVALUATION_MESSAGES
 from cms.io import Executor, TriggeredService, rpc_method
 from .esoperations import ESOperation, get_relevant_operations, \
+    get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
     submission_get_operations, submission_to_evaluate, \
     user_test_get_operations
@@ -322,6 +324,19 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 if self.enqueue(operation, priority, timestamp):
                     new_operations += 1
 
+            # Two-phase fail-fast: 0 operations does not necessarily mean
+            # everything is evaluated. It can also mean the only
+            # remaining testcases belong to a group whose screening
+            # already failed but whose skip evaluations have not been
+            # synthesized yet for this submission result (e.g. right
+            # after invalidate_submission reopened one of them). Give
+            # skip-synthesis a chance before concluding there is nothing
+            # left to do, otherwise we could wrongly finalize a result
+            # that is still missing evaluations. See cms/grading/twophase.py.
+            if number_of_operations == 0 and twophase.enabled():
+                self._advance_two_phase(
+                    submission_result.sa_session, submission_result)
+
             # If we got 0 operations, but the submission result is to
             # evaluate, it means that we just need to finalize the
             # evaluation.
@@ -362,10 +377,33 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         counter = 0
         with SessionGen() as session:
 
-            for operation, priority, timestamp in \
-                    get_submissions_operations(session, self.contest_id):
-                if self.enqueue(operation, priority, timestamp):
-                    counter += 1
+            if twophase.enabled():
+                # get_submissions_operations() enumerates missing
+                # (submission, dataset, testcase) evaluations with plain
+                # SQL and has no notion of two-phase screening: it would
+                # bypass the gate in submission_get_operations() and
+                # force-enqueue withheld phase-2 testcases. When
+                # two-phase is on, use its two-phase-aware counterparts
+                # instead: compilation operations are unaffected by the
+                # gate, but evaluation operations are computed per
+                # submission via submission_enqueue_operations(), the
+                # same gated primitive used everywhere else. See
+                # cms/grading/twophase.py.
+                for operation, priority, timestamp in \
+                        get_submissions_compilation_operations(
+                            session, self.contest_id):
+                    if self.enqueue(operation, priority, timestamp):
+                        counter += 1
+
+                for submission_result in get_submission_results_to_evaluate(
+                        session, self.contest_id):
+                    counter += self.submission_enqueue_operations(
+                        submission_result.submission)
+            else:
+                for operation, priority, timestamp in \
+                        get_submissions_operations(session, self.contest_id):
+                    if self.enqueue(operation, priority, timestamp):
+                        counter += 1
 
             for operation, priority, timestamp in \
                     get_user_tests_operations(session, self.contest_id):
@@ -635,7 +673,9 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                     "Unexpected exception while inserting worker result.",
                     exc_info=True)
 
-    def _advance_two_phase(self, session, submission_result):
+    def _advance_two_phase(
+        self, session: Session, submission_result: SubmissionResult
+    ) -> None:
         """Two-phase fail-fast bookkeeping for one submission result.
 
         For every group whose screening testcases are all evaluated and at
@@ -664,7 +704,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 continue
             if status.get(twophase.group_of(codename), "passed") == "failed":
                 submission_result.evaluations += [Evaluation(
-                    text=["Saltado tras fallo en la fase de tamizaje"],
+                    text=[EVALUATION_MESSAGES.get("skipped").message],
                     outcome="0.0",
                     execution_time=0.0,
                     execution_wall_clock_time=0.0,

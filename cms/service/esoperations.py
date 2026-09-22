@@ -428,6 +428,118 @@ def get_submissions_operations(
     return operations
 
 
+def get_submissions_compilation_operations(
+    session: Session, contest_id: int | None = None
+) -> list[tuple["ESOperation", int, datetime]]:
+    """Return all the compilation operations to do for submissions in the
+    contest.
+
+    This is the compilation half of get_submissions_operations(), split
+    out so that two-phase-aware callers (which need to route evaluation
+    operations through the gated submission_get_operations()/
+    submission_enqueue_operations() instead) can still use plain bulk SQL
+    for compilation, which two-phase does not gate. See EvaluationService.
+
+    session: the database session to use.
+    contest_id: the contest for which we want the operations.
+        If none, get operations for any contest.
+
+    return: a list of tuples of operation, priority and timestamp.
+
+    """
+    operations = []
+
+    if contest_id is None:
+        contest_filter = literal(True)
+    else:
+        contest_filter = Task.contest_id == contest_id
+
+    # Retrieve the compilation operations for all submissions without
+    # the corresponding result for a dataset to judge. Since we have
+    # no SubmissionResult, we cannot join regularly with dataset;
+    # instead we take the cartesian product with all the datasets for
+    # the correct task.
+    to_compile = session.query(Submission)\
+        .join(Submission.task)\
+        .join(Task.datasets)\
+        .outerjoin(SubmissionResult,
+                   (Dataset.id == SubmissionResult.dataset_id) &
+                   (Submission.id == SubmissionResult.submission_id))\
+        .filter(
+            contest_filter &
+            (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
+            (SubmissionResult.dataset_id.is_(None)))\
+        .with_entities(Submission.id, Dataset.id,
+                       case([
+                           (Dataset.id != Task.active_dataset_id,
+                            literal(PriorityQueue.PRIORITY_EXTRA_LOW))
+                           ], else_=literal(PriorityQueue.PRIORITY_HIGH)),
+                       Submission.timestamp)\
+        .all()
+
+    # Retrieve all the compilation operations for submissions
+    # already having a result for a dataset to judge.
+    to_compile += session.query(Submission)\
+        .join(Submission.task)\
+        .join(Submission.results)\
+        .join(SubmissionResult.dataset)\
+        .filter(
+            contest_filter &
+            (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
+            (FILTER_SUBMISSION_RESULTS_TO_COMPILE))\
+        .with_entities(Submission.id, Dataset.id,
+                       case([
+                           (Dataset.id != Task.active_dataset_id,
+                            literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                           (SubmissionResult.compilation_tries == 0,
+                            literal(PriorityQueue.PRIORITY_HIGH))
+                           ], else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
+                       Submission.timestamp)\
+        .all()
+
+    for data in to_compile:
+        submission_id, dataset_id, priority, timestamp = data
+        operations.append((
+            ESOperation(ESOperation.COMPILATION, submission_id, dataset_id),
+            priority, timestamp))
+
+    return operations
+
+
+def get_submission_results_to_evaluate(
+    session: Session, contest_id: int | None = None
+) -> list[SubmissionResult]:
+    """Return the submission results that still need evaluation attention.
+
+    Unlike get_submissions_operations(), this does not look at individual
+    testcases (and hence has no need, and no way, to bypass the two-phase
+    screening gate): it just identifies which (submission, dataset) pairs
+    are not fully evaluated yet, so the caller can route them through the
+    gated submission_get_operations()/submission_enqueue_operations().
+
+    session: the database session to use.
+    contest_id: the contest for which we want the results.
+        If none, get results for any contest.
+
+    return: the list of submission results in need of evaluation.
+
+    """
+    if contest_id is None:
+        contest_filter = literal(True)
+    else:
+        contest_filter = Task.contest_id == contest_id
+
+    return session.query(SubmissionResult)\
+        .join(SubmissionResult.dataset)\
+        .join(SubmissionResult.submission)\
+        .join(Submission.task)\
+        .filter(
+            contest_filter &
+            (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
+            (FILTER_SUBMISSION_RESULTS_TO_EVALUATE))\
+        .all()
+
+
 def get_user_tests_operations(
     session: Session, contest_id: int | None = None
 ) -> list[tuple["ESOperation", int, datetime]]:
