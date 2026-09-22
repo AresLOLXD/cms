@@ -55,6 +55,7 @@ contest without manually installing dependencies.
 | Rekarel | Karel compiler and interpreter bundled in the Docker image | [docs/rekarel.md](docs/rekarel.md) |
 | Ranking: flags and teams | Real Mexican state flags + automatic team registration on startup | [docs/ranking-mexico.md](docs/ranking-mexico.md) |
 | Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
+| External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it, plus optional two-phase fail-fast grading (`CMS_TWO_PHASE_EVALUATION`) that screens a few testcases per subtask before running the rest | [.env.example](.env.example) |
 
 ---
 
@@ -209,8 +210,10 @@ For more detail on each script see [docs/docker-scripts.md](docs/docker-scripts.
 ## Upstream project
 
 CMS was originally created by the cms-dev community and is used in IOI and
-many other programming contests worldwide. This fork does not modify the core
-evaluation engine, scoring system, or database schema.
+many other programming contests worldwide. This fork does not modify the
+database schema, and its one change to the evaluation engine — two-phase
+fail-fast grading — is opt-in and off by default, so grading behaves
+identically to upstream unless `CMS_TWO_PHASE_EVALUATION` is explicitly set.
 
 - **Upstream repository:** <https://github.com/cms-dev/cms>
 - **Upstream documentation:** <https://cms.readthedocs.org/>
