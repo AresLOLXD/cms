@@ -9,9 +9,16 @@ Contest Management System (CMS) is a distributed Python system for running IOI-s
 ## Commands
 
 ### Installation
+
+Use Python 3.12 (matches `.python-version` and the Docker image's base) — the
+pins in `constraints.txt` are tested against it. Other versions may not build
+(e.g. very new Pythons remove APIs some pinned dependencies still rely on).
+
 ```bash
-pip install -e ".[devel]"   # editable install with dev dependencies
-cmsInitDB                   # initialize the PostgreSQL database
+uv venv --python 3.12 .venv   # create a 3.12 venv (or use pyenv / your tool of choice)
+source .venv/bin/activate
+pip install -e ".[devel]"     # editable install with dev dependencies
+cmsInitDB                     # initialize the PostgreSQL database
 ```
 
 ### Running services
