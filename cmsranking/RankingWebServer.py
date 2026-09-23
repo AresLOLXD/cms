@@ -28,6 +28,7 @@ import re
 import shutil
 import signal
 import time
+from collections.abc import Callable
 from datetime import datetime
 
 import gevent
@@ -36,6 +37,7 @@ from werkzeug.datastructures import WWWAuthenticate
 from werkzeug.exceptions import HTTPException, BadRequest, Unauthorized, \
     Forbidden, NotFound, NotAcceptable, UnsupportedMediaType
 from werkzeug.routing import Map, Rule
+from werkzeug.utils import redirect
 from werkzeug.wrappers import Request, Response
 from werkzeug.wsgi import responder, wrap_file
 from werkzeug.middleware.shared_data import SharedDataMiddleware
@@ -44,7 +46,8 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 # Needed for initialization. Do not remove.
 import cmsranking.Logger  # noqa
 from cmscommon.eventsource import EventSource
-from cmsranking.Config import PublicConfig, load_config
+from cmscommon.ranking_groups import is_valid_group_name
+from cmsranking.Config import Config, PublicConfig, load_config
 from cmsranking.Contest import Contest
 from cmsranking.Entity import InvalidData
 from cmsranking.Scoring import ScoringStore
@@ -543,6 +546,163 @@ class RoutingHandler:
             return self.public_config_handler(environ, start_response)
 
 
+class NamespaceDispatcher:
+    """Route /<group>/... to a per-group ranking, the rest to the root.
+
+    Each group namespace is a complete, isolated ranking built by
+    app_factory over groups_dir/<group>/. Namespaces found on disk are
+    loaded at startup; a new one is created by the first authenticated
+    write (PUT or DELETE) addressed to it. Paths whose first segment is
+    not a valid group name (including reserved ones) go to the root.
+
+    """
+
+    def __init__(
+        self,
+        root_app,
+        groups_dir: str,
+        app_factory: Callable[[str], object],
+        username: str,
+        password: str,
+        realm_name: str,
+    ):
+        self.root_app = root_app
+        self.groups_dir = groups_dir
+        self.app_factory = app_factory
+        self.username = username
+        self.password = password
+        self.realm_name = realm_name
+        self.apps: dict[str, object] = dict()
+
+        os.makedirs(groups_dir, exist_ok=True)
+        for name in sorted(os.listdir(groups_dir)):
+            path = os.path.join(groups_dir, name)
+            if is_valid_group_name(name) and os.path.isdir(path):
+                self.apps[name] = app_factory(path)
+
+    def authorized(self, request: Request) -> bool:
+        return request.authorization is not None and \
+            request.authorization.type == "basic" and \
+            request.authorization.username == self.username and \
+            request.authorization.password == self.password
+
+    def __call__(self, environ, start_response):
+        path: str = environ.get("PATH_INFO", "")
+        name, slash, rest = path.lstrip("/").partition("/")
+        if not is_valid_group_name(name):
+            return self.root_app(environ, start_response)
+
+        app = self.apps.get(name)
+        if app is None:
+            request = Request(environ)
+            if request.method not in ("PUT", "DELETE"):
+                return NotFound()(environ, start_response)
+            if not self.authorized(request):
+                return CustomUnauthorized(self.realm_name)(
+                    environ, start_response)
+            logger.info("Creating ranking namespace %s.", name)
+            app = self.app_factory(os.path.join(self.groups_dir, name))
+            self.apps[name] = app
+
+        script_name = environ.get("SCRIPT_NAME", "") + "/" + name
+        if not slash:
+            return redirect(script_name + "/", code=301)(
+                environ, start_response)
+
+        environ["SCRIPT_NAME"] = script_name
+        environ["PATH_INFO"] = "/" + rest
+        return app(environ, start_response)
+
+
+def build_ranking_app(config: Config, lib_dir: str, web_dir: str):
+    """Build the WSGI app serving one ranking stored in lib_dir.
+
+    config: the RWS configuration (credentials, buffer size, public
+        settings).
+    lib_dir: the directory holding this ranking's data.
+    web_dir: the directory with the static frontend files.
+
+    return: the WSGI application.
+
+    """
+    os.makedirs(lib_dir, exist_ok=True)
+
+    stores: dict[str, Store] = dict()
+
+    stores["subchange"] = Store(
+        Subchange, os.path.join(lib_dir, 'subchanges'), stores)
+    stores["submission"] = Store(
+        Submission, os.path.join(lib_dir, 'submissions'), stores,
+        [stores["subchange"]])
+    stores["user"] = Store(
+        User, os.path.join(lib_dir, 'users'), stores,
+        [stores["submission"]])
+    stores["team"] = Store(
+        Team, os.path.join(lib_dir, 'teams'), stores,
+        [stores["user"]])
+    stores["task"] = Store(
+        Task, os.path.join(lib_dir, 'tasks'), stores,
+        [stores["submission"]])
+    stores["contest"] = Store(
+        Contest, os.path.join(lib_dir, 'contests'), stores,
+        [stores["task"]])
+
+    stores["contest"].load_from_disk()
+    stores["task"].load_from_disk()
+    stores["team"].load_from_disk()
+    stores["user"].load_from_disk()
+    stores["submission"].load_from_disk()
+    stores["subchange"].load_from_disk()
+
+    seed_flags_and_teams(lib_dir, stores["team"])
+    seed_logo(lib_dir)
+    seed_faces(lib_dir)
+
+    stores["scoring"] = ScoringStore(stores)
+    stores["scoring"].init_store()
+
+    toplevel_handler = RoutingHandler(
+        RootHandler(web_dir),
+        DataWatcher(stores, config.buffer_size),
+        ImageHandler(
+            os.path.join(lib_dir, '%(name)s'),
+            os.path.join(web_dir, 'img', 'logo.png')),
+        ScoreHandler(stores),
+        HistoryHandler(stores),
+        PublicConfigHandler(config.public))
+
+    wsgi_app = SharedDataMiddleware(DispatcherMiddleware(
+        toplevel_handler, {
+            '/contests': StoreHandler(
+                stores["contest"],
+                config.username, config.password, config.realm_name),
+            '/tasks': StoreHandler(
+                stores["task"],
+                config.username, config.password, config.realm_name),
+            '/teams': StoreHandler(
+                stores["team"],
+                config.username, config.password, config.realm_name),
+            '/users': StoreHandler(
+                stores["user"],
+                config.username, config.password, config.realm_name),
+            '/submissions': StoreHandler(
+                stores["submission"],
+                config.username, config.password, config.realm_name),
+            '/subchanges': StoreHandler(
+                stores["subchange"],
+                config.username, config.password, config.realm_name),
+            '/faces': ImageHandler(
+                os.path.join(lib_dir, 'faces', '%(name)s'),
+                os.path.join(web_dir, 'img', 'face.png')),
+            '/flags': ImageHandler(
+                os.path.join(lib_dir, 'flags', '%(name)s'),
+                os.path.join(web_dir, 'img', 'flag.png')),
+            '/sublist': SubListHandler(stores),
+        }), {'/': web_dir})
+
+    return wsgi_app
+
+
 def main() -> int:
     """Entry point for RWS.
 
@@ -580,78 +740,12 @@ def main() -> int:
             print("Not removing directory %s." % config.lib_dir)
         return 0
 
-    stores: dict[str, Store] = dict()
+    def make_app(lib_dir: str):
+        return build_ranking_app(config, lib_dir, web_dir)
 
-    stores["subchange"] = Store(
-        Subchange, os.path.join(config.lib_dir, 'subchanges'), stores)
-    stores["submission"] = Store(
-        Submission, os.path.join(config.lib_dir, 'submissions'), stores,
-        [stores["subchange"]])
-    stores["user"] = Store(
-        User, os.path.join(config.lib_dir, 'users'), stores,
-        [stores["submission"]])
-    stores["team"] = Store(
-        Team, os.path.join(config.lib_dir, 'teams'), stores,
-        [stores["user"]])
-    stores["task"] = Store(
-        Task, os.path.join(config.lib_dir, 'tasks'), stores,
-        [stores["submission"]])
-    stores["contest"] = Store(
-        Contest, os.path.join(config.lib_dir, 'contests'), stores,
-        [stores["task"]])
-
-    stores["contest"].load_from_disk()
-    stores["task"].load_from_disk()
-    stores["team"].load_from_disk()
-    stores["user"].load_from_disk()
-    stores["submission"].load_from_disk()
-    stores["subchange"].load_from_disk()
-
-    seed_flags_and_teams(config.lib_dir, stores["team"])
-    seed_logo(config.lib_dir)
-    seed_faces(config.lib_dir)
-
-    stores["scoring"] = ScoringStore(stores)
-    stores["scoring"].init_store()
-
-    toplevel_handler = RoutingHandler(
-        RootHandler(web_dir),
-        DataWatcher(stores, config.buffer_size),
-        ImageHandler(
-            os.path.join(config.lib_dir, '%(name)s'),
-            os.path.join(web_dir, 'img', 'logo.png')),
-        ScoreHandler(stores),
-        HistoryHandler(stores),
-        PublicConfigHandler(config.public))
-
-    wsgi_app = SharedDataMiddleware(DispatcherMiddleware(
-        toplevel_handler, {
-            '/contests': StoreHandler(
-                stores["contest"],
-                config.username, config.password, config.realm_name),
-            '/tasks': StoreHandler(
-                stores["task"],
-                config.username, config.password, config.realm_name),
-            '/teams': StoreHandler(
-                stores["team"],
-                config.username, config.password, config.realm_name),
-            '/users': StoreHandler(
-                stores["user"],
-                config.username, config.password, config.realm_name),
-            '/submissions': StoreHandler(
-                stores["submission"],
-                config.username, config.password, config.realm_name),
-            '/subchanges': StoreHandler(
-                stores["subchange"],
-                config.username, config.password, config.realm_name),
-            '/faces': ImageHandler(
-                os.path.join(config.lib_dir, 'faces', '%(name)s'),
-                os.path.join(web_dir, 'img', 'face.png')),
-            '/flags': ImageHandler(
-                os.path.join(config.lib_dir, 'flags', '%(name)s'),
-                os.path.join(web_dir, 'img', 'flag.png')),
-            '/sublist': SubListHandler(stores),
-        }), {'/': web_dir})
+    wsgi_app = NamespaceDispatcher(
+        make_app(config.lib_dir), os.path.join(config.lib_dir, "groups"),
+        make_app, config.username, config.password, config.realm_name)
 
     servers: list[WSGIServer] = list()
     if config.http_port is not None:
