@@ -101,6 +101,33 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
         raise CannotSendError(msg)
 
 
+def safe_delete_data(ranking: str, resource: str, operation: str):
+    """Delete a whole resource list from ranking using a DELETE request.
+
+    ranking: the URL of ranking server.
+    resource: the relative path of the entity list.
+    operation: a human-readable description of the operation
+        we're performing (to produce log messages).
+
+    raise (CannotSendError): in case of communication errors.
+
+    """
+    try:
+        url = urljoin(ranking, resource)
+        auth = urlsplit(url)
+        res = requests.delete(url,
+                              auth=(auth.username, auth.password),
+                              verify=config.proxy_service.https_certfile)
+    except requests.exceptions.RequestException as error:
+        msg = "%s while %s: %s." % (type(error).__name__, operation, error)
+        logger.warning(msg)
+        raise CannotSendError(msg)
+    if 400 <= res.status_code < 600:
+        msg = "Status %s while %s." % (res.status_code, operation)
+        logger.warning(msg)
+        raise CannotSendError(msg)
+
+
 def safe_url(url: str) -> str:
     """Return a sanitized URL without sensitive information.
 
@@ -116,17 +143,26 @@ def safe_url(url: str) -> str:
 
 class ProxyOperation(QueueItem):
 
-    def __init__(self, type_: int, data: dict):
+    def __init__(self, type_: int, data: dict, group: str | None = None):
+        """Create an operation for the ranking namespace of group.
+
+        type_: one of ProxyExecutor's *_TYPE constants.
+        data: the entities to send, by id (empty for a reset).
+        group: the ranking group namespace, or None for the root.
+
+        """
         self.type_ = type_
         self.data = data
+        self.group = group
 
     def __str__(self):
-        return "sending data of type %s to ranking" % (
-            self.type_)
+        return "sending data of type %s to ranking %s" % (
+            self.type_, self.group if self.group is not None else "(root)")
 
     def to_dict(self):
         return {"type": self.type_,
-                "data": self.data}
+                "data": self.data,
+                "group": self.group}
 
 
 class ProxyExecutor(Executor[ProxyOperation]):
@@ -166,6 +202,13 @@ class ProxyExecutor(Executor[ProxyOperation]):
     # How many different entity types we know about.
     TYPE_COUNT = len(RESOURCE_PATHS)
 
+    # Pseudo-type of an operation that empties a ranking namespace.
+    # Deleting contests and users is enough: RWS cascades to tasks,
+    # submissions and subchanges. Teams are kept because RWS seeds them
+    # at startup; leftover teams are harmless.
+    RESET_TYPE = TYPE_COUNT
+    RESET_RESOURCE_PATHS = ["contests", "users"]
+
     # How long we wait after having failed to push data to a ranking
     # before trying again.
     FAILURE_WAIT = 60.0
@@ -182,6 +225,11 @@ class ProxyExecutor(Executor[ProxyOperation]):
 
         self._ranking = ranking
         self._visible_ranking = safe_url(ranking)
+
+    @staticmethod
+    def _prefix(group: str | None) -> str:
+        """Return the resource path prefix of a ranking namespace."""
+        return "" if group is None else "%s/" % group
 
     def execute(self, entries: list[QueueEntry[ProxyOperation]]):
         """Consume (i.e. send) the data put in the queue, forever.
@@ -201,26 +249,48 @@ class ProxyExecutor(Executor[ProxyOperation]):
 
         """
         # The cumulative data that we will try to send to the ranking,
-        # built by combining items in the queue.
-        data = list(dict() for i in range(self.TYPE_COUNT))
+        # per namespace (None is the root), built by combining items in
+        # the queue.
+        data: dict[str | None, list[dict]] = dict()
+        # Namespaces to empty before sending data, in arrival order.
+        resets: list[str | None] = list()
 
         for entry in entries:
-            data[entry.item.type_].update(entry.item.data)
+            item = entry.item
+            if item.type_ == self.RESET_TYPE:
+                # Data queued before the reset is obsolete.
+                data.pop(item.group, None)
+                if item.group not in resets:
+                    resets.append(item.group)
+            else:
+                group_data = data.setdefault(
+                    item.group, list(dict() for i in range(self.TYPE_COUNT)))
+                group_data[item.type_].update(item.data)
 
         try:
-            for i in range(self.TYPE_COUNT):
-                # Send entities of type i.
-                if len(data[i]) > 0:
-                    # We abuse the resource path as the English
-                    # (plural) name for the entity type.
-                    name = self.RESOURCE_PATHS[i]
-                    operation = "sending %s to ranking %s" % (
-                                    name, self._visible_ranking)
-
+            for group in resets:
+                for name in self.RESET_RESOURCE_PATHS:
+                    operation = "deleting %s from ranking %s%s" % (
+                        name, self._visible_ranking, self._prefix(group))
                     logger.debug(operation.capitalize())
-                    safe_put_data(
-                        self._ranking, "%s/" % name, data[i], operation)
-                    data[i].clear()
+                    safe_delete_data(self._ranking, "%s%s/" % (
+                        self._prefix(group), name), operation)
+
+            for group, group_data in data.items():
+                for i in range(self.TYPE_COUNT):
+                    # Send entities of type i.
+                    if len(group_data[i]) > 0:
+                        # We abuse the resource path as the English
+                        # (plural) name for the entity type.
+                        name = self.RESOURCE_PATHS[i]
+                        operation = "sending %s to ranking %s%s" % (
+                            name, self._visible_ranking, self._prefix(group))
+
+                        logger.debug(operation.capitalize())
+                        safe_put_data(
+                            self._ranking, "%s%s/" % (
+                                self._prefix(group), name),
+                            group_data[i], operation)
 
         except CannotSendError:
             # A log message has already been produced.
