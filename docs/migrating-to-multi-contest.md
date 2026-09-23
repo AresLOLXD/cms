@@ -36,6 +36,9 @@ The database schema is updated automatically when the stack starts (the
 `db-init` container adds the `ranking_groups` table and the new contest
 columns). Existing contests start as **inactive** and without a ranking group;
 nothing changes for contestants until you switch to `CMS_CONTEST_ID=ALL`.
+If stack A **already** runs with `CMS_CONTEST_ID=ALL`, its contest list is
+empty right after the update: tick **Active** on its contests in the Admin
+Web Server straight away.
 Check `./logs.sh` for errors before continuing.
 
 ## 3. Bring stack B's contests into stack A

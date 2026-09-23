@@ -69,6 +69,10 @@ contest that should not be there), go to **Ranking groups** and press
 sent again; it refills within seconds. This replaces the old
 `clear-ranking.sh` script.
 
+Also press **Regenerate** on the affected ranking groups if ProxyService, its
+container or the host restarted around the time contests were moved between
+ranking groups: the change may not have reached the scoreboards.
+
 The **Root ranking** row is the scoreboard at `/`. It is only used when a
 single contest is served (`CMS_CONTEST_ID=<id>`). After switching to
 `CMS_CONTEST_ID=ALL`, regenerate it once to clear the old data.
