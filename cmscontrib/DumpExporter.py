@@ -70,6 +70,7 @@ from cms.db import (
     UserTestResult,
     Announcement,
     Participation,
+    RankingGroup,
     Base,
     enumerate_files,
 )
@@ -345,6 +346,13 @@ class DumpExporter:
 
         for prp in cls._rel_props:
             other_cls = prp.mapper.class_
+
+            # Ranking group assignment is local, admin-configured state in
+            # each deployment; it must never travel with an exported contest,
+            # or importing into a DB that already has a group of that name
+            # would violate the group's unique name constraint.
+            if other_cls is RankingGroup:
+                continue
 
             # Skip submissions if requested
             if self.skip_submissions and other_cls is Submission:
