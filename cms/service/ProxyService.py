@@ -45,6 +45,7 @@ from cms.db import SessionGen, Session, Contest, Participation, Task, \
 from cms.io import Executor, QueueItem, TriggeredService, rpc_method
 from cms.io.priorityqueue import QueueEntry
 from cmscommon.datetime import make_timestamp
+from cmscommon.ranking_groups import is_valid_group_name
 
 
 logger = logging.getLogger(__name__)
@@ -675,7 +676,14 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         group: the ranking group whose namespace to regenerate, or None
             for the root namespace.
 
+        raise (ValueError): if group is not a valid group name.
+
         """
+        if group is not None and (
+                not isinstance(group, str) or not is_valid_group_name(group)):
+            logger.error("Received request to regenerate invalid ranking "
+                         "group %r.", group)
+            raise ValueError("Invalid ranking group name.")
         logger.info("Regenerating ranking %s.",
                     group if group is not None else "(root)")
         self.enqueue(ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))

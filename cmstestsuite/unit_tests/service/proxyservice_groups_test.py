@@ -272,6 +272,16 @@ class TestProxyServiceGroups(DatabaseMixin, unittest.TestCase):
         self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
                          {"%d" % self.sub_a.id})
 
+    def test_regenerate_rejects_invalid_group(self):
+        service = self.start()
+        self.clear_requests()
+        for group in ["..", "olim/..", "", "users", 1]:
+            with self.assertRaises(ValueError):
+                service.regenerate_ranking(group)
+        gevent.sleep(0.1)
+        self.assertEqual(self.delete_urls(), [])
+        self.assertEqual(self.put_urls(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
