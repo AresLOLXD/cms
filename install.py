@@ -91,6 +91,12 @@ def create_venv() -> None:
     if (target_path / 'bin/python').is_file():
         verbose("Python virtual environment already exists")
     else:
+        if sys.version_info[:2] != (3, 12):
+            print('WARNING: this venv is being created with Python %d.%d, '
+                 'but constraints.txt is only tested against 3.12 (the '
+                 'version used in Docker). Some pinned dependencies may '
+                 'fail to install or import.'
+                 % sys.version_info[:2])
         progress("Creating Python virtual environment")
         venv.create(str(target_path), symlinks=True, with_pip=True, prompt=target_path.name)
         subprocess.run(
