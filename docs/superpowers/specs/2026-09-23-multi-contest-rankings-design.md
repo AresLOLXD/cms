@@ -105,7 +105,9 @@ Schema change (see §6 for migration).
 | `active` | Boolean, not null | `false` | Listed/served by CWS in multi-contest mode |
 | `ranking_group_id` | Integer FK → `ranking_groups.id`, nullable, `ON UPDATE CASCADE ON DELETE SET NULL`, indexed | `NULL` | Ranking this contest is sent to; `NULL` = none |
 
-Relationship `Contest.ranking_group` ↔ `RankingGroup.contests`. Several
+Relationship `Contest.ranking_group` only (no `RankingGroup.contests`
+backref): `DumpExporter` follows every relationship, so a backref would make
+exporting contest A also export contest B when both share a group. Several
 contests may share a group (e.g. day 1 + day 2 summed in one scoreboard).
 
 **`active` and `ranking_group_id` are independent.** `active` only controls
@@ -183,13 +185,18 @@ removed. On `reinitialize()` in group mode:
 
 1. Compute the new mapping from the DB.
 2. For each group that **lost** a contest, or no longer exists, enqueue a
-   `RESET` operation for that group: `DELETE` on `contests/`, `users/` and
-   `teams/` of the namespace. RWS stores already cascade to tasks,
-   submissions and subchanges.
-3. Clear `scores_sent_to_rankings` / `tokens_sent_to_rankings` for affected
-   contests, then enqueue the full data again (as `initialize()` does).
+   `RESET` operation for that group: `DELETE` on `contests/` and `users/`
+   of the namespace. RWS stores already cascade to tasks, submissions and
+   subchanges. `teams/` is not deleted: RWS seeds teams (Mexican states) at
+   startup and deleting them would drop the seeded ones until a restart;
+   leftover teams are harmless because the scoreboard only lists users.
+3. Enqueue the full data again (as `initialize()` does) and, for the reset
+   groups, every scored/tokened submission of their contests, bypassing
+   `scores_sent_to_rankings` / `tokens_sent_to_rankings`.
 
-Within one executor batch, `RESET`s are applied before `PUT`s. Ordinary
+Within one executor batch, a `RESET` for a group discards any data for that
+group accumulated earlier in the same batch, and `RESET`s are sent before
+`PUT`s. Ordinary
 edits (task renamed, user added, contest added to a group) only merge and
 never empty the scoreboard. A composition change briefly empties the
 affected scoreboard; this happens during setup, not during an exam.
@@ -204,10 +211,9 @@ out of sync with the DB:
 
 1. Enqueue a `RESET` for the namespace (`group`), or for the root when
    `group is None`.
-2. Clear `scores_sent_to_rankings` / `tokens_sent_to_rankings` for the
-   contests sent to that namespace.
-3. Immediately enqueue the full data for that namespace (contest, teams,
-   users, tasks, scores, tokens), without waiting for the sweeper.
+2. Immediately enqueue the full data for that namespace (contest, teams,
+   users, tasks, and every scored/tokened submission), bypassing the
+   sent-sets and without waiting for the sweeper.
 
 Which contests belong to a namespace: in group mode, the contests of that
 group (root → none, so regenerating the root in group mode leaves it empty,
@@ -244,19 +250,23 @@ With `-c N` the `active` flag is ignored.
 
 ### 6. Database migration (automatic)
 
-- New `cmscontrib/updaters/update_fork_multi_contest.sql`, idempotent:
+- New `cmscontrib/updaters/fork_multi_contest.py` holding the SQL as a
+  constant `FORK_MULTI_CONTEST_SQL` (Docker installs CMS non-editable and
+  `setup.py` does not package `.sql` files, so a Python constant is the
+  reliable way to ship it). Idempotent:
+  `CREATE TABLE IF NOT EXISTS ranking_groups …`,
   `ALTER TABLE contests ADD COLUMN IF NOT EXISTS active …`,
   `ADD COLUMN IF NOT EXISTS ranking_group_id …`, the FK constraint and index
   guarded by existence checks. Kept separate from upstream's
   `update_from_1.5.sql` to avoid conflicts in `sync-upstream`.
 - `cmscontrib/SetupDB.py::setup_db()` applies it right after `init_db()`
-  (which already creates `ranking_groups` via `create_all`, so the FK target
-  exists). Upgrading a Docker deployment is therefore `pull` + `up`; the
+  (which already creates `ranking_groups` via `create_all`; the SQL also
+  creates it so it works on its own from a v1.5 schema). Upgrading a Docker deployment is therefore `pull` + `up`; the
   `db-init` container runs `cmsSetupDB`.
 - Existing contests get `active = false` and no group. In `ALL` mode the
   operator must activate them; `-c N` deployments are unaffected.
 - `cmstestsuite/unit_tests/schema_diff_test.py` is adjusted to apply the
-  fork SQL after `update_from_1.5.sql`, so the "fresh install == upgraded
+  fork SQL constant after `update_from_1.5.sql`, so the "fresh install == upgraded
   install" check still holds.
 - **Dumps:** the plan must verify that `cmsDumpImporter` accepts dumps
   exported before this change (missing `active` / `ranking_group`) and fills
