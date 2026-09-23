@@ -73,7 +73,7 @@ before it:
 | 3 | `cms/server/` | 76 | AWS + CWS handlers. Largest single package. |
 | 4 | `cms/grading/` | 1 | Trivial, folded into the same pass as `cms/server/` or done on its own — implementer's call given it's one call site. |
 | 5 | `cmscontrib/` | 58 | Import/export/admin CLI scripts. |
-| 6 | `cmstestsuite/` | 30 | Test fixtures and helpers, primarily `cmstestsuite/unit_tests/databasemixin.py`. Updated **alongside** the package whose tests they support, not as a separate final pass — a package's own tests must already speak 2.0-style by the time that package's migration is verified, so `databasemixin.py`'s shared helpers (used by every DB-backed test in the suite) are updated as part of pass 1 (`cms/db/`), since they're exercised starting there. Package-specific test files (e.g. `ProxyServiceTest.py`) are updated in the same pass as the package they test.
+| 6 | `cmstestsuite/` | 30 | Test files with their own `.query(` calls: 27 across 12 files under `cmstestsuite/unit_tests/cmscontrib/`, 3 across 2 files under `cmstestsuite/unit_tests/server/contest/`. (`cmstestsuite/unit_tests/databasemixin.py`, the shared DB-test fixture, has zero `.query(` calls of its own — confirmed directly — so it needs no migration.) Each test file is updated in the same pass as the production package it tests: the `server/contest/` test files in pass 3 (`cms/server/`), the `cmscontrib/` test files in pass 4 (`cmscontrib/`).
 
 Total: 158 production call sites + 30 test call sites = 188 (the 189th
 match from the original grep was `cmsranking/Scoring.py`, confirmed
