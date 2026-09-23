@@ -16,7 +16,7 @@ For each stack, while it is running:
 
     # Database (local Docker database, --profile localdb)
     source .env
-    docker compose -f docker/docker-compose.prod.yml --env-file .env \
+    docker compose -f docker/docker-compose.prod.yml --env-file .env --profile localdb \
       -p "$CMS_PROJECT_NAME" exec -T db \
       pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup-$(date +%F).sql
 
@@ -45,7 +45,7 @@ Check `./logs.sh` for errors before continuing.
 
        # in each stack's directory (use its own .env)
        source .env
-       docker compose -f docker/docker-compose.prod.yml --env-file .env \
+       docker compose -f docker/docker-compose.prod.yml --env-file .env --profile localdb \
          -p "$CMS_PROJECT_NAME" exec -T db psql -U "$POSTGRES_USER" \
          "$POSTGRES_DB" -Atc "SELECT username FROM users ORDER BY 1" > users.txt
 
