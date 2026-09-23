@@ -56,6 +56,7 @@ contest without manually installing dependencies.
 | Ranking: flags and teams | Real Mexican state flags + automatic team registration on startup | [docs/ranking-mexico.md](docs/ranking-mexico.md) |
 | Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
 | External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it, plus optional two-phase fail-fast grading (`CMS_TWO_PHASE_EVALUATION`) that screens a few testcases per subtask before running the rest | [.env.example](.env.example) |
+| Several contests at once | `CMS_CONTEST_ID=ALL` serves every active contest; each ranking group gets its own scoreboard at `/<group>/`, managed and regenerated from the Admin Web Server | [docs/multi-contest.md](docs/multi-contest.md), [migration guide](docs/migrating-to-multi-contest.md) |
 
 ---
 
@@ -98,7 +99,7 @@ in the values marked `CHANGE_ME`:
 | `POSTGRES_PASSWORD` | Password for the Docker-managed PostgreSQL database (required for Option A). Must match the password in `CMS_DB_URL`. |
 | `CMS_ADMIN_USER` | Username for the initial admin account created on first run. Can be removed after the first deploy. |
 | `CMS_ADMIN_PASSWORD` | Password for the initial admin account created on first run. Can be removed after the first deploy. |
-| `CMS_CONTEST_ID` | The numeric ID of the contest to serve. You get this from the Admin interface after importing a contest — set it then and restart. |
+| `CMS_CONTEST_ID` | The numeric ID of the contest to serve, or `ALL` to serve every active contest at once (see [docs/multi-contest.md](docs/multi-contest.md)). You get the ID from the Admin interface after importing a contest — set it then and restart. |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
