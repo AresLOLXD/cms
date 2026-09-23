@@ -230,7 +230,10 @@ def generate_supervisord_conf() -> str:
 
     blocks.append(program("cmsadminwebserver", "cmsAdminWebServer 0", 60))
 
-    if telegram_configured:
+    if telegram_configured and contest_id == "ALL":
+        print("WARNING: the Telegram bot serves a single contest and is not "
+              "started when CMS_CONTEST_ID=ALL.", file=sys.stderr)
+    elif telegram_configured:
         blocks.append(
             program("cmstelegrambot", f"cmsTelegramBot 0 -c {contest_id}", 65)
         )

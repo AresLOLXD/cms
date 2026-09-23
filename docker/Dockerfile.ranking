@@ -37,6 +37,9 @@ COPY --chown=cmsuser:cmsuser . /home/cmsuser/src
 # --skip-isolate: cmsRankingWebServer never runs sandboxed code, isolate is not installed here.
 RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py --skip-isolate cms
 
+# Created as cmsuser so the named volume mounted here inherits the ownership.
+RUN mkdir -p /home/cmsuser/cms/lib/ranking
+
 COPY --chown=cmsuser:cmsuser docker/generate_config.py /home/cmsuser/generate_config.py
 COPY --chown=cmsuser:cmsuser docker/entrypoint.sh /home/cmsuser/entrypoint.sh
 RUN chmod +x /home/cmsuser/entrypoint.sh

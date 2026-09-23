@@ -75,6 +75,8 @@ services:
     ports:
       - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
     restart: unless-stopped
+    volumes:
+      - cms-ranking-data:/home/cmsuser/cms/lib/ranking
     logging:
       driver: "json-file"
       options:
@@ -128,3 +130,4 @@ volumes:
   cms-data:
   cms-logs:
   cms-cache:
+  cms-ranking-data:

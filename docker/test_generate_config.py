@@ -281,3 +281,14 @@ def test_ranking_only_mode_skips_supervisord(monkeypatch, tmp_path):
     monkeypatch.delenv("CMS_SECRET_KEY", raising=False)
     gc.main()
     assert not (tmp_path / "supervisord.conf").exists()
+
+
+def test_supervisord_no_telegram_bot_when_all(monkeypatch, capsys):
+    _set(monkeypatch, {
+        "CMS_CONTEST_ID": "ALL",
+        "CMS_TELEGRAM_BOT_TOKEN": "123456:ABC-DEF",
+        "CMS_TELEGRAM_CHAT_ID": "-1001234567890",
+    })
+    conf = gc.generate_supervisord_conf()
+    assert "cmstelegrambot" not in conf
+    assert "Telegram bot" in capsys.readouterr().err
