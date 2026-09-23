@@ -40,8 +40,8 @@ import requests.exceptions
 from sqlalchemy import not_
 
 from cms import config
-from cms.db import SessionGen, Contest, Participation, Task, Submission, \
-    get_submissions
+from cms.db import SessionGen, Session, Contest, Participation, Task, \
+    Submission, get_submissions
 from cms.io import Executor, QueueItem, TriggeredService, rpc_method
 from cms.io.priorityqueue import QueueEntry
 from cmscommon.datetime import make_timestamp
@@ -318,18 +318,20 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
     """
 
-    def __init__(self, shard: int, contest_id: int):
+    def __init__(self, shard: int, contest_id: int | None = None):
         """Start the service with the given parameters.
 
         Create an instance of the ProxyService and make it listen on
-        the address corresponding to the given shard. Tell it to
-        manage data for the contest with the given ID.
+        the address corresponding to the given shard.
 
         shard: the shard of the service, i.e. this instance
             corresponds to the shard-th entry in the list of addresses
             (hostname/port pairs) for this kind of service in the
             configuration file.
-        contest_id: the ID of the contest to manage.
+        contest_id: the ID of the only contest to send to the root of
+            the rankings (legacy mode), or None to send every contest
+            that has a ranking group to its group's namespace (group
+            mode).
 
         """
         super().__init__(shard)
@@ -340,6 +342,13 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         # sending it twice.
         self.scores_sent_to_rankings: set[int] = set()
         self.tokens_sent_to_rankings: set[int] = set()
+
+        # Last known mapping from ranking group name to the IDs of its
+        # contests (always empty in legacy mode), used by reinitialize
+        # to find groups that lost contests and must be reset.
+        self._group_contests: dict[str, set[int]] = dict()
+        with SessionGen() as session:
+            self._group_contests = self._compute_group_contests(session)
 
         # Create one executor for each ranking.
         self.rankings = list()
@@ -354,35 +363,95 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
         self.start_sweeper(347.0)
 
+    def _is_sent(self, contest: Contest) -> bool:
+        """Return whether the data of contest goes to a ranking."""
+        if self.contest_id is not None:
+            return contest.id == self.contest_id
+        return contest.ranking_group is not None
+
+    def _group_of(self, contest: Contest) -> str | None:
+        """Return the namespace contest is sent to (None is the root).
+
+        contest: a contest for which _is_sent is True.
+
+        """
+        if self.contest_id is not None:
+            return None
+        return contest.ranking_group.name
+
+    def _contests_to_send(self, session: Session) -> list[Contest]:
+        """Return the contests whose data goes to the rankings.
+
+        raise (KeyError): in legacy mode, if the contest does not exist.
+
+        """
+        if self.contest_id is not None:
+            contest = Contest.get_from_id(self.contest_id, session)
+            if contest is None:
+                logger.error("Received request for unexistent contest "
+                             "id %s.", self.contest_id)
+                raise KeyError("Contest not found.")
+            return [contest]
+        return session.query(Contest)\
+            .filter(Contest.ranking_group_id.isnot(None))\
+            .order_by(Contest.id).all()
+
+    def _compute_group_contests(self, session: Session) -> dict[str, set[int]]:
+        """Return the current mapping from group name to contest IDs."""
+        mapping: dict[str, set[int]] = dict()
+        if self.contest_id is None:
+            for contest in self._contests_to_send(session):
+                mapping.setdefault(
+                    contest.ranking_group.name, set()).add(contest.id)
+        return mapping
+
+    def _enqueue_submissions(
+        self, session: Session, contest: Contest, only_missing: bool
+    ) -> int:
+        """Enqueue the scores and tokens of the submissions of contest.
+
+        only_missing: if True, skip what was already sent.
+
+        return: the number of operations enqueued.
+
+        """
+        counter = 0
+        submissions = get_submissions(session, contest_id=contest.id) \
+            .filter(not_(Participation.hidden)) \
+            .filter(Submission.official).all()
+
+        for submission in submissions:
+            # The submission result can be None if the dataset has
+            # been just made live.
+            sr = submission.get_result()
+            if sr is None:
+                continue
+
+            if sr.scored() and not (
+                    only_missing and
+                    submission.id in self.scores_sent_to_rankings):
+                for operation in self.operations_for_score(submission):
+                    self.enqueue(operation)
+                    counter += 1
+
+            if submission.tokened() and not (
+                    only_missing and
+                    submission.id in self.tokens_sent_to_rankings):
+                for operation in self.operations_for_token(submission):
+                    self.enqueue(operation)
+                    counter += 1
+
+        return counter
+
     def _missing_operations(self):
         """Return a generator of data to be sent to the rankings..
 
         """
         counter = 0
         with SessionGen() as session:
-            submissions = get_submissions(session, contest_id=self.contest_id) \
-                .filter(not_(Participation.hidden)) \
-                .filter(Submission.official).all()
-
-            for submission in submissions:
-                # The submission result can be None if the dataset has
-                # been just made live.
-                sr = submission.get_result()
-                if sr is None:
-                    continue
-
-                if sr.scored() and \
-                        submission.id not in self.scores_sent_to_rankings:
-                    for operation in self.operations_for_score(submission):
-                        self.enqueue(operation)
-                        counter += 1
-
-                if submission.tokened() and \
-                        submission.id not in self.tokens_sent_to_rankings:
-                    for operation in self.operations_for_token(submission):
-                        self.enqueue(operation)
-                        counter += 1
-
+            for contest in self._contests_to_send(session):
+                counter += self._enqueue_submissions(
+                    session, contest, only_missing=True)
         return counter
 
     def initialize(self):
@@ -398,58 +467,59 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         logger.info("Initializing rankings.")
 
         with SessionGen() as session:
-            contest: Contest = Contest.get_from_id(self.contest_id, session)
+            for contest in self._contests_to_send(session):
+                self._enqueue_contest_data(contest)
 
-            if contest is None:
-                logger.error("Received request for unexistent contest "
-                             "id %s.", self.contest_id)
-                raise KeyError("Contest not found.")
+    def _enqueue_contest_data(self, contest: Contest):
+        """Enqueue the contest, its users, teams and tasks.
 
-            contest_id = encode_id(contest.name)
-            contest_data = {
-                "name": contest.description,
-                "begin": int(make_timestamp(contest.main_group.start)),
-                "end": int(make_timestamp(contest.main_group.stop)),
-                "score_precision": contest.score_precision}
+        """
+        group = self._group_of(contest)
+        contest_id = encode_id(contest.name)
+        contest_data = {
+            "name": contest.description,
+            "begin": int(make_timestamp(contest.main_group.start)),
+            "end": int(make_timestamp(contest.main_group.stop)),
+            "score_precision": contest.score_precision}
 
-            users = dict()
-            teams = dict()
+        users = dict()
+        teams = dict()
 
-            for participation in contest.participations:
-                user = participation.user
-                team = participation.team
-                if not participation.hidden:
-                    users[encode_id(user.username)] = {
-                        "f_name": user.first_name,
-                        "l_name": user.last_name,
-                        "team": encode_id(team.code)
-                                if team is not None else None,
-                    }
-                    if team is not None:
-                        teams[encode_id(team.code)] = {
-                            "name": team.name
-                        }
-
-            tasks = dict()
-
-            for task in contest.tasks:
-                score_type = task.active_dataset.score_type_object
-                tasks[encode_id(task.name)] = {
-                    "short_name": task.name,
-                    "name": task.title,
-                    "contest": encode_id(contest.name),
-                    "order": task.num,
-                    "max_score": score_type.max_score,
-                    "extra_headers": score_type.ranking_headers,
-                    "score_precision": task.score_precision,
-                    "score_mode": task.score_mode,
+        for participation in contest.participations:
+            user = participation.user
+            team = participation.team
+            if not participation.hidden:
+                users[encode_id(user.username)] = {
+                    "f_name": user.first_name,
+                    "l_name": user.last_name,
+                    "team": encode_id(team.code)
+                            if team is not None else None,
                 }
+                if team is not None:
+                    teams[encode_id(team.code)] = {
+                        "name": team.name
+                    }
+
+        tasks = dict()
+
+        for task in contest.tasks:
+            score_type = task.active_dataset.score_type_object
+            tasks[encode_id(task.name)] = {
+                "short_name": task.name,
+                "name": task.title,
+                "contest": encode_id(contest.name),
+                "order": task.num,
+                "max_score": score_type.max_score,
+                "extra_headers": score_type.ranking_headers,
+                "score_precision": task.score_precision,
+                "score_mode": task.score_mode,
+            }
 
         self.enqueue(ProxyOperation(ProxyExecutor.CONTEST_TYPE,
-                                    {contest_id: contest_data}))
-        self.enqueue(ProxyOperation(ProxyExecutor.TEAM_TYPE, teams))
-        self.enqueue(ProxyOperation(ProxyExecutor.USER_TYPE, users))
-        self.enqueue(ProxyOperation(ProxyExecutor.TASK_TYPE, tasks))
+                                    {contest_id: contest_data}, group))
+        self.enqueue(ProxyOperation(ProxyExecutor.TEAM_TYPE, teams, group))
+        self.enqueue(ProxyOperation(ProxyExecutor.USER_TYPE, users, group))
+        self.enqueue(ProxyOperation(ProxyExecutor.TASK_TYPE, tasks, group))
 
     def operations_for_score(self, submission: Submission):
         """Send the score for the given submission to all rankings.
@@ -458,6 +528,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         queues for them to be sent to rankings.
 
         """
+        group = self._group_of(submission.task.contest)
         submission_result = submission.get_result()
 
         # Data to send to remote rankings.
@@ -482,9 +553,9 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
         return [
             ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
-                           {submission_id: submission_data}),
+                           {submission_id: submission_data}, group),
             ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
-                           {subchange_id: subchange_data})]
+                           {subchange_id: subchange_data}, group)]
 
     def operations_for_token(self, submission: Submission):
         """Send the token for the given submission to all rankings.
@@ -493,6 +564,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         queues for them to be sent to rankings.
 
         """
+        group = self._group_of(submission.task.contest)
         # Data to send to remote rankings.
         submission_id = "%d" % submission.id
         submission_data = {
@@ -511,9 +583,9 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
         return [
             ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
-                           {submission_id: submission_data}),
+                           {submission_id: submission_data}, group),
             ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
-                           {subchange_id: subchange_data})]
+                           {subchange_id: subchange_data}, group)]
 
     @rpc_method
     def reinitialize(self):
@@ -521,11 +593,60 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
         This method is usually called via RPC when someone knows that
         some basic data (i.e. contest, tasks or users) changed and
-        rankings need to be updated.
+        rankings need to be updated. Ranking groups that lost a contest
+        (or were deleted) are emptied first and then sent again in full,
+        since rankings only merge the data they receive.
 
         """
         logger.info("Reinitializing rankings.")
+        with SessionGen() as session:
+            new_mapping = self._compute_group_contests(session)
+        lost = sorted(
+            group for group, contest_ids in self._group_contests.items()
+            if not contest_ids <= new_mapping.get(group, set()))
+        # Contests new to their group: their submissions may have been
+        # sent already, but to another namespace (or not at all).
+        gained = {
+            contest_id for group, contest_ids in new_mapping.items()
+            for contest_id in
+            contest_ids - self._group_contests.get(group, set())}
+        self._group_contests = new_mapping
+
+        for group in lost:
+            logger.info("Ranking group %s lost contests, resetting it.",
+                        group)
+            self.enqueue(ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
+
         self.initialize()
+
+        if lost or gained:
+            with SessionGen() as session:
+                for contest in self._contests_to_send(session):
+                    if self._group_of(contest) in lost or \
+                            contest.id in gained:
+                        self._enqueue_submissions(
+                            session, contest, only_missing=False)
+
+    @rpc_method
+    def regenerate_ranking(self, group: str | None = None):
+        """Empty a ranking namespace and send all of its data again.
+
+        Usually called by AdminWebServer when an admin asks to repair a
+        ranking that got out of sync with the database.
+
+        group: the ranking group whose namespace to regenerate, or None
+            for the root namespace.
+
+        """
+        logger.info("Regenerating ranking %s.",
+                    group if group is not None else "(root)")
+        self.enqueue(ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
+        with SessionGen() as session:
+            for contest in self._contests_to_send(session):
+                if self._group_of(contest) == group:
+                    self._enqueue_contest_data(contest)
+                    self._enqueue_submissions(
+                        session, contest, only_missing=False)
 
     @rpc_method
     def submission_scored(self, submission_id: int):
@@ -546,13 +667,11 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                              "unexistent submission id %s.", submission_id)
                 raise KeyError("Submission not found.")
 
-            # ScoringService sent us a submission of another contest, they
-            # do not know about our contest_id in multicontest setup.
-            if submission.task.contest_id != self.contest_id:
+            # The submission's contest is not sent to any ranking.
+            if not self._is_sent(submission.task.contest):
                 logger.debug("Ignoring submission %d of contest %d "
-                             "(this ProxyService considers contest %d only).",
-                             submission.id, submission.task.contest_id,
-                             self.contest_id)
+                             "(not sent to any ranking).",
+                             submission.id, submission.task.contest_id)
                 return
 
             if submission.participation.hidden:
@@ -590,13 +709,11 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                              "unexistent submission id %s.", submission_id)
                 raise KeyError("Submission not found.")
 
-            # ScoringService sent us a submission of another contest, they
-            # do not know about our contest_id in multicontest setup.
-            if submission.task.contest_id != self.contest_id:
+            # The submission's contest is not sent to any ranking.
+            if not self._is_sent(submission.task.contest):
                 logger.debug("Ignoring submission %d of contest %d "
-                             "(this ProxyService considers contest %d only).",
-                             submission.id, submission.task.contest_id,
-                             self.contest_id)
+                             "(not sent to any ranking).",
+                             submission.id, submission.task.contest_id)
                 return
 
             if submission.participation.hidden:
@@ -633,13 +750,11 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
             task: Task = Task.get_from_id(task_id, session)
             dataset = task.active_dataset
 
-            # This ProxyService may focus on a different contest, and it should
-            # ignore this update.
-            if task.contest_id != self.contest_id:
-                logger.debug("Ignoring dataset change for task %d of contest "
-                             "%d (this ProxyService considers contest %d "
-                             "only).", task_id, task.contest.id,
-                             self.contest_id)
+            # The task's contest is not sent to any ranking.
+            if not self._is_sent(task.contest):
+                logger.debug("Ignoring dataset change for task %d of "
+                             "contest %d (not sent to any ranking).",
+                             task_id, task.contest_id)
                 return
 
             logger.info("Dataset update for task %d (dataset now is %d).",

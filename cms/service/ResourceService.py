@@ -229,9 +229,7 @@ class ResourceService(Service):
         for service in self._local_services:
             # We let the user start logservice and resourceservice.
             if service.name == "LogService" or \
-                    service.name == "ResourceService" or \
-                    (self.contest_id is None and
-                     service.name == "ProxyService"):
+                    service.name == "ResourceService":
                 continue
 
             # If the user specified not to restart some service, we
@@ -463,10 +461,6 @@ class ResourceService(Service):
         except ValueError:
             logger.error("Unable to decode service string.")
         name = service[:idx]
-
-        # ProxyService requires contest_id
-        if self.contest_id is None and name == "ProxyService":
-            return None
 
         try:
             shard = int(service[idx + 1:])
