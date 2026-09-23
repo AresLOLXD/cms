@@ -5,7 +5,7 @@ gevent.monkey.patch_all()  # noqa
 
 import json
 import unittest
-from unittest.mock import patch, PropertyMock
+from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
 import gevent
@@ -30,12 +30,22 @@ class TestProxyServiceGroups(DatabaseMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
 
-        patcher = patch("cms.db.Dataset.score_type_object",
-                        new_callable=PropertyMock)
-        score_type = patcher.start().return_value
-        self.addCleanup(patcher.stop)
+        score_type = MagicMock()
         score_type.max_score = 100
         score_type.ranking_headers = ["100"]
+        # IDs of the datasets whose score type cannot be built, like
+        # one with a subtask regexp matching no testcase.
+        self.broken_datasets: set[int] = set()
+
+        def score_type_object(dataset):
+            if dataset.id in self.broken_datasets:
+                raise ValueError("No testcase matches against the regexp")
+            return score_type
+
+        patcher = patch("cms.db.Dataset.score_type_object",
+                        property(score_type_object))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         patcher = patch("requests.put")
         self.requests_put = patcher.start()
@@ -94,6 +104,9 @@ class TestProxyServiceGroups(DatabaseMixin, unittest.TestCase):
     def clear_requests(self):
         self.requests_put.reset_mock()
         self.requests_delete.reset_mock()
+
+    def break_contest(self, contest):
+        self.broken_datasets.add(contest.tasks[0].active_dataset.id)
 
     def put_urls(self) -> list[str]:
         return [c.args[0] for c in self.requests_put.call_args_list]
@@ -188,6 +201,76 @@ class TestProxyServiceGroups(DatabaseMixin, unittest.TestCase):
         self.assertEqual(self.delete_urls(),
                          [url("contests/"), url("users/")])
         self.assertEqual(self.put_urls(), [])
+
+    def test_broken_contest_does_not_stop_startup(self):
+        self.break_contest(self.contest_b)
+        self.start()
+        # The other group is sent in full.
+        self.assertEqual(set(self.put_payload(url("olim/contests/"))),
+                         {encode_id(self.contest_a.name)})
+        self.assertIn("%d" % self.sub_a.id,
+                      self.put_payload(url("olim/submissions/")))
+        # The broken contest and its submissions are held back, since
+        # RWS would reject submissions of tasks it does not know.
+        self.assertNotIn(url("omips/contests/"), self.put_urls())
+        self.assertNotIn(url("omips/submissions/"), self.put_urls())
+
+    def test_reset_group_is_refilled_despite_broken_contest(self):
+        contest_a2, sub_a2 = self.add_contest_with_submission(self.olim)
+        contest_a3, sub_a3 = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = self.start()
+        self.clear_requests()
+
+        # OLIM loses a contest, and one of its remaining ones breaks.
+        self.contest_a.ranking_group = self.omips
+        self.session.commit()
+        self.break_contest(contest_a3)
+        service.reinitialize()
+        gevent.sleep(0.1)
+
+        self.assertEqual(self.delete_urls(),
+                         [url("olim/contests/"), url("olim/users/")])
+        self.assertEqual(set(self.put_payload(url("olim/contests/"))),
+                         {encode_id(contest_a2.name)})
+        self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
+                         {"%d" % sub_a2.id})
+        self.assertIn(encode_id(self.contest_a.name),
+                      self.put_payload(url("omips/contests/")))
+        self.assertIn("%d" % self.sub_a.id,
+                      self.put_payload(url("omips/submissions/")))
+
+        # Live scores of the broken contest are held back too.
+        self.clear_requests()
+        service.submission_scored(sub_a3.id)
+        gevent.sleep(0.1)
+        self.assertEqual(self.put_urls(), [])
+
+        # Once the task is fixed, the next reinitialize sends the
+        # contest and all of its submissions.
+        self.broken_datasets.clear()
+        service.reinitialize()
+        gevent.sleep(0.1)
+        self.assertEqual(self.delete_urls(), [])
+        self.assertIn(encode_id(contest_a3.name),
+                      self.put_payload(url("olim/contests/")))
+        self.assertIn("%d" % sub_a3.id,
+                      self.put_payload(url("olim/submissions/")))
+
+    def test_regenerate_skips_only_broken_contest(self):
+        contest_a2, sub_a2 = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = self.start()
+        self.clear_requests()
+        self.break_contest(contest_a2)
+        service.regenerate_ranking("olim")
+        gevent.sleep(0.1)
+        self.assertEqual(self.delete_urls(),
+                         [url("olim/contests/"), url("olim/users/")])
+        self.assertEqual(set(self.put_payload(url("olim/contests/"))),
+                         {encode_id(self.contest_a.name)})
+        self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
+                         {"%d" % self.sub_a.id})
 
 
 if __name__ == "__main__":

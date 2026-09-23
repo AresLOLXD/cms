@@ -343,6 +343,13 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         self.scores_sent_to_rankings: set[int] = set()
         self.tokens_sent_to_rankings: set[int] = set()
 
+        # IDs of the contests whose data could not be built last time
+        # we tried (e.g., a task with invalid score type parameters).
+        # Their submissions are held back, as rankings would reject
+        # them (and everything sent along with them) while they don't
+        # know their tasks.
+        self._broken_contests: set[int] = set()
+
         # Last known mapping from ranking group name to the IDs of its
         # contests (always empty in legacy mode), used by reinitialize
         # to find groups that lost contests and must be reset.
@@ -473,6 +480,28 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
     def _enqueue_contest_data(self, contest: Contest):
         """Enqueue the contest, its users, teams and tasks.
 
+        If the data cannot be built, log the error and enqueue nothing
+        for the contest, without affecting the other contests.
+
+        """
+        try:
+            operations = self._operations_for_contest(contest)
+        except Exception:
+            logger.exception("Cannot build the ranking data of contest %d "
+                             "(%s), not sending it until fixed.",
+                             contest.id, contest.name)
+            self._broken_contests.add(contest.id)
+            return
+        self._broken_contests.discard(contest.id)
+        for operation in operations:
+            self.enqueue(operation)
+
+    def _operations_for_contest(
+        self, contest: Contest
+    ) -> list[ProxyOperation]:
+        """Return the operations sending the contest, its users, teams
+        and tasks.
+
         """
         group = self._group_of(contest)
         contest_id = encode_id(contest.name)
@@ -515,11 +544,12 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                 "score_mode": task.score_mode,
             }
 
-        self.enqueue(ProxyOperation(ProxyExecutor.CONTEST_TYPE,
-                                    {contest_id: contest_data}, group))
-        self.enqueue(ProxyOperation(ProxyExecutor.TEAM_TYPE, teams, group))
-        self.enqueue(ProxyOperation(ProxyExecutor.USER_TYPE, users, group))
-        self.enqueue(ProxyOperation(ProxyExecutor.TASK_TYPE, tasks, group))
+        return [
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                           {contest_id: contest_data}, group),
+            ProxyOperation(ProxyExecutor.TEAM_TYPE, teams, group),
+            ProxyOperation(ProxyExecutor.USER_TYPE, users, group),
+            ProxyOperation(ProxyExecutor.TASK_TYPE, tasks, group)]
 
     def operations_for_score(self, submission: Submission):
         """Send the score for the given submission to all rankings.
@@ -528,6 +558,8 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         queues for them to be sent to rankings.
 
         """
+        if submission.task.contest_id in self._broken_contests:
+            return []
         group = self._group_of(submission.task.contest)
         submission_result = submission.get_result()
 
@@ -564,6 +596,8 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         queues for them to be sent to rankings.
 
         """
+        if submission.task.contest_id in self._broken_contests:
+            return []
         group = self._group_of(submission.task.contest)
         # Data to send to remote rankings.
         submission_id = "%d" % submission.id
@@ -617,7 +651,11 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                         group)
             self.enqueue(ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
 
+        broken_before = set(self._broken_contests)
         self.initialize()
+        # Contests fixed since the last time: their submissions were
+        # held back, so send them in full.
+        gained |= broken_before - self._broken_contests
 
         if lost or gained:
             with SessionGen() as session:
