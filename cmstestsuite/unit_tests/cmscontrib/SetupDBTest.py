@@ -152,6 +152,10 @@ class TestOfferSampleContest(DatabaseMixin, unittest.TestCase):
         """Returns True immediately when a contest already exists."""
         from cmscontrib.SetupDB import offer_sample_contest
         self.add_contest()
+        # offer_sample_contest() queries via its own SessionGen(), a
+        # separate DB connection that cannot see this session's pending,
+        # uncommitted INSERT; commit so it's actually visible to it.
+        self.session.commit()
         with patch("sys.stdin.isatty", return_value=True), \
              patch("builtins.input", side_effect=AssertionError("should not prompt")):
             result = offer_sample_contest()
