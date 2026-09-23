@@ -16,7 +16,7 @@
 - `cmsranking/` is out of scope — confirmed it uses no SQLAlchemy (its own in-memory `Store`), do not touch it.
 - No schema/model changes, no new indexes, no change to any public function's parameter list. `cms/db/util.py`'s builder functions (`get_submissions`, `get_submission_results`, etc.) keep their exact names and parameters; only their return type and internal query construction change.
 - `beta` branch only. Never touch `main`.
-- `sqlalchemy>=2.0,<2.1` target range, on Python 3.12 (this line's pinned dev/Docker version).
+- `sqlalchemy>=2.0,<2.1` target range, on Python 3.12 (this line's pinned dev/Docker version). Per a ruling made before any code was written (Task 1 Step 1.5), the pin is bumped as the FIRST code change in Task 1, not deferred to Task 6 as originally drafted — every task's Docker-based verification (Tasks 1-5) therefore runs against `sqlalchemy>=2.0,<2.1`, never against the old `1.3.24`.
 - Verify every package's pass against the **real Docker test image** (`docker/docker-compose.test.yml`, which builds the production `Dockerfile` with real `constraints.txt` pins), not a local ad hoc `.venv` — local venvs in this repo have repeatedly been found to silently substitute newer dependency versions than what's actually pinned.
 - The legacy `Query` API still works under SQLAlchemy 2.0 in a deprecated compatibility mode, so an incomplete rewrite can pass tests and hide as a warning. Every task's last verification step is `grep -rn "\.query(" <that task's files>` returning zero matches, not just a green test run.
 - `pyflakes` clean on every touched file.
@@ -66,7 +66,61 @@ Reproduced from the spec; every task references this table instead of repeating 
 - [ ] **Step 1: Confirm the starting baseline is green**
 
 Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
-Expected: no failures other than the known-clean baseline established earlier in this project's history (confirm zero unexpected failures before touching any code — if this baseline isn't clean, stop and report before starting the migration).
+Expected: no failures other than the known-clean baseline established earlier in this project's history (confirm zero unexpected failures before touching any code — if this baseline isn't clean, stop and report before starting the migration). This run is still against the *current* `sqlalchemy>=1.3,<1.4` pin — it only exists to capture the pre-migration pass/fail set for comparison.
+
+- [ ] **Step 1.5: Bump the SQLAlchemy pin now (moved up from Task 6)**
+
+**Ruling (controller, pre-implementation):** the plan originally deferred
+the version bump to Task 6 while asking Task 1-5 to verify their rewrites
+against the *currently pinned* `sqlalchemy==1.3.24` via the real Docker
+image. That pin has no `Session.get()` (added in 1.4) and no
+`sqlalchemy.future`-style `select()` with `.filter()`/`.filter_by()` at
+all — every rewritten call site in this migration would raise
+`AttributeError` immediately under 1.3.24, not fail behaviorally. This is
+a structural plan-ordering defect, not a per-call-site ambiguity, caught
+by Task 1's implementer before any code was touched. Ruling: bump the pin
+here, before Step 2, so every task's Docker-based verification (Tasks 1-5)
+runs against `sqlalchemy>=2.0,<2.1` from the start. Cost if wrong: would
+need to re-verify Tasks 1-5's baselines a second time after moving the
+bump back — fully recoverable via git history, since each task commits
+separately.
+
+In `pyproject.toml`, change:
+
+```python
+    "sqlalchemy>=1.3,<1.4",   # http://docs.sqlalchemy.org/en/latest/changelog/index.html
+```
+
+to:
+
+```python
+    "sqlalchemy>=2.0,<2.1",   # http://docs.sqlalchemy.org/en/latest/changelog/index.html
+```
+
+Then regenerate `constraints.txt`'s pin. Build a throwaway Python 3.12 venv
+with the new constraint (do not touch the project's own `.venv`), confirm
+the resolved version, and update the `SQLAlchemy==1.3.24` line in
+`constraints.txt` to match:
+
+```bash
+docker run --rm -v "$PWD:/src-ro:ro,Z" -w /work python:3.12-slim bash -c "
+  mkdir -p /work && cp -r /src-ro/. /work/ && cd /work
+  apt-get update -qq && apt-get install -y -qq build-essential libpq-dev libffi-dev libyaml-dev >/dev/null 2>&1
+  python3 -m venv /tmp/v && /tmp/v/bin/pip install -q -U pip
+  /tmp/v/bin/pip install -q 'sqlalchemy>=2.0,<2.1'
+  /tmp/v/bin/pip show sqlalchemy | grep -E 'Name|Version'
+"
+```
+
+Edit `constraints.txt`'s `SQLAlchemy==1.3.24` line to the exact version
+this prints. Then rebuild the Docker test image once so subsequent steps
+in this task (and every later task) use the bumped dependency:
+`docker compose -p cms-beta -f docker/docker-compose.test.yml build --no-cache testcms`.
+Do NOT commit `pyproject.toml`/`constraints.txt` as a separate commit —
+fold them into this task's Step 10 commit alongside the `cms/db/` rewrite,
+since the version bump and the first package's rewrite land together and
+must be reviewed together (an installed-but-unused 2.0 pin with no
+rewritten code, or vice versa, is not a valid intermediate state).
 
 - [ ] **Step 2: Rewrite `Base.get_from_id()`**
 
@@ -190,8 +244,12 @@ Expected: no output.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add cms/db/base.py cms/db/util.py cms/db/fsobject.py cms/db/submission.py cms/db/__init__.py cmstestsuite/unit_tests/databasemixin.py
-git commit -m "refactor(db): migrate cms/db/ to SQLAlchemy 2.0 select() style"
+git add cms/db/base.py cms/db/util.py cms/db/fsobject.py cms/db/submission.py cms/db/__init__.py cmstestsuite/unit_tests/databasemixin.py pyproject.toml constraints.txt
+git commit -m "refactor(db): migrate cms/db/ to SQLAlchemy 2.0 select() style
+
+Bumps the sqlalchemy pin from >=1.3,<1.4 to >=2.0,<2.1 (moved up from
+Task 6 — see plan ruling on Task 1 Step 1.5): every later task's Docker
+verification depends on the 2.0 API being installed, not just this one."
 ```
 
 ---
@@ -453,68 +511,35 @@ git commit -m "refactor(cmscontrib): migrate to SQLAlchemy 2.0 select() style"
 
 ---
 
-### Task 6: Version bump and final full-branch verification
+### Task 6: Final full-branch verification
 
-**Files:**
-- Modify: `pyproject.toml` (`"sqlalchemy>=1.3,<1.4"` → `"sqlalchemy>=2.0,<2.1"`)
-- Modify: `constraints.txt` (`SQLAlchemy==1.3.24` → the resolved 2.0.x version pip installs when re-run against the new pyproject.toml constraint)
+**Files:** none modified (verification-only task — the version bump that
+was originally planned here moved to Task 1 Step 1.5; see the ruling
+there. `pyproject.toml`/`constraints.txt` were already committed as part
+of Task 1).
 
 **Interfaces:**
-- Consumes: every file touched by Tasks 1–5 (this task only bumps the version pin and does a final whole-branch check — no code changes).
+- Consumes: every file touched by Tasks 1–5, and the SQLAlchemy 2.0.x pin bumped in Task 1.
 - Produces: nothing (terminal task).
 
-- [ ] **Step 1: Bump the version constraint**
-
-In `pyproject.toml`, change:
-
-```python
-    "sqlalchemy>=1.3,<1.4",   # http://docs.sqlalchemy.org/en/latest/changelog/index.html
-```
-
-to:
-
-```python
-    "sqlalchemy>=2.0,<2.1",   # http://docs.sqlalchemy.org/en/latest/changelog/index.html
-```
-
-- [ ] **Step 2: Regenerate `constraints.txt`'s SQLAlchemy pin**
-
-Build a throwaway Python 3.12 venv with the new constraint (do not touch the project's own `.venv` until this is verified), confirm the resolved version, and update the `SQLAlchemy==1.3.24` line in `constraints.txt` to match:
-
-```bash
-docker run --rm -v "$PWD:/src-ro:ro,Z" -w /work python:3.12-slim bash -c "
-  mkdir -p /work && cp -r /src-ro/. /work/ && cd /work
-  apt-get update -qq && apt-get install -y -qq build-essential libpq-dev libffi-dev libyaml-dev >/dev/null 2>&1
-  python3 -m venv /tmp/v && /tmp/v/bin/pip install -q -U pip
-  /tmp/v/bin/pip install -q 'sqlalchemy>=2.0,<2.1'
-  /tmp/v/bin/pip show sqlalchemy | grep -E 'Name|Version'
-"
-```
-
-Edit `constraints.txt`'s `SQLAlchemy==1.3.24` line to the exact version this prints.
-
-- [ ] **Step 3: Full clean install and test run with the new pin, via the real Docker test image**
+- [ ] **Step 1: Full clean install and test run against the bumped pin, via the real Docker test image**
 
 Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml build --no-cache testcms && docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
-Expected: identical pass/fail set to Task 5's baseline — this rebuild forces a genuinely fresh install against the new `constraints.txt`/`pyproject.toml`, not a cached layer with the old SQLAlchemy still installed.
+Expected: identical pass/fail set to Task 5's baseline — this `--no-cache` rebuild forces a genuinely fresh install against `constraints.txt`/`pyproject.toml` as they stand after Tasks 1-5, not a cached layer.
 
-- [ ] **Step 4: Whole-repo verification that zero legacy query syntax remains**
+- [ ] **Step 2: Whole-repo verification that zero legacy query syntax remains**
 
 Run: `grep -rn "\.query(" cms/ cmscommon/ cmscontrib/ cmstestsuite/`
 Expected: no output outside `cmsranking/` (which this grep doesn't even include, since it's out of scope) and outside this plan/spec's own markdown files (not matched by this grep pattern against `.py` directories anyway).
 
-- [ ] **Step 5: pyflakes across the whole touched surface**
+- [ ] **Step 3: pyflakes across the whole touched surface**
 
 Run: `.venv/bin/pyflakes cms cmscommon cmscontrib cmstestsuite`
 Expected: no new warnings beyond whatever pre-existing ones were already known before this migration started (compare against the pre-migration pyflakes output if in doubt).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: No commit needed**
 
-```bash
-git add pyproject.toml constraints.txt
-git commit -m "chore: bump SQLAlchemy pin to 2.0.x
-
-All session.query(...) call sites migrated to select()/session.execute()
-style across cms/db/, cms/service/, cms/server/, cms/grading/, and
-cmscontrib/. Verified against the real Docker test image at every step."
-```
+Nothing to commit — this task modifies no files (the pin bump landed in
+Task 1's commit; every subsequent commit already happened in Tasks 1-5).
+This step exists to document that Steps 1-3 above are this task's full
+verification, with no follow-up commit expected.
