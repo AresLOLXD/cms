@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block core %}
+
+<h1>New ranking group</h1>
+
+<h2 id="title_general_info" class="toggling_on">General information</h2>
+<div id="general_info">
+  <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
+  <form enctype="multipart/form-data" action="{{ url("ranking_groups", "add") }}" method="POST">
+    {{ xsrf_form_html|safe }}
+    <table>
+      <tr>
+        <td>
+          <span class="info" title="Used in the scoreboard URL (/<name>/): lowercase letters, digits, '-' and '_'."></span>
+          Name
+        </td>
+        <td><input type="text" name="name"/></td>
+      </tr>
+      <tr>
+        <td>Description</td>
+        <td><input type="text" name="description"/></td>
+      </tr>
+    </table>
+    <input type="submit"/>
+    <input type="reset" value="Reset" />
+  </form>
+  <div class="hr"></div>
+</div>
+
+{% endblock core %}

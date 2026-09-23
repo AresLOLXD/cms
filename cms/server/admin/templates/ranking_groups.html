@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block core %}
+
+<div class="core_title">
+  <h1>Ranking groups</h1>
+</div>
+
+<p>
+  Each ranking group is an independent public scoreboard, served by RWS at
+  <code>/&lt;name&gt;/</code>. Assign a contest to a group from the contest's
+  own page.
+</p>
+
+<form action="{{ url("ranking_groups") }}" method="POST">
+  {{ xsrf_form_html|safe }}
+  Edit selected group:
+  <input type="submit" name="operation" value="Remove" {% if not admin.permission_all %} disabled {% endif %} />
+  <table class="bordered">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Name</th>
+        <th>Description</th>
+        <th>Contests</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in ranking_group_list %}
+      <tr>
+        <td>
+          <input type="radio" name="ranking_group_id" value="{{ g.id }}" />
+        </td>
+        <td><a href="{{ url("ranking_group", g.id) }}">{{ g.name }}</a></td>
+        <td>{{ g.description }}</td>
+        <td>{% for c in contest_list if c.ranking_group_id == g.id %}{{ c.name }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</form>
+
+<h2>Regenerate a ranking</h2>
+<p>
+  Regenerating empties a scoreboard and sends all of its data again from the
+  database. Use it when a scoreboard does not match the database. The root
+  ranking is the one at <code>/</code>: it is used when ProxyService runs for a
+  single contest, and regenerating it while using groups leaves it empty.
+</p>
+<table class="bordered">
+  <tbody>
+    <tr>
+      <td>Root ranking (<code>/</code>)</td>
+      <td>
+        <form action="{{ url("ranking_groups", "regenerate") }}" method="POST"
+              onsubmit="return confirm('Empty and regenerate the root ranking?');">
+          {{ xsrf_form_html|safe }}
+          <input type="hidden" name="group" value="" />
+          <input type="submit" value="Regenerate" {% if not admin.permission_all %} disabled {% endif %} />
+        </form>
+      </td>
+    </tr>
+    {% for g in ranking_group_list %}
+    <tr>
+      <td>{{ g.name }} (<code>/{{ g.name }}/</code>)</td>
+      <td>
+        <form action="{{ url("ranking_groups", "regenerate") }}" method="POST"
+              onsubmit="return confirm('Empty and regenerate the ranking {{ g.name }}?');">
+          {{ xsrf_form_html|safe }}
+          <input type="hidden" name="group" value="{{ g.name }}" />
+          <input type="submit" value="Regenerate" {% if not admin.permission_all %} disabled {% endif %} />
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endblock core %}

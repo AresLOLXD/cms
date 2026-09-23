@@ -32,7 +32,7 @@
 """
 
 from cms import ServiceCoord, get_service_shards, get_service_address
-from cms.db import Contest, Participation, Group, Submission
+from cms.db import Contest, Participation, Group, RankingGroup, Submission
 from cmscommon.datetime import make_datetime
 
 from .base import BaseHandler, SimpleContestHandler, SimpleHandler, \
@@ -111,6 +111,12 @@ class ContestHandler(SimpleContestHandler("contest.html")):
             self.get_bool(attrs, "allow_registration")
             self.get_bool(attrs, "ip_restriction")
             self.get_bool(attrs, "ip_autologin")
+            self.get_bool(attrs, "active")
+            self.get_int(attrs, "ranking_group_id")
+            if attrs["ranking_group_id"] is not None and \
+                    RankingGroup.get_from_id(
+                        attrs["ranking_group_id"], self.sql_session) is None:
+                raise ValueError("Unknown ranking group.")
 
             self.get_string(attrs, "token_mode")
             self.get_int(attrs, "token_max_number")

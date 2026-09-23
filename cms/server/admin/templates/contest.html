@@ -28,6 +28,29 @@
     </tr>
     <tr>
       <td>
+        <span class="info" title="When CWS serves all contests (CMS_CONTEST_ID=ALL), only active contests are listed and can be entered. Ignored when CWS serves a single contest."></span>
+        <label for="active">Active</label>
+      </td>
+      <td>
+        <input type="checkbox" id="active" name="active" {{ "checked" if contest.active else "" }}/>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <span class="info" title="The public scoreboard (RWS /<group>/) this contest is sent to. Contests of the same group are ranked together. Deactivating a contest does not remove it from its ranking; choose 'none' for that."></span>
+        Ranking group
+      </td>
+      <td>
+        <select name="ranking_group_id">
+          <option value="" {{ "selected" if contest.ranking_group_id is none else "" }}>(none)</option>
+          {% for g in ranking_group_list %}
+          <option value="{{ g.id }}" {{ "selected" if contest.ranking_group_id == g.id else "" }}>{{ g.name }} — {{ g.description }}</option>
+          {% endfor %}
+        </select>
+      </td>
+    </tr>
+    <tr>
+      <td>
         <span class="info" title="The list of languages that contestants can use, or empty for allowing any language.
                                   Example: 'en,ja' (without quotes)."></span>
         Allowed localizations

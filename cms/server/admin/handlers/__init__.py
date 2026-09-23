@@ -75,6 +75,12 @@ from .main import \
     ResourcesHandler, \
     NotificationsHandler, \
     MarkdownRenderHandler
+from .rankinggroup import \
+    AddRankingGroupHandler, \
+    RankingGroupHandler, \
+    RankingGroupListHandler, \
+    RegenerateRankingHandler, \
+    RemoveRankingGroupHandler
 from .submission import \
     SubmissionHandler, \
     SubmissionCommentHandler, \
@@ -212,6 +218,14 @@ HANDLERS = [
     (r"/team/([0-9]+)", TeamHandler),
     (r"/user/([0-9]+)/add_participation", AddParticipationHandler),
     (r"/user/([0-9]+)/edit_participation", EditParticipationHandler),
+
+    # Ranking groups
+
+    (r"/ranking_groups", RankingGroupListHandler),
+    (r"/ranking_groups/add", AddRankingGroupHandler),
+    (r"/ranking_groups/regenerate", RegenerateRankingHandler),
+    (r"/ranking_groups/([0-9]+)/remove", RemoveRankingGroupHandler),
+    (r"/ranking_group/([0-9]+)", RankingGroupHandler),
 
     # Admins
 

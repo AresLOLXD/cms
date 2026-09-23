@@ -51,8 +51,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query, selectinload
 
 from cms import __version__, config
-from cms.db import Admin, Contest, Participation, Question, Submission, \
-    SubmissionResult, Task, Team, User, UserTest, Group
+from cms.db import Admin, Contest, Participation, Question, RankingGroup, \
+    Submission, SubmissionResult, Task, Team, User, UserTest, Group
 import cms.db
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
@@ -347,6 +347,8 @@ class BaseHandler(CommonRequestHandler):
         params["task_list"] = self.sql_session.query(Task).order_by(Task.name).all()
         params["user_list"] = self.sql_session.query(User).order_by(User.username).all()
         params["team_list"] = self.sql_session.query(Team).order_by(Team.name).all()
+        params["ranking_group_list"] = self.sql_session.query(RankingGroup)\
+            .order_by(RankingGroup.name).all()
         return params
 
     def write_error(self, status_code, **kwargs):
