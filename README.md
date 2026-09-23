@@ -43,6 +43,13 @@ Docker-based deployment workflow and several OMI-specific integrations on top
 of the upstream CMS project, so you can go from a fresh machine to a running
 contest without manually installing dependencies.
 
+**`main` stays closely aligned with [upstream](#upstream-project)** and is
+what real contests should run. Larger, in-progress experiments — new
+features and deeper modernization work (e.g. updating long-pinned
+dependencies) that we don't want to wait on upstream for — happen on the
+**`beta`** branch instead, before they're considered stable enough to land
+here.
+
 ---
 
 ## Features
