@@ -322,6 +322,8 @@ def update_contest(old_contest: Contest, new_contest: Contest, parent=None):
         Contest.tasks: False,
         Contest.participations: False,
         Contest.main_group: False,
+        # Ranking group assignment is managed by admins, not by loaders.
+        Contest.ranking_group: False,
         Contest.groups: update_groups_fn
     }, parent=parent)
 

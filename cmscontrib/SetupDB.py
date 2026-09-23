@@ -28,6 +28,8 @@ from sqlalchemy.exc import IntegrityError
 
 from cms.db import Admin, Contest, Group, SessionGen, init_db
 from cmscommon.crypto import hash_password
+from cmscontrib.updaters.fork_multi_contest import \
+    apply_fork_multi_contest_update
 
 logger = logging.getLogger(__name__)
 
@@ -144,12 +146,14 @@ def offer_sample_contest() -> bool:
 
 
 def setup_db() -> bool:
-    """Initialize DB schema, create first admin, offer sample contest.
+    """Initialize or update DB schema, create first admin, offer sample contest.
 
     return: True on success, False if a required step failed.
 
     """
     init_db()  # raises on failure; return value is always True
+    # init_db creates missing tables but never alters existing ones.
+    apply_fork_multi_contest_update()
     if not ensure_first_admin():
         return False
     offer_sample_contest()

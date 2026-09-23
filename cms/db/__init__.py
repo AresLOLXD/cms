@@ -55,6 +55,8 @@ __all__ = [
     "FSObject", "LargeObject",
     # contest
     "Contest", "Announcement",
+    # rankinggroup
+    "RankingGroup",
     # user
     "Group", "User", "Team", "Participation", "Message", "Question",
     # admin
@@ -96,6 +98,7 @@ from .base import Base
 from .fsobject import FSObject, LargeObject
 from .admin import Admin
 from .contest import Contest, Announcement
+from .rankinggroup import RankingGroup
 from .user import Group, User, Team, Participation, Message, Question
 from .task import Task, Statement, Attachment, Dataset, Manager, Testcase
 from .submission import Submission, File, Token, SubmissionResult, \
