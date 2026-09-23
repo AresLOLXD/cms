@@ -116,8 +116,10 @@ class ContestHandler(BaseHandler):
             contest_name = self.path_args[0]
 
             # Select the correct contest or return an error
+            # Inactive contests are not served, as if they did not exist.
             self.contest = self.sql_session.query(Contest)\
-                .filter(Contest.name == contest_name).first()
+                .filter(Contest.name == contest_name)\
+                .filter(Contest.active.is_(True)).first()
             if self.contest is None:
                 self.contest = Contest(
                     name=contest_name, description=contest_name)
