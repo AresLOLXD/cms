@@ -198,6 +198,22 @@ The `RESET` operation needs a small helper next to `safe_put_data` that
 issues an authenticated `DELETE` with the same error handling
 (`CannotSendError`, retry after `FAILURE_WAIT`).
 
+**Manual regeneration (replaces `clear-ranking.sh`):** new RPC
+`regenerate_ranking(group: str | None)`, used to repair a ranking that got
+out of sync with the DB:
+
+1. Enqueue a `RESET` for the namespace (`group`), or for the root when
+   `group is None`.
+2. Clear `scores_sent_to_rankings` / `tokens_sent_to_rankings` for the
+   contests sent to that namespace.
+3. Immediately enqueue the full data for that namespace (contest, teams,
+   users, tasks, scores, tokens), without waiting for the sweeper.
+
+Which contests belong to a namespace: in group mode, the contests of that
+group (root → none, so regenerating the root in group mode leaves it empty,
+which cleans up legacy data after migrating); in legacy mode, the `-c`
+contest goes to the root and group names match nothing.
+
 ### 4. AdminWebServer
 
 - New `cms/server/admin/handlers/rankinggroup.py` with list / add / edit /
@@ -209,6 +225,11 @@ issues an authenticated `DELETE` with the same error handling
   path already calls `reinitialize()`.
 - Contest list page: show active flag and group (read-only) so the operator
   sees the exam-day setup at a glance.
+- Ranking groups page: each group row has a **Regenerate** button (with a
+  confirmation dialog) that calls `proxy_service.regenerate_ranking(name)`.
+  A fixed **Root ranking** row calls `regenerate_ranking(None)`; it serves
+  legacy `-c N` deployments and clearing leftover root data after migrating
+  to groups.
 
 ### 5. ContestWebServer
 
@@ -282,6 +303,14 @@ With `-c N` the `active` flag is ignored.
   7. **Verify & roll back:** checks per ranking and CWS; how to bring stack
      B back from the backups if something fails.
 - README and `.env.example`: mention `ALL` mode + groups and link the docs.
+- **Remove `clear-ranking.sh`** and its section in `docs/docker-scripts.md`
+  (and any README reference). It is superseded by the AWS **Regenerate**
+  button (§4) and is already broken since the ranking moved to its own
+  container. Its selective-clear options are dropped on purpose: clearing
+  without regenerating leaves an inconsistent ranking that the ProxyService
+  sweeper refills anyway; hiding results is a visibility concern
+  (sub-project 2). `docs/multi-contest.md` explains when to regenerate
+  (ranking out of sync with the DB).
 
 ### Forward compatibility (sub-project 2)
 
@@ -318,10 +347,13 @@ Unit (pytest, `.venv/bin/pytest`):
   sends to `/<group>/…`; contests without group dropped; `RESET` only when a
   group loses a contest or is deleted, never on ordinary edits; `RESET`
   precedes `PUT` in a batch; legacy `-c N` mode produces the same requests
-  as before.
+  as before; `regenerate_ranking(group)` touches only that namespace and
+  resends its data immediately; `regenerate_ranking(None)` in group mode
+  leaves the root empty.
 - **CWS:** contest list filters by `active`; inactive contest → 404;
   `-c N` ignores `active`.
-- **AWS:** group CRUD validation; contest form saves `active` and group.
+- **AWS:** group CRUD validation; contest form saves `active` and group;
+  Regenerate buttons call `regenerate_ranking` with the right argument.
 - **Migration:** fork SQL applied twice succeeds; `schema_diff_test` passes.
 - **Dump import** of a pre-change dump succeeds (§6).
 - **Docker:** `docker/test_generate_config.py` for any generator change.
@@ -330,10 +362,3 @@ Manual end-to-end (local Docker): two contests in groups `olim` / `omips`,
 submissions in both; confirm with curl and a browser that each namespace
 shows only its own contest and updates live, and that deactivating a contest
 removes it from CWS but keeps its ranking.
-
-## Known Issues Noticed (out of scope)
-
-- `clear-ranking.sh` still targets `/home/cmsuser/cms/lib/ranking` and a
-  `cmsrankingwebserver` supervisor program inside the `cms` container,
-  although the ranking now runs in its own container. It is not group-aware
-  either. To be revisited separately.
