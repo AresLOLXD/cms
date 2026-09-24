@@ -22,6 +22,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+from sqlalchemy import func, select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Admin, Contest
@@ -38,10 +40,14 @@ class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
     # ── helpers ──────────────────────────────────────────────────────────────
 
     def _admin_count(self):
-        return self.session.query(Admin).count()
+        return self.session.execute(
+            select(func.count()).select_from(Admin)
+        ).scalar_one()
 
     def _get_admin(self, username):
-        return self.session.query(Admin).filter(Admin.username == username).one()
+        return self.session.execute(
+            select(Admin).filter(Admin.username == username)
+        ).scalar_one()
 
     # ── tests ─────────────────────────────────────────────────────────────────
 
@@ -137,7 +143,9 @@ class TestOfferSampleContest(DatabaseMixin, unittest.TestCase):
         super().tearDown()
 
     def _contest_count(self):
-        return self.session.query(Contest).count()
+        return self.session.execute(
+            select(func.count()).select_from(Contest)
+        ).scalar_one()
 
     def test_skips_when_no_tty(self):
         """Returns True immediately when there is no TTY (Docker/CI)."""
@@ -172,7 +180,7 @@ class TestOfferSampleContest(DatabaseMixin, unittest.TestCase):
         self.assertTrue(result)
         self.session.expire_all()
         self.assertEqual(self._contest_count(), 1)
-        contest = self.session.query(Contest).one()
+        contest = self.session.execute(select(Contest)).scalar_one()
         self.assertEqual(contest.name, "sample")
         self.assertEqual(contest.description, "Sample Contest")
 

@@ -23,6 +23,8 @@
 import argparse
 import sys
 
+from sqlalchemy import select
+
 from cms.db import Contest, SessionGen, ask_for_contest
 
 
@@ -35,9 +37,9 @@ def ask(contest: Contest):
 
 def remove_contest(contest_id: int):
     with SessionGen() as session:
-        contest: Contest | None = (
-            session.query(Contest).filter(Contest.id == contest_id).first()
-        )
+        contest: Contest | None = session.execute(
+            select(Contest).filter(Contest.id == contest_id)
+        ).scalars().first()
         if not contest:
             print("No contest with id %s found." % contest_id)
             return False

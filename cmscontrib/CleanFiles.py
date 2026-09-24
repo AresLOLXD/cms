@@ -29,6 +29,8 @@ import argparse
 import logging
 import sys
 
+from sqlalchemy import select
+
 from cms.db import SessionGen, Session, Digest, Executable, enumerate_files
 from cms.db.filecacher import FileCacher
 
@@ -38,7 +40,7 @@ logger = logging.getLogger()
 
 def make_tombstone(session: Session):
     count = 0
-    for exe in session.query(Executable).all():
+    for exe in session.execute(select(Executable)).scalars().all():
         exe: Executable
         if exe.digest != Digest.TOMBSTONE:
             count += 1

@@ -36,6 +36,8 @@ import os
 import sys
 from collections.abc import Callable
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import SessionGen, Team
 from cms.db.session import Session
@@ -104,9 +106,9 @@ class TeamImporter:
 
     @staticmethod
     def _team_to_db(session: Session, team: Team):
-        old_team: Team | None = (
-            session.query(Team).filter(Team.code == team.code).first()
-        )
+        old_team: Team | None = session.execute(
+            select(Team).filter(Team.code == team.code)
+        ).scalars().first()
         if old_team is not None:
             raise ImportDataError("Team \"%s\" already exists." % team.code)
         session.add(team)

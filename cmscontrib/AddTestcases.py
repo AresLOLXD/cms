@@ -27,6 +27,8 @@ import logging
 import re
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import Contest, Dataset, SessionGen, Task
 from cms.db.filecacher import FileCacher
@@ -47,24 +49,27 @@ def add_testcases(
     overwrite: bool = False,
 ):
     with SessionGen() as session:
-        task: Task | None = session.query(Task).filter(Task.name == task_name).first()
+        task: Task | None = session.execute(
+            select(Task).filter(Task.name == task_name)
+        ).scalars().first()
         if not task:
             logger.error("No task called %s found." % task_name)
             return False
         dataset: Dataset | None = task.active_dataset
         if dataset_description is not None:
-            dataset = session.query(Dataset)\
-                .filter(Dataset.task_id == task.id)\
-                .filter(Dataset.description == dataset_description)\
-                .first()
+            dataset = session.execute(
+                select(Dataset)
+                .filter(Dataset.task_id == task.id)
+                .filter(Dataset.description == dataset_description)
+            ).scalars().first()
             if not dataset:
                 logger.error("No dataset called %s found."
                              % dataset_description)
                 return False
         if contest_name is not None:
-            contest: Contest | None = (
-                session.query(Contest).filter(Contest.name == contest_name).first()
-            )
+            contest: Contest | None = session.execute(
+                select(Contest).filter(Contest.name == contest_name)
+            ).scalars().first()
             if task.contest != contest:
                 logger.error("%s is not in %s" %
                              (task_name, contest_name))

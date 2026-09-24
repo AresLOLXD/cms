@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Statement
@@ -48,18 +50,22 @@ class TestAddStatement(DatabaseMixin, FileSystemMixin, unittest.TestCase):
 
     def assertStatementInDb(self, language, digest):
         """Assert that the statement with the given data is in the DB."""
-        db_statements = self.session.query(Statement)\
-            .filter(Statement.task_id == self.task.id)\
-            .filter(Statement.language == language).all()
+        db_statements = self.session.execute(
+            select(Statement)
+            .filter(Statement.task_id == self.task.id)
+            .filter(Statement.language == language)
+        ).scalars().all()
         self.assertEqual(len(db_statements), 1)
         s = db_statements[0]
         self.assertEqual(s.digest, digest)
 
     def assertStatementNotInDb(self, language):
         """Assert that the statement with the given data is not in the DB."""
-        db_statements = self.session.query(Statement)\
-            .filter(Statement.task_id == self.task.id)\
-            .filter(Statement.language == language).all()
+        db_statements = self.session.execute(
+            select(Statement)
+            .filter(Statement.task_id == self.task.id)
+            .filter(Statement.language == language)
+        ).scalars().all()
         self.assertEqual(len(db_statements), 0)
 
     def test_success(self):

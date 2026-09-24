@@ -39,6 +39,8 @@ import logging
 import os
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db.contest import Contest
 from cms.db.session import Session
@@ -139,9 +141,9 @@ class TaskImporter:
         - if the task is already in the DB and attached to another contest.
 
         """
-        task: Task | None = (
-            session.query(Task).filter(Task.name == new_task.name).first()
-        )
+        task: Task | None = session.execute(
+            select(Task).filter(Task.name == new_task.name)
+        ).scalars().first()
         if task is None:
             if contest is not None:
                 logger.info("Attaching task to contest (id %s.)",

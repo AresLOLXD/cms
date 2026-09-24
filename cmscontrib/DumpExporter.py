@@ -39,6 +39,7 @@ import tarfile
 import tempfile
 from datetime import date
 
+from sqlalchemy import select
 from sqlalchemy.types import (
     Boolean,
     Integer,
@@ -172,16 +173,20 @@ class DumpExporter:
     ):
         if contest_ids is None:
             with SessionGen() as session:
-                contests: list[Contest] = session.query(Contest).all()
+                contests: list[Contest] = session.execute(
+                    select(Contest)
+                ).scalars().all()
                 self.contests_ids = [contest.id for contest in contests]
                 if not skip_users:
-                    users: list[User] = session.query(User).all()
+                    users: list[User] = session.execute(
+                        select(User)
+                    ).scalars().all()
                     self.users_ids = [user.id for user in users]
                 else:
                     self.users_ids = []
-                tasks: list[Task] = (
-                    session.query(Task).filter(Task.contest_id.is_(None)).all()
-                )
+                tasks: list[Task] = session.execute(
+                    select(Task).filter(Task.contest_id.is_(None))
+                ).scalars().all()
                 self.tasks_ids = [task.id for task in tasks]
         else:
             # FIXME: this is ATM broken, because if you export a contest, you

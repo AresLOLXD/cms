@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import File, Submission
@@ -71,24 +73,29 @@ class TestAddSubmissionMixin(DatabaseMixin, FileSystemMixin):
 
     def assertSubmissionInDb(self, timestamp, task, language, files):
         """Assert that the submission with the given data is in the DB."""
-        db_submissions = self.session.query(Submission)\
-            .filter(Submission.timestamp == make_datetime(timestamp))\
-            .filter(Submission.task_id == task.id).all()
+        db_submissions = self.session.execute(
+            select(Submission)
+            .filter(Submission.timestamp == make_datetime(timestamp))
+            .filter(Submission.task_id == task.id)
+        ).scalars().all()
         self.assertEqual(len(db_submissions), 1)
         s = db_submissions[0]
         self.assertEqual(s.participation_id, self.participation.id)
         self.assertEqual(s.language, language)
 
         # Check the submission's files are exactly those expected.
-        db_files = self.session.query(File)\
-            .filter(File.submission_id == s.id).all()
+        db_files = self.session.execute(
+            select(File).filter(File.submission_id == s.id)
+        ).scalars().all()
         db_files_dict = dict((f.filename, f.digest) for f in db_files)
         self.assertEqual(files, db_files_dict)
 
     def assertSubmissionNotInDb(self, timestamp):
         """Assert that the submission with the given data is not in the DB."""
-        db_submissions = self.session.query(Submission)\
-            .filter(Submission.timestamp == make_datetime(timestamp)).all()
+        db_submissions = self.session.execute(
+            select(Submission)
+            .filter(Submission.timestamp == make_datetime(timestamp))
+        ).scalars().all()
         self.assertEqual(len(db_submissions), 0)
 
 

@@ -23,6 +23,8 @@
 import argparse
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import Participation, SessionGen, Submission, Task, User, \
     ask_for_contest
@@ -43,44 +45,48 @@ def ask_and_remove(session: Session, submissions: list[Submission]):
 
 def remove_submissions_for_user(contest_id: int, username: str):
     with SessionGen() as session:
-        user = session.query(User)\
-            .filter(User.username == username)\
-            .first()
+        user = session.execute(
+            select(User).filter(User.username == username)
+        ).scalars().first()
         if user is None:
             print("Unable to find user.")
             return
-        participation = session.query(Participation)\
-            .filter(Participation.user_id == user.id)\
-            .filter(Participation.contest_id == contest_id)\
-            .first()
+        participation = session.execute(
+            select(Participation)
+            .filter(Participation.user_id == user.id)
+            .filter(Participation.contest_id == contest_id)
+        ).scalars().first()
         if participation is None:
             print("User %s is not in the contest." % username)
             return
-        submissions = session.query(Submission)\
-            .filter(Submission.participation_id == participation.id)\
-            .all()
+        submissions = session.execute(
+            select(Submission)
+            .filter(Submission.participation_id == participation.id)
+        ).scalars().all()
         ask_and_remove(session, submissions)
 
 
 def remove_submissions_for_task(contest_id: int, task_name: str):
     with SessionGen() as session:
-        task = session.query(Task)\
-            .filter(Task.contest_id == contest_id)\
-            .filter(Task.name == task_name).first()
+        task = session.execute(
+            select(Task)
+            .filter(Task.contest_id == contest_id)
+            .filter(Task.name == task_name)
+        ).scalars().first()
         if task is None:
             print("Unable to find task.")
             return
-        submissions = session.query(Submission)\
-            .filter(Submission.task_id == task.id)\
-            .all()
+        submissions = session.execute(
+            select(Submission).filter(Submission.task_id == task.id)
+        ).scalars().all()
         ask_and_remove(session, submissions)
 
 
 def remove_submission(submission_id: int):
     with SessionGen() as session:
-        submission = session.query(Submission)\
-            .filter(Submission.id == submission_id)\
-            .first()
+        submission = session.execute(
+            select(Submission).filter(Submission.id == submission_id)
+        ).scalars().first()
         ask_and_remove(session, [submission])
 
 

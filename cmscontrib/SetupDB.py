@@ -24,6 +24,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from cms.db import Admin, Contest, Group, SessionGen, init_db
@@ -44,7 +45,9 @@ def ensure_first_admin() -> bool:
 
     """
     with SessionGen() as session:
-        if session.query(Admin).count() > 0:
+        if session.execute(
+            select(func.count()).select_from(Admin)
+        ).scalar_one() > 0:
             logger.info("Admin already exists, skipping.")
             return True
 
@@ -109,7 +112,9 @@ def offer_sample_contest() -> bool:
         return True
 
     with SessionGen() as session:
-        if session.query(Contest).count() > 0:
+        if session.execute(
+            select(func.count()).select_from(Contest)
+        ).scalar_one() > 0:
             return True
 
     answer = input(

@@ -22,6 +22,8 @@ import json
 import os
 import unittest
 
+from sqlalchemy import func, select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Contest, Executable, Participation, RankingGroup, \
@@ -316,10 +318,16 @@ class TestDumpExporter(DatabaseMixin, FileSystemMixin, unittest.TestCase):
             skip_user_tests=False, skip_users=False).do_import())
 
         self.session.expire_all()
-        imported = self.session.query(Contest)\
-            .filter(Contest.name == contest_name).one()
+        imported = self.session.execute(
+            select(Contest).filter(Contest.name == contest_name)
+        ).scalar_one()
         self.assertIsNone(imported.ranking_group)
-        self.assertEqual(self.session.query(RankingGroup).count(), 1)
+        self.assertEqual(
+            self.session.execute(
+                select(func.count()).select_from(RankingGroup)
+            ).scalar_one(),
+            1,
+        )
 
 
 if __name__ == "__main__":

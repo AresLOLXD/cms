@@ -26,6 +26,8 @@ import logging
 import os
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import SessionGen, Statement, Task
 from cms.db.filecacher import FileCacher
@@ -49,7 +51,9 @@ def add_statement(
         return False
 
     with SessionGen() as session:
-        task: Task | None = session.query(Task).filter(Task.name == task_name).first()
+        task: Task | None = session.execute(
+            select(Task).filter(Task.name == task_name)
+        ).scalars().first()
         if not task:
             logger.error("No task named %s", task_name)
             return False
@@ -61,12 +65,11 @@ def add_statement(
                 (task_name, language_code))
         except Exception:
             logger.error("Task statement storage failed.", exc_info=True)
-        arr: list[Statement] = (
-            session.query(Statement)
+        arr: list[Statement] = session.execute(
+            select(Statement)
             .filter(Statement.language == language_code)
             .filter(Statement.task == task)
-            .all()
-        )
+        ).scalars().all()
         if arr:  # Statement already exists
             if overwrite:
                 logger.info("Overwriting already existing statement.")

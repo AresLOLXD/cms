@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Participation, SessionGen, User
@@ -77,16 +79,18 @@ class TestImportUser(DatabaseMixin, unittest.TestCase):
 
         """
         with SessionGen() as session:
-            db_users = session.query(User) \
-                .filter(User.username == username).all()
+            db_users = session.execute(
+                select(User).filter(User.username == username)
+            ).scalars().all()
             self.assertEqual(len(db_users), 1)
             u = db_users[0]
             self.assertEqual(u.username, username)
             self.assertEqual(u.last_name, last_name)
 
             if contest_ids is not None:
-                db_participations = session.query(Participation) \
-                    .filter(Participation.user_id == u.id).all()
+                db_participations = session.execute(
+                    select(Participation).filter(Participation.user_id == u.id)
+                ).scalars().all()
                 self.assertCountEqual(
                     contest_ids,
                     (p.contest_id for p in db_participations))

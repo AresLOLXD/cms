@@ -33,6 +33,8 @@ import logging
 import os
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import Dataset, SessionGen
 from cms.db.session import Session
@@ -90,9 +92,11 @@ class DatasetImporter:
 
     @staticmethod
     def _dataset_to_db(session: Session, dataset: Dataset, task: Task):
-        old_dataset = session.query(Dataset)\
-            .filter(Dataset.task_id == task.id)\
-            .filter(Dataset.description == dataset.description).first()
+        old_dataset = session.execute(
+            select(Dataset)
+            .filter(Dataset.task_id == task.id)
+            .filter(Dataset.description == dataset.description)
+        ).scalars().first()
         if old_dataset is not None:
             raise ImportDataError("Dataset \"%s\" already exists."
                                   % dataset.description)

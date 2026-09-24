@@ -27,6 +27,8 @@ import logging
 import os
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import Dataset, File, FSObject, Participation, SessionGen, \
     Submission, SubmissionResult, Task, User
@@ -154,7 +156,7 @@ def main():
         return 1
 
     with SessionGen() as session:
-        q = session.query(Submission)\
+        q = select(Submission)\
             .join(Submission.task)\
             .join(Submission.files)\
             .join(Submission.results)\
@@ -163,13 +165,13 @@ def main():
             .join(Participation.user)\
             .filter(Dataset.id == Task.active_dataset_id)\
             .filter(SubmissionResult.score >= args.min_score)\
-            .with_entities(Submission.id, Submission.language,
-                           Submission.timestamp,
-                           SubmissionResult.score,
-                           File.filename, File.digest,
-                           User.id, User.username, User.first_name,
-                           User.last_name,
-                           Task.id, Task.name)
+            .with_only_columns(Submission.id, Submission.language,
+                               Submission.timestamp,
+                               SubmissionResult.score,
+                               File.filename, File.digest,
+                               User.id, User.username, User.first_name,
+                               User.last_name,
+                               Task.id, Task.name)
 
         if args.contest_id:
             q = q.filter(Participation.contest_id == args.contest_id)
@@ -183,7 +185,7 @@ def main():
         if args.submission_id:
             q = q.filter(Submission.id == args.submission_id)
 
-        results = q.all()
+        results = session.execute(q).all()
 
         if args.unique or args.best:
             results = filter_top_scoring(results, args.unique)

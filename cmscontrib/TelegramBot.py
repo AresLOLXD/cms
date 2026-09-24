@@ -19,6 +19,7 @@
 import collections
 from collections.abc import Awaitable, Callable
 from typing import Any
+from sqlalchemy import select
 from sqlalchemy.orm import Query
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
@@ -417,7 +418,7 @@ class TelegramBot:
         while True:
             logger.debug("Reading questions and announcements from DB")
             with SessionGen() as session:
-                query = session.query(Question).join(Participation)
+                query = select(Question).join(Participation)
                 if self.contest_id is not None:
                     query = query.filter(
                         Participation.contest_id == self.contest_id)
@@ -427,15 +428,16 @@ class TelegramBot:
                     d["username"] = q.participation.user.username
                     return d
 
-                qs = [q_to_dict(x) for x in query.all()]
+                qs = [q_to_dict(x) for x in session.execute(query).scalars().all()]
                 if self.contest_id is None:
                     anns = []
                 else:
                     anns = [
                         sqlalchemy_to_dict(x)
-                        for x in session.query(Announcement)
-                        .filter(Announcement.contest_id == self.contest_id)
-                        .all()
+                        for x in session.execute(
+                            select(Announcement)
+                            .filter(Announcement.contest_id == self.contest_id)
+                        ).scalars().all()
                     ]
             for q in qs:
                 await self.store_question(q, self.question_callback)

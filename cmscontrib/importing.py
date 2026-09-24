@@ -25,6 +25,8 @@ from collections.abc import Callable
 import functools
 import typing
 
+from sqlalchemy import select
+
 from cms.db import Contest, Dataset, Task, Group
 from cms.db.base import Base
 from cms.db.session import Session
@@ -73,7 +75,9 @@ def task_from_db(task_name: str | None, session: Session) -> Task | None:
     if task_name is None:
         return None
 
-    task = session.query(Task).filter(Task.name == task_name).first()
+    task = session.execute(
+        select(Task).filter(Task.name == task_name)
+    ).scalars().first()
     if task is None:
         raise ImportDataError(
             "The specified task (name %s) does not exist." % task_name)

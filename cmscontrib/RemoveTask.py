@@ -23,6 +23,8 @@
 import argparse
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import SessionGen, Task
 
@@ -36,8 +38,9 @@ def ask(task_name: str):
 
 def remove_task(task_name: str):
     with SessionGen() as session:
-        task = session.query(Task)\
-            .filter(Task.name == task_name).first()
+        task = session.execute(
+            select(Task).filter(Task.name == task_name)
+        ).scalars().first()
         if not task:
             print("No task called `%s' found." % task_name)
             return False
@@ -50,11 +53,12 @@ def remove_task(task_name: str):
         session.flush()
         # Keeping the tasks' nums to the range 0... n - 1.
         if contest_id is not None:
-            following_tasks = session.query(Task)\
-                .filter(Task.contest_id == contest_id)\
-                .filter(Task.num > num)\
-                .order_by(Task.num)\
-                .all()
+            following_tasks = session.execute(
+                select(Task)
+                .filter(Task.contest_id == contest_id)
+                .filter(Task.num > num)
+                .order_by(Task.num)
+            ).scalars().all()
             for task in following_tasks:
                 task.num -= 1
                 session.flush()
