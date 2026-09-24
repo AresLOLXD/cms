@@ -30,7 +30,7 @@ import typing
 
 import psycopg2
 import psycopg2.extensions
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.dialects.postgresql import OID
 from sqlalchemy.schema import Column
 from sqlalchemy.types import String, Unicode
@@ -422,8 +422,8 @@ class FSObject(Base):
         """Iterate over all the FSObjects available in the database.
 
         """
-        if cls.__table__.exists():
-            return session.execute(select(cls)).scalars()
+        if inspect(session.get_bind()).has_table(cls.__tablename__):
+            return session.execute(select(cls)).scalars().all()
         else:
             return []
 

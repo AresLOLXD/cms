@@ -31,7 +31,8 @@ from cmstestsuite.unit_tests.testidgenerator import unique_digest, \
     unique_unicode_id
 
 from cms.db import Digest, UserTestExecutable
-from cms.db.util import enumerate_files
+from cms.db.util import enumerate_files, get_submission_results, \
+    get_submissions
 
 
 class TestEnumerateFiles(DatabaseMixin, unittest.TestCase):
@@ -139,7 +140,61 @@ class TestEnumerateFiles(DatabaseMixin, unittest.TestCase):
         result = enumerate_files(self.session, contest=contest)
 
         self.assertNotIn(Digest.TOMBSTONE, result)
-        self.assertEqual(result, digests | {manager.digest} - {Digest.TOMBSTONE})
+        self.assertEqual(
+            result, digests | ({manager.digest} - {Digest.TOMBSTONE}))
+
+
+class TestGetSubmissionsNoFilters(DatabaseMixin, unittest.TestCase):
+    """Regression test for Review Focus item 3: a builder function called
+    with zero optional filters must still return every row, not an empty
+    (or incorrectly filtered) result. Nothing called get_submissions()/
+    get_submission_results() with every keyword left None before.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.delete_data()
+
+    def tearDown(self):
+        self.delete_data()
+        super().tearDown()
+
+    def test_get_submissions_with_no_filters_returns_all(self):
+        contest, submission_ids, _ = self._populate_contest_for_no_filter_test()
+
+        submissions = self.session.execute(
+            get_submissions(self.session)).scalars().all()
+
+        self.assertEqual({s.id for s in submissions}, submission_ids)
+
+    def test_get_submission_results_with_no_filters_returns_all(self):
+        _, _, result_ids = self._populate_contest_for_no_filter_test(
+            with_results=True)
+
+        results = self.session.execute(
+            get_submission_results(self.session)).scalars().all()
+
+        self.assertEqual(
+            {(r.submission_id, r.dataset_id) for r in results}, result_ids)
+
+    def _populate_contest_for_no_filter_test(self, with_results=False):
+        contest = self.add_contest()
+        task = self.add_task(contest=contest)
+        dataset = self.add_dataset(task=task)
+        participation = self.add_participation(contest=contest)
+        submissions = []
+        results = []
+        for _ in range(2):
+            submission = self.add_submission(
+                task=task, participation=participation)
+            submissions.append(submission)
+            if with_results:
+                results.append(self.add_submission_result(submission, dataset))
+        self.session.commit()
+        submission_ids = {s.id for s in submissions}
+        result_ids = {(r.submission_id, r.dataset_id) for r in results}
+        return contest, submission_ids, result_ids
 
 
 if __name__ == "__main__":

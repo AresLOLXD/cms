@@ -20,7 +20,6 @@ import collections
 from collections.abc import Awaitable, Callable
 from typing import Any
 from sqlalchemy import select
-from sqlalchemy.orm import Query
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 
