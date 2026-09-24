@@ -256,6 +256,8 @@ Expected: no output (zero matches).
 Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
 Expected: identical pass/fail set to Step 1's baseline (this task's changes ripple into every other package's tests since they all depend on `cms/db/`, so the full suite — not just `cmstestsuite/unit_tests/db/` — is the real gate).
 
+**Ruling (added mid-Task 1, after Step 8 surfaced an unavoidable cross-task gap):** Task 1 changes `get_submissions()`/`get_submission_results()`'s return type to `Select`, and Task 1's own Interfaces section already says every later task's files that call them "must wrap their own final `.all()`/`.first()`/etc. in `session.execute(...)`" — meaning callers in `cms/service/` (Task 2's files) are *expected* to break the moment Task 1 lands, not because of a Task 1 defect. A genuinely green Step 8 is only achievable once Task 2 also lands. **Accepted exception:** if Step 8's failures are 100% confined to files in Task 2's file list, and each one is fully root-caused as either (a) this exact, anticipated `Select`-return-type ripple, or (b) another version-bump-caused break in a Task 2 file discovered incidentally while diagnosing (fix it note-only here, actually applying the fix is Task 2's job) — commit Task 1 with this documented, diagnosed gap and dispatch Task 2 immediately next to close it. Any failure outside Task 2's file list, or one that isn't fully root-caused, is NOT covered by this exception and must be fixed before Task 1 is committed.
+
 - [ ] **Step 9: pyflakes**
 
 Run: `.venv/bin/pyflakes cms/db/base.py cms/db/util.py cms/db/fsobject.py cms/db/submission.py cms/db/__init__.py cmstestsuite/unit_tests/databasemixin.py`
@@ -287,10 +289,14 @@ verification depends on the 2.0 API being installed, not just this one."
 - Consumes: `Base.get_from_id()` (unchanged signature, Task 1), `cms.db.util.get_submissions`/`get_submission_results` (now return `Select`, Task 1) — this task's files call these and must wrap their own final `.all()`/`.first()`/etc. in `session.execute(...)`.
 - Produces: nothing new consumed by later tasks — this package is a leaf relative to Tasks 3–5.
 
-- [ ] **Step 1: Confirm baseline is Task 1's green state**
+- [ ] **Step 1: Confirm baseline is Task 1's actual green state (with a known, documented gap)**
 
 Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
-Expected: same pass/fail set as Task 1's Step 8.
+Expected: **828 passed, 25 failed, 7 skipped** — NOT the original pre-migration baseline (853 passed, 0 failed, 7 skipped). Task 1 changed `get_submissions()`/`get_submission_results()` to return `Select` instead of `Query`, and by the plan's own design (see Task 1's Interfaces section and its Step 8 ruling) every caller of those functions outside `cms/db/` breaks until it's updated to wrap the result in `session.execute(...)` — this task is exactly that update. All 25 failures are pre-diagnosed as confined to this task's two root causes:
+1. `esoperations.py`: `case([...], else_=...)` needs SQLAlchemy 2.0's positional-args form, `case(*whens, else_=...)` (not a list) — a version-bump break independent of `.query()`, same category as the ones already fixed in Task 1's Global Constraints ruling.
+2. `ProxyService.py`: `get_submissions(...).filter(...).filter(...).all()` — `.all()` doesn't exist on a `Select`; wrap the whole chain in `session.execute(...).scalars().all()` per Step 2 below (this is literally the transformation Step 2 already shows).
+
+If Step 1's actual result differs from 828/25/7 — a different count, or any failure outside `esoperations.py`/`ProxyService.py` — stop and report before proceeding; that would mean something changed since Task 1's diagnosis and needs fresh investigation, not blind continuation.
 
 - [ ] **Step 2: Rewrite `cms/service/ProxyService.py`'s caller of `get_submissions`**
 
@@ -318,9 +324,11 @@ Check the top of the file for an existing `from sqlalchemy import ...` line; no 
 
 One is a caller of `get_submissions`/`get_submission_results` (same transformation pattern as Step 2 — wrap the existing chain in `session.execute(...).scalars().all()` or the matching terminal method from the mapping table, matching whichever terminal method the current code calls). The other may be a direct `session.query(...)` — read it in context and apply the Global Constraints mapping table row matching its terminal method. Re-run `grep -n "\.query(" cms/service/EvaluationService.py` after and confirm zero remaining matches, and separately confirm every `get_submissions(`/`get_submission_results(` call in this file is now wrapped in `session.execute(...)`.
 
-- [ ] **Step 4: Rewrite `cms/service/esoperations.py`'s 9 call sites**
+- [ ] **Step 4: Rewrite `cms/service/esoperations.py`'s 9 call sites, plus its `case()` break**
 
 Read each of the 9 in context (`grep -n "\.query(" cms/service/esoperations.py` to list them) and apply the matching Global Constraints mapping table row per call site based on its terminal method (`.all()`, `.first()`, `.one()`, `.count()`, join usage, etc.). Add `from sqlalchemy import select, func` to the file's imports if not already present. Re-run the grep after each one and confirm the line disappears before moving to the next.
+
+Separately, this file also has a `case([...], else_=...)` call using SQLAlchemy 1.x's list-of-whens form — 2.0 requires the whens as separate positional args: `case(*whens, else_=...)` (unpack the list into positional args, same whens, same else_). This isn't a `.query()` site so the grep above won't find it; it's the version-bump break diagnosed during Task 1's Step 8 (14+3 of that task's 25 confined, expected failures came from this). Find it with `grep -n "case(" cms/service/esoperations.py` and fix it as part of this step.
 
 - [ ] **Step 5: Rewrite `cms/service/scoringoperations.py`'s 1 call site**
 
