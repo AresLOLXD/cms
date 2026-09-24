@@ -141,6 +141,17 @@ class AsyncRemoteServiceBase:
 
         local_address = self._local_address
 
+        # Ensure the transport is closed even on the passive-disconnect
+        # path (finalize() called directly after the remote end closed
+        # the connection, without disconnect() having closed our writer
+        # first). writer.close() is idempotent, so this is safe to call
+        # even when disconnect() already closed it.
+        try:
+            self._writer.close()
+        except OSError as error:
+            logger.warning("Couldn't close connection to %s: %s.",
+                           self._repr_remote(), error)
+
         self._reader = None
         self._writer = None
         self._local_address = None
