@@ -20,6 +20,12 @@
 - Verify every package's pass against the **real Docker test image** (`docker/docker-compose.test.yml`, which builds the production `Dockerfile` with real `constraints.txt` pins), not a local ad hoc `.venv` — local venvs in this repo have repeatedly been found to silently substitute newer dependency versions than what's actually pinned.
 - The legacy `Query` API still works under SQLAlchemy 2.0 in a deprecated compatibility mode, so an incomplete rewrite can pass tests and hide as a warning. Every task's last verification step is `grep -rn "\.query(" <that task's files>` returning zero matches, not just a green test run.
 - `pyflakes` clean on every touched file.
+- **Ruling (added mid-Task 1, after the version bump surfaced breaking changes beyond `.query()`):** bumping the pin to `sqlalchemy>=2.0,<2.1` breaks several unrelated APIs that have nothing to do with the `.query()`→`select()` syntax this plan's mapping table covers: `MetaData(bind=...)`'s positional/keyword `bind` arg (removed in 2.0), `as_declarative(bind=..., constructor=...)`'s `bind`/`constructor` kwargs (removed in 2.0 — `constructor=None` existed to preserve `Base`'s own hand-written `__init__`), SQLAlchemy 2.0's declarative annotation scanner raising `MappedAnnotationError` on any class-level type annotation that isn't wrapped in `Mapped[...]` (this codebase uses classic `Column(...)` + separate bare annotations throughout, not `Mapped[]`), and 2.0's removal of implicit textual SQL execution (`session.execute("raw sql")` now requires `text("raw sql")`). None of these are `.query()` call sites, so none of them are literally in this plan's mapping table — but all of them are **mechanical, behavior-preserving fixes required to keep the exact same code working under 2.0**, not architectural or schema changes: they don't alter table columns, relationships, or model behavior, only how the ORM's setup code is spelled. They are IN SCOPE for every task from here on, do not violate the "no schema/model changes" constraint above, and must be applied wherever the version bump breaks them, using these fixes:
+  - `MetaData(engine)` → `MetaData()` + call `metadata.create_all(engine)` explicitly at the site that used to rely on the bound engine.
+  - `as_declarative(bind=engine, metadata=metadata, constructor=None)` → drop `bind`/`constructor`; if `constructor=None` was preserving a hand-written `__init__`, save `Base.__init__` before the decorator runs and restore it after, so the custom `__init__` is still what gets called (SQLAlchemy 2.0 always installs its own unless prevented like this).
+  - `MappedAnnotationError` on classic-style models → add `__allow_unmapped__ = True` to `Base` in `cms/db/base.py` (one place, applies to every model that inherits from it) — this is SQLAlchemy's own documented opt-out for codebases keeping the classic `Column()` mapping style with plain type annotations, not a per-model change.
+  - Raw string SQL passed to `session.execute(...)` → wrap in `text(...)` (`from sqlalchemy import text`), same string, no behavior change.
+  - Any other 2.0 breaking change discovered this way (not just these four) is handled the same way: fix it mechanically and behavior-preservingly, note it in the task's report the same as any other finding, and if it's outside this task's originally listed files (like `cms/db/init.py`, discovered mid-Task-1), it's still in scope — fix it where it actually lives.
 
 ### The Mechanical Mapping (apply exactly, never improvise)
 
@@ -51,8 +57,9 @@ Reproduced from the spec; every task references this table instead of repeating 
 ### Task 1: `cms/db/` foundation + shared test helpers
 
 **Files:**
-- Modify: `cms/db/base.py:216` (`Base.get_from_id()`)
-- Modify: `cms/db/util.py` (`get_contest_list`, `get_submissions`, `get_submission_results`, and any other function in this file using `.query(`; imports at the top)
+- Modify: `cms/db/base.py:216` (`Base.get_from_id()`; also gets `__allow_unmapped__ = True` and the `as_declarative()` kwarg fix per the Global Constraints ruling)
+- Modify: `cms/db/init.py` (discovered mid-task: `MetaData(engine)`'s `bind` kwarg removed in 2.0, per the Global Constraints ruling — not in the plan's original file list, but where the fix actually lives)
+- Modify: `cms/db/util.py` (`get_contest_list`, `get_submissions`, `get_submission_results`, and any other function in this file using `.query(`; imports at the top; also line 71's raw-string `session.execute("select 0;")` needs `text(...)` per the Global Constraints ruling)
 - Modify: `cms/db/fsobject.py:425`
 - Modify: `cms/db/submission.py:200,467`
 - Modify: `cms/db/__init__.py:138`
@@ -220,6 +227,19 @@ Apply the same construction-only change (initial `session.query(M)` → `select(
 - [ ] **Step 5: Rewrite the remaining `cms/db/` call sites**
 
 In `cms/db/fsobject.py:425`, `cms/db/submission.py:200`, `cms/db/submission.py:467`, `cms/db/__init__.py:138`: read each line in context (a few lines before/after) and apply the matching row from the Global Constraints mapping table based on which terminal method it calls (`.all()`, `.one()`, `.first()`, `.count()`, plain iteration, etc.). Add the `select`/`func` import to each file's existing `from sqlalchemy import ...` line if not already present (check each file first — don't add a duplicate import statement).
+
+- [ ] **Step 5.5: Repo-wide sweep for other SQLAlchemy 2.0 breaking changes (added mid-Task 1, per the ruling above)**
+
+Since bumping the pin surfaced breaking changes unrelated to `.query()` (see the Global Constraints ruling above), sweep the *whole* repo now — not just this task's files — for the same risk categories, so Tasks 2-6 aren't blocked by the same class of surprise later. Run each of these and read every hit in context:
+
+```bash
+grep -rn '\.execute(\s*["'"'"']' cms/ cmscommon/ cmscontrib/ cmstestsuite/   # raw string SQL missing text()
+grep -rn 'MetaData(' cms/ cmscommon/ cmscontrib/ cmstestsuite/               # bind= kwarg removed in 2.0
+grep -rn 'as_declarative(' cms/ cmscommon/ cmscontrib/ cmstestsuite/          # bind=/constructor= kwargs removed
+grep -rn '\.with_entities(' cms/ cmscommon/ cmscontrib/ cmstestsuite/         # Query-only method, no Select equivalent by that name
+```
+
+Fix every genuine hit the same way item 3/4 above were fixed (mechanical, behavior-preserving). Note in the task report which files outside this task's original list you touched and why. This sweep's job is to surface problems now, in the foundation task, not mid-way through Tasks 2-6.
 
 - [ ] **Step 6: Confirm `cmstestsuite/unit_tests/databasemixin.py` needs no changes**
 
