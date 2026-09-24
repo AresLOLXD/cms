@@ -39,6 +39,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms import config
 from cms.db import UserTest, UserTestResult
@@ -88,10 +89,11 @@ class UserTestInterfaceHandler(ContestHandler):
         for task in self.contest.tasks:
             if self.get_argument("task_name", None) == task.name:
                 default_task = task
-            user_tests[task.id] = self.sql_session.query(UserTest)\
-                .filter(UserTest.participation == participation)\
-                .filter(UserTest.task == task)\
-                .all()
+            user_tests[task.id] = self.sql_session.execute(
+                select(UserTest)
+                .filter(UserTest.participation == participation)
+                .filter(UserTest.task == task)
+            ).scalars().all()
             user_tests_left_task = None
             if task.max_user_test_number is not None:
                 user_tests_left_task = \

@@ -21,6 +21,8 @@
 import ipaddress
 import logging
 
+from sqlalchemy import select
+
 from cms import FEEDBACK_LEVEL_FULL
 from cms.db.submission import Submission
 from cms.server import multi_contest
@@ -203,9 +205,12 @@ class ApiSubmissionListHandler(ApiContestHandler):
             self.json({"error": "Not found"}, 404)
             return
         submissions: list[Submission] = (
-            self.sql_session.query(Submission)
-            .filter(Submission.participation == self.current_user)
-            .filter(Submission.task == task)
+            self.sql_session.execute(
+                select(Submission)
+                .filter(Submission.participation == self.current_user)
+                .filter(Submission.task == task)
+            )
+            .scalars()
             .all()
         )
         self.json({"list": [{"id": str(s.opaque_id)} for s in submissions]})

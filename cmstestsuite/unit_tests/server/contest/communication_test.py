@@ -23,6 +23,8 @@
 import unittest
 from datetime import timedelta
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Question
@@ -48,9 +50,9 @@ class TestAcceptQuestion(DatabaseMixin, unittest.TestCase):
     def test_success(self):
         q = self.call("mysubject", "mytext")
         self.assertIsNotNone(q)
-        query = self.session.query(Question) \
+        query = select(Question) \
             .filter(Question.subject == q.subject)
-        self.assertIs(query.first(), q)
+        self.assertIs(self.session.execute(query).scalars().first(), q)
 
     def test_questions_not_allowed(self):
         self.contest.allow_questions = False

@@ -44,6 +44,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from cms import config, FEEDBACK_LEVEL_FULL
@@ -134,11 +135,15 @@ class TaskSubmissionsHandler(ContestHandler):
             raise tornado.web.HTTPError(404)
 
         submissions: list[Submission] = (
-            self.sql_session.query(Submission)
-            .filter(Submission.participation == participation)
-            .filter(Submission.task == task)
-            .options(joinedload(Submission.token))
-            .options(joinedload(Submission.results))
+            self.sql_session.execute(
+                select(Submission)
+                .filter(Submission.participation == participation)
+                .filter(Submission.task == task)
+                .options(joinedload(Submission.token))
+                .options(joinedload(Submission.results))
+            )
+            .unique()
+            .scalars()
             .all()
         )
 
@@ -214,12 +219,13 @@ class SubmissionStatusHandler(ContestHandler):
 
         """
         # Just to preload all information required to compute the task score.
-        self.sql_session.query(Submission)\
-            .filter(Submission.participation == participation)\
-            .filter(Submission.task == task)\
-            .options(joinedload(Submission.token))\
-            .options(joinedload(Submission.results))\
-            .all()
+        self.sql_session.execute(
+            select(Submission)
+            .filter(Submission.participation == participation)
+            .filter(Submission.task == task)
+            .options(joinedload(Submission.token))
+            .options(joinedload(Submission.results))
+        ).unique().scalars().all()
         data["task_public_score"], public_score_is_partial = \
             task_score(participation, task, public=True)
         data["task_tokened_score"], tokened_score_is_partial = \

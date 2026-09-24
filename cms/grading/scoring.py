@@ -25,6 +25,7 @@
 
 from collections import namedtuple
 
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from cms.db import Submission, Dataset, Participation, Task
@@ -72,12 +73,13 @@ def compute_changes_for_dataset(
             return True, (a, b)
 
     # Construct query with all relevant fields to avoid roundtrips to the DB.
-    submissions = \
-        task.sa_session.query(Submission)\
-            .filter(Submission.task == task)\
-            .options(joinedload(Submission.participation))\
-            .options(joinedload(Submission.token))\
-            .options(joinedload(Submission.results)).all()
+    submissions = task.sa_session.execute(
+        select(Submission)
+        .filter(Submission.task == task)
+        .options(joinedload(Submission.participation))
+        .options(joinedload(Submission.token))
+        .options(joinedload(Submission.results))
+    ).unique().scalars().all()
 
     ret = []
     for s in submissions:

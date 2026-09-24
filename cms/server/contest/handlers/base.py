@@ -43,6 +43,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 from werkzeug.datastructures import LanguageAccept
 from werkzeug.http import parse_accept_header
 
@@ -202,8 +203,9 @@ class ContestListHandler(BaseHandler):
         # We need this to be computed for each request because we want to be
         # able to import new contests without having to restart CWS.
         contest_list = dict()
-        for contest in self.sql_session.query(Contest)\
-                .filter(Contest.active.is_(True)).all():
+        for contest in self.sql_session.execute(
+                select(Contest).filter(Contest.active.is_(True))
+        ).scalars().all():
             contest: Contest
             contest_list[contest.name] = contest
         self.render("contest_list.html", contest_list=contest_list,
