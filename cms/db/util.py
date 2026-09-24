@@ -26,9 +26,8 @@
 import sys
 import logging
 
-from sqlalchemy import union
+from sqlalchemy import select, text, union, Select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Query
 
 from cms import ConfigError
 from . import (
@@ -69,7 +68,7 @@ def test_db_connection():
         # We do not care of the specific query executed here, we just
         # use it to ensure that the DB is accessible.
         with SessionGen() as session:
-            session.execute("select 0;")
+            session.execute(text("select 0;"))
     except OperationalError as e:
         logger.error(e)
         raise ConfigError("Operational error while talking to the DB. "
@@ -92,7 +91,7 @@ def get_contest_list(session: "Session | None" = None) -> list[Contest]:
         with SessionGen() as session:
             return get_contest_list(session)
 
-    return session.query(Contest).all()
+    return session.execute(select(Contest)).scalars().all()
 
 
 def is_contest_id(contest_id: int) -> bool:
@@ -161,7 +160,7 @@ def get_submissions(
     participation_id: int | None = None,
     task_id: int | None = None,
     submission_id: int | None = None,
-) -> Query:
+) -> Select:
     """Search for submissions that match the given criteria
 
     The submissions will be returned as a list, and the last four
@@ -198,7 +197,7 @@ def get_submissions(
         raise ValueError(
             "participation_id is superfluous if submission_id is given")
 
-    query = session.query(Submission)
+    query = select(Submission)
     if submission_id is not None:
         query = query.filter(Submission.id == submission_id)
     if participation_id is not None:
@@ -220,7 +219,7 @@ def get_submission_results(
     task_id: int | None = None,
     submission_id: int | None = None,
     dataset_id: int | None = None,
-) -> Query:
+) -> Select:
     """Search for submission results that match the given criteria
 
     The submission results will be returned as a list, and the last
@@ -262,7 +261,7 @@ def get_submission_results(
     if dataset_id is not None and contest_id is not None:
         raise ValueError("contest_id is superfluous if dataset_id is given")
 
-    query = session.query(SubmissionResult).join(Submission)
+    query = select(SubmissionResult).join(Submission)
     if submission_id is not None:
         query = query.filter(SubmissionResult.submission_id == submission_id)
     if dataset_id is not None:
@@ -316,50 +315,50 @@ def enumerate_files(
     return: the digests of the file referenced in the contest.
 
     """
-    contest_q = session.query(Contest)
+    contest_q = select(Contest)
     if contest is not None:
         contest_q = contest_q.filter(Contest.id == contest.id)
 
     queries = list()
 
     task_q = contest_q.join(Contest.tasks)
-    queries.append(task_q.join(Task.statements).with_entities(Statement.digest))
+    queries.append(task_q.join(Task.statements).with_only_columns(Statement.digest))
     queries.append(task_q.join(Task.attachments)
-                   .with_entities(Attachment.digest))
+                   .with_only_columns(Attachment.digest))
 
     dataset_q = task_q.join(Task.datasets)
     queries.append(dataset_q.join(Dataset.managers)
-                   .with_entities(Manager.digest))
+                   .with_only_columns(Manager.digest))
     queries.append(dataset_q.join(Dataset.testcases)
-                   .with_entities(Testcase.input))
+                   .with_only_columns(Testcase.input))
     queries.append(dataset_q.join(Dataset.testcases)
-                   .with_entities(Testcase.output))
+                   .with_only_columns(Testcase.output))
 
     if not skip_submissions and not skip_users:
         submission_q = task_q.join(Task.submissions)
         queries.append(submission_q.join(Submission.files)
-                       .with_entities(File.digest))
+                       .with_only_columns(File.digest))
 
         if not skip_generated:
             queries.append(submission_q.join(Submission.results)
                            .join(SubmissionResult.executables)
-                           .with_entities(Executable.digest))
+                           .with_only_columns(Executable.digest))
 
     if not skip_user_tests and not skip_users:
         user_test_q = task_q.join(Task.user_tests)
-        queries.append(user_test_q.with_entities(UserTest.input))
+        queries.append(user_test_q.with_only_columns(UserTest.input))
         queries.append(user_test_q.join(UserTest.files)
-                       .with_entities(UserTestFile.digest))
+                       .with_only_columns(UserTestFile.digest))
         queries.append(user_test_q.join(UserTest.managers)
-                       .with_entities(UserTestManager.digest))
+                       .with_only_columns(UserTestManager.digest))
 
         if not skip_generated:
             user_test_result_q = user_test_q.join(UserTest.results)
             queries.append(user_test_result_q.join(UserTestResult.executables)
-                           .with_entities(UserTestExecutable.digest))
+                           .with_only_columns(UserTestExecutable.digest))
             queries.append(user_test_result_q
                            .filter(UserTestResult.output != None)
-                           .with_entities(UserTestResult.output))
+                           .with_only_columns(UserTestResult.output))
 
     # union(...).execute() would be executed outside of the session.
     digests = set(r[0] for r in session.execute(union(*queries)))

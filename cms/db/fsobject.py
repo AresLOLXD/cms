@@ -30,6 +30,7 @@ import typing
 
 import psycopg2
 import psycopg2.extensions
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import OID
 from sqlalchemy.schema import Column
 from sqlalchemy.types import String, Unicode
@@ -422,7 +423,7 @@ class FSObject(Base):
 
         """
         if cls.__table__.exists():
-            return session.query(cls)
+            return session.execute(select(cls)).scalars()
         else:
             return []
 

@@ -96,7 +96,7 @@ def custom_psycopg2_connection(**kwargs: dict[str, str]):
     # For Unix-domain socket we don't have a port nor a host and that's fine.
     if database_url.port is None and database_url.host is not None:
         logger.warning("Using default port 5432 for Postgres DB")
-        database_url.port = 5432
+        database_url = database_url.set(port=5432)
 
     # Unix-domain socket have the host in a query argument, so we build the
     # arguments dict first to avoid duplicate arguments when calling connect().

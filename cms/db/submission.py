@@ -28,7 +28,7 @@
 
 from datetime import datetime
 import random
-from sqlalchemy import Boolean
+from sqlalchemy import Boolean, select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.collections import attribute_mapped_collection
@@ -196,11 +196,11 @@ class Submission(Base):
         # Note that in theory this may cause the transaction to fail by
         # generating a non-actually-unique ID. This is however extremely
         # unlikely (prob. ~num_parallel_submissions_per_contestant^2/2**63).
-        while (session
-               .query(Submission)
-               .filter(Submission.participation_id == participation_id)
-               .filter(Submission.opaque_id == opaque_id)
-               .first()
+        while (session.execute(
+                   select(Submission)
+                   .filter(Submission.participation_id == participation_id)
+                   .filter(Submission.opaque_id == opaque_id)
+               ).scalars().first()
                is not None):
             opaque_id = random.randint(0, randint_upper_bound)
 
@@ -464,10 +464,11 @@ class SubmissionResult(Base):
         # and spare a query.
         # (We could use .one() and avoid a LIMIT but we would need to
         # catch a NoResultFound exception.)
-        return self.sa_session.query(Evaluation)\
-            .filter(Evaluation.submission_result == self)\
-            .filter(Evaluation.testcase == testcase)\
-            .first()
+        return self.sa_session.execute(
+            select(Evaluation)
+            .filter(Evaluation.submission_result == self)
+            .filter(Evaluation.testcase == testcase)
+        ).scalars().first()
 
     def get_max_evaluation_resources(self) -> tuple[float | None, int | None]:
         """Return the maximum time and memory used by this result

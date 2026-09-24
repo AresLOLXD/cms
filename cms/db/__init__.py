@@ -31,7 +31,7 @@
 
 import logging
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, select, MetaData
 from sqlalchemy.orm import configure_mappers, joinedload, subqueryload
 
 from cms import config
@@ -87,7 +87,7 @@ version = 49
 engine = create_engine(config.database.url, echo=config.database.debug,
                        pool_timeout=60, pool_recycle=120)
 
-metadata = MetaData(engine)
+metadata = MetaData()
 
 from .session import Session, ScopedSession, SessionGen, \
     custom_psycopg2_connection
@@ -134,13 +134,13 @@ def get_submission_results_for_dataset(self, dataset) -> list[SubmissionResult]:
     # executables and evaluations at once instead of having SA
     # lazy-load them when we access them for each SubmissionResult,
     # one at a time.
-    return self.sa_session\
-        .query(SubmissionResult)\
-        .filter(SubmissionResult.dataset == dataset)\
-        .options(joinedload(SubmissionResult.submission))\
-        .options(subqueryload(SubmissionResult.executables))\
-        .options(subqueryload(SubmissionResult.evaluations))\
-        .all()
+    return self.sa_session.execute(
+        select(SubmissionResult)
+        .filter(SubmissionResult.dataset == dataset)
+        .options(joinedload(SubmissionResult.submission))
+        .options(subqueryload(SubmissionResult.executables))
+        .options(subqueryload(SubmissionResult.evaluations))
+    ).scalars().all()
 
 
 Dataset.get_submission_results = get_submission_results_for_dataset
