@@ -33,9 +33,9 @@ Tornado native async).
 - One real service (`LogService`) migrated to the new framework within this
   sub-project, as an end-to-end validation that runs inside the existing
   Docker test image alongside every other (still-gevent) service.
-- `cms/io/priorityqueue.py`'s single `gevent.event.Event` usage replaced
-  with `asyncio.Event` (edited in place — it's a pure data structure, not a
-  service, so there is nothing to keep in parallel).
+- A new `cms/io/async_priorityqueue.py` (`AsyncPriorityQueue`), parallel to
+  the existing `cms/io/priorityqueue.py` (untouched — see Architecture for
+  why an in-place edit is unsafe), for `async_triggeredservice.py` to use.
 - A documented, temporary bridge pattern (`loop.run_in_executor`) for any
   migrated service that still needs to call into `cms/db/` (still
   synchronous psycopg2/SQLAlchemy until sub-project 2.3), so 2.2 does not
@@ -141,14 +141,31 @@ big-bang cutover of the whole fleet at once.
   sub-project 2.4 to use once it reaches `EvaluationService`,
   `ScoringService`, or `ProxyService` (the three current consumers of
   `TriggeredService`).
-- **`cms/io/priorityqueue.py`** — edited in place: `gevent.event.Event` →
-  `asyncio.Event`. This file is a pure priority-queue data structure with a
-  single concurrency primitive used to signal "new item available" to a
-  waiting consumer; it isn't itself a service, so there's no old/new
-  version to keep in parallel — it becomes usable by both `TriggeredService`
-  (gevent) and the new `async_triggeredservice.py` only if `asyncio.Event`
-  turns out to be usable from a gevent context too. **Risk, addressed
-  below.**
+- **`cms/io/async_priorityqueue.py`** (new, parallel — see the correction
+  below for why this is NOT an in-place edit) — `AsyncPriorityQueue`,
+  mirroring `priorityqueue.py`'s `PriorityQueue` class, for
+  `async_triggeredservice.py` (and, later, 2.4's migrated
+  `TriggeredService` consumers) to use.
+
+  **Correction from the design conversation:** the original plan for this
+  spec was to edit `priorityqueue.py` in place, reasoning that it's "a pure
+  data structure, not a service." That reasoning was wrong.
+  `PriorityQueue.pop(wait=True)`/`top(wait=True)` call `self._event.wait()`
+  **synchronously** (gevent's cooperative blocking wait, no `await`) —
+  exactly the blocking pattern `TriggeredService.run()` (`triggeredservice.py:139`)
+  depends on today, and which `EvaluationService`, `ScoringService`, and
+  `ProxyService` (all three still gevent-based, all three unmigrated until
+  2.4) rely on in production right now. Swapping the `Event` class in place
+  would make `.wait()` return an unawaited coroutine — silently
+  non-blocking, turning `run()`'s loop into a CPU-spinning busy loop that
+  never actually waits, breaking three live services this very sub-project
+  is supposed to leave untouched. `priorityqueue.py` is therefore
+  **entirely untouched** by this sub-project, same as every other
+  gevent-based file outside the explicit Goals list, and `AsyncPriorityQueue`
+  is a full parallel implementation (not a thin subclass — `pop`/`top`
+  become `async def`, using `await self._event.wait()` on an
+  `asyncio.Event`, which is a different calling convention from the sync
+  version, not just a different Event class).
 
 ### The `run_in_executor` DB bridge (temporary, replaced by sub-project 2.3)
 
@@ -217,19 +234,20 @@ the first time they need it.
 
 ## Risks and Mitigations
 
-- **`asyncio.Event` in `priorityqueue.py` being shared between an
-  asyncio-based `TriggeredService` consumer (future, 2.4) and any
-  gevent-based code that might still touch the same queue during the
-  transition:** `asyncio.Event` is not thread-safe across event loops and
-  cannot be `.wait()`-ed on from a gevent greenlet. Since `priorityqueue.py`
-  is edited in place (not duplicated), this only becomes a real problem
-  once 2.4 actually migrates a `TriggeredService` consumer — at which point
-  that specific service (and everything touching its queue) must move
-  together, atomically, in the same 2.4 task. This sub-project's job is
-  only to make the swap itself (`gevent.event.Event` → `asyncio.Event`)
-  and flag this constraint for 2.4's own plan; no `TriggeredService`
-  consumer is migrated here, so the risk doesn't materialize within 2.2's
-  own scope.
+- **A near-miss, caught during design, not left in the spec:** the
+  original design for this spec proposed editing `priorityqueue.py` in
+  place (`gevent.event.Event` → `asyncio.Event`). `PriorityQueue.pop`/`top`
+  call `self._event.wait()` *synchronously* (gevent's cooperative blocking
+  wait), which is exactly what `TriggeredService.run()` depends on today
+  for `EvaluationService`/`ScoringService`/`ProxyService` — all three still
+  gevent-based, all three untouched until 2.4. An in-place `Event` swap
+  would silently turn `.wait()` into an unawaited coroutine (a no-op),
+  turning those three services' queue-processing loops into CPU-spinning
+  busy loops the moment this sub-project landed on `beta` — breaking live
+  services this sub-project explicitly promises not to touch. Fixed by
+  making `AsyncPriorityQueue` a full parallel file (`async_priorityqueue.py`)
+  instead, leaving `priorityqueue.py` completely untouched. Recorded here
+  so a future reader doesn't reach for the same shortcut.
 - **Wire-protocol compatibility being assumed rather than verified:**
   mitigated directly by the cross-interoperability test above — this is
   the single most load-bearing test in this sub-project's suite, since the
@@ -253,12 +271,17 @@ the first time they need it.
   by grepping for the pattern across whatever services 2.4 has migrated by
   that point.
 - **To 2.4 (per-service migration):** the new `AsyncService`/
-  `AsyncTriggeredService` base classes and the `run_in_executor` bridge
-  pattern are ready to use; migrate one service at a time, in any order,
-  since coexistence with the remaining gevent services is proven by this
-  sub-project's cross-interoperability test. Any service whose migration
-  touches `cms/io/priorityqueue.py`'s shared queue must move atomically
-  with everything else touching that queue (see Risks).
+  `AsyncTriggeredService`/`AsyncPriorityQueue` classes and the
+  `run_in_executor` bridge pattern are ready to use; migrate one service at
+  a time, in any order, since coexistence with the remaining gevent
+  services is proven by this sub-project's cross-interoperability test.
+  `EvaluationService`/`ScoringService`/`ProxyService` (the three
+  `TriggeredService` consumers) each own an independent queue instance —
+  confirm this still holds at migration time — so migrating one doesn't
+  require migrating the others simultaneously. Once every
+  `TriggeredService` consumer is migrated, `priorityqueue.py` and the old
+  `triggeredservice.py` become dead code and can be deleted (same cleanup
+  moment as the rest of the old gevent framework).
 - **To 2.5 (AWS/CWS + Tornado native async):** `WebService` still
   subclasses the old gevent `Service` after this sub-project — 2.5 is
   responsible for both flipping its base class to `AsyncService` (or a
