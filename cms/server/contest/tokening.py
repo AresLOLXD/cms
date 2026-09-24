@@ -29,6 +29,8 @@
 from datetime import datetime, timedelta
 import logging
 
+from sqlalchemy import select
+
 from cms import TOKEN_MODE_DISABLED, TOKEN_MODE_INFINITE
 from cms.db import Token, Submission
 from cms.db.session import Session
@@ -234,15 +236,14 @@ def tokens_available(
     assert task.contest is contest
 
     # Take the list of the tokens already played (sorted by time).
-    token_timestamps: list[tuple[datetime, int]] = (
-        participation.sa_session.query(Token.timestamp, Submission.task_id)
+    token_timestamps: list[tuple[datetime, int]] = participation.sa_session.execute(
+        select(Token.timestamp, Submission.task_id)
         .select_from(Token)
         .filter(Token.timestamp <= timestamp)
         .join(Submission)
         .filter(Submission.participation == participation)
         .order_by(Token.timestamp)
-        .all()
-    )
+    ).all()
 
     contest_history = list(
         ts for ts, _ in token_timestamps)

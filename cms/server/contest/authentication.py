@@ -31,6 +31,7 @@ import logging
 from datetime import datetime, timedelta
 import typing
 
+from sqlalchemy import select
 from sqlalchemy.orm import contains_eager, joinedload
 
 from cms import config
@@ -109,14 +110,13 @@ def validate_login(
         log_failed_attempt("password authentication not allowed")
         return None, None
 
-    participation: Participation | None = (
-        sql_session.query(Participation)
+    participation: Participation | None = sql_session.execute(
+        select(Participation)
         .join(Participation.user)
         .options(contains_eager(Participation.user))
         .filter(Participation.contest == contest)
         .filter(User.username == username)
-        .first()
-    )
+    ).scalars().first()
 
     if participation is None:
         log_failed_attempt("user not registered to contest")
@@ -295,7 +295,7 @@ def _authenticate_request_by_ip_address(
     ip_network = ipaddress.ip_network((ip_address, ip_address.max_prefixlen))
 
     participations_query = (
-        sql_session.query(Participation)
+        select(Participation)
         .options(joinedload(Participation.user))
         .filter(Participation.contest == contest)
         .filter(Participation.ip.any(ip_network))
@@ -307,7 +307,9 @@ def _authenticate_request_by_ip_address(
             Participation.hidden.is_(False)
         )
 
-    participations: list[Participation] = participations_query.all()
+    participations: list[Participation] = list(
+        sql_session.execute(participations_query).scalars()
+    )
 
     if len(participations) == 0:
         logger.info(
@@ -386,14 +388,13 @@ def _authenticate_request_from_cookie_or_authorization_header(
         return None, None, False
 
     # Load participation from DB and make sure it exists.
-    participation: Participation | None = (
-        sql_session.query(Participation)
+    participation: Participation | None = sql_session.execute(
+        select(Participation)
         .join(Participation.user)
         .options(contains_eager(Participation.user))
         .filter(Participation.contest == contest)
         .filter(User.username == username)
-        .first()
-    )
+    ).scalars().first()
     if participation is None:
         log_failed_attempt("user not registered to contest")
         return None, None, False

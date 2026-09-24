@@ -28,7 +28,7 @@
 from datetime import datetime
 import logging
 
-from sqlalchemy import func, not_, literal_column
+from sqlalchemy import func, not_, literal_column, select
 
 from cms import config, ServiceCoord, get_service_shards
 from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
@@ -131,8 +131,8 @@ class AdminWebServer(WebService):
         # for the datasets with autojudge, and for all datasets.
         stats = {}
         with SessionGen() as session:
-            base_query = session\
-                .query(func.count(SubmissionResult.submission_id))\
+            base_query = \
+                select(func.count(SubmissionResult.submission_id))\
                 .select_from(SubmissionResult)\
                 .join(Dataset)\
                 .join(Task, Dataset.task_id == Task.id)\
@@ -169,8 +169,8 @@ class AdminWebServer(WebService):
             queries['scored'] = evaluated.filter(
                 SubmissionResult.filter_scored())
 
-            total_query = session\
-                .query(func.count(Submission.id))\
+            total_query = \
+                select(func.count(Submission.id))\
                 .select_from(Submission)\
                 .join(Task, Submission.task_id == Task.id)
             if contest_id is not None:
@@ -185,8 +185,8 @@ class AdminWebServer(WebService):
                 queries[key] = query.add_columns(key_column)
 
             keys = list(queries.keys())
-            results = queries[keys[0]].union_all(
-                *(queries[key] for key in keys[1:])).all()
+            results = session.execute(queries[keys[0]].union_all(
+                *(queries[key] for key in keys[1:]))).all()
 
         stats = {key: value for value, key in results}
         stats['compiling'] += 2 * stats['total'] - sum(stats.values())
