@@ -32,7 +32,7 @@ import io
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from cms.db import Contest
+from cms.db import Contest, Participation, Submission
 from cms.grading.scoring import task_score
 from .base import BaseHandler, require_permission
 
@@ -51,10 +51,12 @@ class RankingHandler(BaseHandler):
         self.contest: Contest = self.sql_session.execute(
             select(Contest)
             .filter(Contest.id == contest_id)
-            .options(joinedload("participations"))
-            .options(joinedload("participations.submissions"))
-            .options(joinedload("participations.submissions.token"))
-            .options(joinedload("participations.submissions.results"))
+            .options(joinedload(Contest.participations)
+                     .joinedload(Participation.submissions)
+                     .joinedload(Submission.token))
+            .options(joinedload(Contest.participations)
+                     .joinedload(Participation.submissions)
+                     .joinedload(Submission.results))
         ).unique().scalars().first()
 
         # Preprocess participations: get data about teams, scores
