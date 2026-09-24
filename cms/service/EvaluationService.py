@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import gevent.lock
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from cms import ServiceCoord, get_service_shards
@@ -596,13 +596,15 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             for type_, object_id, dataset_id, archive_sandbox in by_object_and_type.keys():
                 if type_ == ESOperation.EVALUATION:
                     if dataset_id not in num_testcases_per_dataset:
-                        num_testcases_per_dataset[dataset_id] = session\
-                            .query(func.count(Testcase.id))\
-                            .filter(Testcase.dataset_id == dataset_id).scalar()
-                    num_evaluations = session\
-                        .query(func.count(Evaluation.id)) \
-                        .filter(Evaluation.dataset_id == dataset_id) \
-                        .filter(Evaluation.submission_id == object_id).scalar()
+                        num_testcases_per_dataset[dataset_id] = session.execute(
+                            select(func.count(Testcase.id))
+                            .filter(Testcase.dataset_id == dataset_id)
+                        ).scalar()
+                    num_evaluations = session.execute(
+                        select(func.count(Evaluation.id))
+                        .filter(Evaluation.dataset_id == dataset_id)
+                        .filter(Evaluation.submission_id == object_id)
+                    ).scalar()
                     if num_evaluations == num_testcases_per_dataset[dataset_id]:
                         submission_result = SubmissionResult.get_from_id(
                             (object_id, dataset_id), session)
@@ -1045,18 +1047,20 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                     and submission_id is None:
                 task_id = Dataset.get_from_id(dataset_id, session).task_id
             # First we load all involved submissions.
-            submissions: list[Submission] = get_submissions(
-                session,
-                # Give contest_id only if all others are None.
-                (
-                    contest_id
-                    if {participation_id, task_id, submission_id} == {None}
-                    else None
-                ),
-                participation_id,
-                task_id,
-                submission_id,
-            ).all()
+            submissions: list[Submission] = session.execute(
+                get_submissions(
+                    session,
+                    # Give contest_id only if all others are None.
+                    (
+                        contest_id
+                        if {participation_id, task_id, submission_id} == {None}
+                        else None
+                    ),
+                    participation_id,
+                    task_id,
+                    submission_id,
+                )
+            ).scalars().all()
 
             # Then we get all relevant operations, and we remove them
             # both from the queue and from the pool (i.e., we ignore
@@ -1075,21 +1079,24 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
 
             # Then we find all existing results in the database, and
             # we remove them.
-            submission_results: list[SubmissionResult] = get_submission_results(
-                session,
-                # Give contest_id only if all others are None.
-                (
-                    contest_id
-                    if {participation_id, task_id, submission_id, dataset_id} == {None}
-                    else None
-                ),
-                participation_id,
-                # Provide the task_id only if the entire task has to be
-                # reevaluated and not only a specific dataset.
-                task_id if dataset_id is None else None,
-                submission_id,
-                dataset_id,
-            ).all()
+            submission_results: list[SubmissionResult] = session.execute(
+                get_submission_results(
+                    session,
+                    # Give contest_id only if all others are None.
+                    (
+                        contest_id
+                        if {participation_id, task_id, submission_id, dataset_id}
+                        == {None}
+                        else None
+                    ),
+                    participation_id,
+                    # Provide the task_id only if the entire task has to be
+                    # reevaluated and not only a specific dataset.
+                    task_id if dataset_id is None else None,
+                    submission_id,
+                    dataset_id,
+                )
+            ).scalars().all()
             logger.info("Submission results to invalidate %s for: %d.",
                         level, len(submission_results))
             for submission_result in submission_results:

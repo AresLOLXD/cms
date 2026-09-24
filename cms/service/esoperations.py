@@ -30,7 +30,7 @@ from collections.abc import Generator
 from datetime import datetime
 import logging
 
-from sqlalchemy import case, literal
+from sqlalchemy import case, literal, select
 
 from cms.db import Dataset, Evaluation, Submission, SubmissionResult, \
     Task, Testcase, UserTest, UserTestResult
@@ -344,43 +344,45 @@ def get_submissions_operations(
     # no SubmissionResult, we cannot join regularly with dataset;
     # instead we take the cartesian product with all the datasets for
     # the correct task.
-    to_compile = session.query(Submission)\
-        .join(Submission.task)\
-        .join(Task.datasets)\
+    to_compile = session.execute(
+        select(Submission)
+        .join(Submission.task)
+        .join(Task.datasets)
         .outerjoin(SubmissionResult,
                    (Dataset.id == SubmissionResult.dataset_id) &
-                   (Submission.id == SubmissionResult.submission_id))\
+                   (Submission.id == SubmissionResult.submission_id))
         .filter(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
-            (SubmissionResult.dataset_id.is_(None)))\
-        .with_entities(Submission.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW))
-                           ], else_=literal(PriorityQueue.PRIORITY_HIGH)),
-                       Submission.timestamp)\
-        .all()
+            (SubmissionResult.dataset_id.is_(None)))
+        .with_only_columns(Submission.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                else_=literal(PriorityQueue.PRIORITY_HIGH)),
+                            Submission.timestamp)
+    ).all()
 
     # Retrieve all the compilation operations for submissions
     # already having a result for a dataset to judge.
-    to_compile += session.query(Submission)\
-        .join(Submission.task)\
-        .join(Submission.results)\
-        .join(SubmissionResult.dataset)\
+    to_compile += session.execute(
+        select(Submission)
+        .join(Submission.task)
+        .join(Submission.results)
+        .join(SubmissionResult.dataset)
         .filter(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
-            (FILTER_SUBMISSION_RESULTS_TO_COMPILE))\
-        .with_entities(Submission.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
-                           (SubmissionResult.compilation_tries == 0,
-                            literal(PriorityQueue.PRIORITY_HIGH))
-                           ], else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
-                       Submission.timestamp)\
-        .all()
+            (FILTER_SUBMISSION_RESULTS_TO_COMPILE))
+        .with_only_columns(Submission.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                (SubmissionResult.compilation_tries == 0,
+                                 literal(PriorityQueue.PRIORITY_HIGH)),
+                                else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
+                            Submission.timestamp)
+    ).all()
 
     for data in to_compile:
         submission_id, dataset_id, priority, timestamp = data
@@ -393,30 +395,31 @@ def get_submissions_operations(
     # testcase) such that there is no evaluation for them, and to do
     # so we take the cartesian product with the testcases and later
     # ensure that there is no evaluation associated.
-    to_evaluate = session.query(SubmissionResult)\
-        .join(SubmissionResult.dataset)\
-        .join(SubmissionResult.submission)\
-        .join(Submission.task)\
-        .join(Dataset.testcases)\
+    to_evaluate = session.execute(
+        select(SubmissionResult)
+        .join(SubmissionResult.dataset)
+        .join(SubmissionResult.submission)
+        .join(Submission.task)
+        .join(Dataset.testcases)
         .outerjoin(Evaluation,
                    (Evaluation.submission_id == Submission.id) &
                    (Evaluation.dataset_id == Dataset.id) &
-                   (Evaluation.testcase_id == Testcase.id))\
+                   (Evaluation.testcase_id == Testcase.id))
         .filter(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
             (FILTER_SUBMISSION_RESULTS_TO_EVALUATE) &
-            (Evaluation.id.is_(None)))\
-        .with_entities(Submission.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
-                           (SubmissionResult.evaluation_tries == 0,
-                            literal(PriorityQueue.PRIORITY_MEDIUM))
-                           ], else_=literal(PriorityQueue.PRIORITY_LOW)),
-                       Submission.timestamp,
-                       Testcase.codename)\
-        .all()
+            (Evaluation.id.is_(None)))
+        .with_only_columns(Submission.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                (SubmissionResult.evaluation_tries == 0,
+                                 literal(PriorityQueue.PRIORITY_MEDIUM)),
+                                else_=literal(PriorityQueue.PRIORITY_LOW)),
+                            Submission.timestamp,
+                            Testcase.codename)
+    ).all()
 
     for data in to_evaluate:
         submission_id, dataset_id, priority, timestamp, codename = data
@@ -459,43 +462,45 @@ def get_submissions_compilation_operations(
     # no SubmissionResult, we cannot join regularly with dataset;
     # instead we take the cartesian product with all the datasets for
     # the correct task.
-    to_compile = session.query(Submission)\
-        .join(Submission.task)\
-        .join(Task.datasets)\
+    to_compile = session.execute(
+        select(Submission)
+        .join(Submission.task)
+        .join(Task.datasets)
         .outerjoin(SubmissionResult,
                    (Dataset.id == SubmissionResult.dataset_id) &
-                   (Submission.id == SubmissionResult.submission_id))\
+                   (Submission.id == SubmissionResult.submission_id))
         .filter(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
-            (SubmissionResult.dataset_id.is_(None)))\
-        .with_entities(Submission.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW))
-                           ], else_=literal(PriorityQueue.PRIORITY_HIGH)),
-                       Submission.timestamp)\
-        .all()
+            (SubmissionResult.dataset_id.is_(None)))
+        .with_only_columns(Submission.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                else_=literal(PriorityQueue.PRIORITY_HIGH)),
+                            Submission.timestamp)
+    ).all()
 
     # Retrieve all the compilation operations for submissions
     # already having a result for a dataset to judge.
-    to_compile += session.query(Submission)\
-        .join(Submission.task)\
-        .join(Submission.results)\
-        .join(SubmissionResult.dataset)\
+    to_compile += session.execute(
+        select(Submission)
+        .join(Submission.task)
+        .join(Submission.results)
+        .join(SubmissionResult.dataset)
         .filter(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
-            (FILTER_SUBMISSION_RESULTS_TO_COMPILE))\
-        .with_entities(Submission.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
-                           (SubmissionResult.compilation_tries == 0,
-                            literal(PriorityQueue.PRIORITY_HIGH))
-                           ], else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
-                       Submission.timestamp)\
-        .all()
+            (FILTER_SUBMISSION_RESULTS_TO_COMPILE))
+        .with_only_columns(Submission.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                (SubmissionResult.compilation_tries == 0,
+                                 literal(PriorityQueue.PRIORITY_HIGH)),
+                                else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
+                            Submission.timestamp)
+    ).all()
 
     for data in to_compile:
         submission_id, dataset_id, priority, timestamp = data
@@ -529,15 +534,16 @@ def get_submission_results_to_evaluate(
     else:
         contest_filter = Task.contest_id == contest_id
 
-    return session.query(SubmissionResult)\
-        .join(SubmissionResult.dataset)\
-        .join(SubmissionResult.submission)\
-        .join(Submission.task)\
+    return session.execute(
+        select(SubmissionResult)
+        .join(SubmissionResult.dataset)
+        .join(SubmissionResult.submission)
+        .join(Submission.task)
         .filter(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
-            (FILTER_SUBMISSION_RESULTS_TO_EVALUATE))\
-        .all()
+            (FILTER_SUBMISSION_RESULTS_TO_EVALUATE))
+    ).scalars().all()
 
 
 def get_user_tests_operations(
@@ -564,43 +570,45 @@ def get_user_tests_operations(
     # no UserTestResult, we cannot join regularly with dataset;
     # instead we take the cartesian product with all the datasets for
     # the correct task.
-    to_compile = session.query(UserTest)\
-        .join(UserTest.task)\
-        .join(Task.datasets)\
+    to_compile = session.execute(
+        select(UserTest)
+        .join(UserTest.task)
+        .join(Task.datasets)
         .outerjoin(UserTestResult,
                    (Dataset.id == UserTestResult.dataset_id) &
-                   (UserTest.id == UserTestResult.user_test_id))\
+                   (UserTest.id == UserTestResult.user_test_id))
         .filter(
             contest_filter &
             (FILTER_USER_TEST_DATASETS_TO_JUDGE) &
-            (UserTestResult.dataset_id.is_(None)))\
-        .with_entities(UserTest.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW))
-                           ], else_=literal(PriorityQueue.PRIORITY_HIGH)),
-                       UserTest.timestamp)\
-        .all()
+            (UserTestResult.dataset_id.is_(None)))
+        .with_only_columns(UserTest.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                else_=literal(PriorityQueue.PRIORITY_HIGH)),
+                            UserTest.timestamp)
+    ).all()
 
     # Retrieve all the compilation operations for user_tests
     # already having a result for a dataset to judge.
-    to_compile += session.query(UserTest)\
-        .join(UserTest.task)\
-        .join(UserTest.results)\
-        .join(UserTestResult.dataset)\
+    to_compile += session.execute(
+        select(UserTest)
+        .join(UserTest.task)
+        .join(UserTest.results)
+        .join(UserTestResult.dataset)
         .filter(
             contest_filter &
             (FILTER_USER_TEST_DATASETS_TO_JUDGE) &
-            (FILTER_USER_TEST_RESULTS_TO_COMPILE))\
-        .with_entities(UserTest.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
-                           (UserTestResult.compilation_tries == 0,
-                            literal(PriorityQueue.PRIORITY_HIGH))
-                           ], else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
-                       UserTest.timestamp)\
-        .all()
+            (FILTER_USER_TEST_RESULTS_TO_COMPILE))
+        .with_only_columns(UserTest.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                (UserTestResult.compilation_tries == 0,
+                                 literal(PriorityQueue.PRIORITY_HIGH)),
+                                else_=literal(PriorityQueue.PRIORITY_MEDIUM)),
+                            UserTest.timestamp)
+    ).all()
 
     for data in to_compile:
         user_test_id, dataset_id, priority, timestamp = data
@@ -612,23 +620,24 @@ def get_user_tests_operations(
     # Retrieve all the evaluation operations for a dataset to judge,
     # that is, all pairs (user_test, dataset) for which we have a
     # user test result which is compiled but not evaluated.
-    to_evaluate = session.query(UserTest)\
-        .join(UserTest.task)\
-        .join(UserTest.results)\
-        .join(UserTestResult.dataset)\
+    to_evaluate = session.execute(
+        select(UserTest)
+        .join(UserTest.task)
+        .join(UserTest.results)
+        .join(UserTestResult.dataset)
         .filter(
             contest_filter &
             (FILTER_USER_TEST_DATASETS_TO_JUDGE) &
-            (FILTER_USER_TEST_RESULTS_TO_EVALUATE))\
-        .with_entities(UserTest.id, Dataset.id,
-                       case([
-                           (Dataset.id != Task.active_dataset_id,
-                            literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
-                           (UserTestResult.evaluation_tries == 0,
-                            literal(PriorityQueue.PRIORITY_MEDIUM))
-                           ], else_=literal(PriorityQueue.PRIORITY_LOW)),
-                       UserTest.timestamp)\
-        .all()
+            (FILTER_USER_TEST_RESULTS_TO_EVALUATE))
+        .with_only_columns(UserTest.id, Dataset.id,
+                            case(
+                                (Dataset.id != Task.active_dataset_id,
+                                 literal(PriorityQueue.PRIORITY_EXTRA_LOW)),
+                                (UserTestResult.evaluation_tries == 0,
+                                 literal(PriorityQueue.PRIORITY_MEDIUM)),
+                                else_=literal(PriorityQueue.PRIORITY_LOW)),
+                            UserTest.timestamp)
+    ).all()
 
     for data in to_evaluate:
         user_test_id, dataset_id, priority, timestamp = data

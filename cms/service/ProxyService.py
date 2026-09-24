@@ -37,7 +37,7 @@ import gevent
 import gevent.queue
 import requests
 import requests.exceptions
-from sqlalchemy import not_
+from sqlalchemy import not_, select
 
 from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
@@ -400,9 +400,11 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                              "id %s.", self.contest_id)
                 raise KeyError("Contest not found.")
             return [contest]
-        return session.query(Contest)\
-            .filter(Contest.ranking_group_id.isnot(None))\
-            .order_by(Contest.id).all()
+        return session.execute(
+            select(Contest)
+            .filter(Contest.ranking_group_id.isnot(None))
+            .order_by(Contest.id)
+        ).scalars().all()
 
     def _compute_group_contests(self, session: Session) -> dict[str, set[int]]:
         """Return the current mapping from group name to contest IDs."""
@@ -424,9 +426,11 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
         """
         counter = 0
-        submissions = get_submissions(session, contest_id=contest.id) \
-            .filter(not_(Participation.hidden)) \
-            .filter(Submission.official).all()
+        submissions = session.execute(
+            get_submissions(session, contest_id=contest.id)
+            .filter(not_(Participation.hidden))
+            .filter(Submission.official)
+        ).scalars().all()
 
         for submission in submissions:
             # The submission result can be None if the dataset has
