@@ -147,6 +147,7 @@ class UserTest(Base):
         if user_test_result is None:
             user_test_result = UserTestResult(user_test=self,
                                               dataset=dataset)
+            self.sa_session.add(user_test_result)
 
         return user_test_result
 

@@ -176,6 +176,7 @@ class Submission(Base):
         if submission_result is None:
             submission_result = SubmissionResult(submission=self,
                                                  dataset=dataset)
+            self.sa_session.add(submission_result)
 
         return submission_result
 
