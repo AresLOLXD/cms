@@ -540,7 +540,101 @@ git commit -m "refactor(cmscontrib): migrate to SQLAlchemy 2.0 select() style"
 
 ---
 
-### Task 6: Final full-branch verification
+### Task 6: Close the plan's inventory gap — 13 missed call sites in 7 files
+
+**Ruling (added when Task 6's original verification step, now Task 7,
+found these):** the plan's original per-package `.query(` inventory (the
+spec's Package Order table) missed these 7 files entirely — they appear
+in none of Tasks 1-5's `- Modify:` file lists, and `git log` confirms no
+migration commit touched them. They still work today because SQLAlchemy
+2.0 keeps the legacy `Query` API in a deprecated compatibility mode (the
+exact risk the plan's own Global Constraints warned about), which is why
+the full suite stayed green at 857/0/7 despite them. This contradicts the
+spec's own Goal ("every `session.query(...)` call site... rewritten") and
+must be closed before the migration is actually complete — not accepted
+as a permanent exception the way Task 1's cross-task gap was (that one
+was a *designed*, temporary, single-task-boundary gap; this one is an
+*undiscovered* gap with no such boundary). Cost if wrong: low — this is
+additional, self-contained mechanical work following the exact same
+mapping table as every other task; nothing downstream depends on these
+13 sites being migrated in any particular order relative to Tasks 1-5,
+since they were never in those tasks' scope to begin with.
+
+**Files:**
+- Modify: `cms/db/filecacher.py:435` (1 site)
+- Modify: `cms/server/admin/rpc_authorization.py:68` (1 site)
+- Modify: `cms/server/admin/server.py:135,173` (2 sites)
+- Modify: `cms/server/contest/communication.py:150,163,176` (3 sites)
+- Modify: `cms/server/contest/authentication.py:113,298,390` (3 sites)
+- Modify: `cms/server/contest/submission/check.py:106,169` (2 sites)
+- Modify: `cms/server/contest/tokening.py:238` (1 site)
+- Test: whatever existing tests already cover these files (e.g. `cmstestsuite/unit_tests/server/contest/authentication_test.py`, `communication_test.py`, and any `filecacher`/`rpc_authorization`/`tokening`/`check` test files that exist — find them with `grep -rl` for the relevant module/class names under `cmstestsuite/unit_tests/`)
+
+**Interfaces:**
+- Consumes: `Base.get_from_id()`, `cms.db.util.get_submissions`/`get_submission_results` (Task 1) if any of these sites turn out to call them (check while migrating — none were flagged as doing so during discovery, but verify).
+- Produces: nothing consumed by later tasks (Task 7's verification consumes this task's result — a clean `.query(` grep).
+
+- [ ] **Step 1: Confirm baseline is Task 5's green state**
+
+Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml build testcms && docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
+Expected: 857 passed, 0 failed, 7 skipped (same as Task 5's final result).
+
+- [ ] **Step 2: Rewrite `cms/db/filecacher.py:435`**
+
+Read it in context and apply the matching Global Constraints mapping table row based on its terminal usage (a `for x in session.query(FSObject)` loop — plain iteration over a `Query` is equivalent to iterating `session.execute(select(FSObject)).scalars()`). Add `from sqlalchemy import select` to the file's imports if not already present.
+
+- [ ] **Step 3: Rewrite `cms/server/admin/rpc_authorization.py:68` and `cms/server/admin/server.py:135,173`**
+
+`rpc_authorization.py:68`: read in context, apply the matching mapping table row. `server.py`'s two sites are both `func.count(...)`-based counts (`.query(func.count(...))` chained across multiple lines with `\` continuations) — apply the `.count()` mapping row's spirit: `session.execute(select(func.count(...)).select_from(...)...).scalar_one()`, preserving every existing `.filter()`/`.join()` line in the chain exactly. Add `from sqlalchemy import select, func` to each file's imports if not already present (check first — `func` may already be imported in `server.py`).
+
+- [ ] **Step 4: Rewrite `cms/server/contest/communication.py`'s 3 sites**
+
+All three (`Announcement`, `Message`, `Question` queries at lines 150/163/176) follow the same `query = sql_session.query(M) \` continuation-chain shape as `cms/db/util.py`'s `get_submissions`/`get_submission_results` did in Task 1 — change only the initial construction (`sql_session.query(M)` → `select(M)`), keep every subsequent `query = query.filter(...)`/`.order_by(...)` line unchanged, and wrap the final execution (wherever `query` is actually consumed — `.all()`/`.first()`/etc.) in `session.execute(...)`. Add `from sqlalchemy import select` if not already present.
+
+- [ ] **Step 5: Rewrite `cms/server/contest/authentication.py`'s 3 sites**
+
+Lines 113, 298, 390 — all `sql_session.query(Participation)`. Read each in context and apply the matching mapping table row per its terminal method.
+
+- [ ] **Step 6: Rewrite `cms/server/contest/submission/check.py`'s 2 sites**
+
+Line 106: `sql_session.query(func.count(cls.id))` — apply the `.count()` mapping row. Line 169: `sql_session.query(cls)` — read in context (note `cls` is a dynamic class parameter, not a fixed model name; the rewrite is the same regardless: `select(cls)`).
+
+- [ ] **Step 7: Rewrite `cms/server/contest/tokening.py:238`**
+
+`participation.sa_session.query(Token.timestamp, Submission.task_id)` — this selects two specific columns, not a whole model, so per the pattern established in Task 5 for multi-column selects: use `select(Token.timestamp, Submission.task_id)` and, at the terminal execution step, use plain `.all()` (returning `Row` tuples) rather than `.scalars().all()` if the calling code unpacks a tuple — read the surrounding code to confirm which terminal method and result shape it actually needs before choosing.
+
+- [ ] **Step 8: Verify zero remaining legacy query syntax in this task's files**
+
+Run: `grep -rn "\.query(" cms/db/filecacher.py cms/server/admin/rpc_authorization.py cms/server/admin/server.py cms/server/contest/communication.py cms/server/contest/authentication.py cms/server/contest/submission/check.py cms/server/contest/tokening.py`
+Expected: no output.
+
+- [ ] **Step 9: Run the full test suite**
+
+Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml build testcms && docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
+Expected: identical pass/fail set to Task 5's baseline (857/0/7).
+
+- [ ] **Step 10: pyflakes**
+
+Run: `.venv/bin/pyflakes cms/db/filecacher.py cms/server/admin/rpc_authorization.py cms/server/admin/server.py cms/server/contest/communication.py cms/server/contest/authentication.py cms/server/contest/submission/check.py cms/server/contest/tokening.py`
+Expected: no output.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add cms/db/filecacher.py cms/server/admin/rpc_authorization.py cms/server/admin/server.py cms/server/contest/communication.py cms/server/contest/authentication.py cms/server/contest/submission/check.py cms/server/contest/tokening.py
+git commit -m "refactor: migrate 7 files missed by the original package inventory to SQLAlchemy 2.0 select() style
+
+These 13 call sites across cms/db/filecacher.py, cms/server/admin/
+{rpc_authorization,server}.py, and cms/server/contest/{communication,
+authentication,tokening}.py plus submission/check.py were absent from
+every task's file list in the original plan -- found by Task 7's (then
+Task 6's) whole-repo verification grep, which is exactly the gap that
+check exists to catch."
+```
+
+---
+
+### Task 7: Final full-branch verification
 
 **Files:** none modified (verification-only task — the version bump that
 was originally planned here moved to Task 1 Step 1.5; see the ruling
@@ -548,13 +642,13 @@ there. `pyproject.toml`/`constraints.txt` were already committed as part
 of Task 1).
 
 **Interfaces:**
-- Consumes: every file touched by Tasks 1–5, and the SQLAlchemy 2.0.x pin bumped in Task 1.
+- Consumes: every file touched by Tasks 1–6, and the SQLAlchemy 2.0.x pin bumped in Task 1.
 - Produces: nothing (terminal task).
 
 - [ ] **Step 1: Full clean install and test run against the bumped pin, via the real Docker test image**
 
 Run: `docker compose -p cms-beta -f docker/docker-compose.test.yml build --no-cache testcms && docker compose -p cms-beta -f docker/docker-compose.test.yml run --rm testcms bash -c "dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting && createdb --host=testdb --username=postgres cmsdbfortesting && cmsInitDB && pytest -q"`
-Expected: identical pass/fail set to Task 5's baseline — this `--no-cache` rebuild forces a genuinely fresh install against `constraints.txt`/`pyproject.toml` as they stand after Tasks 1-5, not a cached layer.
+Expected: identical pass/fail set to Task 5/6's baseline (857/0/7) — this `--no-cache` rebuild forces a genuinely fresh install against `constraints.txt`/`pyproject.toml` as they stand after Tasks 1-6, not a cached layer.
 
 - [ ] **Step 2: Whole-repo verification that zero legacy query syntax remains**
 
