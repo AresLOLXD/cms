@@ -193,6 +193,23 @@ in isolation (a `cms/io/` unit test using a dummy blocking function) so
 2.4's future service migrations have a proven, tested pattern to follow
 the first time they need it.
 
+### The `scripts/cmsLogService` monkey-patch
+
+`scripts/cmsLogService` (the entry point launched by `cmsLogService 0`)
+calls `gevent.monkey.patch_all()` before importing anything else — it
+process-wide-patches `socket`, `select`, `threading`, `time`, and more to
+gevent's cooperative versions. Running an `asyncio` event loop inside a
+process that has already been gevent-monkey-patched is unsupported,
+fragile territory (asyncio's selector loop and gevent's patched
+primitives were never designed to coexist). Once `LogService` is migrated
+to `AsyncService`, its process has no gevent dependency left at all — so
+this sub-project's `LogService` task also removes the
+`import gevent.monkey` / `gevent.monkey.patch_all()` lines from
+`scripts/cmsLogService`. This is a one-file, one-script change: every
+other service's entry-point script keeps its own monkey-patch call
+untouched, since every other service is still gevent-based until 2.4
+migrates it individually.
+
 ## Data Flow and Error Handling
 
 - **RPC error propagation:** unchanged contract — any exception raised
