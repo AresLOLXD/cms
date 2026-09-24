@@ -155,6 +155,75 @@ class TestGeventAsyncioInterop(unittest.IsolatedAsyncioTestCase):
         client.disconnect()
         gevent_service.exit()
 
+    @patch("cms.io.rpc.get_service_address")
+    @patch("cms.io.async_service.get_service_address")
+    async def test_gevent_client_calls_async_server(
+        self, mock_async_address, mock_gevent_client_address
+    ):
+        import threading
+        from cms.conf import ServiceCoord
+        from cms.io.rpc import RemoteServiceClient
+
+        mock_async_address.return_value = Address("127.0.0.1", 24682)
+        # RemoteServiceClient resolves its remote coord's address via
+        # cms.io.rpc's own imported get_service_address reference (not
+        # cms.io.async_service's), so that lookup must be patched
+        # separately -- mirrors the reverse-direction test above.
+        mock_gevent_client_address.return_value = Address("127.0.0.1", 24682)
+
+        service = EchoingAsyncService(shard=0)
+        run_task = asyncio.create_task(service._async_run())
+        # Give the server a moment to actually bind before connecting.
+        await asyncio.sleep(0.05)
+        self.assertTrue(service._server.is_serving())
+
+        # RemoteServiceClient spawns greenlets (gevent.spawn) and blocks
+        # on a gevent.event.AsyncResult.get(), both of which need an
+        # active gevent hub to drive them; that hub is thread-affine, so
+        # (mirroring the gevent-Service-in-a-thread pattern above) the
+        # client is driven from its own thread rather than the test's
+        # asyncio event loop thread.
+        result_box: dict = {}
+        client_done = threading.Event()
+
+        def run_gevent_client():
+            client = RemoteServiceClient(ServiceCoord("EchoingAsyncService", 0))
+            try:
+                client.connect()
+                connected = client.wait_for_connection(timeout=2)
+                if not connected:
+                    result_box["error"] = "Never connected to the async server."
+                    return
+                result_box["value"] = client.execute_rpc(
+                    "echo", {"string": "hello"}).get(timeout=2)
+            except BaseException as error:  # noqa: BLE001 - surfaced in main thread
+                # gevent.Timeout subclasses BaseException, not Exception,
+                # so a plain "except Exception" would silently swallow a
+                # stuck RPC instead of reporting it below.
+                result_box["error"] = error
+            finally:
+                client.disconnect()
+                client_done.set()
+
+        client_thread = threading.Thread(target=run_gevent_client, daemon=True)
+        client_thread.start()
+        # A plain client_thread.join() here would block this coroutine's
+        # OS thread -- which is also the thread driving the asyncio event
+        # loop that EchoingAsyncService's server needs in order to accept
+        # the connection and answer the RPC -- deadlocking both sides.
+        # Waiting via run_in_executor keeps the event loop running while
+        # the gevent client (in its own thread, with its own gevent hub)
+        # does its blocking work.
+        await asyncio.get_running_loop().run_in_executor(
+            None, client_thread.join, 5)
+
+        self.assertTrue(client_done.is_set(), "gevent client thread did not finish.")
+        self.assertNotIn("error", result_box, str(result_box.get("error")))
+        self.assertEqual(result_box.get("value"), "hello")
+
+        service.exit()
+        await asyncio.wait_for(run_task, timeout=2)
+
 
 class TestRunInExecutorBridgePattern(unittest.IsolatedAsyncioTestCase):
     """Documents and proves the pattern future service migrations (2.4)
