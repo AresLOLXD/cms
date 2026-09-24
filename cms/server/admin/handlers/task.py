@@ -38,6 +38,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms.db import Attachment, Dataset, Session, Statement, Submission, Task
 from cmscommon.datetime import make_datetime
@@ -115,10 +116,11 @@ class TaskHandler(BaseHandler):
         self.r_params = self.render_params()
         self.r_params["task"] = task
         self.r_params["primary_statements"] = task.primary_statements
-        self.r_params["submissions"] = \
-            self.sql_session.query(Submission)\
-                .join(Task).filter(Task.id == task_id)\
-                .order_by(Submission.timestamp.desc()).all()
+        self.r_params["submissions"] = self.sql_session.execute(
+            select(Submission)
+            .join(Task).filter(Task.id == task_id)
+            .order_by(Submission.timestamp.desc())
+        ).scalars().all()
         self.render("task.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -492,7 +494,7 @@ class RemoveTaskHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
     def get(self, task_id):
         task = self.safe_get_item(Task, task_id)
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.task == task)
 
         self.render_params_for_remove_confirmation(submission_query)
@@ -509,13 +511,12 @@ class RemoveTaskHandler(BaseHandler):
         self.sql_session.flush()
         # Keeping the tasks' nums to the range 0... n - 1.
         if contest_id is not None:
-            following_tasks: list[Task] = (
-                self.sql_session.query(Task)
+            following_tasks: list[Task] = self.sql_session.execute(
+                select(Task)
                 .filter(Task.contest_id == contest_id)
                 .filter(Task.num > num)
                 .order_by(Task.num)
-                .all()
-            )
+            ).scalars().all()
             for task in following_tasks:
                 task.num -= 1
                 self.sql_session.flush()

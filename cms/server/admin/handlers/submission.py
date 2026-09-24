@@ -30,6 +30,8 @@ import json
 import logging
 import difflib
 
+from sqlalchemy import select
+
 from cms.db import Dataset, File, Submission
 from cms.grading.languagemanager import safe_get_lang_filename
 from cmscommon.datetime import make_datetime
@@ -62,10 +64,11 @@ class SubmissionHandler(BaseHandler):
         self.r_params["s"] = submission
         self.r_params["active_dataset"] = task.active_dataset
         self.r_params["shown_dataset"] = dataset
-        self.r_params["datasets"] = \
-            self.sql_session.query(Dataset)\
-                            .filter(Dataset.task == task)\
-                            .order_by(Dataset.description).all()
+        self.r_params["datasets"] = self.sql_session.execute(
+            select(Dataset)
+            .filter(Dataset.task == task)
+            .order_by(Dataset.description)
+        ).scalars().all()
         self.render("submission.html", **self.r_params)
 
 

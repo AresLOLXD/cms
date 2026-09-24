@@ -25,6 +25,8 @@
 
 """
 
+from sqlalchemy import select
+
 from cms.db import Contest, Task
 from cmscommon.datetime import make_datetime
 
@@ -44,10 +46,10 @@ class ContestTasksHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["contest"] = self.contest
-        self.r_params["unassigned_tasks"] = \
-            self.sql_session.query(Task)\
-                .filter(Task.contest_id.is_(None))\
-                .all()
+        self.r_params["unassigned_tasks"] = self.sql_session.execute(
+            select(Task)
+            .filter(Task.contest_id.is_(None))
+        ).scalars().all()
         self.render("contest_tasks.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -86,36 +88,40 @@ class ContestTasksHandler(BaseHandler):
             self.sql_session.flush()
 
             # Decrease by 1 the num of every subsequent task.
-            for t in self.sql_session.query(Task)\
-                         .filter(Task.contest == self.contest)\
-                         .filter(Task.num > task_num)\
-                         .order_by(Task.num)\
-                         .all():
+            for t in self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num > task_num)
+                .order_by(Task.num)
+            ).scalars().all():
                 t.num -= 1
                 self.sql_session.flush()
 
         elif operation == self.MOVE_UP:
-            task2 = self.sql_session.query(Task)\
-                        .filter(Task.contest == self.contest)\
-                        .filter(Task.num == task.num - 1)\
-                        .first()
+            task2 = self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num == task.num - 1)
+            ).scalars().first()
 
         elif operation == self.MOVE_DOWN:
-            task2 = self.sql_session.query(Task)\
-                        .filter(Task.contest == self.contest)\
-                        .filter(Task.num == task.num + 1)\
-                        .first()
+            task2 = self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num == task.num + 1)
+            ).scalars().first()
 
         elif operation == self.MOVE_TOP:
             task.num = None
             self.sql_session.flush()
 
             # Increase by 1 the num of every previous task.
-            for t in self.sql_session.query(Task)\
-                         .filter(Task.contest == self.contest)\
-                         .filter(Task.num < task_num)\
-                         .order_by(Task.num.desc())\
-                         .all():
+            for t in self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num < task_num)
+                .order_by(Task.num.desc())
+            ).scalars().all():
                 t.num += 1
                 self.sql_session.flush()
 
@@ -126,11 +132,12 @@ class ContestTasksHandler(BaseHandler):
             self.sql_session.flush()
 
             # Decrease by 1 the num of every subsequent task.
-            for t in self.sql_session.query(Task)\
-                         .filter(Task.contest == self.contest)\
-                         .filter(Task.num > task_num)\
-                         .order_by(Task.num)\
-                         .all():
+            for t in self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num > task_num)
+                .order_by(Task.num)
+            ).scalars().all():
                 t.num -= 1
                 self.sql_session.flush()
 

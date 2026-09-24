@@ -40,6 +40,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms.db import Dataset, Manager, Message, Participation, \
     Session, Submission, Task, Testcase
@@ -63,7 +64,7 @@ class DatasetSubmissionsHandler(BaseHandler):
         task = dataset.task
         self.contest = task.contest
 
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.task == task)
         page = int(self.get_query_argument("page", 0))
         self.render_params_for_submissions(submission_query, page)
@@ -71,10 +72,11 @@ class DatasetSubmissionsHandler(BaseHandler):
         self.r_params["task"] = task
         self.r_params["active_dataset"] = task.active_dataset
         self.r_params["shown_dataset"] = dataset
-        self.r_params["datasets"] = \
-            self.sql_session.query(Dataset)\
-                            .filter(Dataset.task == task)\
-                            .order_by(Dataset.description).all()
+        self.r_params["datasets"] = self.sql_session.execute(
+            select(Dataset)
+            .filter(Dataset.task == task)
+            .order_by(Dataset.description)
+        ).scalars().all()
         self.render("dataset.html", **self.r_params)
 
 

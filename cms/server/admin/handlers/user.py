@@ -30,6 +30,8 @@
 
 """
 
+from sqlalchemy import select, func, update
+
 from cms.db import Contest, Participation, Submission, Team, Group, User
 from cmscommon.datetime import make_datetime
 
@@ -44,17 +46,18 @@ class UserHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["user"] = user
-        self.r_params["participations"] = \
-            self.sql_session.query(Participation)\
-                .filter(Participation.user == user)\
-                .all()
-        self.r_params["unassigned_contests"] = \
-            self.sql_session.query(Contest)\
-                .filter(Contest.id.notin_(
-                    self.sql_session.query(Participation.contest_id)
-                        .filter(Participation.user == user)
-                        .all()))\
-                .all()
+        self.r_params["participations"] = self.sql_session.execute(
+            select(Participation)
+            .filter(Participation.user == user)
+        ).scalars().all()
+        participated_contest_ids = self.sql_session.execute(
+            select(Participation.contest_id)
+            .filter(Participation.user == user)
+        ).scalars().all()
+        self.r_params["unassigned_contests"] = self.sql_session.execute(
+            select(Contest)
+            .filter(Contest.id.notin_(participated_contest_ids))
+        ).scalars().all()
         self.render("user.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -148,15 +151,17 @@ class RemoveUserHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
     def get(self, user_id):
         user = self.safe_get_item(User, user_id)
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .join(Submission.participation)\
             .filter(Participation.user == user)
-        participation_query = self.sql_session.query(Participation)\
+        participation_query = select(Participation)\
             .filter(Participation.user == user)
 
         self.render_params_for_remove_confirmation(submission_query)
         self.r_params["user"] = user
-        self.r_params["participation_count"] = participation_query.count()
+        self.r_params["participation_count"] = self.sql_session.execute(
+            select(func.count()).select_from(participation_query.subquery())
+        ).scalar_one()
         self.render("user_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -180,13 +185,15 @@ class RemoveTeamHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
     def get(self, team_id):
         team = self.safe_get_item(Team, team_id)
-        participation_query = self.sql_session.query(Participation).filter(
+        participation_query = select(Participation).filter(
             Participation.team == team
         )
 
         self.r_params = self.render_params()
         self.r_params["team"] = team
-        self.r_params["participation_count"] = participation_query.count()
+        self.r_params["participation_count"] = self.sql_session.execute(
+            select(func.count()).select_from(participation_query.subquery())
+        ).scalar_one()
         self.render("team_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -195,9 +202,11 @@ class RemoveTeamHandler(BaseHandler):
         try:
 
             # Remove associations
-            self.sql_session.query(Participation).filter(
-                Participation.team_id == team_id
-            ).update({Participation.team_id: None})
+            self.sql_session.execute(
+                update(Participation)
+                .where(Participation.team_id == team_id)
+                .values({Participation.team_id: None})
+            )
 
             # delete the team
             self.sql_session.delete(team)
@@ -389,10 +398,11 @@ class EditParticipationHandler(BaseHandler):
 
         if operation == "Remove":
             # Remove the participation.
-            participation = self.sql_session.query(Participation)\
-                .filter(Participation.user == user)\
-                .filter(Participation.contest == self.contest)\
-                .first()
+            participation = self.sql_session.execute(
+                select(Participation)
+                .filter(Participation.user == user)
+                .filter(Participation.contest == self.contest)
+            ).scalars().first()
             self.sql_session.delete(participation)
 
         if self.try_commit():

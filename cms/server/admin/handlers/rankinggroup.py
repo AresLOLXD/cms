@@ -20,6 +20,8 @@
 
 """
 
+from sqlalchemy import select, func
+
 from cms.db import Contest, RankingGroup
 from cmscommon.datetime import make_datetime
 from cmscommon.ranking_groups import RESERVED_GROUP_NAMES, \
@@ -104,9 +106,11 @@ class RankingGroupHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["ranking_group"] = group
-        self.r_params["group_contests"] = self.sql_session.query(Contest)\
-            .filter(Contest.ranking_group_id == group.id)\
-            .order_by(Contest.name).all()
+        self.r_params["group_contests"] = self.sql_session.execute(
+            select(Contest)
+            .filter(Contest.ranking_group_id == group.id)
+            .order_by(Contest.name)
+        ).scalars().all()
         self.render("ranking_group.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -144,8 +148,10 @@ class RemoveRankingGroupHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["ranking_group"] = group
-        self.r_params["contest_count"] = self.sql_session.query(Contest)\
-            .filter(Contest.ranking_group_id == group.id).count()
+        self.r_params["contest_count"] = self.sql_session.execute(
+            select(func.count()).select_from(Contest)
+            .filter(Contest.ranking_group_id == group.id)
+        ).scalar_one()
         self.render("ranking_group_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)

@@ -42,6 +42,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms.db import Contest, Group, Message, Participation, Submission, User, \
     Team
@@ -61,13 +62,13 @@ class ContestUsersHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["contest"] = self.contest
-        self.r_params["unassigned_users"] = \
-            self.sql_session.query(User)\
-                .filter(User.id.notin_(
-                    self.sql_session.query(Participation.user_id)
-                        .filter(Participation.contest == self.contest)
-                        .all()))\
-                .all()
+        assigned_user_ids = self.sql_session.execute(
+            select(Participation.user_id)
+            .filter(Participation.contest == self.contest)
+        ).scalars().all()
+        self.r_params["unassigned_users"] = self.sql_session.execute(
+            select(User).filter(User.id.notin_(assigned_user_ids))
+        ).scalars().all()
         self.render("contest_users.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -106,17 +107,16 @@ class RemoveParticipationHandler(BaseHandler):
     def get(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
         user = self.safe_get_item(User, user_id)
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest_id == contest_id)
             .filter(Participation.user_id == user_id)
-            .first()
-        )
+        ).scalars().first()
         # Check that the participation is valid.
         if participation is None:
             raise tornado.web.HTTPError(404)
 
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.participation == participation)
         self.render_params_for_remove_confirmation(submission_query)
 
@@ -129,12 +129,11 @@ class RemoveParticipationHandler(BaseHandler):
         self.contest = self.safe_get_item(Contest, contest_id)
         user = self.safe_get_item(User, user_id)
 
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.user == user)
             .filter(Participation.contest == self.contest)
-            .first()
-        )
+        ).scalars().first()
 
         # Unassign the user from the contest.
         self.sql_session.delete(participation)
@@ -189,25 +188,25 @@ class ParticipationHandler(BaseHandler):
     @require_permission(BaseHandler.AUTHENTICATED)
     def get(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest_id == contest_id)
             .filter(Participation.user_id == user_id)
-            .first()
-        )
+        ).scalars().first()
 
         # Check that the participation is valid.
         if participation is None:
             raise tornado.web.HTTPError(404)
 
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.participation == participation)
         page = int(self.get_query_argument("page", 0))
         self.render_params_for_submissions(submission_query, page)
 
         self.r_params["participation"] = participation
         self.r_params["selected_user"] = participation.user
-        self.r_params["teams"] = self.sql_session.query(Team).all()
+        self.r_params["teams"] = self.sql_session.execute(
+            select(Team)).scalars().all()
         self.render("participation.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -216,12 +215,11 @@ class ParticipationHandler(BaseHandler):
             self.url("contest", contest_id, "user", user_id, "edit")
 
         self.contest = self.safe_get_item(Contest, contest_id)
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest_id == contest_id)
             .filter(Participation.user_id == user_id)
-            .first()
-        )
+        ).scalars().first()
 
         # Check that the participation is valid.
         if participation is None:
@@ -251,9 +249,9 @@ class ParticipationHandler(BaseHandler):
             team_code = attrs["team"]
 
             if team_code:  # If a team code is provided
-                team: Team | None = (
-                    self.sql_session.query(Team).filter(Team.code == team_code).first()
-                )
+                team: Team | None = self.sql_session.execute(
+                    select(Team).filter(Team.code == team_code)
+                ).scalars().first()
                 if team is None:
                     raise ValueError(f"Team with code '{team_code}' does not exist")
                 participation.team = team
@@ -281,12 +279,11 @@ class MessageHandler(BaseHandler):
     def post(self, contest_id, user_id):
         user = self.safe_get_item(User, user_id)
         self.contest = self.safe_get_item(Contest, contest_id)
-        participation: Participation | None = (
-            self.sql_session.query(Participation)
+        participation: Participation | None = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest == self.contest)
             .filter(Participation.user == user)
-            .first()
-        )
+        ).scalars().first()
 
         # check that the participation is valid
         if participation is None:

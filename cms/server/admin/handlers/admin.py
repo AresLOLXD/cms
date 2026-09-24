@@ -23,6 +23,8 @@
 
 import logging
 
+from sqlalchemy import select
+
 from cms.db import Admin
 from cmscommon.crypto import hash_password
 from cmscommon.datetime import make_datetime
@@ -95,9 +97,11 @@ class AdminsHandler(BaseHandler):
     @require_permission(BaseHandler.AUTHENTICATED)
     def get(self):
         self.r_params = self.render_params()
-        self.r_params["admins"] = self.sql_session.query(Admin)\
-            .order_by(Admin.enabled.desc())\
-            .order_by(Admin.username).all()
+        self.r_params["admins"] = self.sql_session.execute(
+            select(Admin)
+            .order_by(Admin.enabled.desc())
+            .order_by(Admin.username)
+        ).scalars().all()
         self.render("admins.html", **self.r_params)
 
 

@@ -20,6 +20,8 @@
 
 """
 
+from sqlalchemy import select
+
 from cms.db import Dataset, UserTestFile, UserTest
 from cms.grading.languagemanager import safe_get_lang_filename
 
@@ -44,10 +46,11 @@ class UserTestHandler(BaseHandler):
         self.r_params["ut"] = user_test
         self.r_params["active_dataset"] = task.active_dataset
         self.r_params["shown_dataset"] = dataset
-        self.r_params["datasets"] = \
-            self.sql_session.query(Dataset)\
-                            .filter(Dataset.task == task)\
-                            .order_by(Dataset.description).all()
+        self.r_params["datasets"] = self.sql_session.execute(
+            select(Dataset)
+            .filter(Dataset.task == task)
+            .order_by(Dataset.description)
+        ).scalars().all()
         self.render("user_test.html", **self.r_params)
 
 

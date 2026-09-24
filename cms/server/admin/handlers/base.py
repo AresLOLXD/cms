@@ -47,8 +47,9 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select, func, Select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Query, selectinload
+from sqlalchemy.orm import selectinload
 
 from cms import __version__, config
 from cms.db import Admin, Contest, Participation, Question, RankingGroup, \
@@ -263,10 +264,11 @@ class BaseHandler(CommonRequestHandler):
             return None
 
         # Load admin.
-        admin = self.sql_session.query(Admin)\
-            .filter(Admin.id == admin_id)\
-            .filter(Admin.enabled.is_(True))\
-            .first()
+        admin = self.sql_session.execute(
+            select(Admin)
+            .filter(Admin.id == admin_id)
+            .filter(Admin.enabled.is_(True))
+        ).scalars().first()
         if admin is None:
             self.service.auth_handler.clear()
             return None
@@ -335,20 +337,25 @@ class BaseHandler(CommonRequestHandler):
         if self.current_user is not None:
             params["admin"] = self.current_user
         if self.contest is not None:
-            params["unanswered"] = self.sql_session.query(Question)\
-                .join(Participation)\
-                .filter(Participation.contest_id == self.contest.id)\
-                .filter(Question.reply_timestamp.is_(None))\
-                .filter(Question.ignored.is_(False))\
-                .count()
+            params["unanswered"] = self.sql_session.execute(
+                select(func.count()).select_from(Question)
+                .join(Participation)
+                .filter(Participation.contest_id == self.contest.id)
+                .filter(Question.reply_timestamp.is_(None))
+                .filter(Question.ignored.is_(False))
+            ).scalar_one()
         # TODO: not all pages require all these data.
         # TODO: use a better sorting method.
-        params["contest_list"] = self.sql_session.query(Contest).order_by(Contest.name).all()
-        params["task_list"] = self.sql_session.query(Task).order_by(Task.name).all()
-        params["user_list"] = self.sql_session.query(User).order_by(User.username).all()
-        params["team_list"] = self.sql_session.query(Team).order_by(Team.name).all()
-        params["ranking_group_list"] = self.sql_session.query(RankingGroup)\
-            .order_by(RankingGroup.name).all()
+        params["contest_list"] = self.sql_session.execute(
+            select(Contest).order_by(Contest.name)).scalars().all()
+        params["task_list"] = self.sql_session.execute(
+            select(Task).order_by(Task.name)).scalars().all()
+        params["user_list"] = self.sql_session.execute(
+            select(User).order_by(User.username)).scalars().all()
+        params["team_list"] = self.sql_session.execute(
+            select(Team).order_by(Team.name)).scalars().all()
+        params["ranking_group_list"] = self.sql_session.execute(
+            select(RankingGroup).order_by(RankingGroup.name)).scalars().all()
         return params
 
     def write_error(self, status_code, **kwargs):
@@ -584,7 +591,7 @@ class BaseHandler(CommonRequestHandler):
             dest["password"] = hash_password("", method)
 
     def render_params_for_submissions(
-        self, query: Query, page: int, page_size: int = 50
+        self, query: Select, page: int, page_size: int = 50
     ):
         """Add data about the requested submissions to r_params.
 
@@ -603,7 +610,9 @@ class BaseHandler(CommonRequestHandler):
             .order_by(Submission.timestamp.desc())
 
         offset = page * page_size
-        count = query.count()
+        count = self.sql_session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
 
         if self.r_params is None:
             self.r_params = self.render_params()
@@ -613,14 +622,14 @@ class BaseHandler(CommonRequestHandler):
         # display in this page, index of the current page, total
         # number of pages.
         self.r_params["submission_count"] = count
-        self.r_params["submissions"] = \
-            query.slice(offset, offset + page_size).all()
+        self.r_params["submissions"] = self.sql_session.execute(
+            query.offset(offset).limit(page_size)).scalars().all()
         self.r_params["submission_page"] = page
         self.r_params["submission_pages"] = \
             (count + page_size - 1) // page_size
 
     def render_params_for_user_tests(
-        self, query: Query, page: int, page_size: int = 50
+        self, query: Select, page: int, page_size: int = 50
     ):
         """Add data about the requested user tests to r_params.
 
@@ -637,20 +646,24 @@ class BaseHandler(CommonRequestHandler):
             .order_by(UserTest.timestamp.desc())
 
         offset = page * page_size
-        count = query.count()
+        count = self.sql_session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
 
         if self.r_params is None:
             self.r_params = self.render_params()
 
         self.r_params["user_test_count"] = count
-        self.r_params["user_tests"] = \
-            query.slice(offset, offset + page_size).all()
+        self.r_params["user_tests"] = self.sql_session.execute(
+            query.offset(offset).limit(page_size)).scalars().all()
         self.r_params["user_test_page"] = page
         self.r_params["user_test_pages"] = \
             (count + page_size - 1) // page_size
 
-    def render_params_for_remove_confirmation(self, query):
-        count = query.count()
+    def render_params_for_remove_confirmation(self, query: Select):
+        count = self.sql_session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
 
         if self.r_params is None:
             self.r_params = self.render_params()

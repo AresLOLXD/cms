@@ -28,6 +28,8 @@
 import json
 import logging
 
+from sqlalchemy import select
+
 from cms import ServiceCoord, get_service_shards, get_service_address
 from cms.db import Admin, Contest, Question
 from cms.server.jinja2_toolbox import markdown_filter
@@ -54,9 +56,9 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
 
         username: str = self.get_argument("username", "")
         password: str = self.get_argument("password", "")
-        admin: Admin | None = (
-            self.sql_session.query(Admin).filter(Admin.username == username).first()
-        )
+        admin: Admin | None = self.sql_session.execute(
+            select(Admin).filter(Admin.username == username)
+        ).scalars().first()
 
         if admin is None:
             logger.warning("Nonexistent admin account: %s", username)
@@ -139,12 +141,11 @@ class NotificationsHandler(BaseHandler):
         last_notification = make_datetime(
             float(self.get_argument("last_notification", "0")))
 
-        questions: list[Question] = (
-            self.sql_session.query(Question)
+        questions: list[Question] = self.sql_session.execute(
+            select(Question)
             .filter(Question.reply_timestamp.is_(None))
             .filter(Question.question_timestamp > last_notification)
-            .all()
-        )
+        ).scalars().all()
 
         for question in questions:
             res.append({

@@ -29,6 +29,7 @@
 import csv
 import io
 
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from cms.db import Contest
@@ -47,15 +48,14 @@ class RankingHandler(BaseHandler):
 
         # This massive joined load gets all the information which we will need
         # to generating the rankings.
-        self.contest: Contest = (
-            self.sql_session.query(Contest)
+        self.contest: Contest = self.sql_session.execute(
+            select(Contest)
             .filter(Contest.id == contest_id)
             .options(joinedload("participations"))
             .options(joinedload("participations.submissions"))
             .options(joinedload("participations.submissions.token"))
             .options(joinedload("participations.submissions.results"))
-            .first()
-        )
+        ).unique().scalars().first()
 
         # Preprocess participations: get data about teams, scores
         show_teams = False

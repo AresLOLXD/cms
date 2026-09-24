@@ -31,6 +31,8 @@
 
 """
 
+from sqlalchemy import select
+
 from cms import ServiceCoord, get_service_shards, get_service_address
 from cms.db import Contest, Participation, Group, RankingGroup, Submission
 from cmscommon.datetime import make_datetime
@@ -211,7 +213,7 @@ class RemoveContestHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
     def get(self, contest_id):
         contest = self.safe_get_item(Contest, contest_id)
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .join(Submission.participation)\
             .filter(Participation.contest == contest)
 

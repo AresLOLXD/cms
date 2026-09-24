@@ -25,6 +25,8 @@
 
 """
 
+from sqlalchemy import select
+
 from cms.db import Contest, Submission, UserTest, Task
 
 from .base import BaseHandler, require_permission
@@ -39,7 +41,7 @@ class ContestSubmissionsHandler(BaseHandler):
         contest = self.safe_get_item(Contest, contest_id)
         self.contest = contest
 
-        query = self.sql_session.query(Submission).join(Task)\
+        query = select(Submission).join(Task)\
             .filter(Task.contest == contest)
         page = int(self.get_query_argument("page", 0))
         self.render_params_for_submissions(query, page)
@@ -56,7 +58,7 @@ class ContestUserTestsHandler(BaseHandler):
         contest = self.safe_get_item(Contest, contest_id)
         self.contest = contest
 
-        query = self.sql_session.query(UserTest).join(Task)\
+        query = select(UserTest).join(Task)\
             .filter(Task.contest == contest)
         page = int(self.get_query_argument("page", 0))
         self.render_params_for_user_tests(query, page)
