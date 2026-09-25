@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "tornado==4.5.3",         # http://www.tornadoweb.org/en/stable/releases.html
     "psycopg2==2.9.10",       # http://initd.org/psycopg/articles/tag/release/
+    "psycopg[binary]==3.3.6", # https://www.psycopg.org/psycopg3/docs/news.html
     "sqlalchemy>=2.0,<2.1",   # http://docs.sqlalchemy.org/en/latest/changelog/index.html
     "netifaces>=0.10,<0.12",  # https://bitbucket.org/al45tair/netifaces/src/
     "pycryptodomex==3.23.0",  # https://github.com/Legrandin/pycryptodome/blob/master/Changelog.rst

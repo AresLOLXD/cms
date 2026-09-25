@@ -25,6 +25,8 @@ patool==4.0.4
 pluggy==1.6.0
 prometheus_client==0.21.1
 psutil==7.0.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
 psycopg2==2.9.10
 pycryptodomex==3.23.0
 Pygments==2.19.2

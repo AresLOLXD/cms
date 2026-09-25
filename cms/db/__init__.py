@@ -46,6 +46,7 @@ __all__ = [
     "version", "engine",
     # session
     "Session", "ScopedSession", "SessionGen", "custom_psycopg2_connection",
+    "async_engine", "AsyncSession", "AsyncSessionGen",
     # types
     "CastingArray", "Codename", "Filename", "FilenameSchema",
     "FilenameSchemaArray", "Digest",
@@ -91,6 +92,7 @@ metadata = MetaData()
 
 from .session import Session, ScopedSession, SessionGen, \
     custom_psycopg2_connection
+from .async_session import async_engine, AsyncSession, AsyncSessionGen
 
 from .types import CastingArray, Codename, Filename, FilenameSchema, \
     FilenameSchemaArray, Digest
