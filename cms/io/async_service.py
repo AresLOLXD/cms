@@ -25,13 +25,14 @@
 """
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 import errno
 import functools
 import logging
 import os
 import signal
 import socket
+import threading
 import time
 from typing import Any
 
@@ -43,7 +44,7 @@ from cms import ConfigError, config, mkdir, ServiceCoord, Address, \
     get_service_address
 from cms.log import root_logger, shell_handler, ServiceFilter, \
     DetailedFormatter, LogServiceHandler, FileHandler
-from cms.io.rpc import rpc_method
+from cms.io.rpc import rpc_method, RPCError
 from .async_rpc import AsyncRemoteServiceServer, AsyncRemoteServiceClient, \
     AsyncFakeRemoteServiceClient, MAX_MESSAGE_SIZE
 
@@ -73,12 +74,80 @@ async def async_repeater(func: Callable[[], Any], period: float):
         await asyncio.sleep(max(call + period - time.monotonic(), 0))
 
 
+class AsyncLogServiceHandler(LogServiceHandler):
+    """LogServiceHandler variant for an AsyncService.
+
+    The AsyncRemoteServiceClient's Log(...) proxy returns a coroutine,
+    so calling it synchronously (as LogServiceHandler does) would never
+    send anything. Instead, the RPC is scheduled onto the service's
+    event loop, thread-safely since records can also be emitted from
+    run_in_executor threads. As with the gevent handler, records are
+    dropped while not connected to LogService.
+
+    """
+    def __init__(
+        self, log_service: AsyncRemoteServiceClient, service: "AsyncService"
+    ):
+        """Initialize the handler.
+
+        log_service: a handle for a remote LogService.
+        service: the service whose event loop sends the records.
+
+        """
+        super().__init__(log_service)
+        self._service = service
+
+    def createLock(self):
+        """Set self.lock to a new threading RLock.
+
+        """
+        self.lock = threading.RLock()
+
+    def _send(self, d: dict):
+        """Schedule sending the encoded record on the service's loop.
+
+        d: the record's attributes, to be used as keyword arguments
+            for LogService.Log.
+
+        """
+        loop = self._service._loop
+        if loop is None or loop.is_closed() or not self._log_service.connected:
+            return
+        try:
+            loop.call_soon_threadsafe(self._spawn_log, d)
+        except RuntimeError:
+            # The loop was closed in the meantime: drop the record.
+            pass
+
+    def _spawn_log(self, d: dict):
+        """Start sending the record (runs in the event loop thread)."""
+        if self._log_service.connected:
+            self._service._spawn(self._log(d))
+
+    async def _log(self, d: dict):
+        """Send the record, ignoring failures like the gevent handler."""
+        try:
+            await self._log_service.Log(**d)
+        except RPCError:
+            pass
+
+
 class AsyncService:
 
     def __init__(self, shard: int = 0):
         self.name = self.__class__.__name__
         self.shard = shard
         self._my_coord = ServiceCoord(self.name, self.shard)
+
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._background_tasks: set[asyncio.Task] = set()
+        # Calls that need a running event loop but were requested
+        # before one existed (e.g. from __init__, since the launcher
+        # scripts build the service before run() starts the loop);
+        # _async_run makes them once the loop is up.
+        self._pending_calls: list[Callable[[], Any]] = []
+        # Live server-side connections, closed on shutdown.
+        self._connections: set[AsyncRemoteServiceServer] = set()
 
         # Dictionaries of (to be) connected AsyncRemoteServiceClients.
         self.remote_services: dict[ServiceCoord, AsyncRemoteServiceClient] = {}
@@ -97,8 +166,34 @@ class AsyncService:
         self._server: asyncio.Server | None = None
         self.backdoor = None
         self._exit_event: asyncio.Event | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._background_tasks: set[asyncio.Task] = set()
+
+    def _spawn(self, coro: Coroutine) -> asyncio.Task:
+        """Fire-and-forget a coroutine, keeping a strong reference.
+
+        Must be called with the event loop running.
+
+        coro: the coroutine to run as a task.
+
+        return: the task.
+
+        """
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    def _call_when_running(self, func: Callable[[], Any]):
+        """Call func now if an event loop is running, else in run().
+
+        func: the function to call; it may need a running loop.
+
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._pending_calls.append(func)
+        else:
+            func()
 
     def initialize_logging(self):
         """Set up additional logging handlers.
@@ -145,7 +240,7 @@ class AsyncService:
         # LogService, to avoid circular logging).
         if self.name != "LogService":
             log_service = self.connect_to(ServiceCoord("LogService", 0))
-            remote_handler = LogServiceHandler(log_service)
+            remote_handler = AsyncLogServiceHandler(log_service, self)
             remote_handler.setLevel(logging.INFO)
             remote_handler.addFilter(filter_)
             root_logger.addHandler(remote_handler)
@@ -162,7 +257,11 @@ class AsyncService:
         address = writer.get_extra_info("peername")
         remote_service = AsyncRemoteServiceServer(self, Address(address[0], address[1]))
         remote_service.initialize_streams(reader, writer, Address(address[0], address[1]))
-        await remote_service.run()
+        self._connections.add(remote_service)
+        try:
+            await remote_service.run()
+        finally:
+            self._connections.discard(remote_service)
 
     def connect_to(
         self,
@@ -200,7 +299,7 @@ class AsyncService:
                                       "in cms.toml." % (coord, ))
                 else:
                     service = AsyncFakeRemoteServiceClient(coord, None)
-            service.connect()
+            self._call_when_running(service.connect)
             self.remote_services[coord] = service
         else:
             service = self.remote_services[coord]
@@ -239,9 +338,7 @@ class AsyncService:
                 await asyncio.sleep(seconds)
             await async_repeater(func, seconds)
 
-        task = asyncio.create_task(start_after_delay())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._call_when_running(lambda: self._spawn(start_after_delay()))
 
     def exit(self):
         """Terminate the service at the next step.
@@ -348,6 +445,10 @@ class AsyncService:
         if config.global_.backdoor:
             self.start_backdoor()
 
+        pending_calls, self._pending_calls = self._pending_calls, []
+        for func in pending_calls:
+            func()
+
         logger.info("%s %d up and running!", *self._my_coord)
 
         await self._exit_event.wait()
@@ -357,8 +458,17 @@ class AsyncService:
         if config.global_.backdoor:
             self.stop_backdoor()
 
+        # Since Python 3.12.1 wait_closed() also waits for the accepted
+        # connections, which close() leaves open (close_clients() is
+        # 3.13+), so close them ourselves.
         self._server.close()
-        await self._server.wait_closed()
+        for connection in list(self._connections):
+            connection.disconnect("Service shutting down.")
+        try:
+            # Bounded like gevent's StreamServer.stop(stop_timeout=1).
+            await asyncio.wait_for(self._server.wait_closed(), timeout=1)
+        except asyncio.TimeoutError:
+            logger.warning("Some connections did not close in time.")
 
         self._disconnect_all()
         return True

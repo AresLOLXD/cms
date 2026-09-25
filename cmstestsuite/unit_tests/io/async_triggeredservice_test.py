@@ -98,3 +98,81 @@ class TestRunLoop(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
 
         self.assertEqual(executor.executed, [op])
+
+
+class TestConstructionOutsideEventLoop(unittest.TestCase):
+    """The scripts/cms* launchers build the service before run() starts
+    the event loop, so __init__-time connect_to/add_timeout/
+    add_executor/start_sweeper must not need a running loop."""
+
+    def test_init_time_scheduling_starts_once_running(self):
+        import socket
+        import threading
+        from cms.conf import Address, ServiceCoord
+
+        def free_port():
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                return probe.getsockname()[1]
+
+        service_port = free_port()
+        # Nothing listens here: the LogService client just keeps retrying.
+        log_service_port = free_port()
+
+        def address_of(coord):
+            if coord.name == "LogService":
+                return Address("127.0.0.1", log_service_port)
+            return Address("127.0.0.1", service_port)
+
+        happened: set[str] = set()
+        op = FakeOperation("compile")
+
+        class LauncherBuiltService(AsyncTriggeredService):
+            def __init__(self, shard):
+                super().__init__(shard)
+                # The service connects to itself, so the connection is
+                # real without needing a second service.
+                self.connect_to(
+                    ServiceCoord("LauncherBuiltService", 0),
+                    on_connect=lambda _: self._mark("connected"))
+                self.executor = MarkingExecutor(self)
+                self.add_executor(self.executor)
+                self.enqueue(op)
+                self.add_timeout(lambda: self._mark("timeout"), None,
+                                 seconds=0.01)
+                self.start_sweeper(timeout=60)
+
+            def _missing_operations(self):
+                self._mark("swept")
+                return 0
+
+            def _mark(self, what):
+                happened.add(what)
+                if happened >= {"connected", "executed", "timeout", "swept"}:
+                    self.exit()
+
+        class MarkingExecutor(RecordingExecutor):
+            def __init__(self, service):
+                super().__init__()
+                self.service = service
+
+            async def execute(self, entry):
+                await super().execute(entry)
+                self.service._mark("executed")
+
+        with patch("cms.io.async_service.get_service_address",
+                   side_effect=address_of), \
+                patch("cms.io.async_rpc.get_service_address",
+                      side_effect=address_of):
+            service = LauncherBuiltService(0)
+            # Safety net so a regression fails instead of hanging.
+            watchdog = threading.Timer(5, service.exit)
+            watchdog.start()
+            try:
+                self.assertTrue(service.run())
+            finally:
+                watchdog.cancel()
+
+        self.assertEqual(
+            happened, {"connected", "executed", "timeout", "swept"})
+        self.assertEqual(service.executor.executed, [op])

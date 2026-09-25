@@ -149,9 +149,7 @@ class AsyncTriggeredService(AsyncService, typing.Generic[QueueItemT, ExecutorT])
     def add_executor(self, executor: ExecutorT):
         """Add an executor for the service, and start its run loop."""
         self._executors.append(executor)
-        task = asyncio.create_task(executor.run())
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._call_when_running(lambda: self._spawn(executor.run()))
 
     def get_executor(self) -> ExecutorT:
         return self._executors[0]
@@ -184,9 +182,7 @@ class AsyncTriggeredService(AsyncService, typing.Generic[QueueItemT, ExecutorT])
             self._sweeper_started = True
             self._sweeper_timeout = timeout
 
-            task = asyncio.create_task(self._sweeper_loop())
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            self._call_when_running(lambda: self._spawn(self._sweeper_loop()))
         else:
             logger.warning("Service tried to start the sweeper loop twice.")
 

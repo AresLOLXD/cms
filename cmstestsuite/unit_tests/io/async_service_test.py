@@ -12,6 +12,7 @@ from unittest.mock import patch
 from cms.conf import Address
 from cms.io.async_service import AsyncService
 from cms.io.rpc import rpc_method
+from cms.log import root_logger
 
 
 class EchoingAsyncService(AsyncService):
@@ -34,6 +35,97 @@ class TestAsyncServiceLifecycle(unittest.IsolatedAsyncioTestCase):
         service.exit()
         await asyncio.wait_for(run_task, timeout=2)
         self.assertFalse(service._server.is_serving())
+
+
+class TestShutdownWithConnectedPeer(unittest.IsolatedAsyncioTestCase):
+
+    @patch("cms.io.async_service.get_service_address")
+    async def test_exit_closes_connections_still_open(self, mock_get_address):
+        # Regression test: asyncio.Server.wait_closed() (3.12.1+) waits
+        # for every accepted connection, so a peer that never hangs up
+        # (like every service's permanent connection to LogService)
+        # used to make shutdown hang forever.
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        service = EchoingAsyncService(shard=0)
+        run_task = asyncio.create_task(service._async_run())
+        await asyncio.sleep(0.05)
+        port = service._server.sockets[0].getsockname()[1]
+
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            await asyncio.sleep(0.05)
+            self.assertEqual(len(service._connections), 1)
+
+            service.exit()
+            result = await asyncio.wait_for(run_task, timeout=2)
+            self.assertTrue(result)
+            self.assertEqual(service._connections, set())
+            # The server actively closed our connection.
+            self.assertEqual(
+                await asyncio.wait_for(reader.read(), timeout=1), b"")
+        finally:
+            writer.close()
+
+
+class TestAsyncServiceLogsToLogService(unittest.IsolatedAsyncioTestCase):
+
+    @patch("cms.io.async_rpc.get_service_address")
+    @patch("cms.io.async_service.get_service_address")
+    async def test_log_record_reaches_real_log_service(
+        self, mock_async_address, mock_async_rpc_address
+    ):
+        import logging
+        import socket
+        from cms.conf import ServiceCoord
+        from cms.service.LogService import LogService
+
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            log_service_port = probe.getsockname()[1]
+
+        mock_async_address.side_effect = lambda coord: (
+            Address("127.0.0.1", log_service_port)
+            if coord.name == "LogService" else Address("127.0.0.1", 0))
+        mock_async_rpc_address.return_value = \
+            Address("127.0.0.1", log_service_port)
+
+        # LogService installs a DEBUG FileHandler with a gevent lock on
+        # the root logger; left there, it can deadlock later tests that
+        # log from both a gevent thread and the asyncio thread.
+        original_handlers = list(root_logger.handlers)
+
+        def restore_handlers():
+            for handler in root_logger.handlers:
+                if handler not in original_handlers:
+                    handler.close()
+            root_logger.handlers = original_handlers
+
+        self.addCleanup(restore_handlers)
+
+        log_service = LogService(0)
+        log_task = asyncio.create_task(log_service._async_run())
+        service = EchoingAsyncService(shard=0)
+        service_task = asyncio.create_task(service._async_run())
+        try:
+            log_client = service.remote_services[ServiceCoord("LogService", 0)]
+            self.assertTrue(await log_client.wait_for_connection(timeout=2))
+
+            marker = "async service log record %f" % time.monotonic()
+            logging.getLogger("async_service_test").warning(marker)
+
+            deadline = time.monotonic() + 2
+            received = []
+            while time.monotonic() < deadline and not received:
+                await asyncio.sleep(0.02)
+                received = [m for m in log_service.last_messages()
+                            if m["message"] == marker]
+            self.assertEqual(len(received), 1)
+            self.assertEqual(received[0]["coord"], "EchoingAsyncService,0")
+        finally:
+            service.exit()
+            await asyncio.wait_for(service_task, timeout=2)
+            log_service.exit()
+            await asyncio.wait_for(log_task, timeout=2)
 
 
 class TestAddTimeout(unittest.IsolatedAsyncioTestCase):

@@ -141,9 +141,18 @@ class LogServiceHandler(logging.Handler):
             d['exc_info'] = None
             # Issue #25685: delete 'message' if present: redundant with 'msg'
             d.pop('message', None)
-            self._log_service.Log(**d)
+            self._send(d)
         except Exception:
             self.handleError(record)
+
+    def _send(self, d: dict):
+        """Send the encoded record to LogService.
+
+        d: the record's attributes, to be used as keyword arguments
+            for LogService.Log.
+
+        """
+        self._log_service.Log(**d)
 
 
 def get_color_hash(string: str) -> int:
