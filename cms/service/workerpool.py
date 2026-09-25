@@ -25,17 +25,17 @@
 
 """
 
+import asyncio
 import logging
 import random
+import threading
 from datetime import datetime, timedelta
 import typing
-
-import gevent.lock
-from gevent.event import Event
 
 from cms.conf import ServiceCoord
 from cms.db import SessionGen
 from cms.grading.Job import JobGroup
+from cms.io.rpc import RPCError
 from cmscommon.datetime import make_datetime, make_timestamp
 from cms.service.esoperations import ESOperation
 
@@ -93,13 +93,13 @@ class WorkerPool:
 
         # A lock to ensure that the reverse lookup stays in sync with
         # the operations lists.
-        self._operation_lock = gevent.lock.RLock()
+        self._operation_lock = threading.RLock()
 
         # Event set when there are workers available to take jobs. It
         # is only guaranteed that if a worker is available, then this
         # event is set. In other words, the fact that this event is
         # set does not mean that there is a worker available.
-        self._workers_available_event = Event()
+        self._workers_available_event = asyncio.Event()
 
     def __len__(self):
         return len(self._worker)
@@ -136,9 +136,27 @@ class WorkerPool:
             for operation in operations:
                 self._operations_reverse[operation] = shard
 
-    def wait_for_workers(self):
+    def _threadsafe_set_workers_available(self):
+        """Set self._workers_available_event, safely from any thread.
+
+        Touching an asyncio.Event directly from a thread other than
+        the one running the event loop is not safe (the event loop
+        might not wake up promptly, or internal state could race).
+        self._service._loop is None only at __init__ time, before the
+        loop starts and before anything could be waiting on this event
+        -- a direct call is safe then, mirroring the dual-mode dispatch
+        already established in ProxyService's _threadsafe_enqueue.
+
+        """
+        if self._service._loop is None:
+            self._workers_available_event.set()
+        else:
+            self._service._loop.call_soon_threadsafe(
+                self._workers_available_event.set)
+
+    async def wait_for_workers(self):
         """Wait until a worker might be available."""
-        self._workers_available_event.wait()
+        await self._workers_available_event.wait()
 
     def add_worker(self, worker_coord: ServiceCoord):
         """Add a new worker to the worker pool.
@@ -158,7 +176,7 @@ class WorkerPool:
         self._start_time[shard] = None
         self._schedule_disabling[shard] = False
         self._ignore[shard] = False
-        self._workers_available_event.set()
+        self._threadsafe_set_workers_available()
         logger.debug("Worker %s added.", shard)
 
     def on_worker_connected(self, worker_coord: ServiceCoord):
@@ -173,17 +191,29 @@ class WorkerPool:
         shard = worker_coord.shard
         logger.info("Worker %s online again.", shard)
         if self._service.contest_id is not None:
-            self._worker[shard].precache_files(
-                contest_id=self._service.contest_id
-            )
+            self._service._spawn(
+                self._fire_and_forget(
+                    self._worker[shard].precache_files(
+                        contest_id=self._service.contest_id)))
         # We don't requeue the operation, because a connection lost
         # does not invalidate a potential result given by the worker
         # (as the problem was the connection and not the machine on
         # which the worker is). But the worker could have been idling,
         # so we wake up the consumers.
-        self._workers_available_event.set()
+        self._threadsafe_set_workers_available()
 
-    def acquire_worker(self, operations: list[ESOperation]) -> int | None:
+    @staticmethod
+    async def _fire_and_forget(coro: typing.Coroutine):
+        """Await coro, swallowing RPCError -- mirrors the old RPC proxy's
+        silent-drop-on-failure behavior for calls with no callback.
+
+        """
+        try:
+            await coro
+        except RPCError:
+            pass
+
+    async def acquire_worker(self, operations: list[ESOperation]) -> int | None:
         """Tries to assign an operation to an available worker. If no workers
         are available then this returns None, otherwise this returns
         the chosen worker.
@@ -209,18 +239,42 @@ class WorkerPool:
         logger.debug("Worker %s acquired.", shard)
         self._start_time[shard] = make_datetime()
 
-        with SessionGen() as session:
-            job_group_dict = \
-                JobGroup.from_operations(operations, session).export_to_dict()
+        loop = asyncio.get_running_loop()
+        job_group_dict = await loop.run_in_executor(
+            None, self._build_job_group_dict, operations)
 
         logger.info("Asking worker %s to %s.", shard,
                     ", ".join("`%s'" % operation for operation in operations))
 
-        self._worker[shard].execute_job_group(
-            job_group_dict=job_group_dict,
-            callback=self._service.action_finished,
-            plus=shard)
+        self._service._spawn(self._dispatch_to_worker(shard, job_group_dict))
         return shard
+
+    def _build_job_group_dict(self, operations: list[ESOperation]) -> dict:
+        """Build the JobGroup dict to send to a worker, synchronously.
+
+        Runs inside loop.run_in_executor.
+
+        """
+        with SessionGen() as session:
+            return JobGroup.from_operations(operations, session).export_to_dict()
+
+    async def _dispatch_to_worker(self, shard: int, job_group_dict: dict):
+        """Send a job group to a worker and forward its result to ES.
+
+        Fire-and-forget from acquire_worker's perspective (mirrors the
+        old callback-based execute_job_group(..., callback=..., plus=...)
+        call, which also never blocked the caller) -- spawned as a
+        background task via self._service._spawn.
+
+        """
+        try:
+            data = await self._worker[shard].execute_job_group(
+                job_group_dict=job_group_dict)
+            error = None
+        except RPCError as rpc_error:
+            data = None
+            error = str(rpc_error)
+        await self._service.action_finished(data, shard, error)
 
     def release_worker(self, shard: int) -> bool | list[ESOperation]:
         """To be called by ES when it receives a notification that an
@@ -258,7 +312,7 @@ class WorkerPool:
             logger.info("Worker %s released and disabled.", shard)
         else:
             self._remove_operations(shard, WorkerPool.WORKER_INACTIVE)
-            self._workers_available_event.set()
+            self._threadsafe_set_workers_available()
             logger.debug("Worker %s released.", shard)
         if ret is False and to_ignore != []:
             return to_ignore
@@ -382,8 +436,10 @@ class WorkerPool:
                     self._schedule_disabling[shard] = True
                     self._ignore[shard] = True
                     self.release_worker(shard)
-                    self._worker[shard].quit(
-                        reason="No response in %s." % active_for)
+                    self._service._spawn(
+                        self._fire_and_forget(
+                            self._worker[shard].quit(
+                                reason="No response in %s." % active_for)))
 
         return lost_operations
 
@@ -444,7 +500,7 @@ class WorkerPool:
 
         self._operations[shard] = WorkerPool.WORKER_INACTIVE
         self._operations_to_ignore[shard] = []
-        self._workers_available_event.set()
+        self._threadsafe_set_workers_available()
         logger.info("Worker %s enabled.", shard)
 
     def check_connections(self) -> list[ESOperation]:
