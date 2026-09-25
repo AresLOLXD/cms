@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueItem
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 
 class FakeOperation(QueueItem):
@@ -37,7 +39,9 @@ class RecordingTriggeredService(AsyncTriggeredService):
     pass
 
 
-class TestEnqueueDequeue(unittest.IsolatedAsyncioTestCase):
+class TestEnqueueDequeue(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
 
     @patch("cms.io.async_service.get_service_address")
     async def test_enqueue_then_dequeue(self, mock_get_address):
@@ -54,7 +58,9 @@ class TestEnqueueDequeue(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(op, executor)
 
 
-class TestSweeper(unittest.IsolatedAsyncioTestCase):
+class TestSweeper(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
 
     @patch("cms.io.async_service.get_service_address")
     async def test_search_operations_not_done_wakes_sweeper_early(
@@ -108,7 +114,9 @@ class TestSweeper(unittest.IsolatedAsyncioTestCase):
                          "immediate second sweep, not wait for the 60s timeout")
 
 
-class TestRunLoop(unittest.IsolatedAsyncioTestCase):
+class TestRunLoop(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
 
     @patch("cms.io.async_service.get_service_address")
     async def test_run_dispatches_enqueued_operation(self, mock_get_address):
@@ -125,7 +133,9 @@ class TestRunLoop(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(executor.executed, [op])
 
 
-class TestConstructionOutsideEventLoop(unittest.TestCase):
+class TestConstructionOutsideEventLoop(
+    ServiceLoggingIsolationMixin, unittest.TestCase
+):
     """The scripts/cms* launchers build the service before run() starts
     the event loop, so __init__-time connect_to/add_timeout/
     add_executor/start_sweeper must not need a running loop."""
