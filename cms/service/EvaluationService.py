@@ -312,15 +312,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # operations in state 4.
         self.post_finish_lock = threading.RLock()
 
-        # Operations _enqueue_sync decided to push, whose push has been
-        # scheduled on the event loop but has not landed in the queue
-        # yet. Guarded by post_finish_lock.
-        self._pending_pushes: set[ESOperation] = set()
-
-        # Operations _threadsafe_dequeue_and_ignore decided to remove,
-        # whose dequeue has been scheduled on the event loop but has not
-        # run yet. Guarded by post_finish_lock.
-        self._pending_dequeues: set[ESOperation] = set()
+        # For each operation with push/dequeue callbacks scheduled on the
+        # event loop but not run yet: the last scheduled action ("push"
+        # or "dequeue") and how many of those callbacks are still
+        # pending. Guarded by post_finish_lock.
+        self._pending_operations: dict[ESOperation, tuple[str, int]] = {}
 
         self.scoring_service = self.connect_to(
             ServiceCoord("ScoringService", 0))
@@ -525,17 +521,56 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         the async enqueue()).
 
         """
-        if operation in self._pending_pushes:
+        pending_action, _ = self._pending_operations.get(operation, (None, 0))
+        if pending_action == "push":
             return False
-        # A pending dequeue makes queue/pool membership stale; if the
-        # executor dispatches it meanwhile we accept a redundant rerun.
-        if operation not in self._pending_dequeues and (
+        if pending_action != "dequeue" and (
                 operation in self.get_executor()
                 or operation in self.result_cache):
             return False
-        self._pending_pushes.add(operation)
+        self._record_pending(operation, "push")
         self._push_to_queue(operation, priority, timestamp)
         return True
+
+    def _record_pending(self, operation: ESOperation, action: str):
+        """Record that action has just been scheduled for operation.
+
+        Tracks a (last_action, pending_count) pair per operation so that
+        _enqueue_sync()'s synchronous membership check can predict the
+        *eventual* state correctly even when multiple push/dequeue
+        callbacks are in flight for the same operation at once (e.g. a
+        push already scheduled when an invalidation's dequeue comes in
+        right after, or two invalidations of the same operation
+        back-to-back). The callbacks in _push_to_queue and
+        _threadsafe_dequeue_and_ignore each call _clear_pending_one()
+        once their real action has run, in the same FIFO order they
+        were scheduled in, so the last scheduled action is the one that
+        determines the final state. Must be called while holding
+        post_finish_lock.
+
+        operation: the operation the action was scheduled for.
+        action: "push" or "dequeue".
+
+        """
+        _, count = self._pending_operations.get(operation, (None, 0))
+        self._pending_operations[operation] = (action, count + 1)
+
+    def _clear_pending_one(self, operation: ESOperation):
+        """Record that one scheduled callback for operation has run.
+
+        Decrements the pending count; once it reaches zero, removes the
+        entry entirely (no callbacks left in flight, so _enqueue_sync()'s
+        real membership check alone is accurate again). Must be called
+        while holding post_finish_lock.
+
+        operation: the operation whose callback has just run.
+
+        """
+        action, count = self._pending_operations.get(operation, (None, 0))
+        if count <= 1:
+            self._pending_operations.pop(operation, None)
+        else:
+            self._pending_operations[operation] = (action, count - 1)
 
     def _push_to_queue(
         self, operation: ESOperation, priority: int, timestamp: datetime
@@ -550,10 +585,10 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         same dual-mode dispatch already established in ProxyService's
         _threadsafe_enqueue.
 
-        Once the push has landed, also clear the operation's
-        _pending_pushes marker (set by _enqueue_sync), under
-        post_finish_lock so it stays consistent with _enqueue_sync's
-        check. Taking that real lock on the event loop thread is safe
+        Once the push has landed, also clear one pending callback from
+        the operation's _pending_operations entry (recorded by
+        _enqueue_sync), under post_finish_lock so it stays consistent
+        with _enqueue_sync's check. Taking that real lock on the event loop thread is safe
         because nothing awaits while holding it.
 
         """
@@ -561,7 +596,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             with self.post_finish_lock:
                 AsyncTriggeredService.enqueue(
                     self, operation, priority, timestamp)
-                self._pending_pushes.discard(operation)
+                self._clear_pending_one(operation)
         if self._loop is None:
             _do()
         else:
@@ -570,22 +605,23 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
     def _threadsafe_dequeue_and_ignore(self, operation: ESOperation):
         """Dequeue and ignore an operation, safely from any thread.
 
-        Marks the operation as pending-dequeue immediately (this method
-        is only ever called while post_finish_lock is already held by
-        the caller -- _invalidate_submission_sync -- so this add() is
-        itself lock-protected) so a concurrent _enqueue_sync() for the
-        same operation doesn't see its stale "still in the queue"
-        membership and skip re-enqueueing it. The actual dequeue is
-        still deferred to the event loop (dequeue() eventually touches
-        AsyncPriorityQueue.remove(), unsafe off the event loop thread),
-        but the pending-dequeue marker makes _enqueue_sync() treat the
-        operation as already gone the moment this method *decides* to
-        remove it, not only once the deferred callback actually runs.
+        Records "dequeue" as the operation's last scheduled action in
+        _pending_operations immediately (this method is only ever
+        called while post_finish_lock is already held by the caller --
+        _invalidate_submission_sync -- so this is itself
+        lock-protected) so a later _enqueue_sync() for the same
+        operation neither trusts its stale "still in the queue"
+        membership nor an earlier still-pending push, and schedules a
+        new push after this dequeue. The actual dequeue is still
+        deferred to the event loop (dequeue() eventually touches
+        AsyncPriorityQueue.remove(), unsafe off the event loop thread);
+        once it has run, the callback clears one pending callback from
+        the operation's entry.
 
         operation: the operation to dequeue and ignore.
 
         """
-        self._pending_dequeues.add(operation)
+        self._record_pending(operation, "dequeue")
 
         def _do():
             with self.post_finish_lock:
@@ -597,7 +633,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                     self.get_executor().pool.ignore_operation(operation)
                 except LookupError:
                     pass  # Ok, the operation wasn't in the pool.
-                self._pending_dequeues.discard(operation)
+                self._clear_pending_one(operation)
         if self._loop is None:
             _do()
         else:
@@ -1155,7 +1191,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         the sweeper (_missing_operations_sync, on another executor
         thread) can pick up the same new submission concurrently: that
         race is harmless because _enqueue_sync's dedup check (queue,
-        pool, result cache and the _pending_pushes set, all checked
+        pool, result cache and _pending_operations, all checked
         under post_finish_lock) lets only one of the two enqueue each
         operation.
 

@@ -455,7 +455,12 @@ class EvaluationServiceTest(
             asyncio.gather(*invalidations, worker_received_job_group()),
             timeout=10)
         self.assertTrue(worker_acquired.is_set())
-        self.assertEqual(len(fake_worker.received_job_groups), 1)
+        # The invalidations ignore the dispatched operation's result and
+        # re-enqueue it, so it must run again (possibly more than once,
+        # depending on when the second invalidation lands).
+        await self._wait_until(
+            lambda: len(fake_worker.received_job_groups) >= 2)
+        self.assertGreaterEqual(len(fake_worker.received_job_groups), 2)
 
     async def test_invalidate_submission_keeps_queued_operation(self):
         # Regression test: invalidate_submission used to dequeue from
@@ -532,8 +537,107 @@ class EvaluationServiceTest(
         self.assertIn(busy_operation, executor._currently_executing)
         self.assertNotEqual(remove_thread_ids, [])
         self.assertEqual(set(remove_thread_ids), {loop_thread_id})
-        self.assertEqual(self.service._pending_dequeues, set())
-        self.assertEqual(self.service._pending_pushes, set())
+        self.assertEqual(self.service._pending_operations, {})
+
+    async def _stall_queue_behind_busy_operation(self):
+        """Keep the executor busy so later operations stay in the queue.
+
+        The only worker is unconnected: the executor pops a first
+        (busy) operation and keeps it in _currently_executing, so any
+        operation enqueued afterwards stays in _operation_queue.
+
+        return: a fresh submission (with no operation enqueued yet) and
+            its compilation operation.
+
+        """
+        contest, task, dataset, busy_submission = self._build_submission()
+        participation = self.add_participation(contest=contest)
+        submission = self.add_submission(
+            task=task, participation=participation)
+        self.session.commit()
+        executor = self.service.get_executor()
+
+        busy_operation = ESOperation(
+            ESOperation.COMPILATION, busy_submission.id, dataset.id)
+        self.assertTrue(await self.service.enqueue(
+            busy_operation, PriorityQueue.PRIORITY_HIGH,
+            busy_submission.timestamp))
+        await self._wait_until(
+            lambda: busy_operation in executor._currently_executing)
+        self.assertIn(busy_operation, executor._currently_executing)
+
+        operation = ESOperation(
+            ESOperation.COMPILATION, submission.id, dataset.id)
+        return submission, operation
+
+    def _invalidate_compilation_sync(self, submission_id: int):
+        """Run invalidate_submission's body for one submission, synchronously.
+
+        submission_id: the submission to invalidate.
+
+        """
+        self.service._invalidate_submission_sync(
+            None, submission_id, None, None, None, None, "compilation", False)
+
+    async def test_enqueue_pending_when_dequeue_scheduled_right_after(self):
+        # Regression test: a push already scheduled (new_submission)
+        # with its callback not yet landed, then an invalidation of the
+        # same operation. The invalidation schedules a dequeue after
+        # that push, and its re-enqueue used to be skipped because a
+        # push was still pending -- so the callbacks ran push, dequeue
+        # and the operation was lost until the next sweeper run.
+        submission, operation = \
+            await self._stall_queue_behind_busy_operation()
+        executor = self.service.get_executor()
+        loop = asyncio.get_running_loop()
+
+        # Holding post_finish_lock on the executor thread for the whole
+        # sequence keeps every scheduled callback (each one takes that
+        # lock) from running before the sequence is complete; they then
+        # run in the order they were scheduled.
+        def push_then_invalidate():
+            with self.service.post_finish_lock:
+                self.service._new_submission_sync(submission.id)
+                self.assertNotIn(operation, executor._operation_queue)
+                self._invalidate_compilation_sync(submission.id)
+
+        await asyncio.wait_for(
+            loop.run_in_executor(None, push_then_invalidate), timeout=10)
+        # The run_in_executor future's completion is itself delivered via
+        # call_soon_threadsafe, after every callback scheduled above.
+
+        self.assertIn(operation, executor._operation_queue)
+        self.assertEqual(self.service._pending_operations, {})
+
+    async def test_double_invalidation_keeps_operation_queued(self):
+        # Regression test: two back-to-back invalidations of the same
+        # already-queued operation (e.g. an admin double-clicking
+        # invalidate under load). The second one's re-enqueue used to be
+        # skipped because the first one's push was still pending, so the
+        # callbacks ran dequeue, push, dequeue and the operation was lost
+        # until the next sweeper run.
+        submission, operation = \
+            await self._stall_queue_behind_busy_operation()
+        executor = self.service.get_executor()
+        loop = asyncio.get_running_loop()
+        self.assertTrue(await self.service.enqueue(
+            operation, PriorityQueue.PRIORITY_HIGH, submission.timestamp))
+        await self._wait_until(
+            lambda: operation in executor._operation_queue)
+        self.assertIn(operation, executor._operation_queue)
+
+        # See test_enqueue_pending_when_dequeue_scheduled_right_after
+        # for why post_finish_lock is held across both invalidations.
+        def invalidate_twice():
+            with self.service.post_finish_lock:
+                self._invalidate_compilation_sync(submission.id)
+                self._invalidate_compilation_sync(submission.id)
+
+        await asyncio.wait_for(
+            loop.run_in_executor(None, invalidate_twice), timeout=10)
+
+        self.assertIn(operation, executor._operation_queue)
+        self.assertEqual(self.service._pending_operations, {})
 
     async def test_enqueue_sync_twice_enqueues_once(self):
         # Regression test: the push decided by _enqueue_sync lands on
@@ -562,8 +666,8 @@ class EvaluationServiceTest(
             for _ in range(2))), timeout=10)
         self.assertEqual(sorted(results), [False, True])
 
-        await self._wait_until(lambda: self.service._pending_pushes == set())
-        self.assertEqual(self.service._pending_pushes, set())
+        await self._wait_until(lambda: self.service._pending_operations == {})
+        self.assertEqual(self.service._pending_operations, {})
 
     async def test_release_racing_timeout_leaves_consistent_state(self):
         # Regression test: release_worker (from action_finished, on an
