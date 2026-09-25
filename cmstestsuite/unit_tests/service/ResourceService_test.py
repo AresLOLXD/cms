@@ -3,7 +3,10 @@
 """Tests for cms.service.ResourceService."""
 
 import asyncio
+import json
+import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +14,8 @@ from cms.conf import Address, ServiceCoord
 from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.rpc import RPCError, rpc_method
 from cms.service.ResourceService import ProcessMatcher, ResourceService
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 
 # Local services sharing a machine coordinate, as ResourceService.__init__
@@ -86,7 +91,9 @@ async def _start_server(local_service: object) -> tuple[asyncio.Server, int]:
     return server, server.sockets[0].getsockname()[1]
 
 
-class ResourceServiceTest(unittest.IsolatedAsyncioTestCase):
+class ResourceServiceTest(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
 
     async def asyncSetUp(self):
         self._servers: list[asyncio.Server] = []
@@ -122,14 +129,16 @@ class ResourceServiceTest(unittest.IsolatedAsyncioTestCase):
         # _store_resources/_restart_services calls; disabling it keeps
         # tests deterministic (no background reaping/launching racing
         # against the calls the tests make directly).
-        with patch.object(ResourceService, "add_timeout", lambda *a, **k: None):
+        with patch.object(
+                ResourceService, "add_timeout", lambda *a, **k: None):
             service = ResourceService(
                 shard=0, contest_id=contest_id, autorestart=autorestart)
         self.addCleanup(service._disconnect_all)
         return service
 
     async def _add_connected_service(
-        self, service: ResourceService, coord: ServiceCoord, local_service: object
+        self, service: ResourceService, coord: ServiceCoord,
+        local_service: object
     ) -> AsyncRemoteServiceClient:
         """Wire a real, connected peer for coord into service.
 
@@ -154,6 +163,62 @@ class ResourceServiceTest(unittest.IsolatedAsyncioTestCase):
 
         service.remote_services[coord] = client
         return client
+
+    async def _run_restart_services_and_capture_other_service_args(
+        self, contest_id: int | None
+    ) -> list[str]:
+        """Run _restart_services for real and capture OtherService's argv.
+
+        Points BIN_PATH at a temporary directory containing a real,
+        executable cmsOtherService script that records the argv it was
+        launched with, so the assertion exercises the actual *args
+        unpacking behavior of _restart_services rather than a mock that
+        ignores its arguments.
+
+        contest_id: forwarded to the service under test.
+
+        return: the argv the launched cmsOtherService script recorded.
+
+        """
+        with tempfile.TemporaryDirectory() as bin_path:
+            script_path = os.path.join(bin_path, "cmsOtherService")
+            args_path = os.path.join(bin_path, "args.json")
+            with open(script_path, "w") as f:
+                f.write(
+                    "#!/usr/bin/env python3\n"
+                    "import json\n"
+                    "import sys\n"
+                    f"with open({args_path!r}, 'w') as out:\n"
+                    "    json.dump(sys.argv[1:], out)\n")
+            os.chmod(script_path, 0o755)
+
+            service = await self._make_service(
+                autorestart=True, contest_id=contest_id)
+
+            with patch.object(ProcessMatcher, "find", return_value=None), \
+                    patch("cms.service.ResourceService.BIN_PATH", bin_path):
+                await service._restart_services()
+                await asyncio.gather(
+                    *(p.wait() for p in service._launched_processes))
+
+            with open(args_path) as f:
+                return json.load(f)
+
+    async def test_restart_services_launches_process_with_default_args(
+        self,
+    ):
+        argv = await self._run_restart_services_and_capture_other_service_args(
+            contest_id=None)
+
+        self.assertEqual(argv, ["0", "-c", "ALL"])
+
+    async def test_restart_services_launches_process_with_contest_id_args(
+        self,
+    ):
+        argv = await self._run_restart_services_and_capture_other_service_args(
+            contest_id=7)
+
+        self.assertEqual(argv, ["0", "-c", "7"])
 
     async def test_restart_services_launches_process_for_missing_service(
         self,
@@ -220,6 +285,10 @@ class ResourceServiceTest(unittest.IsolatedAsyncioTestCase):
                          mock_find.call_args_list}
         self.assertNotIn("LogService", checked_names)
         self.assertNotIn("ResourceService", checked_names)
+        # A non-excluded local service must actually be checked by the
+        # loop, otherwise this test would pass even if the loop did
+        # nothing for every service.
+        self.assertIn("OtherService", checked_names)
 
     async def test_restart_services_skips_service_not_scheduled(self):
         service = await self._make_service(autorestart=True)
