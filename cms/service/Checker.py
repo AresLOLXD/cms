@@ -26,6 +26,7 @@ import logging
 import time
 
 from cms import config, ServiceCoord
+from cms.io.async_rpc import AsyncRemoteServiceClient
 from cms.io.async_service import AsyncService
 from cms.io.rpc import RPCError
 
@@ -65,7 +66,12 @@ class Checker(AsyncService):
                 logger.info("Service %s not connected.", coordinates)
         return True
 
-    async def _echo_and_check(self, coordinates, service, now):
+    async def _echo_and_check(
+        self,
+        coordinates: ServiceCoord,
+        service: AsyncRemoteServiceClient,
+        now: float,
+    ) -> None:
         """Send an echo request to service and handle its reply.
 
         coordinates: the coord of the service to echo.
