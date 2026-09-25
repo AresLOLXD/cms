@@ -14,7 +14,8 @@ import requests.exceptions
 from cms.conf import Address, ServiceCoord
 from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.priorityqueue import QueueEntry
-from cms.service.ProxyService import ProxyExecutor, ProxyOperation, ProxyService
+from cms.service.ProxyService import \
+    ProxyExecutor, ProxyOperation, ProxyService
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
@@ -167,16 +168,47 @@ class ProxyServiceTest(
         _threadsafe_enqueue takes its call_soon_threadsafe branch, same
         as it would in production once the service is actually running.
 
+        The same "event loop already running" quirk also makes
+        start_sweeper's _call_when_running fire the sweeper immediately
+        instead of after its usual delay, so a background sweep could
+        otherwise race with (and do the work of) the method a test
+        means to exercise. No test in this file exercises the
+        sweeper's own periodic behaviour, so it's stubbed out here
+        unconditionally.
+
         contest_id: the contest id to pass to ProxyService (legacy
             mode), or None for group mode.
 
         return: the constructed service.
 
         """
-        service = ProxyService(shard=0, contest_id=contest_id)
+        with patch.object(
+                ProxyService, "start_sweeper", lambda self, timeout: None):
+            service = ProxyService(shard=0, contest_id=contest_id)
         service._loop = asyncio.get_running_loop()
         self.addCleanup(service._disconnect_all)
         return service
+
+    async def _wait_until_put(
+        self, path_substring: str, timeout: float = 2
+    ) -> None:
+        """Poll until a PUT with the given URL fragment was recorded.
+
+        Used right after building a service (whose __init__ always
+        enqueues an initial initialize() batch) to let that initial
+        batch actually land before resetting the mocks, so later
+        assertions only observe what the method under test itself did.
+        Like _wait_until, gives up silently on timeout and lets the
+        caller's own assertions report the failure.
+
+        path_substring: a fragment expected in one of the PUT URLs.
+        timeout: how many seconds to poll for before giving up.
+
+        """
+        attempts = max(1, int(timeout / 0.05))
+        await self._wait_until(
+            lambda: any(path_substring in u for u in self._put_urls()),
+            attempts=attempts)
 
     def _build_scored_submission(self, contest=None):
         """Build a contest (or reuse one) with one already-scored submission.
@@ -208,7 +240,7 @@ class ProxyServiceTest(
         self.session.commit()
         return contest, task, dataset, submission, result
 
-    async def _start_server(self, local_service: object) -> tuple[int]:
+    async def _start_server(self, local_service: object) -> int:
         """Start a loopback server exposing local_service's RPC methods.
 
         local_service: object exposing the RPC methods to serve.
@@ -269,9 +301,11 @@ class ProxyServiceTest(
         contest, task, dataset, submission, result = \
             self._build_scored_submission()
         service = self._build_service(contest_id=contest.id)
+        await self._wait_until_put("contests/")
         self.requests_put.reset_mock()
 
-        count = await service._missing_operations()
+        count = await asyncio.wait_for(
+            service._missing_operations(), timeout=5)
 
         # operations_for_score() returns 2 operations (submission and
         # subchange); the submission has no token.
@@ -284,7 +318,9 @@ class ProxyServiceTest(
         self.assertTrue(
             any(u.endswith("subchanges/") for u in self._put_urls()))
 
-    async def test_submission_scored_over_rpc_round_trip_for_sent_contest(self):
+    async def test_submission_scored_over_rpc_round_trip_for_sent_contest(
+        self,
+    ):
         # Drives submission_scored through a real RPC request/reply, not
         # a direct coroutine call: this exercises
         # AsyncRemoteServiceServer.process_incoming_request's
@@ -293,12 +329,15 @@ class ProxyServiceTest(
         contest, task, dataset, submission, result = \
             self._build_scored_submission()
         service = self._build_service(contest_id=contest.id)
+        await self._wait_until_put("contests/")
         self.requests_put.reset_mock()
 
         port = await self._start_server(service)
         client = await self._rpc_client(port)
-        await client.execute_rpc(
-            "submission_scored", {"submission_id": submission.id})
+        await asyncio.wait_for(
+            client.execute_rpc(
+                "submission_scored", {"submission_id": submission.id}),
+            timeout=5)
 
         await self._wait_until(
             lambda: any(u.endswith("submissions/")
@@ -330,9 +369,11 @@ class ProxyServiceTest(
         self.add_token(submission=submission)
         self.session.commit()
         service = self._build_service(contest_id=contest.id)
+        await self._wait_until_put("contests/")
         self.requests_put.reset_mock()
 
-        await service.submission_tokened(submission.id)
+        await asyncio.wait_for(
+            service.submission_tokened(submission.id), timeout=5)
 
         await self._wait_until(
             lambda: any(u.endswith("subchanges/")
@@ -361,18 +402,31 @@ class ProxyServiceTest(
         with self.assertRaises(KeyError):
             await service.submission_tokened(123456789)
 
-    async def test_regenerate_ranking_invalid_group_raises_before_db_work(self):
+    async def test_regenerate_ranking_invalid_group_raises_before_db_work(
+        self,
+    ):
+        # regenerate_ranking's validation must run in the async def
+        # wrapper, before asyncio.get_running_loop().run_in_executor(...)
+        # is ever called (i.e. before any work is handed off to
+        # _regenerate_ranking_sync). Patching run_in_executor directly
+        # (rather than just asserting SessionGen was never called)
+        # proves that, since the validation could otherwise be moved
+        # inside _regenerate_ranking_sync and still pass a SessionGen-only
+        # check (the raise would still happen before SessionGen either
+        # way).
         service = self._build_service(contest_id=None)
+        loop = asyncio.get_running_loop()
 
-        with patch("cms.service.ProxyService.SessionGen") as session_gen:
+        with patch.object(loop, "run_in_executor") as run_in_executor:
             with self.assertRaises(ValueError):
                 await service.regenerate_ranking("..")
-            session_gen.assert_not_called()
+            run_in_executor.assert_not_called()
 
     async def test_dataset_updated_reinitializes_and_resends_submissions(self):
         contest, task, dataset, submission, result = \
             self._build_scored_submission()
         service = self._build_service(contest_id=contest.id)
+        await self._wait_until_put("contests/")
         self.requests_put.reset_mock()
 
         # This is the nested reinitialize()/initialize() call chain,
@@ -381,7 +435,7 @@ class ProxyServiceTest(
         # all inside a single run_in_executor thread: assert it
         # completes (without deadlocking or raising) and produces the
         # expected re-sends.
-        await service.dataset_updated(task.id)
+        await asyncio.wait_for(service.dataset_updated(task.id), timeout=5)
 
         await self._wait_until(
             lambda: any(u.endswith("submissions/")
@@ -391,7 +445,9 @@ class ProxyServiceTest(
         self.assertTrue(
             any(u.endswith("submissions/") for u in self._put_urls()))
 
-    async def test_threadsafe_enqueue_from_worker_thread_reaches_executor(self):
+    async def test_threadsafe_enqueue_from_worker_thread_reaches_executor(
+        self,
+    ):
         # ProxyService.__init__'s add_executor already spawned
         # executor.run() as a background task on this test's event loop
         # (a loop is already running when the service is constructed
@@ -405,8 +461,10 @@ class ProxyServiceTest(
         loop = asyncio.get_running_loop()
         # Actually go through run_in_executor, so this exercises the
         # cross-OS-thread path, not just a same-thread call.
-        await loop.run_in_executor(
-            None, lambda: service._threadsafe_enqueue(operation))
+        await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: service._threadsafe_enqueue(operation)),
+            timeout=5)
 
         await self._wait_until(lambda: self.requests_delete.called)
         self.assertTrue(self.requests_delete.called)

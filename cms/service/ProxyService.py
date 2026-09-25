@@ -169,10 +169,10 @@ class ProxyOperation(QueueItem):
 
 
 class ProxyExecutor(AsyncExecutor[ProxyOperation]):
-    """A thread that sends data to one ranking.
+    """An executor that sends data to one ranking.
 
-    The object is used as a thread-local storage and its run method is
-    the function that, started as a greenlet, uses it.
+    Its inherited run() method is spawned as an asyncio task and drives
+    the object for as long as the service is alive.
 
     It maintains a queue of data to send. At each "round" the queue is
     emptied (i.e. all jobs are fetched) and the data is then "combined"
@@ -235,18 +235,13 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         return "" if group is None else "%s/" % group
 
     async def execute(self, entries: list[QueueEntry[ProxyOperation]]):
-        """Consume (i.e. send) the data put in the queue, forever.
+        """Send one batch of operations already fetched from the queue.
 
-        Pick all operations found in the queue (if there aren't any,
-        block waiting until there are), combine them and send HTTP
-        requests to the target ranking. Do it until something very bad
-        happens (i.e. some exception is raised). If communication fails
-        don't stop, just wait FAILURE_WAIT seconds before restarting
-        the loop.
-
-        Do all this cooperatively: yield at every blocking operation
-        (queue fetch, request send, failure wait, etc.). Since the
-        queue is joinable, also notify when the fetched jobs are done.
+        Combine the given entries and send them to the target ranking
+        with a single synchronous batch call run in a worker thread
+        (via run_in_executor). If that call fails, sleep FAILURE_WAIT
+        seconds before returning, so the caller's next round doesn't
+        immediately retry.
 
         entries: entries containing the operations to perform.
 
@@ -395,9 +390,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
     def _threadsafe_enqueue(
         self,
-        operation: "ProxyOperation",
+        operation: ProxyOperation,
         priority: int | None = None,
-        timestamp: "datetime | None" = None,
+        timestamp: datetime | None = None,
     ) -> None:
         """Enqueue an operation, safely from any thread.
 
@@ -410,6 +405,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         other coroutine can be waiting on the queue yet, so a direct call
         is safe -- this mirrors AsyncService._call_when_running's dual-mode
         dispatch and AsyncLogServiceHandler._send's "loop is None" guard.
+
+        Note that an exception raised inside the scheduled enqueue()
+        call is delivered to the event loop's exception handler, not
+        back to the thread that called _threadsafe_enqueue.
 
         operation: the operation to enqueue.
         priority: the priority, or None to use default.
@@ -508,7 +507,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         return counter
 
     async def _missing_operations(self) -> int:
-        """Return a generator of data to be sent to the rankings..
+        """Return the number of operations enqueued for missing data.
 
         """
         loop = asyncio.get_running_loop()
