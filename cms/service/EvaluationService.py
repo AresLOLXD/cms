@@ -30,12 +30,13 @@ the current ranking.
 
 """
 
+import asyncio
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 
-import gevent.lock
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -49,7 +50,8 @@ from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
 from cms.grading import twophase
 from cms.grading.Job import Job, JobGroup
 from cms.grading.steps import EVALUATION_MESSAGES
-from cms.io import Executor, TriggeredService, rpc_method
+from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
+from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
     get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
@@ -62,7 +64,24 @@ from .workerpool import WorkerPool
 logger = logging.getLogger(__name__)
 
 
-class EvaluationExecutor(Executor[ESOperation]):
+# Note on EvaluationService.post_finish_lock: it is used reentrantly --
+# write_results (via _write_results_sync) calls compilation_ended/
+# evaluation_ended, which call submission_enqueue_operations, which
+# calls _enqueue_sync, and every one of these is guarded by the same
+# lock. asyncio.Lock is not reentrant (a recursive acquire by the same
+# task deadlocks), and a real lock must never be held across an await
+# (another coroutine trying to acquire it while the holder is suspended
+# in loop.run_in_executor would hard-block the event loop forever). The
+# fix kept here is to keep the entire reentrant call graph as plain
+# synchronous code running together inside one loop.run_in_executor
+# call (the "_sync"-suffixed methods below), guarded by a real
+# threading.RLock: since threading.RLock is already reentrant per
+# thread, and the whole nested call chain runs synchronously on a
+# single background thread, no wrapper class is needed -- a plain
+# threading.RLock() is reentrant and safe to hold with no await inside
+# it, exactly like cms/log.py's shared handlers and FlushingDict's own
+# lock elsewhere in this modernization effort.
+class EvaluationExecutor(AsyncExecutor[ESOperation]):
 
     # Real maximum number of operations to be sent to a worker.
     MAX_OPERATIONS_PER_BATCH = 25
@@ -83,7 +102,7 @@ class EvaluationExecutor(Executor[ESOperation]):
         self._currently_executing: list[ESOperation] = []
 
         # Lock used to guard the currently executing operations
-        self._current_execution_lock = gevent.lock.RLock()
+        self._current_execution_lock = threading.RLock()
 
         # As evaluate operations are split by testcases, there are too
         # many entries in the queue to display, so we just take only one
@@ -125,7 +144,7 @@ class EvaluationExecutor(Executor[ESOperation]):
                     ratio, ret)
         return ret
 
-    def execute(self, entries: list[QueueEntry[ESOperation]]):
+    async def execute(self, entries: list[QueueEntry[ESOperation]]):
         """Execute a batch of operations in the queue.
 
         The operations might not be executed immediately because of
@@ -146,11 +165,11 @@ class EvaluationExecutor(Executor[ESOperation]):
                 operation.side_data = (entry.priority, entry.timestamp)
                 self._currently_executing.append(operation)
         while len(self._currently_executing) > 0:
-            self.pool.wait_for_workers()
+            await self.pool.wait_for_workers()
             with self._current_execution_lock:
                 if len(self._currently_executing) == 0:
                     break
-                res = self.pool.acquire_worker(self._currently_executing)
+                res = await self.pool.acquire_worker(self._currently_executing)
                 if res is not None:
                     self._currently_executing = []
                     break
@@ -192,8 +211,8 @@ class EvaluationExecutor(Executor[ESOperation]):
                         return
             raise
 
-    def _pop(self, wait=False):
-        queue_entry = super()._pop(wait=wait)
+    async def _pop(self, wait=False):
+        queue_entry = await super()._pop(wait=wait)
         self._remove_from_cumulative_status(queue_entry)
         return queue_entry
 
@@ -230,7 +249,7 @@ class Result:
         self.job_success = job_success
 
 
-class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
+class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
     """Evaluation service.
 
     """
@@ -266,6 +285,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             EvaluationService.RESULT_CACHE_SIZE,
             EvaluationService.MAX_FLUSHING_TIME_SECONDS,
             self.write_results)
+        self._call_when_running(self.result_cache.start)
 
         # This lock is used to avoid inserting in the queue (which
         # itself is already thread-safe) an operation which is already
@@ -288,7 +308,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         # invalidate_submission, enqueue) are not executed
         # concurrently with action_finished to avoid picking
         # operations in state 4.
-        self.post_finish_lock = gevent.lock.RLock()
+        self.post_finish_lock = threading.RLock()
 
         self.scoring_service = self.connect_to(
             ServiceCoord("ScoringService", 0))
@@ -321,7 +341,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             for operation, priority, timestamp in submission_get_operations(
                     submission_result, submission, dataset, archive_sandbox):
                 number_of_operations += 1
-                if self.enqueue(operation, priority, timestamp):
+                if self._enqueue_sync(operation, priority, timestamp):
                     new_operations += 1
 
             # Two-phase fail-fast: 0 operations does not necessarily mean
@@ -362,16 +382,27 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         for dataset in get_datasets_to_judge(user_test.task):
             for operation, priority, timestamp in user_test_get_operations(
                     user_test, dataset):
-                if self.enqueue(operation, priority, timestamp):
+                if self._enqueue_sync(operation, priority, timestamp):
                     new_operations += 1
 
         return new_operations
 
-    @with_post_finish_lock
-    def _missing_operations(self) -> int:
+    async def _missing_operations(self) -> int:
         """Look in the database for submissions that have not been compiled or
         evaluated for no good reasons. Put the missing operation in
         the queue.
+
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._missing_operations_sync)
+
+    @with_post_finish_lock
+    def _missing_operations_sync(self) -> int:
+        """Do the work of _missing_operations(), synchronously.
+
+        Runs inside loop.run_in_executor, holding post_finish_lock for
+        its entire duration (a real threading.RLock -- safe, since
+        nothing here awaits or hands off to another thread).
 
         """
         counter = 0
@@ -392,7 +423,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 for operation, priority, timestamp in \
                         get_submissions_compilation_operations(
                             session, self.contest_id):
-                    if self.enqueue(operation, priority, timestamp):
+                    if self._enqueue_sync(operation, priority, timestamp):
                         counter += 1
 
                 for submission_result in get_submission_results_to_evaluate(
@@ -402,12 +433,12 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             else:
                 for operation, priority, timestamp in \
                         get_submissions_operations(session, self.contest_id):
-                    if self.enqueue(operation, priority, timestamp):
+                    if self._enqueue_sync(operation, priority, timestamp):
                         counter += 1
 
             for operation, priority, timestamp in \
                     get_user_tests_operations(session, self.contest_id):
-                if self.enqueue(operation, priority, timestamp):
+                if self._enqueue_sync(operation, priority, timestamp):
                     counter += 1
 
         return counter
@@ -423,7 +454,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         """
         return self.get_executor().pool.get_status()
 
-    def check_workers_timeout(self):
+    async def check_workers_timeout(self):
         """We ask WorkerPool for the unresponsive workers, and we put
         again their operations in the queue.
 
@@ -433,10 +464,10 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Operation %s put again in the queue because of "
                         "worker timeout.", operation)
             priority, timestamp = operation.side_data
-            self.enqueue(operation, priority, timestamp)
+            await self.enqueue(operation, priority, timestamp)
         return True
 
-    def check_workers_connection(self):
+    async def check_workers_connection(self):
         """We ask WorkerPool for the unconnected workers, and we put
         again their operations in the queue.
 
@@ -446,11 +477,10 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Operation %s put again in the queue because of "
                         "disconnected worker.", operation)
             priority, timestamp = operation.side_data
-            self.enqueue(operation, priority, timestamp)
+            await self.enqueue(operation, priority, timestamp)
         return True
 
-    @with_post_finish_lock
-    def enqueue(
+    async def enqueue(
         self, operation: ESOperation, priority: int, timestamp: datetime
     ) -> bool:
         """Push an operation in the queue.
@@ -465,19 +495,89 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         return: True if pushed, False if not.
 
         """
-        if operation in self.get_executor() or operation in self.result_cache:
-            return False
-
-        # enqueue() returns the number of successful pushes.
-        return super().enqueue(operation, priority, timestamp) > 0
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, self._enqueue_sync, operation, priority, timestamp)
 
     @with_post_finish_lock
-    def action_finished(self, data: dict, shard: int, error=None):
+    def _enqueue_sync(
+        self, operation: ESOperation, priority: int, timestamp: datetime
+    ) -> bool:
+        """Decide whether to enqueue, and push if so, synchronously.
+
+        Runs inside loop.run_in_executor (or is called directly, as a
+        plain nested function call, from another _sync method already
+        holding post_finish_lock on the same background thread -- see
+        submission_enqueue_operations/user_test_enqueue_operations/
+        write_results_sync/etc, which all call this directly rather than
+        the async enqueue()).
+
+        """
+        if operation in self.get_executor() or operation in self.result_cache:
+            return False
+        self._push_to_queue(operation, priority, timestamp)
+        return True
+
+    def _push_to_queue(
+        self, operation: ESOperation, priority: int, timestamp: datetime
+    ):
+        """Actually push into the executor's queue, safely from any thread.
+
+        AsyncTriggeredService.enqueue ultimately touches an asyncio.Event
+        (inside AsyncPriorityQueue.push()), unsafe to call directly from
+        a thread other than the event loop's. Route through
+        call_soon_threadsafe when a loop is running; at __init__ time
+        (self._loop is still None) a direct call is safe, mirroring the
+        same dual-mode dispatch already established in ProxyService's
+        _threadsafe_enqueue.
+
+        """
+        if self._loop is None:
+            AsyncTriggeredService.enqueue(self, operation, priority, timestamp)
+        else:
+            self._loop.call_soon_threadsafe(
+                AsyncTriggeredService.enqueue, self, operation, priority, timestamp)
+
+    def _threadsafe_notify_scoring_service(self, submission_id: int, dataset_id: int):
+        """Tell ScoringService about a new evaluation, safely from any thread.
+
+        Fire-and-forget, matching the old RPC proxy's never-blocking
+        behavior; swallows RPCError like WorkerPool._fire_and_forget does
+        for the same reason (ScoringService being briefly unreachable is
+        not worth surfacing as an error here).
+
+        """
+        if self._loop is None:
+            self._spawn(self._notify_scoring_service(submission_id, dataset_id))
+        else:
+            self._loop.call_soon_threadsafe(
+                self._spawn, self._notify_scoring_service(
+                    submission_id, dataset_id))
+
+    async def _notify_scoring_service(self, submission_id: int, dataset_id: int):
+        try:
+            await self.scoring_service.new_evaluation(
+                submission_id=submission_id, dataset_id=dataset_id)
+        except RPCError:
+            pass
+
+    async def action_finished(self, data: dict, shard: int, error=None):
         """Callback from a worker, to signal that is finished some
         action (compilation or evaluation).
 
         data: the JobGroup, exported to dict.
         shard: the shard finishing the action.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._action_finished_sync, data, shard, error)
+
+    @with_post_finish_lock
+    def _action_finished_sync(self, data: dict, shard: int, error=None):
+        """Do the work of action_finished(), synchronously.
+
+        Runs inside loop.run_in_executor.
 
         """
         # We notify the pool that the worker is available again for
@@ -522,8 +622,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 else:
                     self.result_cache.add(operation, Result(job, job.success))
 
-    @with_post_finish_lock
-    def write_results(self, items: list[tuple[ESOperation, Result]]):
+    async def write_results(self, items: list[tuple[ESOperation, Result]]):
         """Receive worker results from the cache and writes them to the DB.
 
         Grouping results together by object (i.e., submission result
@@ -533,6 +632,26 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         of once for every result.
 
         items: the results received by ES but not yet written to the db.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._write_results_sync, items)
+
+    @with_post_finish_lock
+    def _write_results_sync(self, items: list[tuple[ESOperation, Result]]):
+        """Do the work of write_results(), synchronously.
+
+        Runs inside loop.run_in_executor, holding post_finish_lock for
+        its entire duration. Everything this calls internally --
+        write_results_one_object_and_type, write_results_one_row,
+        _advance_two_phase, compilation_ended, evaluation_ended,
+        user_test_compilation_ended, user_test_evaluation_ended,
+        submission_enqueue_operations, user_test_enqueue_operations,
+        _enqueue_sync -- runs as plain synchronous nested calls on this
+        same background thread; none of them may become `async def` or
+        call `await` anywhere in this call graph (see the module-level
+        note at the top of this file about why post_finish_lock is a real
+        threading.RLock, never held across an await).
 
         """
         logger.info("Starting commit process...")
@@ -808,7 +927,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Submission %d(%d) did not compile.",
                         submission_result.submission_id,
                         submission_result.dataset_id)
-            self.scoring_service.new_evaluation(
+            self._threadsafe_notify_scoring_service(
                 submission_id=submission_result.submission_id,
                 dataset_id=submission_result.dataset_id)
 
@@ -852,7 +971,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Submission %d(%d) was evaluated successfully.",
                         submission_result.submission_id,
                         submission_result.dataset_id)
-            self.scoring_service.new_evaluation(
+            self._threadsafe_notify_scoring_service(
                 submission_id=submission_result.submission_id,
                 dataset_id=submission_result.dataset_id)
 
@@ -948,12 +1067,32 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         self.user_test_enqueue_operations(user_test)
 
     @rpc_method
-    def new_submission(self, submission_id: int):
+    async def new_submission(self, submission_id: int):
         """This RPC prompts ES of the existence of a new
         submission. ES takes the right countermeasures, i.e., it
         schedules it for compilation.
 
         submission_id: the id of the new submission.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._new_submission_sync, submission_id)
+
+    def _new_submission_sync(self, submission_id: int):
+        """Do the work of new_submission(), synchronously.
+
+        Runs inside loop.run_in_executor. Not decorated with
+        @with_post_finish_lock itself -- submission_enqueue_operations
+        calls _enqueue_sync, which acquires the lock itself for just its
+        own critical section; there's no broader invariant here needing
+        the lock held across the whole DB read+commit (unlike
+        write_results/_missing_operations/invalidate_submission, whose
+        *own* comment in the original code explicitly says the lock is
+        about not racing action_finished while deciding whether to
+        enqueue -- new_submission's initial enqueue of a brand new
+        submission has no such race to guard against, since nothing else
+        could already be processing an operation for a submission that
+        was, until this call, unknown to this service).
 
         """
         with SessionGen() as session:
@@ -968,12 +1107,23 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             session.commit()
 
     @rpc_method
-    def new_user_test(self, user_test_id: int):
+    async def new_user_test(self, user_test_id: int):
         """This RPC prompts ES of the existence of a new user test. ES
         takes takes the right countermeasures, i.e., it schedules it
         for compilation.
 
         user_test_id: the id of the new user test.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._new_user_test_sync, user_test_id)
+
+    def _new_user_test_sync(self, user_test_id: int):
+        """Do the work of new_user_test(), synchronously.
+
+        Runs inside loop.run_in_executor. Not decorated with
+        @with_post_finish_lock -- see _new_submission_sync's docstring
+        for why.
 
         """
         with SessionGen() as session:
@@ -988,8 +1138,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             session.commit()
 
     @rpc_method
-    @with_post_finish_lock
-    def invalidate_submission(
+    async def invalidate_submission(
         self,
         contest_id: int | None = None,
         submission_id: int | None = None,
@@ -1028,13 +1177,29 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         archive_sandbox: whether to store submission output.
 
         """
-        logger.info("Invalidation request received.")
-
-        # Validate arguments
-        # TODO Check that all these objects belong to this contest.
         if level not in ("compilation", "evaluation"):
-            raise ValueError(
-                "Unexpected invalidation level `%s'." % level)
+            raise ValueError("Unexpected invalidation level `%s'." % level)
+            # ^ validate before touching run_in_executor, fail fast --
+            # same reasoning ProxyService's regenerate_ranking already
+            # established for this migration effort.
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._invalidate_submission_sync,
+            contest_id, submission_id, dataset_id, testcase_id,
+            participation_id, task_id, level, archive_sandbox)
+
+    @with_post_finish_lock
+    def _invalidate_submission_sync(
+        self, contest_id, submission_id, dataset_id, testcase_id,
+        participation_id, task_id, level, archive_sandbox,
+    ):
+        """Do the work of invalidate_submission(), synchronously.
+
+        Runs inside loop.run_in_executor, holding post_finish_lock.
+        level has already been validated by the caller.
+
+        """
+        logger.info("Invalidation request received.")
 
         if contest_id is None:
             contest_id = self.contest_id
@@ -1128,7 +1293,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         logger.info("Invalidate successfully completed.")
 
     @rpc_method
-    def disable_worker(self, shard: int) -> bool:
+    async def disable_worker(self, shard: int) -> bool:
         """Disable a specific worker (recovering its assigned operations).
 
         shard: the shard of the worker.
@@ -1148,7 +1313,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Operation %s put again in the queue because "
                         "the worker was disabled.", operation)
             priority, timestamp = operation.side_data
-            self.enqueue(operation, priority, timestamp)
+            await self.enqueue(operation, priority, timestamp)
         return True
 
     @rpc_method
