@@ -23,6 +23,7 @@
 import logging
 import unittest
 
+from cms.io.async_service import AsyncService
 from cms.service.LogService import LogService
 
 
@@ -74,6 +75,12 @@ class TestLogService(unittest.TestCase):
                               TestLogService.EXC_TEXT + severity)
         else:
             self.assertNotEqual(last_message["severity"], severity)
+
+
+class TestLogServiceIsAsyncService(unittest.TestCase):
+
+    def test_log_service_subclasses_async_service(self):
+        self.assertTrue(issubclass(LogService, AsyncService))
 
 
 if __name__ == "__main__":
