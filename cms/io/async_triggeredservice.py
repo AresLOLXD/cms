@@ -6,6 +6,7 @@ sweeper loops, mirroring cms.io.triggeredservice.
 """
 
 from abc import ABCMeta, abstractmethod
+from collections.abc import Awaitable
 from datetime import datetime
 import asyncio
 import logging
@@ -229,7 +230,7 @@ class AsyncTriggeredService(AsyncService, typing.Generic[QueueItemT, ExecutorT])
         logger.info("Found %d missed operation(s) in %d ms.",
                     counter, (time.time() - start_time) * 1000)
 
-    def _missing_operations(self) -> int:
+    def _missing_operations(self) -> int | Awaitable[int]:
         """See cms.io.triggeredservice.TriggeredService._missing_operations.
 
         Base implementation returns 0 -- subclasses override.

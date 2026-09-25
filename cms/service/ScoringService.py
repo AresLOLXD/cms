@@ -33,7 +33,7 @@ from cms import ServiceCoord, config
 from cms.db import SessionGen, Submission, Dataset, get_submission_results
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
-from cms.io.rpc import rpc_method
+from cms.io.rpc import RPCError, rpc_method
 from cmscommon.datetime import make_datetime
 from .scoringoperations import ScoringOperation, get_operations
 
@@ -63,8 +63,24 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
             None, self._execute_sync, operation)
         if notify_submission_id is not None:
             self.proxy_service._spawn(
-                self.proxy_service.submission_scored(
-                    submission_id=notify_submission_id))
+                self._notify_proxy(notify_submission_id))
+
+    async def _notify_proxy(self, submission_id: int):
+        """Tell ProxyService a submission was scored, best-effort.
+
+        Fire-and-forget: mirrors the old RPC proxy's behavior of never
+        surfacing a failed notification as an error (ProxyService being
+        unreachable, e.g. because rankings are disabled, is a normal,
+        expected state -- not a failure worth logging loudly).
+
+        submission_id: the id of the submission to notify about.
+
+        """
+        try:
+            await self.proxy_service.submission_scored(
+                submission_id=submission_id)
+        except RPCError:
+            pass
 
     def _execute_sync(self, operation: ScoringOperation) -> int | None:
         """Do the actual DB work for execute(), synchronously.
@@ -176,6 +192,8 @@ class ScoringService(AsyncTriggeredService[ScoringOperation, ScoringExecutor]):
         check each of them to see if it's still unscored and if so
         enqueue them.
 
+        return: the number of operations enqueued.
+
         """
         loop = asyncio.get_running_loop()
         operations = await loop.run_in_executor(
@@ -195,7 +213,7 @@ class ScoringService(AsyncTriggeredService[ScoringOperation, ScoringExecutor]):
 
         """
         with SessionGen() as session:
-            return list(get_operations(session))
+            return get_operations(session)
 
     @rpc_method
     def new_evaluation(self, submission_id: int, dataset_id: int):
@@ -218,7 +236,7 @@ class ScoringService(AsyncTriggeredService[ScoringOperation, ScoringExecutor]):
         participation_id: int | None = None,
         task_id: int | None = None,
         contest_id: int | None = None,
-    ):
+    ) -> None:
         """Invalidate (and re-score) some submission results.
 
         Invalidate the scores of the submission results that:
@@ -255,7 +273,12 @@ class ScoringService(AsyncTriggeredService[ScoringOperation, ScoringExecutor]):
         logger.info("Invalidated %d submission results.", len(temp_queue))
 
     def _invalidate_submission_sync(
-        self, submission_id, dataset_id, participation_id, task_id, contest_id,
+        self,
+        submission_id: int | None,
+        dataset_id: int | None,
+        participation_id: int | None,
+        task_id: int | None,
+        contest_id: int | None,
     ) -> list[tuple[ScoringOperation, datetime]]:
         """Do the DB work for invalidate_submission(), synchronously.
 
