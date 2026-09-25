@@ -594,9 +594,14 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         """
         def _do():
             with self.post_finish_lock:
-                AsyncTriggeredService.enqueue(
-                    self, operation, priority, timestamp)
-                self._clear_pending_one(operation)
+                try:
+                    AsyncTriggeredService.enqueue(
+                        self, operation, priority, timestamp)
+                finally:
+                    # Always clear the pending marker, even if enqueue()
+                    # raised -- otherwise a stuck "push" entry would
+                    # block every future re-enqueue of this operation.
+                    self._clear_pending_one(operation)
         if self._loop is None:
             _do()
         else:
@@ -626,14 +631,20 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         def _do():
             with self.post_finish_lock:
                 try:
-                    self.dequeue(operation)
-                except KeyError:
-                    pass  # Ok, the operation wasn't in the queue.
-                try:
-                    self.get_executor().pool.ignore_operation(operation)
-                except LookupError:
-                    pass  # Ok, the operation wasn't in the pool.
-                self._clear_pending_one(operation)
+                    try:
+                        self.dequeue(operation)
+                    except KeyError:
+                        pass  # Ok, the operation wasn't in the queue.
+                    try:
+                        self.get_executor().pool.ignore_operation(operation)
+                    except LookupError:
+                        pass  # Ok, the operation wasn't in the pool.
+                finally:
+                    # Always clear the pending marker, even on an
+                    # unexpected exception -- otherwise a stuck
+                    # "dequeue" entry would block every future
+                    # re-enqueue of this operation.
+                    self._clear_pending_one(operation)
         if self._loop is None:
             _do()
         else:
