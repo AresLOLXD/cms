@@ -28,13 +28,13 @@
 
 """
 
+from datetime import datetime
+import asyncio
 import json
 import logging
 import string
 from urllib.parse import urljoin, urlsplit
 
-import gevent
-import gevent.queue
 import requests
 import requests.exceptions
 from sqlalchemy import not_, select
@@ -42,8 +42,10 @@ from sqlalchemy import not_, select
 from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
     Submission, get_submissions
-from cms.io import Executor, QueueItem, TriggeredService, rpc_method
+from cms.io import QueueItem
+from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
+from cms.io.rpc import rpc_method
 from cmscommon.datetime import make_timestamp
 from cmscommon.ranking_groups import is_valid_group_name
 
@@ -166,7 +168,7 @@ class ProxyOperation(QueueItem):
                 "group": self.group}
 
 
-class ProxyExecutor(Executor[ProxyOperation]):
+class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     """A thread that sends data to one ranking.
 
     The object is used as a thread-local storage and its run method is
@@ -232,7 +234,7 @@ class ProxyExecutor(Executor[ProxyOperation]):
         """Return the resource path prefix of a ranking namespace."""
         return "" if group is None else "%s/" % group
 
-    def execute(self, entries: list[QueueEntry[ProxyOperation]]):
+    async def execute(self, entries: list[QueueEntry[ProxyOperation]]):
         """Consume (i.e. send) the data put in the queue, forever.
 
         Pick all operations found in the queue (if there aren't any,
@@ -247,6 +249,25 @@ class ProxyExecutor(Executor[ProxyOperation]):
         queue is joinable, also notify when the fetched jobs are done.
 
         entries: entries containing the operations to perform.
+
+        """
+        loop = asyncio.get_running_loop()
+        failed = await loop.run_in_executor(None, self._execute_sync, entries)
+        if failed:
+            await asyncio.sleep(self.FAILURE_WAIT)
+
+    def _execute_sync(self, entries: list[QueueEntry[ProxyOperation]]) -> bool:
+        """Send the given batch of operations, synchronously.
+
+        Runs inside loop.run_in_executor -- the actual HTTP requests
+        (via the synchronous requests library) happen here; the caller
+        is responsible for the FAILURE_WAIT sleep, which must happen on
+        the event loop (asyncio.sleep), not in this thread.
+
+        entries: entries containing the operations to perform.
+
+        return: True if sending failed (caller should wait FAILURE_WAIT
+            before the executor's next round), False on success.
 
         """
         # The cumulative data that we will try to send to the ranking,
@@ -295,14 +316,15 @@ class ProxyExecutor(Executor[ProxyOperation]):
 
         except CannotSendError:
             # A log message has already been produced.
-            gevent.sleep(self.FAILURE_WAIT)
-        except:
+            return True
+        except Exception:
             # Whoa! That's unexpected!
             logger.error("Unexpected error.", exc_info=True)
-            gevent.sleep(self.FAILURE_WAIT)
+            return True
+        return False
 
 
-class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
+class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
     """Maintain the information held by rankings up-to-date.
 
     Discover (by receiving notifications and by periodically sweeping
@@ -370,6 +392,36 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         self.initialize()
 
         self.start_sweeper(347.0)
+
+    def _threadsafe_enqueue(
+        self,
+        operation: "ProxyOperation",
+        priority: int | None = None,
+        timestamp: "datetime | None" = None,
+    ) -> None:
+        """Enqueue an operation, safely from any thread.
+
+        self.enqueue() isn't safe to call from a run_in_executor worker
+        thread -- it eventually touches asyncio.Event.set(), which (like
+        every asyncio primitive) must only be touched from the event loop
+        thread. Route the actual enqueue() call through
+        loop.call_soon_threadsafe() when a loop is running; at __init__
+        time (before run() starts the loop, self._loop is still None) no
+        other coroutine can be waiting on the queue yet, so a direct call
+        is safe -- this mirrors AsyncService._call_when_running's dual-mode
+        dispatch and AsyncLogServiceHandler._send's "loop is None" guard.
+
+        operation: the operation to enqueue.
+        priority: the priority, or None to use default.
+        timestamp: the timestamp of the first request for the
+            operation, or None to use now.
+
+        """
+        if self._loop is None:
+            self.enqueue(operation, priority, timestamp)
+        else:
+            self._loop.call_soon_threadsafe(
+                self.enqueue, operation, priority, timestamp)
 
     def _is_sent(self, contest: Contest) -> bool:
         """Return whether the data of contest goes to a ranking."""
@@ -443,20 +495,29 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                     only_missing and
                     submission.id in self.scores_sent_to_rankings):
                 for operation in self.operations_for_score(submission):
-                    self.enqueue(operation)
+                    self._threadsafe_enqueue(operation)
                     counter += 1
 
             if submission.tokened() and not (
                     only_missing and
                     submission.id in self.tokens_sent_to_rankings):
                 for operation in self.operations_for_token(submission):
-                    self.enqueue(operation)
+                    self._threadsafe_enqueue(operation)
                     counter += 1
 
         return counter
 
-    def _missing_operations(self):
+    async def _missing_operations(self) -> int:
         """Return a generator of data to be sent to the rankings..
+
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._missing_operations_sync)
+
+    def _missing_operations_sync(self) -> int:
+        """Return the number of operations enqueued.
+
+        Runs inside loop.run_in_executor.
 
         """
         counter = 0
@@ -499,7 +560,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
             return
         self._broken_contests.discard(contest.id)
         for operation in operations:
-            self.enqueue(operation)
+            self._threadsafe_enqueue(operation)
 
     def _operations_for_contest(
         self, contest: Contest
@@ -627,7 +688,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                            {subchange_id: subchange_data}, group)]
 
     @rpc_method
-    def reinitialize(self):
+    async def reinitialize(self):
         """Repeat the initialization procedure for all rankings.
 
         This method is usually called via RPC when someone knows that
@@ -635,6 +696,18 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         rankings need to be updated. Ranking groups that lost a contest
         (or were deleted) are emptied first and then sent again in full,
         since rankings only merge the data they receive.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._reinitialize_sync)
+
+    def _reinitialize_sync(self):
+        """Do the work of reinitialize(), synchronously.
+
+        Runs inside loop.run_in_executor. Calls self.initialize() (not
+        the async reinitialize() -- that would try to await from inside
+        this already-backgrounded thread) directly, since initialize()
+        is itself a plain synchronous method safe to call from here.
 
         """
         logger.info("Reinitializing rankings.")
@@ -654,7 +727,8 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         for group in lost:
             logger.info("Ranking group %s lost contests, resetting it.",
                         group)
-            self.enqueue(ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
+            self._threadsafe_enqueue(
+                ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
 
         broken_before = set(self._broken_contests)
         self.initialize()
@@ -671,7 +745,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                             session, contest, only_missing=False)
 
     @rpc_method
-    def regenerate_ranking(self, group: str | None = None):
+    async def regenerate_ranking(self, group: str | None = None):
         """Empty a ranking namespace and send all of its data again.
 
         Usually called by AdminWebServer when an admin asks to repair a
@@ -688,9 +762,20 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
             logger.error("Received request to regenerate invalid ranking "
                          "group %r.", group)
             raise ValueError("Invalid ranking group name.")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._regenerate_ranking_sync, group)
+
+    def _regenerate_ranking_sync(self, group: str | None):
+        """Do the work of regenerate_ranking(), synchronously.
+
+        Runs inside loop.run_in_executor. group has already been
+        validated by the caller.
+
+        """
         logger.info("Regenerating ranking %s.",
                     group if group is not None else "(root)")
-        self.enqueue(ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
+        self._threadsafe_enqueue(
+            ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
         with SessionGen() as session:
             for contest in self._contests_to_send(session):
                 if self._group_of(contest) == group:
@@ -699,7 +784,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                         session, contest, only_missing=False)
 
     @rpc_method
-    def submission_scored(self, submission_id: int):
+    async def submission_scored(self, submission_id: int):
         """Notice that a submission has been scored.
 
         Usually called by ScoringService when it's done with scoring a
@@ -707,6 +792,16 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         and then send data about the score to the rankings.
 
         submission_id: the id of the submission that changed.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._submission_scored_sync, submission_id)
+
+    def _submission_scored_sync(self, submission_id: int):
+        """Do the work of submission_scored(), synchronously.
+
+        Runs inside loop.run_in_executor.
 
         """
         with SessionGen() as session:
@@ -738,10 +833,10 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
             # Update RWS.
             for operation in self.operations_for_score(submission):
-                self.enqueue(operation)
+                self._threadsafe_enqueue(operation)
 
     @rpc_method
-    def submission_tokened(self, submission_id: int):
+    async def submission_tokened(self, submission_id: int):
         """Notice that a submission has been tokened.
 
         Usually called by ContestWebServer when it's processing a token
@@ -749,6 +844,16 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         and then send data about the token to the rankings.
 
         submission_id: the id of the submission that changed.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._submission_tokened_sync, submission_id)
+
+    def _submission_tokened_sync(self, submission_id: int):
+        """Do the work of submission_tokened(), synchronously.
+
+        Runs inside loop.run_in_executor.
 
         """
         with SessionGen() as session:
@@ -780,10 +885,10 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
 
             # Update RWS.
             for operation in self.operations_for_token(submission):
-                self.enqueue(operation)
+                self._threadsafe_enqueue(operation)
 
     @rpc_method
-    def dataset_updated(self, task_id: int):
+    async def dataset_updated(self, task_id: int):
         """Notice that the active dataset of a task has been changed.
 
         Usually called by AdminWebServer when the contest administrator
@@ -794,6 +899,17 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
         ScoringService to notify us that the new ones are available.
 
         task_id: the ID of the task whose dataset has changed.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._dataset_updated_sync, task_id)
+
+    def _dataset_updated_sync(self, task_id: int):
+        """Do the work of dataset_updated(), synchronously.
+
+        Runs inside loop.run_in_executor. Calls self._reinitialize_sync()
+        directly (not the async reinitialize() -- can't await from
+        inside this already-backgrounded thread).
 
         """
         with SessionGen() as session:
@@ -811,7 +927,7 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                         task.id, dataset.id)
 
             # max_score and/or extra_headers might have changed.
-            self.reinitialize()
+            self._reinitialize_sync()
 
             for submission in task.submissions:
                 # Update RWS.
@@ -820,4 +936,4 @@ class ProxyService(TriggeredService[ProxyOperation, ProxyExecutor]):
                         submission.get_result() is not None and \
                         submission.get_result().scored():
                     for operation in self.operations_for_score(submission):
-                        self.enqueue(operation)
+                        self._threadsafe_enqueue(operation)
