@@ -27,21 +27,25 @@ cms.io.async_service (sub-project 2.4) to use. No existing (synchronous)
 call site is affected by this module -- see
 docs/superpowers/specs/2026-09-25-async-db-access-design.md.
 
+The module-level async_engine is meant to be used from a single event
+loop per process (i.e. a real running service); code that runs many
+independent event loops in one process, such as a test suite built on
+IsolatedAsyncioTestCase, should await async_engine.dispose() before
+each loop closes so no pooled connection outlives the loop it was
+created on.
+
 """
 
-import logging
+from types import TracebackType
 
-from sqlalchemy.engine.url import make_url
+from sqlalchemy.engine.url import URL, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncSession as _AsyncSession, async_sessionmaker, create_async_engine)
 
 from cms.conf import config
 
 
-logger = logging.getLogger(__name__)
-
-
-def _async_database_url():
+def _async_database_url() -> URL:
     """Derive the async engine's connection URL from config.database.url.
 
     Both cms.db's sync Session and this module's AsyncSession read
@@ -57,12 +61,17 @@ def _async_database_url():
     return (sqlalchemy.engine.url.URL): the async engine's connection
         URL, with the real password intact.
 
-    raise (AssertionError): if config.database.url isn't using the
-        postgresql+psycopg2 driver this function expects to swap out.
+    raise (AssertionError): if config.database.url doesn't resolve to
+        the psycopg2 driver of the postgresql dialect this function
+        expects to swap out -- either spelled explicitly
+        (postgresql+psycopg2://) or implied by the bare postgresql://
+        form, for which SQLAlchemy defaults to psycopg2 (the same check
+        custom_psycopg2_connection() in cms.db.session makes).
 
     """
     sync_url = make_url(config.database.url)
-    if sync_url.drivername != "postgresql+psycopg2":
+    if sync_url.get_backend_name() != "postgresql" \
+            or sync_url.get_driver_name() != "psycopg2":
         raise AssertionError(
             "cms.db.async_session expects config.database.url to use "
             "the postgresql+psycopg2 driver (got %r); it derives the "
@@ -105,7 +114,7 @@ class AsyncSessionGen:
 
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.session: _AsyncSession | None = None
 
     async def __aenter__(self) -> _AsyncSession:
@@ -119,6 +128,17 @@ class AsyncSessionGen:
         self.session = AsyncSession()
         return self.session
 
-    async def __aexit__(self, unused1, unused2, unused3):
-        await self.session.rollback()
-        await self.session.close()
+    async def __aexit__(
+        self,
+        unused1: type[BaseException] | None,
+        unused2: BaseException | None,
+        unused3: TracebackType | None,
+    ) -> None:
+        # try/finally so that if rollback() itself raises (e.g. a second
+        # asyncio.CancelledError landing while it is suspended during a
+        # shutdown that cancels tasks), the session's connection is
+        # still returned to the pool rather than held until GC.
+        try:
+            await self.session.rollback()
+        finally:
+            await self.session.close()

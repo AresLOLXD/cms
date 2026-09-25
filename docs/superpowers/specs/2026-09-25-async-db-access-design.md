@@ -184,7 +184,8 @@ DB-touching service using this sub-project's new `AsyncSession`.
   gevent wait callback active (as it always is — `cms/io/__init__.py`
   calls `make_psycopg_green()` unconditionally at import time), and
   confirms the connection behaves correctly (queries complete, no hang,
-  no exception) despite no gevent hub running in that worker thread.
+  no exception) on a real OS thread other than the event loop's (see
+  Risks for the verified result and mechanism).
 - No service, migrated or otherwise, uses any of this in production code
   as of this sub-project — consistent with the Non-Goals above.
 
@@ -211,6 +212,30 @@ DB-touching service using this sub-project's new `AsyncSession`.
   empirically before 2.4 ever depends on `FileCacher` from a migrated
   service, rather than leaving it as an untested assumption the way the
   logging-lock hazard was left in 2.2 until its final review caught it.
+
+  **Verification results: SAFE, confirmed empirically.** The premise
+  above ("no gevent hub") turned out to be wrong: gevent creates hubs
+  lazily and per thread (`gevent/_hub_local.py`), so the first time
+  `gevent_wait_callback` runs `wait_read`/`wait_write` in an executor
+  worker thread, that thread gets its own private, thread-local Hub. The
+  wait callback then blocks only that one OS thread, on its own isolated
+  event loop, with no cross-thread interaction with the asyncio loop or
+  any other thread's hub. Queries complete normally, singly and
+  concurrently. That per-thread Hub is persistent: it stays alive for the
+  life of its worker thread and is reused by later jobs on it, so there
+  is at most one extra Hub per executor thread (bounded by the executor's
+  `max_workers`). **Caveat:** this holds for CMS's own service processes,
+  which never call `gevent.monkey.patch_all()`. It does not hold in a
+  process that has monkey-patched `threading` (nothing under `cms/`
+  does; only `cmscontrib` CLI scripts, e.g. `cmscontrib/DumpImporter.py`,
+  and some unit-test modules do). There, `ThreadPoolExecutor` workers are
+  greenlets on the main OS thread rather than separate threads, so
+  `run_in_executor` offloads nothing. Verified by
+  `cmstestsuite/unit_tests/db/psycopg_green_executor_test.py`. Because
+  pytest's collection of those modules monkey-patches the test process
+  itself, the test runs its query checks in a fresh interpreter. It
+  asserts that `threading` is unpatched there and that every query ran on
+  an OS thread other than the event loop's.
 - **Two independent connection pools during the 2.4 transition window**
   (see Data Flow) — not a 2.3-scope risk (nothing uses both yet), but
   documented so 2.4's per-service plans size connection-pool config
