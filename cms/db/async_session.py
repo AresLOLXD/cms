@@ -50,10 +50,11 @@ def _async_database_url() -> URL:
 
     Both cms.db's sync Session and this module's AsyncSession read
     connection parameters from the same cms.conf [database] section --
-    only the driver component of the URL differs (postgresql+psycopg2
-    for the sync engine, postgresql+psycopg for the async one; both
-    route through the psycopg (v3) package, which supports both modes
-    under the same dialect name). Returning the URL object itself
+    only the driver component of the URL differs: postgresql+psycopg2
+    for the sync engine (the psycopg2 package), postgresql+psycopg for
+    the async one (the psycopg (v3) package's async mode -- a separate
+    package from psycopg2, not a newer mode of it). Returning the URL
+    object itself
     (rather than str(url)) matters: str() on a SQLAlchemy URL masks the
     password with "***" by default, which would silently break every
     connection made with the swapped URL.
