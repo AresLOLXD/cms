@@ -317,6 +317,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # yet. Guarded by post_finish_lock.
         self._pending_pushes: set[ESOperation] = set()
 
+        # Operations _threadsafe_dequeue_and_ignore decided to remove,
+        # whose dequeue has been scheduled on the event loop but has not
+        # run yet. Guarded by post_finish_lock.
+        self._pending_dequeues: set[ESOperation] = set()
+
         self.scoring_service = self.connect_to(
             ServiceCoord("ScoringService", 0))
 
@@ -520,9 +525,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         the async enqueue()).
 
         """
-        if operation in self.get_executor() \
-                or operation in self.result_cache \
-                or operation in self._pending_pushes:
+        if operation in self._pending_pushes:
+            return False
+        # A pending dequeue makes queue/pool membership stale; if the
+        # executor dispatches it meanwhile we accept a redundant rerun.
+        if operation not in self._pending_dequeues and (
+                operation in self.get_executor()
+                or operation in self.result_cache):
             return False
         self._pending_pushes.add(operation)
         self._push_to_queue(operation, priority, timestamp)
@@ -553,6 +562,42 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 AsyncTriggeredService.enqueue(
                     self, operation, priority, timestamp)
                 self._pending_pushes.discard(operation)
+        if self._loop is None:
+            _do()
+        else:
+            self._loop.call_soon_threadsafe(_do)
+
+    def _threadsafe_dequeue_and_ignore(self, operation: ESOperation):
+        """Dequeue and ignore an operation, safely from any thread.
+
+        Marks the operation as pending-dequeue immediately (this method
+        is only ever called while post_finish_lock is already held by
+        the caller -- _invalidate_submission_sync -- so this add() is
+        itself lock-protected) so a concurrent _enqueue_sync() for the
+        same operation doesn't see its stale "still in the queue"
+        membership and skip re-enqueueing it. The actual dequeue is
+        still deferred to the event loop (dequeue() eventually touches
+        AsyncPriorityQueue.remove(), unsafe off the event loop thread),
+        but the pending-dequeue marker makes _enqueue_sync() treat the
+        operation as already gone the moment this method *decides* to
+        remove it, not only once the deferred callback actually runs.
+
+        operation: the operation to dequeue and ignore.
+
+        """
+        self._pending_dequeues.add(operation)
+
+        def _do():
+            with self.post_finish_lock:
+                try:
+                    self.dequeue(operation)
+                except KeyError:
+                    pass  # Ok, the operation wasn't in the queue.
+                try:
+                    self.get_executor().pool.ignore_operation(operation)
+                except LookupError:
+                    pass  # Ok, the operation wasn't in the pool.
+                self._pending_dequeues.discard(operation)
         if self._loop is None:
             _do()
         else:
@@ -1261,14 +1306,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             operations = get_relevant_operations(
                 level, submissions, dataset_id)
             for operation in operations:
-                try:
-                    self.dequeue(operation)
-                except KeyError:
-                    pass  # Ok, the operation wasn't in the queue.
-                try:
-                    self.get_executor().pool.ignore_operation(operation)
-                except LookupError:
-                    pass  # Ok, the operation wasn't in the pool.
+                self._threadsafe_dequeue_and_ignore(operation)
 
             # Then we find all existing results in the database, and
             # we remove them.

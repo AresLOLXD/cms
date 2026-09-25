@@ -457,6 +457,84 @@ class EvaluationServiceTest(
         self.assertTrue(worker_acquired.is_set())
         self.assertEqual(len(fake_worker.received_job_groups), 1)
 
+    async def test_invalidate_submission_keeps_queued_operation(self):
+        # Regression test: invalidate_submission used to dequeue from
+        # an executor thread, mutating the asyncio priority queue off
+        # the event loop. Deferring that dequeue to the loop alone is
+        # not enough: the re-enqueue's membership check, run right
+        # after on the executor thread, would still see the operation
+        # in the queue, skip it, and the deferred dequeue would then
+        # drop it for good (until the next sweeper run).
+        contest, task, dataset, busy_submission = self._build_submission()
+        participation = self.add_participation(contest=contest)
+        submission = self.add_submission(
+            task=task, participation=participation)
+        self.session.commit()
+        executor = self.service.get_executor()
+        loop_thread_id = threading.get_ident()
+
+        # The only worker is unconnected: the executor pops the first
+        # operation and keeps it in _currently_executing, so the second
+        # one stays in the queue.
+        busy_operation = ESOperation(
+            ESOperation.COMPILATION, busy_submission.id, dataset.id)
+        operation = ESOperation(
+            ESOperation.COMPILATION, submission.id, dataset.id)
+        self.assertTrue(await self.service.enqueue(
+            busy_operation, PriorityQueue.PRIORITY_HIGH,
+            busy_submission.timestamp))
+        await self._wait_until(
+            lambda: busy_operation in executor._currently_executing)
+        self.assertTrue(await self.service.enqueue(
+            operation, PriorityQueue.PRIORITY_HIGH, submission.timestamp))
+        await self._wait_until(
+            lambda: operation in executor._operation_queue)
+        self.assertIn(operation, executor._operation_queue)
+
+        # Record which threads remove items from the asyncio queue.
+        remove_thread_ids = []
+        original_remove = executor._operation_queue.remove
+
+        def recording_remove(item):
+            remove_thread_ids.append(threading.get_ident())
+            return original_remove(item)
+
+        # While the invalidation holds post_finish_lock, make the loop
+        # block on that same lock, so no callback scheduled from here
+        # on can run before the invalidation (and its re-enqueue
+        # decision) is complete.
+        original_get_relevant_operations = \
+            EvaluationServiceModule.get_relevant_operations
+
+        def block_loop_on_post_finish_lock():
+            with self.service.post_finish_lock:
+                pass
+
+        def gated_get_relevant_operations(*args, **kwargs):
+            self.service._loop.call_soon_threadsafe(
+                block_loop_on_post_finish_lock)
+            return original_get_relevant_operations(*args, **kwargs)
+
+        with patch.object(executor._operation_queue, "remove",
+                          recording_remove), \
+                patch.object(EvaluationServiceModule,
+                             "get_relevant_operations",
+                             gated_get_relevant_operations):
+            await asyncio.wait_for(
+                self.service.invalidate_submission(
+                    submission_id=submission.id, level="compilation"),
+                timeout=10)
+            # No need to wait further: the run_in_executor future's
+            # completion is itself delivered via call_soon_threadsafe,
+            # after every callback the invalidation scheduled.
+
+        self.assertIn(operation, executor._operation_queue)
+        self.assertIn(busy_operation, executor._currently_executing)
+        self.assertNotEqual(remove_thread_ids, [])
+        self.assertEqual(set(remove_thread_ids), {loop_thread_id})
+        self.assertEqual(self.service._pending_dequeues, set())
+        self.assertEqual(self.service._pending_pushes, set())
+
     async def test_enqueue_sync_twice_enqueues_once(self):
         # Regression test: the push decided by _enqueue_sync lands on
         # the loop later, so a second call in between used to also
