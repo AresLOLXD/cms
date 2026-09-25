@@ -144,10 +144,15 @@ class AsyncFileHandler(FileHandler):
 
     """
     def createLock(self):
-        """Set self.lock to a new threading RLock.
+        """Set self.lock to a new threading RLock, the stdlib way.
+
+        Delegating to logging.Handler.createLock (rather than building
+        the threading.RLock() by hand) also registers the lock for
+        reinitialization after fork(), so a forked child never
+        inherits a lock that could be held forever.
 
         """
-        self.lock = threading.RLock()
+        logging.Handler.createLock(self)
 
 
 class AsyncService:
@@ -230,7 +235,10 @@ class AsyncService:
         # exactly one kind of service (gevent or asyncio, never both),
         # so if this code is running, this process is purely asyncio
         # and shell_handler will never be touched by gevent code here.
-        shell_handler.lock = threading.RLock()
+        # Delegate to logging.Handler.createLock (rather than building
+        # the threading.RLock() by hand) so the lock is also registered
+        # for reinitialization after fork().
+        logging.Handler.createLock(shell_handler)
 
         # Update shell handler to attach service coords.
         shell_handler.addFilter(filter_)

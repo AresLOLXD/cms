@@ -5,11 +5,10 @@
 import asyncio
 import os
 import signal
+import threading
 import time
 import unittest
 from unittest.mock import patch
-
-import threading
 
 from cms.conf import Address
 from cms.io.async_service import AsyncFileHandler, AsyncService
@@ -134,10 +133,13 @@ class TestAsyncServiceLogsToLogService(unittest.IsolatedAsyncioTestCase):
 class TestLoggingHandlersUseThreadingLocks(
     ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
 ):
-    """AsyncService's log handlers must use real threading locks, not
-    the gevent-aware ones the base classes in cms.log use for
+    """Verify AsyncService's log handlers use real threading locks.
+
+    Not the gevent-aware ones the base classes in cms.log use for
     non-migrated gevent services, since they can be hit both from the
-    event loop thread and from run_in_executor worker threads."""
+    event loop thread and from run_in_executor worker threads.
+
+    """
 
     @patch("cms.io.async_service.get_service_address")
     async def test_shell_and_file_handlers_get_threading_locks(
@@ -153,11 +155,22 @@ class TestLoggingHandlersUseThreadingLocks(
         self.assertIs(type(shell_handler.lock), real_lock_type)
 
         new_handlers = [handler for handler in root_logger.handlers
-                       if handler not in self._logging_isolation_handlers]
+                        if handler not in self._logging_isolation_handlers]
         file_handlers = [handler for handler in new_handlers
                          if isinstance(handler, AsyncFileHandler)]
         self.assertEqual(len(file_handlers), 1)
         self.assertIs(type(file_handlers[0].lock), real_lock_type)
+
+    @patch("cms.io.async_service.get_service_address")
+    async def test_shell_handler_lock_restored_after_teardown(
+        self, mock_get_address
+    ):
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        original_lock = shell_handler.lock
+        EchoingAsyncService(shard=0)
+        self.assertIsNot(shell_handler.lock, original_lock)
+        self.addCleanup(
+            lambda: self.assertIs(shell_handler.lock, original_lock))
 
 
 class TestAddTimeout(unittest.IsolatedAsyncioTestCase):
