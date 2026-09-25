@@ -25,12 +25,15 @@
 
 """
 
+from datetime import datetime
+import asyncio
 import logging
 
 from cms import ServiceCoord, config
 from cms.db import SessionGen, Submission, Dataset, get_submission_results
-from cms.io import Executor, TriggeredService, rpc_method
+from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
+from cms.io.rpc import rpc_method
 from cmscommon.datetime import make_datetime
 from .scoringoperations import ScoringOperation, get_operations
 
@@ -38,12 +41,12 @@ from .scoringoperations import ScoringOperation, get_operations
 logger = logging.getLogger(__name__)
 
 
-class ScoringExecutor(Executor[ScoringOperation]):
+class ScoringExecutor(AsyncExecutor[ScoringOperation]):
     def __init__(self, proxy_service):
         super().__init__()
         self.proxy_service = proxy_service
 
-    def execute(self, entry: QueueEntry[ScoringOperation]):
+    async def execute(self, entry: QueueEntry[ScoringOperation]):
         """Assign a score to a submission result.
 
         This is the core of ScoringService: here we retrieve the result
@@ -55,6 +58,28 @@ class ScoringExecutor(Executor[ScoringOperation]):
 
         """
         operation = entry.item
+        loop = asyncio.get_running_loop()
+        notify_submission_id = await loop.run_in_executor(
+            None, self._execute_sync, operation)
+        if notify_submission_id is not None:
+            self.proxy_service._spawn(
+                self.proxy_service.submission_scored(
+                    submission_id=notify_submission_id))
+
+    def _execute_sync(self, operation: ScoringOperation) -> int | None:
+        """Do the actual DB work for execute(), synchronously.
+
+        Runs inside loop.run_in_executor -- must not touch any
+        asyncio-only primitive (no enqueue(), no awaiting an RPC) from
+        in here; that's why the RPC notification is handled by the
+        caller instead, using the submission id this method returns.
+
+        operation: the operation to perform.
+
+        return: the id of the submission to notify ProxyService about,
+            or None if no notification is needed.
+
+        """
         with SessionGen() as session:
             # Obtain submission.
             submission = Submission.get_from_id(operation.submission_id,
@@ -83,7 +108,7 @@ class ScoringExecutor(Executor[ScoringOperation]):
                 if submission_result.scored():
                     logger.info("Submission result %d(%d) is already scored.",
                                 operation.submission_id, operation.dataset_id)
-                    return
+                    return None
                 else:
                     raise ValueError("The state of the submission result "
                                      "%d(%d) doesn't allow scoring." %
@@ -112,11 +137,11 @@ class ScoringExecutor(Executor[ScoringOperation]):
                 logger.info(
                     "Submission scored %.1f seconds after submission",
                     (make_datetime() - submission.timestamp).total_seconds())
-                self.proxy_service.submission_scored(
-                    submission_id=submission.id)
+                return submission.id
+            return None
 
 
-class ScoringService(TriggeredService[ScoringOperation, ScoringExecutor]):
+class ScoringService(AsyncTriggeredService[ScoringOperation, ScoringExecutor]):
     """A service that assigns a score to submission results.
 
     A submission result is ready to be scored when its compilation is
@@ -144,20 +169,33 @@ class ScoringService(TriggeredService[ScoringOperation, ScoringExecutor]):
         self.add_executor(ScoringExecutor(self.proxy_service))
         self.start_sweeper(347.0)
 
-    def _missing_operations(self):
-        """Return a generator of unscored submission results.
+    async def _missing_operations(self) -> int:
+        """Return the number of unscored submission results found.
 
         Obtain a list of all the submission results in the database,
         check each of them to see if it's still unscored and if so
         enqueue them.
 
         """
-        counter = 0
+        loop = asyncio.get_running_loop()
+        operations = await loop.run_in_executor(
+            None, self._fetch_missing_operations_sync)
+        for operation, timestamp in operations:
+            self.enqueue(operation, timestamp=timestamp)
+        return len(operations)
+
+    def _fetch_missing_operations_sync(
+        self,
+    ) -> list[tuple[ScoringOperation, datetime]]:
+        """Fetch (without enqueuing) all unscored submission results.
+
+        Runs inside loop.run_in_executor -- enqueuing happens back on
+        the event loop, in _missing_operations, since enqueue() isn't
+        safe to call off the event loop thread.
+
+        """
         with SessionGen() as session:
-            for operation, timestamp in get_operations(session):
-                self.enqueue(operation, timestamp=timestamp)
-                counter += 1
-        return counter
+            return list(get_operations(session))
 
     @rpc_method
     def new_evaluation(self, submission_id: int, dataset_id: int):
@@ -173,7 +211,7 @@ class ScoringService(TriggeredService[ScoringOperation, ScoringExecutor]):
         self.enqueue(ScoringOperation(submission_id, dataset_id))
 
     @rpc_method
-    def invalidate_submission(
+    async def invalidate_submission(
         self,
         submission_id: int | None = None,
         dataset_id: int | None = None,
@@ -206,16 +244,36 @@ class ScoringService(TriggeredService[ScoringOperation, ScoringExecutor]):
         """
         logger.info("Invalidation request received.")
 
+        loop = asyncio.get_running_loop()
+        temp_queue = await loop.run_in_executor(
+            None, self._invalidate_submission_sync,
+            submission_id, dataset_id, participation_id, task_id, contest_id)
+
+        for item, timestamp in temp_queue:
+            self.enqueue(item, timestamp=timestamp)
+
+        logger.info("Invalidated %d submission results.", len(temp_queue))
+
+    def _invalidate_submission_sync(
+        self, submission_id, dataset_id, participation_id, task_id, contest_id,
+    ) -> list[tuple[ScoringOperation, datetime]]:
+        """Do the DB work for invalidate_submission(), synchronously.
+
+        Runs inside loop.run_in_executor; enqueuing happens back on the
+        event loop in invalidate_submission, for the same reason as
+        _fetch_missing_operations_sync.
+
+        """
         # We can put results in the scorer queue only after they have
         # been invalidated (and committed to the database). Therefore
         # we temporarily save them somewhere else.
         temp_queue = list()
-
         with SessionGen() as session:
-            submission_results = \
+            submission_results = session.execute(
                 get_submission_results(session, contest_id,
                                        participation_id, task_id,
-                                       submission_id, dataset_id).all()
+                                       submission_id, dataset_id)
+            ).scalars().all()
 
             for sr in submission_results:
                 if sr.scored():
@@ -228,8 +286,4 @@ class ScoringService(TriggeredService[ScoringOperation, ScoringExecutor]):
                         sr.submission.timestamp))
 
             session.commit()
-
-        for item, timestamp in temp_queue:
-            self.enqueue(item, timestamp=timestamp)
-
-        logger.info("Invalidated %d submission results.", len(temp_queue))
+        return temp_queue
