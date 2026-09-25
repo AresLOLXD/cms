@@ -17,13 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+import asyncio
 import logging
+import threading
 import time
 import typing
-
-import gevent
-from gevent.lock import RLock
 
 
 logger = logging.getLogger(__name__)
@@ -48,7 +47,7 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         self,
         size: int,
         flush_latency_seconds: float,
-        callback: Callable[[list[tuple[KeyT, ValueT]]], typing.Any],
+        callback: Callable[[list[tuple[KeyT, ValueT]]], Awaitable[typing.Any]],
     ):
         # Elements contained in the dict that force a flush.
         self.size = size
@@ -66,17 +65,28 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         # This contains all the key-values that are currently being flushed
         self.fd: dict[KeyT, ValueT] = dict()
 
-        # The greenlet that checks if the dict should be flushed or not
+        # The task that checks if the dict should be flushed or not
         # TODO: do something if the FlushingDict is deleted
-        self.flush_greenlet = gevent.spawn(self._check_flush)
+        self._flush_task: asyncio.Task | None = None
 
         # This lock ensures that if a key-value arrives while flush is
         # executing, it is not inserted in the dict until flush
         # terminates.
-        self.d_lock = RLock()
+        self.d_lock = threading.RLock()
 
         # Time when an item was last inserted in the dict
         self.last_insert = time.monotonic()
+
+    def start(self):
+        """Start the background flush loop.
+
+        Must be called once the event loop is running (e.g. via
+        AsyncService._call_when_running from the owning service's
+        __init__) -- constructing a FlushingDict itself never touches
+        the event loop, since it may happen before one exists.
+
+        """
+        self._flush_task = asyncio.create_task(self._check_flush())
 
     def add(self, key: KeyT, value: ValueT):
         logger.debug("Adding item %s", key)
@@ -84,19 +94,19 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
             self.d[key] = value
             self.last_insert = time.monotonic()
 
-    def flush(self):
+    async def flush(self):
         logger.debug("Flushing items")
         with self.d_lock:
             self.fd = self.d
             self.d = dict()
-        self.callback(list(self.fd.items()))
+        await self.callback(list(self.fd.items()))
         self.fd = dict()
 
     def __contains__(self, key):
         with self.d_lock:
             return key in self.d or key in self.fd
 
-    def _check_flush(self):
+    async def _check_flush(self):
         while True:
             while True:
                 with self.d_lock:
@@ -105,5 +115,5 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
                             len(self.d) >= self.size or
                             since_last_insert > self.flush_latency_seconds):
                         break
-                gevent.sleep(0.05)
-            self.flush()
+                await asyncio.sleep(0.05)
+            await self.flush()
