@@ -130,12 +130,18 @@ big-bang cutover of the whole fleet at once.
     externally-visible behavior as today.
   - Same public method surface as `Service`: `connect_to`, `add_timeout`,
     `run`, `exit`, `get_backdoor_path`, `@rpc_method`-decorated `echo`/
-    `quit`. (Backdoor server support: keep using `gevent.backdoor` for the
-    UNIX socket REPL even on `AsyncService`, since it's a debugging
-    convenience orthogonal to the RPC transport, not worth a bespoke
-    asyncio REPL implementation for this sub-project — flagged as an
-    accepted simplification, not a functional gap in the main service
-    logic.)
+    `quit`. (Backdoor server support: `start_backdoor`/`stop_backdoor`
+    still call `gevent.backdoor.BackdoorServer` on `AsyncService`, but
+    this is **not functional** — confirmed during the final whole-branch
+    review: `BackdoorServer`'s accept watcher runs on the gevent hub, and
+    nothing in an asyncio-only process ever switches to that hub, so the
+    UNIX socket accepts a connection but the REPL never answers. This is
+    correctly *unsupported* on `AsyncService`, not merely deferred; it was
+    originally, incorrectly, described here as "an accepted simplification,
+    not a functional gap" — that was wrong. It's off by default and is a
+    debugging aid only, so low impact, but `AsyncService.start_backdoor`
+    should log a warning and skip if enabled until a real asyncio-native
+    backdoor exists.)
 - **`cms/io/async_triggeredservice.py`** — mirrors `triggeredservice.py`'s
   `Executor`/`TriggeredService` classes on top of `AsyncService`, for
   sub-project 2.4 to use once it reaches `EvaluationService`,
@@ -202,8 +208,14 @@ gevent's cooperative versions. Running an `asyncio` event loop inside a
 process that has already been gevent-monkey-patched is unsupported,
 fragile territory (asyncio's selector loop and gevent's patched
 primitives were never designed to coexist). Once `LogService` is migrated
-to `AsyncService`, its process has no gevent dependency left at all — so
-this sub-project's `LogService` task also removes the
+to `AsyncService`, its process still *imports* gevent transitively
+(`cms/io/__init__.py` imports every gevent module and calls
+`make_psycopg_green()` at import time, and `async_service.py` itself
+imports `gevent.backdoor`) — harmless here since `LogService` never
+monkey-patches, never touches the DB, and its backdoor is a no-op (see
+above) — but "no gevent dependency left" overstates it; the accurate claim
+is that `LogService`'s process no longer *monkey-patches* or *runs*
+gevent's event loop. This is why this sub-project's `LogService` task also removes the
 `import gevent.monkey` / `gevent.monkey.patch_all()` lines from
 `scripts/cmsLogService`. This is a one-file, one-script change: every
 other service's entry-point script keeps its own monkey-patch call
@@ -275,11 +287,43 @@ migrates it individually.
   pattern, and covered by the `LogService` pilot actually receiving
   `SIGTERM` during Docker container shutdown as part of the test suite run.
 - **Backdoor REPL** (`start_backdoor`/`stop_backdoor`) staying
-  gevent-based on an otherwise-asyncio service: accepted as a scoped
-  simplification (see Architecture section) since it's an optional
-  debugging feature, not part of the service's core request-handling path,
-  and `gevent.backdoor.BackdoorServer` doesn't touch the service's main
-  RPC loop at all — it opens its own independent UNIX socket.
+  gevent-based on an otherwise-asyncio service: does not affect the
+  service's core request-handling path (`gevent.backdoor.BackdoorServer`
+  opens its own independent UNIX socket), but is non-functional, not
+  merely simplified — see the Architecture section's corrected note.
+- **Found and fixed during the final whole-branch review (not left as a
+  latent bug):**
+  - `AsyncService` shutdown (`exit()`/`_async_run`) could hang forever
+    while any peer connection was still open, because `server.close()`
+    only stops accepting new connections — it doesn't close ones already
+    accepted, and `asyncio.Server.wait_closed()` (Python 3.12, this
+    project's pinned version) waits for every accepted connection to
+    finish. Every gevent service holds a permanent connection to
+    `LogService`, so in production this meant `SIGTERM`/`SIGINT`/`quit`
+    could never stop `LogService` while anything else was running. Fixed
+    by tracking live server-side connections and disconnecting them
+    before `wait_closed()`.
+  - `connect_to`/`add_timeout`/`add_executor`/`start_sweeper` all called
+    `asyncio.create_task(...)` from `__init__`-time code, which raises
+    `RuntimeError: no running event loop` when a service is constructed
+    the way every real `scripts/cms*` launcher does it (before
+    `asyncio.run` starts the loop). Only `LogService` escaped this by
+    luck. Fixed by deferring this work until the loop is actually
+    running — see the "To 2.4" handoff note below, since this is exactly
+    the kind of thing 2.4 would otherwise discover the hard way.
+  - `LogServiceHandler.emit` called the async client's `.Log(...)`
+    synchronously without awaiting the coroutine it returns, silently
+    dropping every log record from any `AsyncService`. Fixed by
+    scheduling it onto the service's own loop via
+    `call_soon_threadsafe` with a retained task reference.
+- **A related, still-open hazard found during the same review, deliberately
+  not fixed in this sub-project (see the "To 2.4" handoff note below):**
+  `cms/log.py`'s `FileHandler`/`shell_handler` still use gevent locks. This
+  is safe today because `LogService` (the only migrated service) never
+  logs from a second OS thread. It stops being safe the moment any future
+  `AsyncService` logs from inside a `run_in_executor` worker thread (the
+  documented DB-bridge pattern above) — a gevent lock is not safe across
+  real OS threads.
 
 ## Handoff Notes to Later Sub-Projects
 
@@ -292,6 +336,23 @@ migrates it individually.
   `run_in_executor` bridge pattern are ready to use; migrate one service at
   a time, in any order, since coexistence with the remaining gevent
   services is proven by this sub-project's cross-interoperability test.
+  **Two hard prerequisites, not optional cleanup, found during this
+  sub-project's final review:**
+  1. Replace `cms/log.py`'s `FileHandler`/`shell_handler` gevent locks
+     with real thread-safe locks (e.g. `threading.RLock`) before any
+     migrated service logs from a `run_in_executor` worker thread — a
+     gevent lock is not safe across real OS threads, and this sub-project
+     deliberately left it unfixed since `LogService` never triggers it.
+  2. `EvaluationService`/`ScoringService`/`ProxyService` each call
+     `connect_to`/`add_executor`/`start_sweeper` (and, for
+     `EvaluationService`, `add_timeout`) from their own `__init__` — the
+     same pattern that, before this sub-project's final-review fix round,
+     would have raised `RuntimeError: no running event loop` the moment
+     any of them was migrated. `AsyncService`/`AsyncTriggeredService`
+     already defer this correctly as of this sub-project's final commit;
+     confirm this still holds for each service's actual `__init__` shape
+     at migration time rather than assuming it, since real service
+     `__init__`s may do more than the pilot's test doubles did.
   `EvaluationService`/`ScoringService`/`ProxyService` (the three
   `TriggeredService` consumers) each own an independent queue instance —
   confirm this still holds at migration time — so migrating one doesn't
