@@ -11,6 +11,8 @@ from cms.conf import Address, ServiceCoord
 from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.rpc import rpc_method
 from cms.service.Checker import Checker
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 
 class EchoingLocalService:
@@ -72,7 +74,9 @@ async def _start_server(local_service: object) -> tuple[asyncio.Server, int]:
     return server, server.sockets[0].getsockname()[1]
 
 
-class CheckerTest(unittest.IsolatedAsyncioTestCase):
+class CheckerTest(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
 
     async def asyncSetUp(self):
         self._servers: list[asyncio.Server] = []
