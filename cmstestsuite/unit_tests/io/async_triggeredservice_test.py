@@ -82,6 +82,31 @@ class TestSweeper(unittest.IsolatedAsyncioTestCase):
                          "search_operations_not_done() should trigger an "
                          "immediate second sweep, not wait for the 60s timeout")
 
+    @patch("cms.io.async_service.get_service_address")
+    async def test_async_missing_operations_is_awaited(
+        self, mock_get_address
+    ):
+        mock_get_address.return_value = ("127.0.0.1", 0)
+
+        sweeps: list[int] = []
+
+        class AsyncSweepingService(AsyncTriggeredService):
+            async def _missing_operations(self):
+                await asyncio.sleep(0)
+                sweeps.append(1)
+                return 0
+
+        service = AsyncSweepingService(shard=0)
+        service.start_sweeper(timeout=60)
+        await asyncio.sleep(0.05)
+        self.assertEqual(len(sweeps), 1, "expected exactly the initial sweep")
+
+        service.search_operations_not_done()
+        await asyncio.sleep(0.05)
+        self.assertEqual(len(sweeps), 2,
+                         "search_operations_not_done() should trigger an "
+                         "immediate second sweep, not wait for the 60s timeout")
+
 
 class TestRunLoop(unittest.IsolatedAsyncioTestCase):
 

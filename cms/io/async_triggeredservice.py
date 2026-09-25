@@ -200,7 +200,7 @@ class AsyncTriggeredService(AsyncService, typing.Generic[QueueItemT, ExecutorT])
             self._sweeper_event.clear()
 
             try:
-                self._sweep()
+                await self._sweep()
             except Exception:
                 logger.error("Unexpected error when searching for missed "
                              "operations.", exc_info=True)
@@ -218,11 +218,14 @@ class AsyncTriggeredService(AsyncService, typing.Generic[QueueItemT, ExecutorT])
                 # instead of a bool return value.
                 pass
 
-    def _sweep(self):
+    async def _sweep(self):
         """Check for missed operations."""
         logger.info("Start looking for missing operations.")
         start_time = time.time()
-        counter = self._missing_operations()
+        result = self._missing_operations()
+        if asyncio.iscoroutine(result):
+            result = await result
+        counter = result
         logger.info("Found %d missed operation(s) in %d ms.",
                     counter, (time.time() - start_time) * 1000)
 
