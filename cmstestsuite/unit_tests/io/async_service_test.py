@@ -9,10 +9,13 @@ import time
 import unittest
 from unittest.mock import patch
 
+import threading
+
 from cms.conf import Address
-from cms.io.async_service import AsyncService
+from cms.io.async_service import AsyncFileHandler, AsyncService
 from cms.io.rpc import rpc_method
-from cms.log import root_logger
+from cms.log import root_logger, shell_handler
+from cmstestsuite.unit_tests.servicelogmixin import ServiceLoggingIsolationMixin
 
 
 class EchoingAsyncService(AsyncService):
@@ -126,6 +129,35 @@ class TestAsyncServiceLogsToLogService(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(service_task, timeout=2)
             log_service.exit()
             await asyncio.wait_for(log_task, timeout=2)
+
+
+class TestLoggingHandlersUseThreadingLocks(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
+    """AsyncService's log handlers must use real threading locks, not
+    the gevent-aware ones the base classes in cms.log use for
+    non-migrated gevent services, since they can be hit both from the
+    event loop thread and from run_in_executor worker threads."""
+
+    @patch("cms.io.async_service.get_service_address")
+    async def test_shell_and_file_handlers_get_threading_locks(
+        self, mock_get_address
+    ):
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        EchoingAsyncService(shard=0)
+
+        # threading.RLock is a factory function (not a class), so the
+        # actual lock instances are compared by type against a freshly
+        # created one, rather than against threading.RLock itself.
+        real_lock_type = type(threading.RLock())
+        self.assertIs(type(shell_handler.lock), real_lock_type)
+
+        new_handlers = [handler for handler in root_logger.handlers
+                       if handler not in self._logging_isolation_handlers]
+        file_handlers = [handler for handler in new_handlers
+                         if isinstance(handler, AsyncFileHandler)]
+        self.assertEqual(len(file_handlers), 1)
+        self.assertIs(type(file_handlers[0].lock), real_lock_type)
 
 
 class TestAddTimeout(unittest.IsolatedAsyncioTestCase):

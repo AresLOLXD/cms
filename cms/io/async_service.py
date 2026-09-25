@@ -132,6 +132,24 @@ class AsyncLogServiceHandler(LogServiceHandler):
             pass
 
 
+class AsyncFileHandler(FileHandler):
+    """FileHandler variant for an AsyncService.
+
+    Use a real threading RLock (instead of the gevent-aware one created
+    by the base FileHandler, meant for non-migrated gevent services)
+    because this handler can be accessed both from the event loop
+    thread and from real background threads (e.g. worker threads
+    spawned by run_in_executor for synchronous DB access), so it needs
+    to be safe across actual OS threads, not just greenlets.
+
+    """
+    def createLock(self):
+        """Set self.lock to a new threading RLock.
+
+        """
+        self.lock = threading.RLock()
+
+
 class AsyncService:
 
     def __init__(self, shard: int = 0):
@@ -206,6 +224,14 @@ class AsyncService:
         """
         filter_ = ServiceFilter(self.name, self.shard)
 
+        # Replace shell_handler's lock with a real threading one: it's
+        # a module-level singleton created with the gevent-aware lock
+        # for non-migrated gevent services, but each CMS process runs
+        # exactly one kind of service (gevent or asyncio, never both),
+        # so if this code is running, this process is purely asyncio
+        # and shell_handler will never be touched by gevent code here.
+        shell_handler.lock = threading.RLock()
+
         # Update shell handler to attach service coords.
         shell_handler.addFilter(filter_)
 
@@ -218,8 +244,8 @@ class AsyncService:
         log_filename = time.strftime("%Y-%m-%d-%H-%M-%S.log")
 
         # Install a file handler.
-        file_handler = FileHandler(os.path.join(log_dir, log_filename),
-                                   mode='w', encoding='utf-8')
+        file_handler = AsyncFileHandler(os.path.join(log_dir, log_filename),
+                                        mode='w', encoding='utf-8')
         if config.global_.file_log_debug:
             file_log_level = logging.DEBUG
         else:
