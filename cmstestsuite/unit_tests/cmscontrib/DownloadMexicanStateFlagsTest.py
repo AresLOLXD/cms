@@ -3,6 +3,13 @@
 import io
 import unittest
 
+import pytest
+
+# Pillow is an optional dependency (the "contrib" extra, pyproject.toml)
+# used only by cmscontrib scripts that process images -- not part of the
+# base/devel install this project's test environments normally use. Skip
+# this module cleanly instead of erroring test collection when it's absent.
+pytest.importorskip("PIL")
 from PIL import Image
 
 from cmscontrib.DownloadMexicanStateFlags import _resize_to_canvas
