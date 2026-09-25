@@ -3,13 +3,18 @@
 """Tests for cms.service.EvaluationService."""
 
 import asyncio
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from unittest.mock import patch
 
+import cms.service.EvaluationService as EvaluationServiceModule
 from cms.conf import Address, ServiceCoord
 from cms.grading.Job import CompilationJob
 from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
+from cms.io.async_triggeredservice import AsyncTriggeredService
 from cms.io.priorityqueue import PriorityQueue
 from cms.io.rpc import rpc_method
 from cms.service.esoperations import ESOperation
@@ -377,6 +382,174 @@ class EvaluationServiceTest(
     async def test_invalidate_submission_rejects_bad_level(self):
         with self.assertRaises(ValueError):
             await self.service.invalidate_submission(level="not-a-level")
+
+    # -- concurrency regressions -------------------------------------------
+
+    async def test_execute_does_not_deadlock_under_executor_pressure(self):
+        # Regression test: EvaluationExecutor.execute() used to hold
+        # _current_execution_lock (a threading.RLock) across an await
+        # on loop.run_in_executor (building the job group). With every
+        # executor thread busy -- one inside invalidate_submission
+        # waiting for that same lock, the other waiting for
+        # post_finish_lock held by the first -- the job group could
+        # never be built, deadlocking the whole service.
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=2))
+        # If this ever regresses, cancelling the executor's run() task
+        # unwinds execute() and releases the lock, so the executor
+        # threads can finish and the test fails instead of hanging at
+        # loop shutdown.
+        self.addCleanup(self._cancel_background_tasks)
+
+        _contest, _task, dataset, submission = self._build_submission()
+        fake_worker = FakeWorker(compilation_success=False)
+        await self._add_connected_worker(0, fake_worker)
+        pool: WorkerPool = self.service.get_executor().pool
+
+        # Signal (from execute(), while it holds _current_execution_lock)
+        # that the worker has been acquired.
+        worker_acquired = threading.Event()
+        original_add_operations = pool._add_operations
+
+        def add_operations_and_signal(shard, operations):
+            original_add_operations(shard, operations)
+            worker_acquired.set()
+        pool._add_operations = add_operations_and_signal
+
+        # Make the invalidation reach its dequeue only once execute()
+        # is inside its locked section.
+        original_get_relevant_operations = \
+            EvaluationServiceModule.get_relevant_operations
+
+        def gated_get_relevant_operations(*args, **kwargs):
+            operations = original_get_relevant_operations(*args, **kwargs)
+            worker_acquired.wait(timeout=10)
+            return operations
+        get_relevant_patcher = patch.object(
+            EvaluationServiceModule, "get_relevant_operations",
+            gated_get_relevant_operations)
+        get_relevant_patcher.start()
+        self.addCleanup(get_relevant_patcher.stop)
+
+        # Occupy both executor threads with invalidations: the first
+        # holds post_finish_lock at the gate, the second waits for it.
+        invalidations = [
+            asyncio.create_task(self.service.invalidate_submission(
+                submission_id=submission.id, level="compilation"))
+            for _ in range(2)]
+        await asyncio.sleep(0.1)
+
+        # Push directly into the queue on the loop thread (the async
+        # enqueue() would itself need an executor thread).
+        operation = ESOperation(
+            ESOperation.COMPILATION, submission.id, dataset.id)
+        AsyncTriggeredService.enqueue(
+            self.service, operation, PriorityQueue.PRIORITY_HIGH,
+            submission.timestamp)
+
+        async def worker_received_job_group():
+            while fake_worker.received_job_groups == []:
+                await asyncio.sleep(0.05)
+
+        await asyncio.wait_for(
+            asyncio.gather(*invalidations, worker_received_job_group()),
+            timeout=10)
+        self.assertTrue(worker_acquired.is_set())
+        self.assertEqual(len(fake_worker.received_job_groups), 1)
+
+    async def test_enqueue_sync_twice_enqueues_once(self):
+        # Regression test: the push decided by _enqueue_sync lands on
+        # the loop later, so a second call in between used to also
+        # return True (and push a duplicate).
+        _contest, _task, dataset, submission = self._build_submission()
+        operation = ESOperation(
+            ESOperation.COMPILATION, submission.id, dataset.id)
+        loop = asyncio.get_running_loop()
+
+        def enqueue_twice():
+            return [self.service._enqueue_sync(
+                operation, PriorityQueue.PRIORITY_HIGH,
+                submission.timestamp) for _ in range(2)]
+
+        results = await asyncio.wait_for(
+            loop.run_in_executor(None, enqueue_twice), timeout=10)
+        self.assertEqual(results, [True, False])
+
+        # Same from two concurrent tasks (on two executor threads).
+        other = ESOperation(
+            ESOperation.USER_TEST_COMPILATION, 12345, dataset.id)
+        results = await asyncio.wait_for(asyncio.gather(*(
+            self.service.enqueue(
+                other, PriorityQueue.PRIORITY_HIGH, submission.timestamp)
+            for _ in range(2))), timeout=10)
+        self.assertEqual(sorted(results), [False, True])
+
+        await self._wait_until(lambda: self.service._pending_pushes == set())
+        self.assertEqual(self.service._pending_pushes, set())
+
+    async def test_release_racing_timeout_leaves_consistent_state(self):
+        # Regression test: release_worker (from action_finished, on an
+        # executor thread) racing check_timeouts (on the loop thread)
+        # used to be able to leave a timed-out worker re-enabled while
+        # also accepting its result and requeuing its operations.
+        _contest, _task, dataset, submission = self._build_submission()
+        fake_worker = FakeWorker()
+        await self._add_connected_worker(0, fake_worker)
+        pool: WorkerPool = self.service.get_executor().pool
+
+        operation = ESOperation(
+            ESOperation.COMPILATION, submission.id, dataset.id)
+        operation.side_data = (
+            PriorityQueue.PRIORITY_HIGH, submission.timestamp)
+        pool._add_operations(0, [operation])
+        pool._start_time[0] = make_datetime() - WorkerPool.WORKER_TIMEOUT \
+            - timedelta(seconds=1)
+
+        # Pause release_worker (on its executor thread) right after it
+        # starts reading the worker state, so check_timeouts runs in the
+        # middle of it unless the whole method is guarded.
+        release_paused = threading.Event()
+
+        class PausingDict(dict):
+            def __getitem__(self, key):
+                if threading.current_thread() is not \
+                        threading.main_thread() \
+                        and not release_paused.is_set():
+                    release_paused.set()
+                    time.sleep(0.3)
+                return super().__getitem__(key)
+        pool._ignore = PausingDict(pool._ignore)
+
+        loop = asyncio.get_running_loop()
+        release = loop.run_in_executor(None, pool.release_worker, 0)
+        for _ in range(100):
+            if release_paused.is_set():
+                break
+            await asyncio.sleep(0.01)
+        self.assertTrue(release_paused.is_set())
+
+        lost_operations = pool.check_timeouts()
+        released = await asyncio.wait_for(release, timeout=10)
+
+        if released is True:
+            # The timeout won: the worker's result is ignored, its
+            # operation handed back, and the worker disabled.
+            self.assertEqual(lost_operations, [operation])
+            self.assertEqual(pool._operations[0], WorkerPool.WORKER_DISABLED)
+        else:
+            # The release won: the result is accepted, nothing is
+            # handed back, and the worker is available again.
+            self.assertEqual(lost_operations, [])
+            self.assertEqual(pool._operations[0], WorkerPool.WORKER_INACTIVE)
+        self.assertFalse(pool._ignore[0])
+        self.assertFalse(pool._schedule_disabling[0])
+        self.assertIsNone(pool._start_time[0])
+        self.assertNotIn(operation, pool)
+
+    def _cancel_background_tasks(self):
+        """Cancel every task the service spawned (e.g. executor run())."""
+        for task in list(self.service._background_tasks):
+            task.cancel()
 
     # -- check_workers_timeout / check_workers_connection ------------------
 

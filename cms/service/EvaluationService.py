@@ -169,7 +169,9 @@ class EvaluationExecutor(AsyncExecutor[ESOperation]):
             with self._current_execution_lock:
                 if len(self._currently_executing) == 0:
                     break
-                res = await self.pool.acquire_worker(self._currently_executing)
+                # acquire_worker is synchronous: nothing may be awaited
+                # while holding _current_execution_lock.
+                res = self.pool.acquire_worker(self._currently_executing)
                 if res is not None:
                     self._currently_executing = []
                     break
@@ -309,6 +311,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # concurrently with action_finished to avoid picking
         # operations in state 4.
         self.post_finish_lock = threading.RLock()
+
+        # Operations _enqueue_sync decided to push, whose push has been
+        # scheduled on the event loop but has not landed in the queue
+        # yet. Guarded by post_finish_lock.
+        self._pending_pushes: set[ESOperation] = set()
 
         self.scoring_service = self.connect_to(
             ServiceCoord("ScoringService", 0))
@@ -513,8 +520,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         the async enqueue()).
 
         """
-        if operation in self.get_executor() or operation in self.result_cache:
+        if operation in self.get_executor() \
+                or operation in self.result_cache \
+                or operation in self._pending_pushes:
             return False
+        self._pending_pushes.add(operation)
         self._push_to_queue(operation, priority, timestamp)
         return True
 
@@ -531,12 +541,22 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         same dual-mode dispatch already established in ProxyService's
         _threadsafe_enqueue.
 
+        Once the push has landed, also clear the operation's
+        _pending_pushes marker (set by _enqueue_sync), under
+        post_finish_lock so it stays consistent with _enqueue_sync's
+        check. Taking that real lock on the event loop thread is safe
+        because nothing awaits while holding it.
+
         """
+        def _do():
+            with self.post_finish_lock:
+                AsyncTriggeredService.enqueue(
+                    self, operation, priority, timestamp)
+                self._pending_pushes.discard(operation)
         if self._loop is None:
-            AsyncTriggeredService.enqueue(self, operation, priority, timestamp)
+            _do()
         else:
-            self._loop.call_soon_threadsafe(
-                AsyncTriggeredService.enqueue, self, operation, priority, timestamp)
+            self._loop.call_soon_threadsafe(_do)
 
     def _threadsafe_notify_scoring_service(self, submission_id: int, dataset_id: int):
         """Tell ScoringService about a new evaluation, safely from any thread.
@@ -546,13 +566,14 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         for the same reason (ScoringService being briefly unreachable is
         not worth surfacing as an error here).
 
+        Only reachable from compilation_ended/evaluation_ended, i.e. from
+        code already running inside loop.run_in_executor, so the loop
+        always exists here.
+
         """
-        if self._loop is None:
-            self._spawn(self._notify_scoring_service(submission_id, dataset_id))
-        else:
-            self._loop.call_soon_threadsafe(
-                self._spawn, self._notify_scoring_service(
-                    submission_id, dataset_id))
+        self._loop.call_soon_threadsafe(
+            self._spawn, self._notify_scoring_service(
+                submission_id, dataset_id))
 
     async def _notify_scoring_service(self, submission_id: int, dataset_id: int):
         try:
@@ -1084,15 +1105,14 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         Runs inside loop.run_in_executor. Not decorated with
         @with_post_finish_lock itself -- submission_enqueue_operations
         calls _enqueue_sync, which acquires the lock itself for just its
-        own critical section; there's no broader invariant here needing
-        the lock held across the whole DB read+commit (unlike
-        write_results/_missing_operations/invalidate_submission, whose
-        *own* comment in the original code explicitly says the lock is
-        about not racing action_finished while deciding whether to
-        enqueue -- new_submission's initial enqueue of a brand new
-        submission has no such race to guard against, since nothing else
-        could already be processing an operation for a submission that
-        was, until this call, unknown to this service).
+        own critical section. A brand new submission cannot race
+        action_finished (no operation of it can be in a worker yet), but
+        the sweeper (_missing_operations_sync, on another executor
+        thread) can pick up the same new submission concurrently: that
+        race is harmless because _enqueue_sync's dedup check (queue,
+        pool, result cache and the _pending_pushes set, all checked
+        under post_finish_lock) lets only one of the two enqueue each
+        operation.
 
         """
         with SessionGen() as session:
@@ -1177,11 +1197,12 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         archive_sandbox: whether to store submission output.
 
         """
+        # Validate arguments (before touching run_in_executor, fail fast
+        # -- same reasoning ProxyService's regenerate_ranking already
+        # established for this migration effort).
+        # TODO Check that all these objects belong to this contest.
         if level not in ("compilation", "evaluation"):
             raise ValueError("Unexpected invalidation level `%s'." % level)
-            # ^ validate before touching run_in_executor, fail fast --
-            # same reasoning ProxyService's regenerate_ranking already
-            # established for this migration effort.
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None, self._invalidate_submission_sync,
@@ -1190,9 +1211,16 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
     @with_post_finish_lock
     def _invalidate_submission_sync(
-        self, contest_id, submission_id, dataset_id, testcase_id,
-        participation_id, task_id, level, archive_sandbox,
-    ):
+        self,
+        contest_id: int | None,
+        submission_id: int | None,
+        dataset_id: int | None,
+        testcase_id: int | None,
+        participation_id: int | None,
+        task_id: int | None,
+        level: str,
+        archive_sandbox: bool,
+    ) -> None:
         """Do the work of invalidate_submission(), synchronously.
 
         Runs inside loop.run_in_executor, holding post_finish_lock.

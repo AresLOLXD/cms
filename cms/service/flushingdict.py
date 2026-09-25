@@ -99,8 +99,14 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         with self.d_lock:
             self.fd = self.d
             self.d = dict()
-        await self.callback(list(self.fd.items()))
-        self.fd = dict()
+        try:
+            await self.callback(list(self.fd.items()))
+        except Exception:
+            # Otherwise the background flush task would die silently,
+            # leaving self.fd populated forever.
+            logger.error("Unexpected error while flushing.", exc_info=True)
+        finally:
+            self.fd = dict()
 
     def __contains__(self, key):
         with self.d_lock:

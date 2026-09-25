@@ -213,10 +213,16 @@ class WorkerPool:
         except RPCError:
             pass
 
-    async def acquire_worker(self, operations: list[ESOperation]) -> int | None:
+    def acquire_worker(self, operations: list[ESOperation]) -> int | None:
         """Tries to assign an operation to an available worker. If no workers
         are available then this returns None, otherwise this returns
         the chosen worker.
+
+        Synchronous on purpose: EvaluationExecutor.execute() calls this
+        while holding _current_execution_lock (a threading.RLock), so
+        nothing here may await. Building the job group (a DB read, via
+        run_in_executor) and the RPC to the worker happen afterwards in
+        a separately spawned task, see _build_and_dispatch.
 
         operations: the operations to assign to a worker.
 
@@ -224,30 +230,57 @@ class WorkerPool:
             assigned to the operation otherwise.
 
         """
-        # We look for an available worker.
-        try:
-            shard = self.find_worker(WorkerPool.WORKER_INACTIVE,
-                                     require_connection=True,
-                                     random_worker=True)
-        except LookupError:
-            self._workers_available_event.clear()
-            return None
+        with self._operation_lock:
+            # We look for an available worker.
+            try:
+                shard = self.find_worker(WorkerPool.WORKER_INACTIVE,
+                                         require_connection=True,
+                                         random_worker=True)
+            except LookupError:
+                self._workers_available_event.clear()
+                return None
 
-        # Then we fill the info for future memory.
-        self._add_operations(shard, operations)
+            # Then we fill the info for future memory.
+            self._add_operations(shard, operations)
 
-        logger.debug("Worker %s acquired.", shard)
-        self._start_time[shard] = make_datetime()
-
-        loop = asyncio.get_running_loop()
-        job_group_dict = await loop.run_in_executor(
-            None, self._build_job_group_dict, operations)
+            logger.debug("Worker %s acquired.", shard)
+            self._start_time[shard] = make_datetime()
 
         logger.info("Asking worker %s to %s.", shard,
                     ", ".join("`%s'" % operation for operation in operations))
 
-        self._service._spawn(self._dispatch_to_worker(shard, job_group_dict))
+        self._service._spawn(self._build_and_dispatch(shard, operations))
         return shard
+
+    async def _build_and_dispatch(
+        self, shard: int, operations: list[ESOperation]
+    ):
+        """Build the job group, dispatch it to the worker, report back.
+
+        Runs as a spawned background task on the event loop: nobody
+        (in particular not execute(), holding _current_execution_lock)
+        awaits it, so awaiting run_in_executor here cannot deadlock on
+        a lock held across the await.
+
+        If building the job group fails, release the worker via
+        action_finished(None, shard, error) instead of leaving it
+        stuck until WORKER_TIMEOUT -- the same outcome a worker-side
+        error would produce.
+
+        shard: the worker the operations were assigned to.
+        operations: the operations to send to the worker.
+
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            job_group_dict = await loop.run_in_executor(
+                None, self._build_job_group_dict, operations)
+        except Exception as build_error:
+            logger.error("Failed to build job group for worker %s.", shard,
+                         exc_info=True)
+            await self._report_action_finished(None, shard, str(build_error))
+            return
+        await self._dispatch_to_worker(shard, job_group_dict)
 
     def _build_job_group_dict(self, operations: list[ESOperation]) -> dict:
         """Build the JobGroup dict to send to a worker, synchronously.
@@ -263,8 +296,9 @@ class WorkerPool:
 
         Fire-and-forget from acquire_worker's perspective (mirrors the
         old callback-based execute_job_group(..., callback=..., plus=...)
-        call, which also never blocked the caller) -- spawned as a
-        background task via self._service._spawn.
+        call, which also never blocked the caller) -- awaited by
+        _build_and_dispatch, itself spawned as a background task via
+        self._service._spawn.
 
         """
         try:
@@ -274,7 +308,28 @@ class WorkerPool:
         except RPCError as rpc_error:
             data = None
             error = str(rpc_error)
-        await self._service.action_finished(data, shard, error)
+        await self._report_action_finished(data, shard, error)
+
+    async def _report_action_finished(
+        self, data: dict | None, shard: int, error: str | None
+    ):
+        """Forward a worker's outcome to ES, logging any failure.
+
+        This runs in a spawned task, so an exception escaping from
+        action_finished (e.g. the ValueError release_worker raises when
+        check_connections already released the worker) would otherwise
+        be lost without a trace.
+
+        data: the JobGroup exported to dict, or None on error.
+        shard: the worker that finished.
+        error: the error message, or None on success.
+
+        """
+        try:
+            await self._service.action_finished(data, shard, error)
+        except Exception:
+            logger.error("Unexpected error in action_finished for worker %s.",
+                         shard, exc_info=True)
 
     def release_worker(self, shard: int) -> bool | list[ESOperation]:
         """To be called by ES when it receives a notification that an
@@ -290,34 +345,34 @@ class WorkerPool:
             the list of operation for which the results should be ignored.
 
         """
-        if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
-            err_msg = "Trying to release worker while it's inactive."
-            logger.error(err_msg)
-            raise ValueError(err_msg)
-
-        # If the worker has already been disabled, ignore the result
-        # and keep the worker disabled.
-        if self._operations[shard] == WorkerPool.WORKER_DISABLED:
-            return True
-
-        ret = self._ignore[shard]
         with self._operation_lock:
+            if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
+                err_msg = "Trying to release worker while it's inactive."
+                logger.error(err_msg)
+                raise ValueError(err_msg)
+
+            # If the worker has already been disabled, ignore the result
+            # and keep the worker disabled.
+            if self._operations[shard] == WorkerPool.WORKER_DISABLED:
+                return True
+
+            ret = self._ignore[shard]
             to_ignore = self._operations_to_ignore[shard]
             self._operations_to_ignore[shard] = []
-        self._start_time[shard] = None
-        self._ignore[shard] = False
-        if self._schedule_disabling[shard]:
-            self._remove_operations(shard, WorkerPool.WORKER_DISABLED)
-            self._schedule_disabling[shard] = False
-            logger.info("Worker %s released and disabled.", shard)
-        else:
-            self._remove_operations(shard, WorkerPool.WORKER_INACTIVE)
-            self._threadsafe_set_workers_available()
-            logger.debug("Worker %s released.", shard)
-        if ret is False and to_ignore != []:
-            return to_ignore
-        else:
-            return ret
+            self._start_time[shard] = None
+            self._ignore[shard] = False
+            if self._schedule_disabling[shard]:
+                self._remove_operations(shard, WorkerPool.WORKER_DISABLED)
+                self._schedule_disabling[shard] = False
+                logger.info("Worker %s released and disabled.", shard)
+            else:
+                self._remove_operations(shard, WorkerPool.WORKER_INACTIVE)
+                self._threadsafe_set_workers_available()
+                logger.debug("Worker %s released.", shard)
+            if ret is False and to_ignore != []:
+                return to_ignore
+            else:
+                return ret
 
     def find_worker(
         self,
@@ -404,44 +459,45 @@ class WorkerPool:
             that timed out.
 
         """
-        now = make_datetime()
-        lost_operations = []
-        for shard in self._worker:
-            if self._start_time[shard] is not None:
-                active_for = now - self._start_time[shard]
+        with self._operation_lock:
+            now = make_datetime()
+            lost_operations = []
+            for shard in self._worker:
+                if self._start_time[shard] is not None:
+                    active_for = now - self._start_time[shard]
 
-                if active_for > WorkerPool.WORKER_TIMEOUT:
-                    # Here shard is a working worker with no sign of
-                    # intelligent life for too much time.
-                    logger.error("Disabling and shutting down "
-                                 "worker %d because of no response "
-                                 "in %s.", shard, active_for)
-                    is_busy = (self._operations[shard] !=
-                               WorkerPool.WORKER_INACTIVE and
-                               self._operations[shard] !=
-                               WorkerPool.WORKER_DISABLED)
-                    assert is_busy
+                    if active_for > WorkerPool.WORKER_TIMEOUT:
+                        # Here shard is a working worker with no sign of
+                        # intelligent life for too much time.
+                        logger.error("Disabling and shutting down "
+                                     "worker %d because of no response "
+                                     "in %s.", shard, active_for)
+                        is_busy = (self._operations[shard] !=
+                                   WorkerPool.WORKER_INACTIVE and
+                                   self._operations[shard] !=
+                                   WorkerPool.WORKER_DISABLED)
+                        assert is_busy
 
-                    # We return the operation so ES can do what it needs.
-                    if not self._ignore[shard] and \
-                            isinstance(self._operations[shard], list):
-                        for operation in self._operations[shard]:
-                            if operation not in \
-                                    self._operations_to_ignore[shard]:
-                                lost_operations.append(operation)
+                        # We return the operation so ES can do what it needs.
+                        if not self._ignore[shard] and \
+                                isinstance(self._operations[shard], list):
+                            for operation in self._operations[shard]:
+                                if operation not in \
+                                        self._operations_to_ignore[shard]:
+                                    lost_operations.append(operation)
 
-                    # Also, we are not trusting it, so we are not
-                    # assigning it new operations even if it comes back to
-                    # life.
-                    self._schedule_disabling[shard] = True
-                    self._ignore[shard] = True
-                    self.release_worker(shard)
-                    self._service._spawn(
-                        self._fire_and_forget(
-                            self._worker[shard].quit(
-                                reason="No response in %s." % active_for)))
+                        # Also, we are not trusting it, so we are not
+                        # assigning it new operations even if it comes
+                        # back to life.
+                        self._schedule_disabling[shard] = True
+                        self._ignore[shard] = True
+                        self.release_worker(shard)
+                        self._service._spawn(
+                            self._fire_and_forget(
+                                self._worker[shard].quit(
+                                    reason="No response in %s." % active_for)))
 
-        return lost_operations
+            return lost_operations
 
     def disable_worker(self, shard: int) -> list[ESOperation]:
         """Disable a worker.
@@ -454,35 +510,36 @@ class WorkerPool:
         raise (ValueError): if worker is already disabled.
 
         """
-        if self._operations[shard] == WorkerPool.WORKER_DISABLED:
-            err_msg = \
-                "Trying to disable already disabled worker %s." % shard
-            logger.warning(err_msg)
-            raise ValueError(err_msg)
+        with self._operation_lock:
+            if self._operations[shard] == WorkerPool.WORKER_DISABLED:
+                err_msg = \
+                    "Trying to disable already disabled worker %s." % shard
+                logger.warning(err_msg)
+                raise ValueError(err_msg)
 
-        lost_operations = []
-        if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
-            self._operations[shard] = WorkerPool.WORKER_DISABLED
+            lost_operations = []
+            if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
+                self._operations[shard] = WorkerPool.WORKER_DISABLED
 
-        else:
-            # We return all non-ignored operations so ES can do what
-            # it needs.
-            if not self._ignore[shard]:
-                to_ignore = self._operations_to_ignore[shard]
-                if isinstance(self._operations[shard], list):
-                    for operation in self._operations[shard]:
-                        if operation not in to_ignore:
-                            lost_operations.append(operation)
+            else:
+                # We return all non-ignored operations so ES can do what
+                # it needs.
+                if not self._ignore[shard]:
+                    to_ignore = self._operations_to_ignore[shard]
+                    if isinstance(self._operations[shard], list):
+                        for operation in self._operations[shard]:
+                            if operation not in to_ignore:
+                                lost_operations.append(operation)
 
-            # And we mark the worker as disabled (until another action
-            # is taken).
-            self._schedule_disabling[shard] = True
-            self._operations_to_ignore[shard] = []
-            self._ignore[shard] = True
-            self.release_worker(shard)
+                # And we mark the worker as disabled (until another action
+                # is taken).
+                self._schedule_disabling[shard] = True
+                self._operations_to_ignore[shard] = []
+                self._ignore[shard] = True
+                self.release_worker(shard)
 
-        logger.info("Worker %s disabled.", shard)
-        return lost_operations
+            logger.info("Worker %s disabled.", shard)
+            return lost_operations
 
     def enable_worker(self, shard: int):
         """Enable a worker that previously was disabled.
@@ -492,16 +549,17 @@ class WorkerPool:
         raise (ValueError): if worker is not disabled.
 
         """
-        if self._operations[shard] != WorkerPool.WORKER_DISABLED:
-            err_msg = \
-                "Trying to enable worker %s which is not disabled." % shard
-            logger.error(err_msg)
-            raise ValueError(err_msg)
+        with self._operation_lock:
+            if self._operations[shard] != WorkerPool.WORKER_DISABLED:
+                err_msg = \
+                    "Trying to enable worker %s which is not disabled." % shard
+                logger.error(err_msg)
+                raise ValueError(err_msg)
 
-        self._operations[shard] = WorkerPool.WORKER_INACTIVE
-        self._operations_to_ignore[shard] = []
-        self._threadsafe_set_workers_available()
-        logger.info("Worker %s enabled.", shard)
+            self._operations[shard] = WorkerPool.WORKER_INACTIVE
+            self._operations_to_ignore[shard] = []
+            self._threadsafe_set_workers_available()
+            logger.info("Worker %s enabled.", shard)
 
     def check_connections(self) -> list[ESOperation]:
         """Check if a worker we assigned an operation to disconnects. In this
@@ -511,14 +569,15 @@ class WorkerPool:
             that disconnected.
 
         """
-        lost_operations = []
-        for shard in self._worker:
-            if not self._worker[shard].connected and \
-                    self._operations[shard] not in [
-                        WorkerPool.WORKER_DISABLED,
-                        WorkerPool.WORKER_INACTIVE]:
-                if not self._ignore[shard]:
-                    lost_operations += self._operations[shard]
-                self.release_worker(shard)
+        with self._operation_lock:
+            lost_operations = []
+            for shard in self._worker:
+                if not self._worker[shard].connected and \
+                        self._operations[shard] not in [
+                            WorkerPool.WORKER_DISABLED,
+                            WorkerPool.WORKER_INACTIVE]:
+                    if not self._ignore[shard]:
+                        lost_operations += self._operations[shard]
+                    self.release_worker(shard)
 
-        return lost_operations
+            return lost_operations
