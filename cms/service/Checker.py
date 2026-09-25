@@ -26,26 +26,27 @@ import logging
 import time
 
 from cms import config, ServiceCoord
-from cms.io import Service
+from cms.io.async_service import AsyncService
+from cms.io.rpc import RPCError
 
 
 logger = logging.getLogger(__name__)
 
 
-class Checker(Service):
+class Checker(AsyncService):
     """Service that checks the answering times of all services.
 
     """
 
     def __init__(self, shard):
-        Service.__init__(self, shard)
+        AsyncService.__init__(self, shard)
         for service in config.services:
             self.connect_to(service)
         self.add_timeout(self.check, None, 90.0, immediately=True)
 
         self.waiting_for = {}
 
-    def check(self):
+    async def check(self):
         """For all services, send an echo request and logs the time of
         the request.
 
@@ -59,20 +60,31 @@ class Checker(Service):
             if service.connected:
                 now = time.time()
                 self.waiting_for[coordinates] = now
-                service.echo(string="%s %5.3lf" % (coordinates, now),
-                             callback=self.echo_callback)
+                self._spawn(self._echo_and_check(coordinates, service, now))
             else:
                 logger.info("Service %s not connected.", coordinates)
         return True
 
-    def echo_callback(self, data, error=None):
+    async def _echo_and_check(self, coordinates, service, now):
+        """Send an echo request to service and handle its reply.
+
+        coordinates: the coord of the service to echo.
+        service: the remote service proxy to echo.
+        now: the time at which the request is sent.
+
+        """
+        try:
+            data = await service.echo(string="%s %5.3lf" % (coordinates, now))
+        except RPCError:
+            return
+        self.echo_callback(data)
+
+    def echo_callback(self, data):
         """Callback for check.
 
         """
         current = time.time()
         logger.debug("Checker.echo_callback")
-        if error is not None:
-            return
         try:
             service, time_ = data.split()
             time_ = float(time_)
