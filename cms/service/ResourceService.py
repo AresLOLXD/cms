@@ -26,6 +26,7 @@ that saves the resources usage in that machine.
 """
 
 from collections.abc import Generator
+import asyncio
 import logging
 import os
 import re
@@ -35,10 +36,10 @@ from collections import defaultdict, deque
 from shlex import quote as shell_quote
 
 import psutil
-from gevent import subprocess
 
 from cms import config, get_safe_shard, ServiceCoord
-from cms.io import Service, rpc_method
+from cms.io.async_service import AsyncService
+from cms.io.rpc import rpc_method
 
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,7 @@ class ProcessMatcher:
         return (cl_service, shard)
 
 
-class ResourceService(Service):
+class ResourceService(AsyncService):
     """This service looks at the resources usage (CPU, load, memory,
     network) every seconds, stores it locally, and offer (new) data
     upon request.
@@ -172,7 +173,7 @@ class ResourceService(Service):
         autorestart feature.
 
         """
-        Service.__init__(self, shard)
+        AsyncService.__init__(self, shard)
 
         self.contest_id = contest_id
         self.autorestart = autorestart or (contest_id is not None)
@@ -204,7 +205,7 @@ class ResourceService(Service):
             self.add_timeout(self._restart_services, None, 5.0,
                              immediately=True)
 
-    def _restart_services(self):
+    async def _restart_services(self):
         """Check if the services that are supposed to run on this
         machine are actually running. If not, start them.
 
@@ -216,7 +217,7 @@ class ResourceService(Service):
         # services).
         new_launched_processes = set([])
         for process in self._launched_processes:
-            if process.poll() is None:
+            if process.returncode is None:
                 new_launched_processes.add(process)
         self._launched_processes = new_launched_processes
 
@@ -253,9 +254,10 @@ class ResourceService(Service):
                 else:
                     args += ["-c", "ALL"]
                 try:
-                    process = subprocess.Popen(args,
-                                               stdout=subprocess.DEVNULL,
-                                               stderr=subprocess.STDOUT)
+                    process = await asyncio.create_subprocess_exec(
+                        *args,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.STDOUT)
                 except Exception:
                     logger.error("Error for command line %s",
                                  shell_quote(" ".join(args)))
@@ -414,7 +416,7 @@ class ResourceService(Service):
         return result
 
     @rpc_method
-    def kill_service(self, service: str):
+    async def kill_service(self, service: str):
         """Restart the service. Note that after calling successfully
         this method, get_resource could still report the service
         running untile we call _store_resources again.
@@ -434,9 +436,8 @@ class ResourceService(Service):
             logger.error("Unable to decode service shard.")
 
         remote_service = self.connect_to(ServiceCoord(name, shard))
-        remote_service.wait_for_connection(timeout=5)
-        result = remote_service.quit(reason="Asked by ResourceService")
-        return result.get()
+        await remote_service.wait_for_connection(timeout=5)
+        return await remote_service.quit(reason="Asked by ResourceService")
 
     @rpc_method
     def toggle_autorestart(self, service: str) -> bool | None:
