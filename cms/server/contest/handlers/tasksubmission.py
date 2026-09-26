@@ -342,7 +342,7 @@ class SubmissionFileHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0, 1, 2, 3, 4)
     @multi_contest
-    def get(self, task_name, opaque_id, filename):
+    async def get(self, task_name, opaque_id, filename):
         if not self.contest.submissions_download_allowed:
             raise tornado.web.HTTPError(404)
 
@@ -378,7 +378,7 @@ class SubmissionFileHandler(FileHandler):
         if mimetype is None:
             mimetype = 'application/octet-stream'
 
-        self.fetch(digest, mimetype, filename)
+        await self.fetch(digest, mimetype, filename)
 
 
 class UseTokenHandler(ContestHandler):

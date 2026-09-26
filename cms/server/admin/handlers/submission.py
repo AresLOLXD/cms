@@ -79,7 +79,7 @@ class SubmissionFileHandler(FileHandler):
     # We cannot use FileFromDigestHandler as it does not know how to
     # set the proper name (i.e., converting %l to the language).
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, file_id):
+    async def get(self, file_id):
         sub_file = self.safe_get_item(File, file_id)
         submission = sub_file.submission
 
@@ -87,7 +87,7 @@ class SubmissionFileHandler(FileHandler):
         digest = sub_file.digest
 
         self.sql_session.close()
-        self.fetch(digest, "text/plain", real_filename)
+        await self.fetch(digest, "text/plain", real_filename)
 
 
 class SubmissionDiffHandler(BaseHandler):

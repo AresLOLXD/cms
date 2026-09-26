@@ -59,7 +59,7 @@ class UserTestFileHandler(FileHandler):
     # We cannot use FileFromDigestHandler as it does not know how to
     # set the proper name (i.e., converting %l to the language).
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, file_id):
+    async def get(self, file_id):
         user_test_file = self.safe_get_item(UserTestFile, file_id)
         user_test = user_test_file.user_test
 
@@ -67,4 +67,4 @@ class UserTestFileHandler(FileHandler):
         digest = user_test_file.digest
 
         self.sql_session.close()
-        self.fetch(digest, "text/plain", real_filename)
+        await self.fetch(digest, "text/plain", real_filename)

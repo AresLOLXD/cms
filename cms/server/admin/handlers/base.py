@@ -695,10 +695,10 @@ class FileHandler(BaseHandler, FileHandlerMixin):
 class FileFromDigestHandler(FileHandler):
     """Return the file, using the given name, and as plain text."""
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, digest, filename):
+    async def get(self, digest, filename):
         # TODO: Accept a MIME type
         self.sql_session.close()
-        self.fetch(digest, "text/plain", filename)
+        await self.fetch(digest, "text/plain", filename)
 
 
 def SimpleHandler(page, authenticated=True, permission_all=False) -> type[BaseHandler]:

@@ -251,7 +251,7 @@ class UserTestIOHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0)
     @multi_contest
-    def get(self, task_name, user_test_num, io):
+    async def get(self, task_name, user_test_num, io):
         if not self.r_params["testing_enabled"]:
             raise tornado.web.HTTPError(404)
 
@@ -275,7 +275,7 @@ class UserTestIOHandler(FileHandler):
 
         mimetype = 'text/plain'
 
-        self.fetch(digest, mimetype, io)
+        await self.fetch(digest, mimetype, io)
 
 
 class UserTestFileHandler(FileHandler):
@@ -285,7 +285,7 @@ class UserTestFileHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0)
     @multi_contest
-    def get(self, task_name, user_test_num, filename):
+    async def get(self, task_name, user_test_num, filename):
         if not self.r_params["testing_enabled"]:
             raise tornado.web.HTTPError(404)
 
@@ -320,4 +320,4 @@ class UserTestFileHandler(FileHandler):
         if mimetype is None:
             mimetype = 'application/octet-stream'
 
-        self.fetch(digest, mimetype, filename)
+        await self.fetch(digest, mimetype, filename)
