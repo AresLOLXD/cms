@@ -45,7 +45,7 @@ Do not run a bare `pytest` (or `pytest cmstestsuite/unit_tests`) across the
 whole suite in one process: several `cmscontrib/` modules call
 `gevent.monkey.patch_all()` at import time, and any test file that imports
 one of them — directly (most of `cmstestsuite/unit_tests/cmscontrib/`,
-`cmsranking/`, and 7 files in `service/` not yet migrated off gevent) or
+`cmsranking/`, and 2 files in `service/` not yet migrated off gevent) or
 transitively (`db/rankinggroup_test.py` imports `cmscontrib.DumpImporter`)
 — monkey-patches `threading`/`socket` for the whole process. Any
 asyncio-based test collected afterward in that same process then hangs
@@ -56,7 +56,7 @@ splits the suite into two separate pytest invocations for exactly this
 reason — mirror that split locally when you need to run everything (see
 that script for the exact, current file list — it can grow):
 ```bash
-GEVENT_SERVICE_FILES="cmstestsuite/unit_tests/service/ScoringServiceTest.py cmstestsuite/unit_tests/service/twophase_evaluationservice_test.py cmstestsuite/unit_tests/service/write_results_creates_result_test.py cmstestsuite/unit_tests/service/ProxyServiceTest.py cmstestsuite/unit_tests/service/proxyexecutor_test.py cmstestsuite/unit_tests/service/twophase_reenqueue_test.py cmstestsuite/unit_tests/service/twophase_write_results_test.py"
+GEVENT_SERVICE_FILES="cmstestsuite/unit_tests/service/twophase_evaluationservice_test.py cmstestsuite/unit_tests/service/twophase_reenqueue_test.py"
 
 pytest cmstestsuite/unit_tests/cmscontrib cmstestsuite/unit_tests/cmsranking \
     cmstestsuite/unit_tests/db/rankinggroup_test.py $GEVENT_SERVICE_FILES
