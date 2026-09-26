@@ -40,10 +40,9 @@
 from datetime import datetime
 import logging
 
-from werkzeug.middleware.shared_data import SharedDataMiddleware
-
 from cms import ConfigError, ServiceCoord, config
 from cms.io import WebService
+from cms.io.static_handler import MultiLocationStaticFileHandler
 from cms.locale import get_translations
 from cms.server.contest.jinja2_toolbox import CWS_ENVIRONMENT
 from cmscommon.binary import hex_to_bin
@@ -53,9 +52,6 @@ from .handlers.main import MainHandler
 
 
 logger = logging.getLogger(__name__)
-
-
-SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60
 
 
 class ContestWebServer(WebService):
@@ -84,14 +80,19 @@ class ContestWebServer(WebService):
 
         self.contest_id = contest_id
 
+        docs_location = (config.contest_web_server.docs_path
+                         or config.contest_web_server.stl_path)
+        handlers = [MultiLocationStaticFileHandler.make_route(
+            r"/docs/(.*)", [docs_location])]
+
         if self.contest_id is None:
             HANDLERS.append((r"", MainHandler))
-            handlers = [(r'/', ContestListHandler)]
+            handlers.append((r'/', ContestListHandler))
             for h in HANDLERS:
                 handlers.append((r'/([^/]+)' + h[0],) + h[1:])
         else:
             HANDLERS.append((r"/", MainHandler))
-            handlers = HANDLERS
+            handlers.extend(HANDLERS)
 
         super().__init__(
             listen_port,
@@ -99,12 +100,6 @@ class ContestWebServer(WebService):
             parameters,
             shard=shard,
             listen_address=listen_address)
-
-        self.wsgi_app = SharedDataMiddleware(
-            self.wsgi_app, {"/docs": config.contest_web_server.docs_path
-                            or config.contest_web_server.stl_path},
-            cache=True, cache_timeout=SECONDS_IN_A_YEAR,
-            fallback_mimetype="application/octet-stream")
 
         self.jinja2_environment = CWS_ENVIRONMENT
 
