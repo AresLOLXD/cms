@@ -5,6 +5,7 @@
 import asyncio
 import json
 import socket
+import time
 import unittest
 from unittest.mock import patch
 
@@ -27,6 +28,10 @@ class EchoingRemoteService(AsyncService):
     @rpc_method
     def boom(self):
         raise ValueError("deliberate failure")
+
+    @rpc_method
+    async def sleep_forever(self):
+        await asyncio.sleep(10)
 
 
 class RPCHandlerTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase):
@@ -78,75 +83,113 @@ class RPCHandlerTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestC
         await asyncio.wait_for(self.remote_task, timeout=5)
         await asyncio.wait_for(self.frontend_task, timeout=5)
 
-    async def _post(self, path, body):
+    async def _raw_post(self, path, headers, payload):
         reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
         try:
-            payload = json.dumps(body).encode()
+            header_lines = "".join(
+                "%s: %s\r\n" % (key, value) for key, value in headers.items())
             request = (
-                "POST %s HTTP/1.1\r\nHost: localhost\r\n"
-                "Content-Type: application/json\r\n"
-                "Accept: application/json\r\n"
-                "Content-Length: %d\r\n\r\n" % (path, len(payload))
+                "POST %s HTTP/1.1\r\nHost: localhost\r\n%s"
+                "Content-Length: %d\r\n\r\n" % (path, header_lines, len(payload))
             ).encode() + payload
             writer.write(request)
             await writer.drain()
-            response = await asyncio.wait_for(reader.read(8192), timeout=5)
+            response = await asyncio.wait_for(reader.read(8192), timeout=15)
         finally:
             writer.close()
-        status_line = response.split(b"\r\n", 1)[0]
-        body_start = response.index(b"\r\n\r\n") + 4
-        return status_line, json.loads(response[body_start:] or b"null")
+        return self._parse_response(response)
+
+    @staticmethod
+    def _parse_response(response):
+        header_block, _, rest = response.partition(b"\r\n\r\n")
+        lines = header_block.split(b"\r\n")
+        status_line = lines[0]
+        headers = {}
+        for line in lines[1:]:
+            if b":" in line:
+                key, _, value = line.partition(b":")
+                headers[key.strip().decode().lower()] = value.strip().decode()
+        body = json.loads(rest) if rest else None
+        return status_line, headers, body
+
+    async def _post(self, path, body, accept="application/json"):
+        payload = json.dumps(body).encode()
+        headers = {"Content-Type": "application/json", "Accept": accept}
+        return await self._raw_post(path, headers, payload)
+
+    def _assert_json_error_response(self, status, headers, body, status_code):
+        self.assertIn(status_code, status)
+        self.assertEqual(headers.get("content-type"), "application/json")
+        self.assertEqual(set(body.keys()), {"data", "error"})
+        self.assertIsNone(body["data"])
+        self.assertIsNotNone(body["error"])
+        return body["error"]
 
     async def test_successful_call(self):
-        status, body = await self._post(
+        status, _headers, body = await self._post(
             "/rpc/EchoingRemoteService/0/echo", {"value": "hi"})
         self.assertIn(b"200", status)
         self.assertEqual(body, {"data": "hi", "error": None})
 
     async def test_rpc_error_propagates_as_json_error(self):
-        status, body = await self._post(
+        status, headers, body = await self._post(
             "/rpc/EchoingRemoteService/0/boom", {})
         self.assertIn(b"200", status)
+        self.assertEqual(headers.get("content-type"), "application/json")
         self.assertIsNone(body["data"])
-        self.assertIsNotNone(body["error"])
+        self.assertIn("deliberate failure", body["error"])
 
     async def test_unknown_service_is_404(self):
-        status, _ = await self._post("/rpc/NoSuchService/0/echo", {})
-        self.assertIn(b"404", status)
+        status, headers, body = await self._post("/rpc/NoSuchService/0/echo", {})
+        self._assert_json_error_response(status, headers, body, b"404")
+
+    async def test_non_numeric_shard_is_404(self):
+        status, headers, body = await self._post(
+            "/rpc/EchoingRemoteService/not-a-number/echo", {})
+        self._assert_json_error_response(status, headers, body, b"404")
 
     async def test_malformed_json_is_400(self):
-        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
-        try:
-            payload = b"not json"
-            request = (
-                "POST /rpc/EchoingRemoteService/0/echo HTTP/1.1\r\n"
-                "Host: localhost\r\nContent-Type: application/json\r\n"
-                "Accept: application/json\r\n"
-                "Content-Length: %d\r\n\r\n" % len(payload)
-            ).encode() + payload
-            writer.write(request)
-            await writer.drain()
-            response = await asyncio.wait_for(reader.read(4096), timeout=5)
-        finally:
-            writer.close()
-        self.assertIn(b"400", response.split(b"\r\n", 1)[0])
+        status, headers, body = await self._raw_post(
+            "/rpc/EchoingRemoteService/0/echo",
+            {"Content-Type": "application/json", "Accept": "application/json"},
+            b"not json")
+        self._assert_json_error_response(status, headers, body, b"400")
 
     async def test_wrong_content_type_is_415(self):
-        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
-        try:
-            payload = b"{}"
-            request = (
-                "POST /rpc/EchoingRemoteService/0/echo HTTP/1.1\r\n"
-                "Host: localhost\r\nContent-Type: text/plain\r\n"
-                "Accept: application/json\r\n"
-                "Content-Length: %d\r\n\r\n" % len(payload)
-            ).encode() + payload
-            writer.write(request)
-            await writer.drain()
-            response = await asyncio.wait_for(reader.read(4096), timeout=5)
-        finally:
-            writer.close()
-        self.assertIn(b"415", response.split(b"\r\n", 1)[0])
+        status, headers, body = await self._raw_post(
+            "/rpc/EchoingRemoteService/0/echo",
+            {"Content-Type": "text/plain", "Accept": "application/json"},
+            b"{}")
+        self._assert_json_error_response(status, headers, body, b"415")
+
+    async def test_wrong_accept_is_406(self):
+        status, headers, body = await self._post(
+            "/rpc/EchoingRemoteService/0/echo", {"value": "hi"},
+            accept="application/xml")
+        self._assert_json_error_response(status, headers, body, b"406")
+
+    async def test_disconnected_service_is_503(self):
+        # A coord that isn't in the (real, unmocked here) configuration
+        # makes connect_to() fall back to a fake client that never
+        # connects, so remote_services knows about it but its
+        # "connected" property stays False.
+        disconnected_coord = ServiceCoord("EchoingRemoteService", 1)
+        self.frontend.connect_to(disconnected_coord, must_be_present=False)
+        self.assertFalse(
+            self.frontend.remote_services[disconnected_coord].connected)
+
+        status, headers, body = await self._post(
+            "/rpc/EchoingRemoteService/1/echo", {"value": "hi"})
+        self._assert_json_error_response(status, headers, body, b"503")
+
+    async def test_timeout_reports_error(self):
+        with patch("cms.io.web_rpc.RPC_TIMEOUT_SECONDS", 0.2):
+            status, headers, body = await self._post(
+                "/rpc/EchoingRemoteService/0/sleep_forever", {})
+        self.assertIn(b"200", status)
+        self.assertEqual(headers.get("content-type"), "application/json")
+        self.assertEqual(
+            body, {"data": None, "error": "Timed out waiting for a reply."})
 
     async def test_auth_rejection_is_403(self):
         self.server.stop()
@@ -160,9 +203,47 @@ class RPCHandlerTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestC
         self.server.add_sockets(sockets)
         self.port = sockets[0].getsockname()[1]
 
-        status, _ = await self._post(
+        status, headers, body = await self._post(
             "/rpc/EchoingRemoteService/0/echo", {"value": "hi"})
-        self.assertIn(b"403", status)
+        self._assert_json_error_response(status, headers, body, b"403")
+
+    async def test_slow_sync_auth_does_not_block_other_requests(self):
+        # A synchronous, slow rpc_auth callback must be offloaded via
+        # run_in_executor, so it doesn't block the single event-loop
+        # thread from serving a concurrent request on another route.
+        self.server.stop()
+        await self.server.close_all_connections()
+
+        def slow_auth(service_name, shard, method):
+            time.sleep(0.3)
+            return True
+
+        handler_specs = [
+            RPCHandler.make_route(r"/slow-rpc/(.*)/(.*)/(.*)", slow_auth),
+            RPCHandler.make_route(r"/rpc/(.*)/(.*)/(.*)", None),
+        ]
+        application = tornado.web.Application(handler_specs)
+        application.service = self.frontend
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+
+        order = []
+
+        async def slow_call():
+            await self._post("/slow-rpc/EchoingRemoteService/0/echo",
+                              {"value": "slow"})
+            order.append("slow")
+
+        async def fast_call():
+            await asyncio.sleep(0.05)  # let the slow call start first
+            await self._post("/rpc/EchoingRemoteService/0/echo",
+                              {"value": "fast"})
+            order.append("fast")
+
+        await asyncio.gather(slow_call(), fast_call())
+        self.assertEqual(order, ["fast", "slow"])
 
 
 if __name__ == "__main__":
