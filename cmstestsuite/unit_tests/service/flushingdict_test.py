@@ -18,59 +18,68 @@
 
 """Tests for the flushing dict module."""
 
+import asyncio
 import unittest
-
-import gevent
 
 from cms.service.flushingdict import FlushingDict
 
 
-class TestFlushingDict(unittest.TestCase):
+class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
 
     SIZE = 3
     FLUSH_LATENCY_SECONDS = 0.2
 
-    def setUp(self):
-        super().setUp()
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
         self.received_data = []
-        self.d = FlushingDict(
-            TestFlushingDict.SIZE, TestFlushingDict.FLUSH_LATENCY_SECONDS,
-            self.callback)
+        self._started_dicts = []
+        self.d = self._make_dict(self.callback)
 
-    def test_success_latency(self):
+    def _make_dict(self, callback):
+        d = FlushingDict(
+            TestFlushingDict.SIZE, TestFlushingDict.FLUSH_LATENCY_SECONDS,
+            callback)
+        d.start()
+        self._started_dicts.append(d)
+        return d
+
+    async def asyncTearDown(self):
+        for d in self._started_dicts:
+            d._flush_task.cancel()
+        await super().asyncTearDown()
+
+    async def test_success_latency(self):
         self.d.add(0, 0)
-        gevent.sleep(2 * TestFlushingDict.FLUSH_LATENCY_SECONDS)
+        await asyncio.sleep(2 * TestFlushingDict.FLUSH_LATENCY_SECONDS)
         self.assertEqual(1, len(self.received_data))
         self.assertCountEqual([(0, 0)], self.received_data[0])
 
-    def test_success_size(self):
+    async def test_success_size(self):
         expected_data = []
         for i in range(TestFlushingDict.SIZE):
             self.d.add(i, i)
             expected_data.append((i, i))
-        gevent.sleep(0)
+        await asyncio.sleep(0.1)
         self.assertEqual(1, len(self.received_data))
         self.assertCountEqual(expected_data, self.received_data[0])
 
-    def test_success_size_latency(self):
+    async def test_success_size_latency(self):
         expected_data = []
         for i in range(TestFlushingDict.SIZE):
             self.d.add(i, i)
             expected_data.append((i, i))
-        gevent.sleep(0)
+        await asyncio.sleep(0.1)
         self.assertEqual(1, len(self.received_data))
         self.assertCountEqual(expected_data, self.received_data[0])
         self.d.add(TestFlushingDict.SIZE, TestFlushingDict.SIZE)
-        gevent.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1)
+        await asyncio.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1)
         self.assertEqual(2, len(self.received_data))
         self.assertCountEqual(
             [(TestFlushingDict.SIZE, TestFlushingDict.SIZE)],
             self.received_data[1])
 
-    def test_long_callback(self):
-        self.d = FlushingDict(
-            TestFlushingDict.SIZE, TestFlushingDict.FLUSH_LATENCY_SECONDS,
-            self.long_callback)
+    async def test_long_callback(self):
+        self.d = self._make_dict(self.long_callback)
         expected_data = []
         for i in range(TestFlushingDict.SIZE):
             self.d.add(i, i)
@@ -80,27 +89,27 @@ class TestFlushingDict(unittest.TestCase):
         # if the new element is flushed later. We need to wait 2
         # latencies for the callback, one more for the time-based
         # second flush, and we add some tolerance.
-        gevent.sleep(0)
+        await asyncio.sleep(0.1)
         self.d.add(TestFlushingDict.SIZE, TestFlushingDict.SIZE)
-        gevent.sleep((TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1) * 3)
+        await asyncio.sleep((TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1) * 3)
 
         self.assertEqual(TestFlushingDict.SIZE + 1,
                          sum(len(data) for data in self.received_data))
 
-    def test_many_elements(self):
+    async def test_many_elements(self):
         expected_data = []
         for i in range(20):
             self.d.add(i, i)
             expected_data.append((i, i))
-        gevent.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1)
+        await asyncio.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1)
         self.assertCountEqual(expected_data, sum(self.received_data, []))
 
-    def callback(self, data):
+    async def callback(self, data):
         self.received_data.append(data)
 
-    def long_callback(self, data):
-        gevent.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS * 2)
-        self.callback(data)
+    async def long_callback(self, data):
+        await asyncio.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS * 2)
+        await self.callback(data)
 
 
 if __name__ == "__main__":
