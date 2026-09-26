@@ -60,9 +60,11 @@ class AdminWebServer(WebService):
             # auth_handler extension point expects -- the old, WSGI-shaped
             # AWSAuthMiddleware(app) can't be constructed the way
             # WebService.__init__ now calls it (auth_middleware()), so
-            # passing it here would crash AdminWebServer at startup instead
-            # of just leaving auth silently unenforced at this layer, as it
-            # already was before this sub-project (see
+            # passing it here would crash AdminWebServer at startup. With
+            # auth_handler left None, AWS login/authenticated pages and
+            # /rpc calls fail closed with AttributeError -> 500 (not a
+            # silent auth bypass) until 2.5b -- same pre-2.5a brokenness,
+            # just still not fixed (see
             # docs/superpowers/specs/2026-09-25-webservice-tornado-native-design.md's
             # Handoff Notes).
             "rpc_enabled": True,
