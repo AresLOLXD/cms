@@ -189,5 +189,70 @@ class WebServiceIntegrationTest(ServiceLoggingIsolationMixin, unittest.IsolatedA
         self.assertIn(b"404", response.split(b"\r\n", 1)[0])
 
 
+class WebServiceParametersWireInfraRoutesTest(
+        ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase):
+    """WebService.__init__ must build /static and /rpc routes itself
+    from the static_files/rpc_enabled/rpc_auth parameters, the way
+    AdminWebServer/ContestWebServer actually pass them in -- not
+    require callers to hand-register those routes in `handlers`."""
+
+    @patch("cms.io.async_service.get_service_address")
+    async def asyncSetUp(self, mock_get_address):
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+
+        # A real (module, dir) pair, resolved via importlib.resources
+        # the same way StaticFileHasher already does, pointing at a
+        # fixture file checked into this test's own package.
+        parameters = {
+            "static_files": [("cmstestsuite.unit_tests.io",
+                              "static_fixture")],
+            "rpc_enabled": True,
+            "rpc_auth": None,
+        }
+
+        self.service = WebService(
+            listen_port=0, handlers=[], parameters=parameters,
+            shard=0, listen_address="127.0.0.1")
+        self.run_task = asyncio.create_task(self.service._async_run())
+        await asyncio.sleep(0.05)
+        self.addAsyncCleanup(self._stop_service)
+
+    async def _stop_service(self):
+        self.service.exit()
+        await asyncio.wait_for(self.run_task, timeout=5)
+
+    async def test_static_route_is_wired_from_parameters(self):
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(
+                b"GET /static/fixture.txt HTTP/1.1\r\n"
+                b"Host: localhost\r\n\r\n")
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"fixture content", response)
+
+    async def test_rpc_route_is_wired_from_parameters(self):
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            payload = b"{}"
+            request = (
+                "POST /rpc/NoSuchService/0/method HTTP/1.1\r\n"
+                "Host: localhost\r\nContent-Type: application/json\r\n"
+                "Accept: application/json\r\n"
+                "Content-Length: %d\r\n\r\n" % len(payload)
+            ).encode() + payload
+            writer.write(request)
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+        self.assertIn(b"404", response.split(b"\r\n", 1)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

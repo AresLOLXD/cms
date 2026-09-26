@@ -31,6 +31,7 @@ import tornado.web
 from cms.db.filecacher import FileCacher
 from cms.server.util import Url
 from .async_service import AsyncService
+from .static_handler import MultiLocationStaticFileHandler
 
 
 logger = logging.getLogger(__name__)
@@ -154,8 +155,8 @@ class WebService(AsyncService):
         super().__init__(shard)
 
         static_files = parameters.pop('static_files', [])
-        parameters.pop('rpc_enabled', False)
-        parameters.pop('rpc_auth', None)
+        rpc_enabled = parameters.pop('rpc_enabled', False)
+        rpc_auth = parameters.pop('rpc_auth', None)
         auth_middleware = parameters.pop('auth_middleware', None)
         if auth_middleware is not None:
             self.auth_handler = auth_middleware()
@@ -163,7 +164,22 @@ class WebService(AsyncService):
             self.auth_handler = None
         num_proxies_used = parameters.pop('num_proxies_used', None) or 0
 
-        self.application = tornado.web.Application(handlers, **parameters)
+        infra_handlers = []
+        if static_files:
+            static_locations = [
+                str(importlib.resources.files(module_name).joinpath(dir_))
+                for module_name, dir_ in static_files]
+            infra_handlers.append(MultiLocationStaticFileHandler.make_route(
+                r"/static/(.*)", static_locations))
+        if rpc_enabled:
+            # Imported here, not at module level, to avoid a circular
+            # import: web_rpc imports resolve_remote_ip from this module.
+            from .web_rpc import RPCHandler
+            infra_handlers.append(RPCHandler.make_route(
+                r"/rpc/([^/]+)/([0-9]+)/([^/]+)", rpc_auth))
+
+        self.application = tornado.web.Application(
+            infra_handlers + handlers, **parameters)
         self.application.service = self
 
         self.static_file_hasher = StaticFileHasher(static_files)
