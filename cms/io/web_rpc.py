@@ -31,6 +31,7 @@ import tornado.web
 
 from cms import ServiceCoord
 from cms.io.rpc import RPCError
+from cms.io.web_service import resolve_remote_ip
 
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,11 @@ class RPCHandler(tornado.web.RequestHandler):
         self.finish(json.dumps({"data": None, "error": self._reason}))
 
     async def post(self, service_name: str, shard: str, method: str):
+        self.request.remote_ip = resolve_remote_ip(
+            self.request.headers.get("X-Forwarded-For"),
+            self.request.remote_ip,
+            getattr(self.application.service, "num_proxies_used", 0))
+
         try:
             shard_int = int(shard)
         except ValueError:

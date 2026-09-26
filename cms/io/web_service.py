@@ -130,6 +130,17 @@ class StaticFileHasher:
 class WebService(AsyncService):
     """RPC service with Web server capabilities.
 
+    An optional auth_middleware parameter can be passed to __init__
+    (via the parameters dict): a class (not an instance), constructed
+    with no arguments, expected to implement
+    async def authenticate(self, handler) -> bool. The resulting
+    instance is stored as self.auth_handler and consulted, before
+    dispatch, by both CommonRequestHandler.prepare() (for regular web
+    handlers) and RPCHandler.post() (for the RPC-over-HTTP endpoint):
+    a False return aborts the request with a 403. If no
+    auth_middleware is given, self.auth_handler is None and no
+    authentication is enforced at this layer.
+
     """
 
     def __init__(
@@ -146,7 +157,10 @@ class WebService(AsyncService):
         parameters.pop('rpc_enabled', False)
         parameters.pop('rpc_auth', None)
         auth_middleware = parameters.pop('auth_middleware', None)
-        self.auth_handler = auth_middleware() if auth_middleware is not None else None
+        if auth_middleware is not None:
+            self.auth_handler = auth_middleware()
+        else:
+            self.auth_handler = None
         num_proxies_used = parameters.pop('num_proxies_used', None) or 0
 
         self.application = tornado.web.Application(handlers, **parameters)

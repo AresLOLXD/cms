@@ -467,5 +467,66 @@ class PrepareResolvesRemoteIpTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"127.0.0.1", response)
 
 
+class AuthHandlerObservesResolvedIpTest(unittest.IsolatedAsyncioTestCase):
+    """Task 3's carried-forward obligation: the auth extension point
+    must observe the already-resolved self.request.remote_ip (set by
+    CommonRequestHandler.prepare() via resolve_remote_ip() before the
+    auth hook runs), not the raw connecting socket's address.
+
+    """
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+
+        self.observed_ips = []
+        observed_ips = self.observed_ips
+
+        class RecordingAuth:
+            async def authenticate(self, handler):
+                observed_ips.append(handler.request.remote_ip)
+                return True
+
+        class OkHandler(CommonRequestHandler):
+            def get(self):
+                self.write("ok")
+
+        # num_proxies_used=1: the auth hook should see the header's
+        # rightmost address, not the raw loopback socket address.
+        self.service = MagicMock(
+            auth_handler=RecordingAuth(), num_proxies_used=1)
+        application = tornado.web.Application([(r"/", OkHandler)])
+        application.service = self.service
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def _get(self, headers=b""):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            writer.write(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n" + headers + b"\r\n")
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_auth_handler_observes_resolved_remote_ip(self):
+        response = await self._get(
+            b"X-Forwarded-For: 203.0.113.7, 10.0.0.1\r\n")
+        self.assertIn(b"200 OK", response)
+        self.assertEqual(self.observed_ips, ["10.0.0.1"])
+
+
 if __name__ == "__main__":
     unittest.main()

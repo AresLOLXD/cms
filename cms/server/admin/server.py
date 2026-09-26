@@ -35,7 +35,6 @@ from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
 from cms.io import WebService, rpc_method
 from cms.service import EvaluationService
 from cmscommon.binary import hex_to_bin
-from .authentication import AWSAuthMiddleware
 from .handlers import HANDLERS
 from .jinja2_toolbox import AWS_ENVIRONMENT
 from .rpc_authorization import rpc_authorization_checker
@@ -55,7 +54,17 @@ class AdminWebServer(WebService):
             "cookie_secret": hex_to_bin(config.web_server.secret_key),
             "debug": config.web_server.tornado_debug,
             "num_proxies_used": config.admin_web_server.num_proxies_used,
-            "auth_middleware": AWSAuthMiddleware,
+            # TODO(2.5b): re-add "auth_middleware": <new AWSAuthMiddleware>
+            # once it's rewritten to the new protocol (async def
+            # authenticate(self, handler) -> bool) that WebService's
+            # auth_handler extension point expects -- the old, WSGI-shaped
+            # AWSAuthMiddleware(app) can't be constructed the way
+            # WebService.__init__ now calls it (auth_middleware()), so
+            # passing it here would crash AdminWebServer at startup instead
+            # of just leaving auth silently unenforced at this layer, as it
+            # already was before this sub-project (see
+            # docs/superpowers/specs/2026-09-25-webservice-tornado-native-design.md's
+            # Handoff Notes).
             "rpc_enabled": True,
             "rpc_auth": self.is_rpc_authorized,
             "xsrf_cookies": True,
@@ -66,7 +75,7 @@ class AdminWebServer(WebService):
             parameters,
             shard=shard,
             listen_address=config.admin_web_server.listen_address)
-        self.auth_handler: AWSAuthMiddleware
+        self.auth_handler: None = None  # TODO(2.5b): real type once rewired
 
         self.jinja2_environment = AWS_ENVIRONMENT
 

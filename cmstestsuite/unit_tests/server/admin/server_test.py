@@ -27,6 +27,21 @@ from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cms.server.admin.server import AdminWebServer
 
 
+class TestConstruction(unittest.TestCase):
+    """AdminWebServer must be constructible without raising.
+
+    Regression test for a TypeError that used to be raised at startup
+    (WebService.__init__ tried to construct the old, WSGI-shaped
+    AWSAuthMiddleware(app) as auth_middleware(), which doesn't accept
+    zero arguments) -- see this sub-project's task 7 fix round 1.
+
+    """
+
+    def test_constructs_without_raising(self):
+        server = AdminWebServer(0)
+        self.assertIsNone(server.auth_handler)
+
+
 class TestSubmissionsStatus(DatabaseMixin, unittest.TestCase):
 
     def setUp(self):
