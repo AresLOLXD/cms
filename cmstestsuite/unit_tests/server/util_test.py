@@ -115,5 +115,68 @@ class TestNoLegacyTornadoWorkarounds(unittest.TestCase):
             tornado.version)
 
 
+class FetchStreamsFileTest(unittest.IsolatedAsyncioTestCase):
+
+    async def asyncSetUp(self):
+        import tempfile
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+        from unittest.mock import MagicMock
+        from cms.server.util import FileHandlerMixin
+
+        # A file bigger than one read chunk, to confirm streaming (not
+        # buffering the whole thing) actually happens.
+        self.chunk_size = 1024
+        self.content = b"x" * (self.chunk_size * 3 + 17)
+
+        self.fake_cacher = MagicMock()
+        self.fake_cacher.CHUNK_SIZE = self.chunk_size
+        import io
+        self.fake_cacher.get_file.return_value = io.BytesIO(self.content)
+        self.fake_cacher.get_size.return_value = len(self.content)
+
+        class TestHandler(FileHandlerMixin):
+            async def get(inner_self):
+                inner_self.application.service = MagicMock(
+                    file_cacher=self.fake_cacher)
+                await inner_self.fetch(
+                    "somedigest", "application/octet-stream",
+                    filename="thefile.bin")
+
+        application = tornado.web.Application([(r"/f", TestHandler)])
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def test_serves_full_content_and_content_disposition_header(self):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            writer.write(
+                b"GET /f HTTP/1.1\r\nHost: localhost\r\n"
+                b"Connection: close\r\n\r\n")
+            await writer.drain()
+            response = b""
+            while True:
+                chunk = await asyncio.wait_for(reader.read(65536), timeout=5)
+                if not chunk:
+                    break
+                response += chunk
+                if len(response) > len(self.content) + 4096:
+                    break
+        finally:
+            writer.close()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"thefile.bin", response)
+        self.assertIn(self.content, response)
+
+
 if __name__ == "__main__":
     unittest.main()

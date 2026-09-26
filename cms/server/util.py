@@ -26,16 +26,17 @@
 
 """
 
+import asyncio
 import logging
 from functools import wraps
 from urllib.parse import quote, urlencode, urlsplit
 
 import typing
 
-from tornado.web import RequestHandler
+from tornado.web import HTTPError, RequestHandler
 
 from cms.db import Session
-from cms.server.file_middleware import FileServerMiddleware
+from cms.db.filecacher import TombstoneError
 from cmscommon.datetime import make_datetime
 
 if typing.TYPE_CHECKING:
@@ -62,19 +63,19 @@ def multi_contest(f):
 
 class FileHandlerMixin(RequestHandler):
 
-    """Provide methods for serving files.
-
-    Due to shortcomings of Tornado's WSGI support we need to resort to
-    hack-ish solutions to achieve efficient file serving. For a more
-    detailed explanation see the docstrings of FileServerMiddleware.
+    """Provide methods for serving files, streaming them directly from
+    FileCacher without buffering the whole file in memory.
 
     """
 
-    def fetch(self, digest: str, content_type: str, filename: str | None = None, disposition: str | None = None):
+    async def fetch(
+        self,
+        digest: str,
+        content_type: str,
+        filename: str | None = None,
+        disposition: str | None = None,
+    ):
         """Serve the file with the given digest.
-
-        This will just add the headers required to trigger
-        FileServerMiddleware, which will do the real work.
 
         digest: the digest of the file that has to be served.
         content_type: the MIME type the file should be served as.
@@ -82,13 +83,47 @@ class FileHandlerMixin(RequestHandler):
         disposition: value to set the Content-Disposition header to.
 
         """
-        self.set_header(FileServerMiddleware.DIGEST_HEADER, digest)
-        if filename is not None:
-            self.set_header(FileServerMiddleware.FILENAME_HEADER, filename)
-        if disposition is not None:
-            self.set_header(FileServerMiddleware.DISPOSITION_HEADER, disposition)
+        loop = asyncio.get_running_loop()
+        file_cacher = self.application.service.file_cacher
+        try:
+            fobj, size = await loop.run_in_executor(
+                None, self._open_file_and_size, file_cacher, digest)
+        except KeyError:
+            raise HTTPError(404)
+        except TombstoneError:
+            raise HTTPError(503)
+
         self.set_header("Content-Type", content_type)
-        self.finish()
+        self.set_header("Content-Length", str(size))
+        if filename is not None:
+            disposition_value = disposition or "attachment"
+            self.set_header(
+                "Content-Disposition",
+                '%s; filename="%s"' % (disposition_value, filename))
+
+        chunk_size = file_cacher.CHUNK_SIZE
+        try:
+            while True:
+                chunk = await loop.run_in_executor(None, fobj.read, chunk_size)
+                if not chunk:
+                    break
+                self.write(chunk)
+                await self.flush()
+        finally:
+            fobj.close()
+
+    @staticmethod
+    def _open_file_and_size(file_cacher, digest: str):
+        """Open a cached file and get its size, synchronously.
+
+        Runs inside loop.run_in_executor -- FileCacher's DB-backed
+        lookup is a blocking call (see sub-project 2.3's design spec:
+        FileCacher/DBBackend stay sync-only).
+
+        """
+        fobj = file_cacher.get_file(digest)
+        size = file_cacher.get_size(digest)
+        return fobj, size
 
 
 def get_url_root(request_path: str) -> str:
