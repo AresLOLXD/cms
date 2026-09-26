@@ -38,6 +38,42 @@ logger = logging.getLogger(__name__)
 
 SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60
 
+
+def resolve_remote_ip(
+    forwarded_for_header: str | None,
+    socket_remote_ip: str,
+    num_proxies_used: int,
+) -> str:
+    """Resolve the real client IP behind zero or more trusted proxies.
+
+    Replicates werkzeug.middleware.proxy_fix.ProxyFix's semantics
+    exactly (the mechanism this project used before this migration):
+    take the num_proxies_used-th address from the *right* of a
+    comma-separated X-Forwarded-For header, ignoring any X-Real-Ip
+    header entirely (unlike Tornado's own xheaders handling, which
+    this project deliberately does not use -- see this function's
+    caller for why).
+
+    forwarded_for_header: the raw X-Forwarded-For header value, or
+        None if absent.
+    socket_remote_ip: the actual TCP peer address (what
+        request.remote_ip is when xheaders is disabled) -- used
+        as-is when num_proxies_used is 0, or as a fallback if the
+        header doesn't have enough entries.
+    num_proxies_used: how many trusted proxies sit in front of this
+        service; 0 means "trust the raw TCP peer address only."
+
+    return: the resolved client IP.
+
+    """
+    if num_proxies_used <= 0 or not forwarded_for_header:
+        return socket_remote_ip
+    addresses = [addr.strip() for addr in forwarded_for_header.split(",")]
+    if len(addresses) < num_proxies_used:
+        return socket_remote_ip
+    return addresses[-num_proxies_used]
+
+
 class StaticFileHasher:
     """
     Constructs URLs to static files. The result of make() is similar to the
@@ -125,8 +161,19 @@ class WebService(AsyncService):
         # these are the plain host/port of the HTTP server instead.
         self._http_listen_port = listen_port
         self._http_listen_address = listen_address
-        self._http_server = tornado.httpserver.HTTPServer(
-            self.application, xheaders=num_proxies_used > 0)
+        # Never trust Tornado's own xheaders handling: it lets
+        # X-Real-Ip take priority in some cases and doesn't implement
+        # "skip N hops from the right" the way the old ProxyFix did,
+        # which would let a contestant spoof request.remote_ip and
+        # bypass the IP-lock feature. request.remote_ip is therefore
+        # always the raw TCP peer address here; resolve_remote_ip()
+        # below replicates ProxyFix's semantics explicitly. (Task 7's
+        # CommonRequestHandler.prepare() is responsible for calling
+        # resolve_remote_ip() with self.num_proxies_used and assigning
+        # the result to self.request.remote_ip, before any handler
+        # body or the auth hook runs.)
+        self.num_proxies_used = num_proxies_used
+        self._http_server = tornado.httpserver.HTTPServer(self.application)
         self._http_server_sockets: list = []
 
     def run(self) -> bool:
@@ -145,12 +192,34 @@ class WebService(AsyncService):
         try:
             return await super()._async_run()
         finally:
-            # Only stop accepting new connections: HTTPServer's
-            # close_all_connections() force-closes the underlying
-            # stream of every live connection (Tornado's
-            # HTTP1ServerConnection.close() calls stream.close()
-            # before waiting for its serving loop to finish), which
-            # would cut off a response that is still being written.
-            # Existing connections are left to finish and close on
-            # their own (request completion or keep-alive timeout).
+            # Stop accepting new connections, then give genuinely
+            # in-flight requests a bounded grace period to finish on
+            # their own before force-closing whatever's left. This
+            # matters because asyncio.run() (how WebService.run() is
+            # actually invoked in production) tears down the event
+            # loop the moment this coroutine returns: any request
+            # still awaiting something at that point would otherwise
+            # have its task cancelled with no response sent, and any
+            # idle keep-alive connection would leak its socket open
+            # until process exit.
             self._http_server.stop()
+            try:
+                await asyncio.wait_for(
+                    self._wait_for_requests_to_drain(), timeout=1.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Some requests didn't finish within the shutdown "
+                    "grace period; closing their connections.")
+            await self._http_server.close_all_connections()
+
+    async def _wait_for_requests_to_drain(self) -> None:
+        """Poll until no HTTP connection is being served.
+
+        Used by _async_run's shutdown to wait for in-flight requests
+        to finish before force-closing anything left, mirroring the
+        old gevent WSGIServer.stop(timeout=1)'s behavior this
+        replaces.
+
+        """
+        while self._http_server._connections:
+            await asyncio.sleep(0.02)
