@@ -330,5 +330,142 @@ class MultiContestDecoratorReturnsFetchResultTest(unittest.IsolatedAsyncioTestCa
         self.assertIn(self.content, response)
 
 
+class AuthExtensionPointTest(unittest.IsolatedAsyncioTestCase):
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+
+        class OkHandler(CommonRequestHandler):
+            def get(self):
+                self.write("ok")
+
+        class RejectingAuth:
+            async def authenticate(self, handler):
+                return False
+
+        class AcceptingAuth:
+            async def authenticate(self, handler):
+                return True
+
+        # num_proxies_used=0 mirrors a real WebService instance (which
+        # always sets it to an int): CommonRequestHandler.prepare()
+        # now resolves self.request.remote_ip via resolve_remote_ip()
+        # before running the auth hook below, and that function
+        # requires an int, not a bare MagicMock attribute.
+        self.rejecting_service = MagicMock(
+            auth_handler=RejectingAuth(), num_proxies_used=0)
+        self.accepting_service = MagicMock(
+            auth_handler=AcceptingAuth(), num_proxies_used=0)
+        self.no_auth_service = MagicMock(auth_handler=None, num_proxies_used=0)
+
+        self._handler_class = OkHandler
+        self.addAsyncCleanup(self._stop_all)
+        self._servers = []
+
+    async def _stop_all(self):
+        for server in self._servers:
+            server.stop()
+            await server.close_all_connections()
+
+    async def _serve_with(self, service):
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+        application = tornado.web.Application([(r"/", self._handler_class)])
+        application.service = service
+        server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        server.add_sockets(sockets)
+        self._servers.append(server)
+        return sockets[0].getsockname()[1]
+
+    async def _get(self, port, headers=b""):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n" + headers + b"\r\n")
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_no_auth_handler_allows_request(self):
+        port = await self._serve_with(self.no_auth_service)
+        response = await self._get(port)
+        self.assertIn(b"200 OK", response)
+
+    async def test_accepting_auth_handler_allows_request(self):
+        port = await self._serve_with(self.accepting_service)
+        response = await self._get(port)
+        self.assertIn(b"200 OK", response)
+
+    async def test_rejecting_auth_handler_blocks_request(self):
+        port = await self._serve_with(self.rejecting_service)
+        response = await self._get(port)
+        self.assertIn(b"403", response)
+
+
+class PrepareResolvesRemoteIpTest(unittest.IsolatedAsyncioTestCase):
+    """CommonRequestHandler.prepare() must resolve self.request.remote_ip
+    through resolve_remote_ip() (using the service's num_proxies_used)
+    before anything else runs, so a downstream auth handler (or the
+    handler body itself) sees the real client address rather than the
+    raw TCP peer address of a trusted reverse proxy.
+
+    """
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+
+        class RemoteIpHandler(CommonRequestHandler):
+            def get(self):
+                self.write(self.request.remote_ip)
+
+        self.service = MagicMock(auth_handler=None, num_proxies_used=1)
+        application = tornado.web.Application([(r"/", RemoteIpHandler)])
+        application.service = self.service
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def _get(self, headers=b""):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            writer.write(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n" + headers + b"\r\n")
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_remote_ip_is_resolved_from_forwarded_for_header(self):
+        response = await self._get(
+            b"X-Forwarded-For: 203.0.113.7, 10.0.0.1\r\n")
+        # num_proxies_used=1: the rightmost address of the header is
+        # trusted as the last hop, so it (not the raw TCP peer, which
+        # would be 127.0.0.1) is what the handler should see.
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"10.0.0.1", response)
+        self.assertNotIn(b"127.0.0.1", response)
+
+    async def test_falls_back_to_socket_ip_without_header(self):
+        response = await self._get()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"127.0.0.1", response)
+
+
 if __name__ == "__main__":
     unittest.main()

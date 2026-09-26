@@ -145,7 +145,8 @@ class WebService(AsyncService):
         static_files = parameters.pop('static_files', [])
         parameters.pop('rpc_enabled', False)
         parameters.pop('rpc_auth', None)
-        parameters.pop('auth_middleware', None)
+        auth_middleware = parameters.pop('auth_middleware', None)
+        self.auth_handler = auth_middleware() if auth_middleware is not None else None
         num_proxies_used = parameters.pop('num_proxies_used', None) or 0
 
         self.application = tornado.web.Application(handlers, **parameters)

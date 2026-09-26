@@ -105,6 +105,15 @@ class RPCHandler(tornado.web.RequestHandler):
         if coord not in self.application.service.remote_services:
             raise tornado.web.HTTPError(404)
 
+        # RPCHandler deliberately doesn't inherit from
+        # CommonRequestHandler (see this module's docstring), so it
+        # doesn't get the generic auth_handler hook from
+        # CommonRequestHandler.prepare(); consult it explicitly here.
+        auth_handler = getattr(self.application.service, "auth_handler", None)
+        if auth_handler is not None:
+            if not await auth_handler.authenticate(self):
+                raise tornado.web.HTTPError(403)
+
         if self._rpc_auth is not None:
             loop = asyncio.get_running_loop()
             authorized = await loop.run_in_executor(

@@ -304,11 +304,11 @@ class BaseHandler(CommonRequestHandler):
             raise tornado.web.HTTPError(404)
         return entity
 
-    def prepare(self):
+    async def prepare(self):
         """This method is executed at the beginning of each request.
 
         """
-        super().prepare()
+        await super().prepare()
         self.contest = None
 
     def render(self, template_name: str, **params):

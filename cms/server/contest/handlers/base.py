@@ -92,11 +92,11 @@ class BaseHandler(CommonRequestHandler):
         for chunk in t.generate(**params):
             self.write(chunk)
 
-    def prepare(self):
+    async def prepare(self):
         """This method is executed at the beginning of each request.
 
         """
-        super().prepare()
+        await super().prepare()
         self.setup_locale()
 
     def setup_locale(self):

@@ -11,7 +11,7 @@ from cms.server.contest.handlers.base import BaseHandler, ContestListHandler
 from cms.server.contest.handlers.contest import ContestHandler
 
 
-class TestActiveContests(DatabaseMixin, unittest.TestCase):
+class TestActiveContests(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         super().setUp()
@@ -42,22 +42,22 @@ class TestActiveContests(DatabaseMixin, unittest.TestCase):
         contest_list = handler.render.call_args.kwargs["contest_list"]
         self.assertEqual(set(contest_list), {self.active.name})
 
-    def test_active_contest_is_served(self):
+    async def test_active_contest_is_served(self):
         handler = self.make_contest_handler(None, self.active.name)
-        handler.choose_contest()
+        await handler.choose_contest()
         self.assertEqual(handler.contest.id, self.active.id)
 
     @patch.object(BaseHandler, "render_params", return_value={})
     @patch.object(BaseHandler, "prepare")
-    def test_inactive_contest_is_404(self, *_):
+    async def test_inactive_contest_is_404(self, *_):
         handler = self.make_contest_handler(None, self.inactive.name)
         with self.assertRaises(tornado.web.HTTPError) as cm:
-            handler.choose_contest()
+            await handler.choose_contest()
         self.assertEqual(cm.exception.status_code, 404)
 
-    def test_single_contest_mode_ignores_active(self):
+    async def test_single_contest_mode_ignores_active(self):
         handler = self.make_contest_handler(self.inactive.id, "ignored")
-        handler.choose_contest()
+        await handler.choose_contest()
         self.assertEqual(handler.contest.id, self.inactive.id)
 
 

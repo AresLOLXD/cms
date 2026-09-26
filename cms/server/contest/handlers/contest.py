@@ -82,8 +82,8 @@ class ContestHandler(BaseHandler):
         self.contest: Contest
         self.impersonated_by_admin = False
 
-    def prepare(self):
-        self.choose_contest()
+    async def prepare(self):
+        await self.choose_contest()
 
         if self.contest.allowed_localizations:
             lang_codes = filter_language_codes(
@@ -93,7 +93,7 @@ class ContestHandler(BaseHandler):
                 (k, v) for k, v in self.available_translations.items()
                 if k in lang_codes)
 
-        super().prepare()
+        await super().prepare()
 
         if self.is_multi_contest():
             self.contest_url = self.url[self.contest.name]
@@ -104,7 +104,7 @@ class ContestHandler(BaseHandler):
         # because we need contest_name
         self.r_params = self.render_params()
 
-    def choose_contest(self):
+    async def choose_contest(self):
         """Fill self.contest using contest passed as argument or path.
 
         If a contest was specified as argument to CWS, fill
@@ -129,7 +129,7 @@ class ContestHandler(BaseHandler):
                 # render_params in this class assumes the contest is loaded,
                 # so we cannot call it without a fully defined contest. Luckily
                 # the one from the base class is enough to display a 404 page.
-                super().prepare()
+                await super().prepare()
                 self.r_params = super().render_params()
                 raise tornado.web.HTTPError(404)
         else:

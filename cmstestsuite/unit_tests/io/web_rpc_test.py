@@ -207,6 +207,47 @@ class RPCHandlerTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestC
             "/rpc/EchoingRemoteService/0/echo", {"value": "hi"})
         self._assert_json_error_response(status, headers, body, b"403")
 
+    async def test_auth_handler_rejection_is_403(self):
+        # RPCHandler doesn't inherit from CommonRequestHandler (see
+        # cms.io.web_rpc's module docstring), so it doesn't pick up
+        # CommonRequestHandler.prepare()'s generic auth_handler hook;
+        # post() must consult application.service.auth_handler itself.
+        class RejectingAuth:
+            async def authenticate(self, handler):
+                return False
+
+        self.frontend.auth_handler = RejectingAuth()
+        try:
+            status, headers, body = await self._post(
+                "/rpc/EchoingRemoteService/0/echo", {"value": "hi"})
+            self._assert_json_error_response(status, headers, body, b"403")
+        finally:
+            del self.frontend.auth_handler
+
+    async def test_auth_handler_acceptance_lets_request_through(self):
+        class AcceptingAuth:
+            async def authenticate(self, handler):
+                return True
+
+        self.frontend.auth_handler = AcceptingAuth()
+        try:
+            status, _headers, body = await self._post(
+                "/rpc/EchoingRemoteService/0/echo", {"value": "hi"})
+            self.assertIn(b"200", status)
+            self.assertEqual(body, {"data": "hi", "error": None})
+        finally:
+            del self.frontend.auth_handler
+
+    async def test_no_auth_handler_lets_request_through(self):
+        # self.frontend is a plain AsyncService with no auth_handler
+        # attribute at all -- getattr(..., "auth_handler", None) must
+        # treat that the same as an explicit None.
+        self.assertFalse(hasattr(self.frontend, "auth_handler"))
+        status, _headers, body = await self._post(
+            "/rpc/EchoingRemoteService/0/echo", {"value": "hi"})
+        self.assertIn(b"200", status)
+        self.assertEqual(body, {"data": "hi", "error": None})
+
     async def test_slow_sync_auth_does_not_block_other_requests(self):
         # A synchronous, slow rpc_auth callback must be offloaded via
         # run_in_executor, so it doesn't block the single event-loop

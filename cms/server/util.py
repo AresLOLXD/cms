@@ -261,11 +261,32 @@ class CommonRequestHandler(RequestHandler):
         self.url: Url = None
         self.static_url_helper = None
 
-    def prepare(self):
+    async def prepare(self):
         """This method is executed at the beginning of each request.
+
+        First resolves the real client IP from behind any trusted
+        reverse proxies (see WebService's num_proxies_used), since
+        the auth hook below (or a handler's own get()/post()) may
+        depend on it -- e.g. the contestants' IP-lock feature. Then,
+        if the service was configured with an auth handler (see
+        WebService's auth_handler attribute), it's consulted here,
+        before any handler-specific get()/post() runs: a False
+        return from its authenticate() coroutine aborts the request
+        with 403.
 
         """
         super().prepare()
+        # Local import to avoid a circular import: cms.io.web_service
+        # imports Url from this module.
+        from cms.io.web_service import resolve_remote_ip
+        self.request.remote_ip = resolve_remote_ip(
+            self.request.headers.get("X-Forwarded-For"),
+            self.request.remote_ip,
+            self.service.num_proxies_used)
+        auth_handler = getattr(self.service, "auth_handler", None)
+        if auth_handler is not None:
+            if not await auth_handler.authenticate(self):
+                raise HTTPError(403)
         self.url = Url(get_url_root(self.request.path))
         self.static_url_helper = self.service.static_file_hasher.make(self.url)
         self.set_header("Cache-Control", "no-cache, must-revalidate")
