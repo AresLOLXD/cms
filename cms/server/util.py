@@ -33,6 +33,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 import typing
 
+from tornado.iostream import StreamClosedError
 from tornado.web import HTTPError, RequestHandler
 
 from cms.db import Session
@@ -54,10 +55,10 @@ def multi_contest(f):
     def wrapped_f(self, *args):
         if self.is_multi_contest():
             # Swallow the first argument (the contest name).
-            f(self, *(args[1:]))
+            return f(self, *(args[1:]))
         else:
             # Otherwise, just forward all arguments.
-            f(self, *args)
+            return f(self, *args)
     return wrapped_f
 
 
@@ -93,22 +94,35 @@ class FileHandlerMixin(RequestHandler):
         except TombstoneError:
             raise HTTPError(503)
 
-        self.set_header("Content-Type", content_type)
-        self.set_header("Content-Length", str(size))
-        if filename is not None:
-            disposition_value = disposition or "attachment"
-            self.set_header(
-                "Content-Disposition",
-                '%s; filename="%s"' % (disposition_value, filename))
-
-        chunk_size = file_cacher.CHUNK_SIZE
         try:
-            while True:
-                chunk = await loop.run_in_executor(None, fobj.read, chunk_size)
-                if not chunk:
-                    break
-                self.write(chunk)
-                await self.flush()
+            self.set_header("Content-Type", content_type)
+            self.set_header("Content-Length", str(size))
+            self.set_header("Cache-Control", "no-cache, private")
+            if filename is not None:
+                disposition_value = disposition or "attachment"
+                safe_filename = \
+                    filename.replace("\\", "\\\\").replace('"', '\\"')
+                header_value = '%s; filename="%s"' % (
+                    disposition_value, safe_filename)
+                try:
+                    header_value.encode("latin-1")
+                except UnicodeEncodeError:
+                    header_value = "%s; filename*=UTF-8''%s" % (
+                        disposition_value, quote(filename, safe=""))
+                self.set_header("Content-Disposition", header_value)
+
+            chunk_size = file_cacher.CHUNK_SIZE
+            try:
+                while True:
+                    chunk = await loop.run_in_executor(
+                        None, fobj.read, chunk_size)
+                    if not chunk:
+                        break
+                    self.write(chunk)
+                    await self.flush()
+            except StreamClosedError:
+                # The client disconnected mid-download; nothing more to do.
+                return
         finally:
             fobj.close()
 
