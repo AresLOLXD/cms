@@ -31,24 +31,48 @@ the result row was actually written to the database.
 
 """
 
-import gevent.monkey
-
-gevent.monkey.patch_all()  # noqa
-
+import asyncio
 import unittest
+from unittest.mock import patch
 
-from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
-
+from cms.conf import Address, ServiceCoord
 from cms.db import Submission, UserTest
 from cms.grading.Job import CompilationJob
 from cms.service.esoperations import ESOperation
 from cms.service.EvaluationService import EvaluationService, Result
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 
-class TestWriteResultsCreatesNewResult(DatabaseMixin, unittest.TestCase):
+class TestWriteResultsCreatesNewResult(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
 
-    def setUp(self):
-        super().setUp()
+    async def asyncSetUp(self):
+        # EvaluationService.__init__ (via WorkerPool.__init__, which calls
+        # get_service_shards("Worker") defined in cms.util) would
+        # otherwise try to connect to every configured Worker shard.
+        config_patcher = patch("cms.util.config.services", {})
+        config_patcher.start()
+        self.addCleanup(config_patcher.stop)
+
+        address_patcher = patch(
+            "cms.io.async_service.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        address_patcher.start()
+        self.addCleanup(address_patcher.stop)
+
+        # EvaluationService.__init__ connects to LogService (via
+        # AsyncService.__init__) and to ScoringService: both go through
+        # async_rpc's own imported reference to get_service_address.
+        rpc_address_patcher = patch(
+            "cms.io.async_rpc.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        rpc_address_patcher.start()
+        self.addCleanup(rpc_address_patcher.stop)
+
         self.contest = self.add_contest()
         self.participation = self.add_participation(contest=self.contest)
         self.task = self.add_task(contest=self.contest)
@@ -62,6 +86,31 @@ class TestWriteResultsCreatesNewResult(DatabaseMixin, unittest.TestCase):
     def tearDown(self):
         self.delete_data()
         super().tearDown()
+
+    def _build_service(self) -> EvaluationService:
+        """Build an EvaluationService safe to drive from a running loop.
+
+        Mirrors EvaluationService_test.py's _build_service: constructs
+        the service while this test's own event loop is already
+        running, sets self._loop explicitly so thread-safe dispatch
+        helpers take their call_soon_threadsafe branch as they would in
+        production, and stubs out start_sweeper so a background sweep
+        can't race with the test's own operations.
+
+        """
+        with patch.object(
+                EvaluationService, "start_sweeper", lambda self, timeout: None):
+            service = EvaluationService(0)
+        service._loop = asyncio.get_running_loop()
+        self.addCleanup(service._disconnect_all)
+        # EvaluationExecutor.max_operations_per_batch divides by
+        # len(self.pool): with zero workers registered (the case here,
+        # since config.services is patched to {}), the executor's
+        # always-running background run() loop would crash with a
+        # ZeroDivisionError as soon as anything is enqueued. Register
+        # one placeholder worker (left unconnected).
+        service.get_executor().pool.add_worker(ServiceCoord("Worker", 0))
+        return service
 
     @staticmethod
     def _make_compilation_result(operation):
@@ -80,7 +129,7 @@ class TestWriteResultsCreatesNewResult(DatabaseMixin, unittest.TestCase):
             })
         return Result(job, True)
 
-    def test_submission_result_is_persisted_on_first_compilation(self):
+    async def test_submission_result_is_persisted_on_first_compilation(self):
         # No pre-existing SubmissionResult: get_result_or_create() has to
         # construct one from scratch inside write_results().
         submission = self.add_submission(self.task, self.participation)
@@ -90,8 +139,8 @@ class TestWriteResultsCreatesNewResult(DatabaseMixin, unittest.TestCase):
             ESOperation.COMPILATION, submission.id, self.dataset.id)
         items = [(operation, self._make_compilation_result(operation))]
 
-        service = EvaluationService(0)
-        service.write_results(items)
+        service = self._build_service()
+        await service.write_results(items)
 
         # Re-fetch from a fresh session/query to make sure the row was
         # actually committed to the database, not merely present on the
@@ -105,7 +154,7 @@ class TestWriteResultsCreatesNewResult(DatabaseMixin, unittest.TestCase):
         self.assertTrue(result.compiled())
         self.assertTrue(result.compilation_succeeded())
 
-    def test_user_test_result_is_persisted_on_first_compilation(self):
+    async def test_user_test_result_is_persisted_on_first_compilation(self):
         # No pre-existing UserTestResult: get_result_or_create() has to
         # construct one from scratch inside write_results().
         user_test = self.add_user_test(self.task, self.participation)
@@ -115,8 +164,8 @@ class TestWriteResultsCreatesNewResult(DatabaseMixin, unittest.TestCase):
             ESOperation.USER_TEST_COMPILATION, user_test.id, self.dataset.id)
         items = [(operation, self._make_compilation_result(operation))]
 
-        service = EvaluationService(0)
-        service.write_results(items)
+        service = self._build_service()
+        await service.write_results(items)
 
         self.session.expire_all()
         fetched_user_test = UserTest.get_from_id(user_test.id, self.session)
