@@ -113,5 +113,81 @@ class ResolveRemoteIpTest(unittest.TestCase):
         self.assertEqual(resolve_remote_ip(None, "9.9.9.9", 1), "9.9.9.9")
 
 
+class WebServiceIntegrationTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase):
+    """A WebService assembled the way a real AdminWebServer/
+    ContestWebServer (sub-projects 2.5b/2.5c) will: static files, an
+    RPC route, and a file-serving handler all registered together."""
+
+    @patch("cms.io.async_service.get_service_address")
+    async def asyncSetUp(self, mock_get_address):
+        import tempfile
+        import os
+        from cms.io.static_handler import MultiLocationStaticFileHandler
+        from cms.io.web_rpc import RPCHandler
+        from cms.server.util import FileHandlerMixin
+
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+
+        self.static_dir = tempfile.TemporaryDirectory()
+        self.addAsyncCleanup(self._cleanup_static_dir)
+        with open(os.path.join(self.static_dir.name, "asset.txt"), "w") as f:
+            f.write("a static asset")
+
+        class FileFetchingHandler(FileHandlerMixin):
+            async def get(inner_self):
+                await inner_self.fetch(
+                    "irrelevant-in-this-test", "text/plain")
+
+        handlers = [
+            MultiLocationStaticFileHandler.make_route(
+                r"/static/(.*)", [self.static_dir.name]),
+            RPCHandler.make_route(r"/rpc/([^/]+)/([0-9]+)/([^/]+)", None),
+        ]
+        self.service = WebService(
+            listen_port=0, handlers=handlers, parameters={},
+            shard=0, listen_address="127.0.0.1")
+        self.run_task = asyncio.create_task(self.service._async_run())
+        await asyncio.sleep(0.05)
+        self.addAsyncCleanup(self._stop_service)
+
+    async def _cleanup_static_dir(self):
+        self.static_dir.cleanup()
+
+    async def _stop_service(self):
+        self.service.exit()
+        await asyncio.wait_for(self.run_task, timeout=5)
+
+    async def test_static_route_works_inside_a_full_application(self):
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(
+                b"GET /static/asset.txt HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"a static asset", response)
+
+    async def test_rpc_route_404s_for_unknown_service_inside_full_application(self):
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            payload = b"{}"
+            request = (
+                "POST /rpc/NoSuchService/0/method HTTP/1.1\r\n"
+                "Host: localhost\r\nContent-Type: application/json\r\n"
+                "Accept: application/json\r\n"
+                "Content-Length: %d\r\n\r\n" % len(payload)
+            ).encode() + payload
+            writer.write(request)
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+        self.assertIn(b"404", response.split(b"\r\n", 1)[0])
+
+
 if __name__ == "__main__":
     unittest.main()
