@@ -32,7 +32,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@v1
         with:
-          files: ./codecov/junit.xml
+          files: ./codecov/junit-gevent.xml,./codecov/junit-asyncio.xml
           flags: unittests
           token: ${{ secrets.CODECOV_TOKEN }}
 

@@ -36,10 +36,34 @@ cmsRankingWebServer 0       # public scoreboard
 
 ### Testing
 ```bash
-pytest                                          # run all unit tests
 pytest cmstestsuite/unit_tests/path/test_x.py  # run a single test file
 pytest -k "test_name"                           # run tests matching a name
 cmsRunFunctionalTests -v                        # run functional tests (needs a running DB)
+```
+
+Do not run a bare `pytest` (or `pytest cmstestsuite/unit_tests`) across the
+whole suite in one process: several `cmscontrib/` modules call
+`gevent.monkey.patch_all()` at import time, and any test file that imports
+one of them — directly (most of `cmstestsuite/unit_tests/cmscontrib/`,
+`cmsranking/`, and 9 files in `service/` not yet migrated off gevent) or
+transitively (`db/rankinggroup_test.py` imports `cmscontrib.DumpImporter`)
+— monkey-patches `threading`/`socket` for the whole process. Any
+asyncio-based test collected afterward in that same process then hangs
+forever. `service/` itself is a mix of both kinds (most of it was migrated
+to asyncio in sub-project 2.4), so it can't be assigned to either group as
+a whole directory. `docker/_cms-test-internal.sh` (what CI actually runs)
+splits the suite into two separate pytest invocations for exactly this
+reason — mirror that split locally when you need to run everything (see
+that script for the exact, current file list — it can grow):
+```bash
+GEVENT_SERVICE_FILES="cmstestsuite/unit_tests/service/ScoringServiceTest.py cmstestsuite/unit_tests/service/twophase_evaluationservice_test.py cmstestsuite/unit_tests/service/write_results_creates_result_test.py cmstestsuite/unit_tests/service/ProxyServiceTest.py cmstestsuite/unit_tests/service/proxyexecutor_test.py cmstestsuite/unit_tests/service/twophase_reenqueue_test.py cmstestsuite/unit_tests/service/twophase_write_results_test.py cmstestsuite/unit_tests/service/proxyservice_groups_test.py cmstestsuite/unit_tests/service/twophase_gate_consistency_test.py"
+
+pytest cmstestsuite/unit_tests/cmscontrib cmstestsuite/unit_tests/cmsranking \
+    cmstestsuite/unit_tests/db/rankinggroup_test.py $GEVENT_SERVICE_FILES
+
+IGNORE_ARGS="--ignore=cmstestsuite/unit_tests/cmscontrib --ignore=cmstestsuite/unit_tests/cmsranking --ignore=cmstestsuite/unit_tests/db/rankinggroup_test.py"
+for f in $GEVENT_SERVICE_FILES; do IGNORE_ARGS="$IGNORE_ARGS --ignore=$f"; done
+pytest cmstestsuite/unit_tests $IGNORE_ARGS
 ```
 
 ### Linting
