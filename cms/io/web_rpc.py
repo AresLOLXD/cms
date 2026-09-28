@@ -83,7 +83,7 @@ class RPCHandler(tornado.web.RequestHandler):
     """
 
     def initialize(
-        self, rpc_auth: Callable[[str, int, str], bool] | None = None
+        self, rpc_auth: Callable[["RPCHandler", str, int, str], bool] | None = None
     ):
         self._rpc_auth = rpc_auth
 
@@ -123,7 +123,7 @@ class RPCHandler(tornado.web.RequestHandler):
         if self._rpc_auth is not None:
             loop = asyncio.get_running_loop()
             authorized = await loop.run_in_executor(
-                None, self._rpc_auth, service_name, shard_int, method)
+                None, self._rpc_auth, self, service_name, shard_int, method)
             if not authorized:
                 raise tornado.web.HTTPError(403)
 
@@ -163,15 +163,15 @@ class RPCHandler(tornado.web.RequestHandler):
     def make_route(
         cls,
         url_pattern: str,
-        rpc_auth: Callable[[str, int, str], bool] | None,
+        rpc_auth: Callable[["RPCHandler", str, int, str], bool] | None,
     ) -> tuple[str, type, dict]:
         """Build a Tornado route entry for this handler.
 
         url_pattern: the URL regex, with three capture groups for
             service name, shard, and method (e.g.
             r"/rpc/([^/]+)/([0-9]+)/([^/]+)").
-        rpc_auth: a function taking (service_name, shard, method) and
-            returning whether the request is allowed, or None to allow
+        rpc_auth: a function taking (handler, service_name, shard, method)
+            and returning whether the request is allowed, or None to allow
             all requests.
 
         return: a (pattern, handler_class, kwargs) tuple usable

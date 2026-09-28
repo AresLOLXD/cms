@@ -195,7 +195,7 @@ class RPCHandlerTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestC
         self.server.stop()
         await self.server.close_all_connections()
         handler_spec = RPCHandler.make_route(
-            r"/rpc/(.*)/(.*)/(.*)", lambda service, shard, method: False)
+            r"/rpc/(.*)/(.*)/(.*)", lambda handler, service, shard, method: False)
         application = tornado.web.Application([handler_spec])
         application.service = self.frontend
         self.server = tornado.httpserver.HTTPServer(application)
@@ -255,7 +255,7 @@ class RPCHandlerTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestC
         self.server.stop()
         await self.server.close_all_connections()
 
-        def slow_auth(service_name, shard, method):
+        def slow_auth(handler, service_name, shard, method):
             time.sleep(0.3)
             return True
 
