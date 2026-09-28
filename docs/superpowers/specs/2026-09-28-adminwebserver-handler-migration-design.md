@@ -183,6 +183,32 @@ pre-existing `auth_handler.authenticate(self)` gate (the generic
 `auth_middleware` either, so this hook stays unused project-wide after
 2.5b, but removing the hook itself from `cms/io/` is out of scope here.
 
+## Addendum: pre-warming `current_user` in `prepare()`
+
+Also discovered while mapping this spec into a plan: `self.current_user` is
+resolved lazily (Tornado's own `RequestHandler.current_user` property calls
+`get_current_user()` once and caches it on `self._current_user`) the first
+time something reads it. For an AWS request that has `@require_permission`,
+that first read happens inside `require_permission`'s `newfunc`
+(`base.py:196`), via the `@tornado.web.authenticated` check it wraps —
+called synchronously by Tornado's dispatch, on the main event loop thread,
+*before* the (now `async def`) `get`/`post` method gets a chance to hand
+off to `run_in_executor`. Left unaddressed, `get_current_user()`'s blocking
+`Admin` lookup would keep blocking the main thread on every authenticated
+request regardless of the per-handler `run_in_executor` wrapping, defeating
+this sub-project's purpose for the common case.
+
+Fix (BaseHandler-only, no new fork): `BaseHandler.prepare()`
+(`base.py:307`, already `async def` since 2.5a) resolves and caches
+`current_user` itself, off the main thread:
+`self._current_user = await loop.run_in_executor(None, self.get_current_user)`.
+Every later read of `self.current_user` in that request (the
+`@tornado.web.authenticated` check, `render_params()`) then hits Tornado's
+existing cache and does no further DB work. This relies only on Tornado's
+own `current_user` caching contract (documented behavior, not an internal
+detail this project controls the stability of, but stable across the
+Tornado versions this project pins).
+
 ## Out of scope
 
 - `ContestWebServer`'s handlers (sub-project 2.5c).
