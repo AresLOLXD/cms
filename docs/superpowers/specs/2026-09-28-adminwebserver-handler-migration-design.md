@@ -151,12 +151,46 @@ invasive for this sub-project.
   pass, not a blind mechanical `sed`, even though the transformation itself
   is mechanical.
 
+## Addendum: `/rpc` endpoint authorization (`is_rpc_authorized`)
+
+Discovered while mapping this spec into an implementation plan:
+`AdminWebServer.is_rpc_authorized()` (`cms/server/admin/server.py:105-106`),
+the `rpc_auth` callback that protects AWS's `/rpc/<service>/<shard>/<method>`
+endpoint (used by the admin UI's JS to invoke RPCs directly, e.g.
+invalidating a submission), also reads `self.auth_handler.admin_id` today —
+the only other consumer of that attribute besides `BaseHandler`. Removing
+`auth_handler` entirely (as decided above) leaves it with no way to resolve
+the calling admin. `rpc_auth` is used only by `AdminWebServer` (confirmed:
+no other `WebService` subclass passes it) — this is unambiguously part of
+2.5b's scope, not a pre-existing separate concern.
+
+Resolution (user-selected): extend `RPCHandler.post()`
+(`cms/io/web_rpc.py`) to pass `self` (the `RPCHandler` instance) as the
+first argument to the `rpc_auth` callback, alongside `service_name`,
+`shard_int`, `method`. `is_rpc_authorized` becomes
+`is_rpc_authorized(self, handler, service, shard, method)`, decoding the
+`awslogin` cookie directly off `handler` via `handler.get_secure_cookie(...)`
+(available on any `tornado.web.RequestHandler`, not just `BaseHandler`,
+since `cookie_secret` is an `Application`-level setting) and looking up the
+`Admin` row the same way `BaseHandler.get_current_user()` does, then calling
+`rpc_authorization_checker(admin_id, service, shard, method)` unchanged.
+This is a small, targeted signature change to a 2.5a file, not a revival of
+`auth_handler`/`AWSAuthMiddleware` — it closes the exact gap 2.5a's own
+handoff note flagged as deferred to 2.5b. `RPCHandler.post()`'s separate,
+pre-existing `auth_handler.authenticate(self)` gate (the generic
+`WebService.auth_handler` hook from 2.5a) is left as dead code for AWS
+(still `None`, still a no-op) — no other `WebService` subclass sets
+`auth_middleware` either, so this hook stays unused project-wide after
+2.5b, but removing the hook itself from `cms/io/` is out of scope here.
+
 ## Out of scope
 
 - `ContestWebServer`'s handlers (sub-project 2.5c).
 - Migrating any query code to the async DB layer (`AsyncSessionGen`, from
   sub-project 2.3) — handlers stay on `self.sql_session`/blocking
   SQLAlchemy, just moved off the main event loop thread.
-- Any change to `WebService.auth_handler`'s generic
-  `authenticate(handler) -> bool` protocol from 2.5a — AWS's session logic
-  now lives entirely in `BaseHandler` and does not use that hook.
+- Removing the now-fully-unused generic `WebService.auth_handler` /
+  `auth_middleware` hook from `cms/io/web_service.py` and
+  `cms/io/web_rpc.py` itself — it becomes dead code for every current
+  `WebService` subclass after this sub-project, but deleting 2.5a's own
+  framework code is not this sub-project's job.
