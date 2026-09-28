@@ -54,19 +54,6 @@ class AdminWebServer(WebService):
             "cookie_secret": hex_to_bin(config.web_server.secret_key),
             "debug": config.web_server.tornado_debug,
             "num_proxies_used": config.admin_web_server.num_proxies_used,
-            # TODO(2.5b): re-add "auth_middleware": <new AWSAuthMiddleware>
-            # once it's rewritten to the new protocol (async def
-            # authenticate(self, handler) -> bool) that WebService's
-            # auth_handler extension point expects -- the old, WSGI-shaped
-            # AWSAuthMiddleware(app) can't be constructed the way
-            # WebService.__init__ now calls it (auth_middleware()), so
-            # passing it here would crash AdminWebServer at startup. With
-            # auth_handler left None, AWS login/authenticated pages and
-            # /rpc calls fail closed with AttributeError -> 500 (not a
-            # silent auth bypass) until 2.5b -- same pre-2.5a brokenness,
-            # just still not fixed (see
-            # docs/superpowers/specs/2026-09-25-webservice-tornado-native-design.md's
-            # Handoff Notes).
             "rpc_enabled": True,
             "rpc_auth": self.is_rpc_authorized,
             "xsrf_cookies": True,
@@ -77,7 +64,6 @@ class AdminWebServer(WebService):
             parameters,
             shard=shard,
             listen_address=config.admin_web_server.listen_address)
-        self.auth_handler: None = None  # TODO(2.5b): real type once rewired
 
         self.jinja2_environment = AWS_ENVIRONMENT
 

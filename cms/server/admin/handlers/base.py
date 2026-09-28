@@ -28,9 +28,11 @@
 """
 
 from collections.abc import Callable
+import asyncio
 import ipaddress
 import json
 import logging
+import math
 import traceback
 from datetime import datetime, timedelta
 from functools import wraps
@@ -59,7 +61,7 @@ from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
 from cms.server import CommonRequestHandler, FileHandlerMixin
 from cmscommon.crypto import hash_password, parse_authentication
-from cmscommon.datetime import make_datetime
+from cmscommon.datetime import make_datetime, make_timestamp
 if typing.TYPE_CHECKING:
     from cms.server.admin import AdminWebServer
 
@@ -228,6 +230,7 @@ class BaseHandler(CommonRequestHandler):
     PERMISSION_ALL = "all"
     PERMISSION_MESSAGING = "messaging"
     AUTHENTICATED = "authenticated"
+    COOKIE_NAME = "awslogin"
     current_user: Admin | None
     service: "AdminWebServer"
 
@@ -259,7 +262,7 @@ class BaseHandler(CommonRequestHandler):
             the Admin object, otherwise None.
 
         """
-        admin_id = self.service.auth_handler.admin_id
+        admin_id = self._get_session_admin_id()
         if admin_id is None:
             return None
 
@@ -270,14 +273,69 @@ class BaseHandler(CommonRequestHandler):
             .filter(Admin.enabled.is_(True))
         ).scalars().first()
         if admin is None:
-            self.service.auth_handler.clear()
+            self.clear_cookie(self.COOKIE_NAME)
             return None
 
         # Maybe refresh the cookie.
         if self.refresh_cookie:
-            self.service.auth_handler.refresh()
+            self._set_admin_session(admin_id)
 
         return admin
+
+    def _get_session_admin_id(self) -> int | None:
+        """Decode the awslogin cookie and return its admin id.
+
+        Applies the same expiry/shape checks the old
+        AWSAuthMiddleware._verify_cookie() did. Any failure (missing
+        cookie, bad signature, malformed JSON, expired timestamp,
+        wrong field types) is treated as "no session," not an error.
+
+        return: the admin id stored in a valid, non-expired cookie,
+            or None.
+
+        """
+        raw = self.get_secure_cookie(
+            self.COOKIE_NAME,
+            # We do our own expiry checking below, so an upper bound
+            # here is fine (same reasoning as the old middleware's
+            # max_age_days).
+            max_age_days=math.ceil(
+                config.admin_web_server.cookie_duration / 60 / 60 / 24),
+        )
+        if raw is None:
+            return None
+        try:
+            session = json.loads(raw.decode())
+        except (ValueError, UnicodeDecodeError):
+            self.clear_cookie(self.COOKIE_NAME)
+            return None
+
+        admin_id = session.get("id", None)
+        timestamp = session.get("timestamp", None)
+        if admin_id is None or timestamp is None:
+            self.clear_cookie(self.COOKIE_NAME)
+            return None
+        if not isinstance(admin_id, int) or not isinstance(timestamp, float):
+            self.clear_cookie(self.COOKIE_NAME)
+            return None
+        if make_timestamp() - timestamp > config.admin_web_server.cookie_duration:
+            self.clear_cookie(self.COOKIE_NAME)
+            return None
+
+        return admin_id
+
+    def _set_admin_session(self, admin_id: int):
+        """Write a fresh, signed awslogin cookie for the given admin.
+
+        Used both at login and to refresh an existing session's
+        expiry (there is no separate "refresh" operation: refreshing
+        is just re-issuing the cookie with a new timestamp).
+
+        admin_id: the id of the admin to store in the session.
+
+        """
+        payload = json.dumps({"id": admin_id, "timestamp": make_timestamp()})
+        self.set_secure_cookie(self.COOKIE_NAME, payload, httponly=True)
 
     _GetItemT = typing.TypeVar("_GetItemT", bound=cms.db.Base)
 
@@ -307,9 +365,18 @@ class BaseHandler(CommonRequestHandler):
     async def prepare(self):
         """This method is executed at the beginning of each request.
 
+        Resolves and caches current_user here, off the main thread,
+        so every later synchronous read of self.current_user in this
+        request (the @require_permission/@tornado.web.authenticated
+        check, render_params()) hits Tornado's own cache instead of
+        re-running a blocking DB query on the event loop thread.
+
         """
         await super().prepare()
         self.contest = None
+        loop = asyncio.get_running_loop()
+        self._current_user = await loop.run_in_executor(
+            None, self.get_current_user)
 
     def render(self, template_name: str, **params):
         t = self.service.jinja2_environment.get_template(template_name)
