@@ -50,6 +50,27 @@ dependencies) that we don't want to wait on upstream for — happen on the
 **`beta`** branch instead, before they're considered stable enough to land
 here.
 
+### Beta-line modernization
+
+The main effort on `beta` right now is retiring gevent in favor of Python's
+native `asyncio`, one layer of the system at a time:
+
+| Stage | Status | What it does |
+|-------|--------|---------------|
+| SQLAlchemy 2.0 migration | Done | Move the whole codebase off the legacy `Query` API to SQLAlchemy 2.0's `select()` style |
+| `cms/io/` gevent → asyncio | Done | New `AsyncService`/`AsyncTriggeredService` runtime, RPC client/server ported to native asyncio |
+| Async DB access | Done | Async-safe session/query layer (`AsyncSessionGen`) for code running on the asyncio loop |
+| Service migration | Done | `EvaluationService`, `ScoringService`, `ProxyService`, `Worker`, etc. ported to `AsyncTriggeredService` |
+| `WebService`/Tornado-native | Done | `WebService` and the admin/contest RPC handlers now run on native Tornado instead of gevent-patched WSGI |
+| AdminWebServer handlers | Design phase | Porting `cms/server/admin/handlers/` and its login/session logic to the native-Tornado framework above |
+| ContestWebServer handlers | Planned | Same migration for the contestant-facing server |
+
+Each stage has a written design spec under
+[`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `beta`
+once implemented, reviewed, and its tests pass. `docker/_cms-test-internal.sh`
+also gained a gevent/asyncio-aware test split so both the legacy and
+migrated code can be tested in CI without the two colliding.
+
 ---
 
 ## Features
