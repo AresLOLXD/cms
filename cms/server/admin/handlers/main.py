@@ -25,6 +25,7 @@
 
 """
 
+import asyncio
 import json
 import logging
 
@@ -46,7 +47,11 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
     """Login handler.
 
     """
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         error_args = {"login_error": "true"}
         next_page: str = self.get_argument("next", None)
         if next_page is not None:
@@ -85,7 +90,7 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
 
         logger.info("Admin logged in: %r from IP %s.", username,
                     self.request.remote_ip)
-        self.service.auth_handler.set(admin.id)
+        self._set_admin_session(admin.id)
         self.redirect(next_page)
 
 
@@ -93,14 +98,22 @@ class LogoutHandler(BaseHandler):
     """Logout handler.
 
     """
-    def post(self):
-        self.service.auth_handler.clear()
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
+        self.clear_cookie(self.COOKIE_NAME)
         self.redirect(self.url())
 
 
 class ResourcesHandler(BaseHandler):
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, shard=None, contest_id=None):
+    async def get(self, shard=None, contest_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, shard, contest_id)
+
+    def _get_sync(self, shard=None, contest_id=None):
         if contest_id is not None:
             self.contest = self.safe_get_item(Contest, contest_id)
             contest_address = [contest_id]
@@ -136,7 +149,11 @@ class NotificationsHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self):
+    async def get(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync)
+
+    def _get_sync(self):
         res = []
         last_notification = make_datetime(
             float(self.get_argument("last_notification", "0")))
@@ -170,7 +187,11 @@ class MarkdownRenderHandler(BaseHandler):
     """Renders Markdown for AWS message previews."""
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         data = self.get_argument("input")
         rendered = markdown_filter(data)
         self.write(rendered)
