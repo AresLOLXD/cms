@@ -99,7 +99,10 @@ Group mode only (`contest_id is None`). Legacy mode is unchanged.
   priority higher than any data operation of that group, so RWS learns the
   visibility **before** it receives any data of a new or re-created
   namespace. `reinitialize` and `regenerate_ranking` go through
-  `initialize()` and so resend it.
+  `initialize()` and so resend it. Each sweep (every ~347 s) also resends
+  every group's current visibility, so a lost `reinitialize`, an RWS volume
+  restored without its state, or a rejection that RWS no longer makes
+  corrects itself within one sweep.
 - Request: `PUT <ranking>/<group>/visibility` with the proxy's write
   credentials and the JSON body
   `{"hidden": <bool>, "staff_password": <hash string or null>}`. The hash,
@@ -245,7 +248,7 @@ ignored.
 | Situation | Behaviour |
 |---|---|
 | RWS down when AWS saves | ProxyService retries with backoff (SP1); the old state holds until delivered |
-| RWS rejects the visibility PUT (4xx) | WARNING logged; the group's new data is held back until RWS accepts new settings for it, so the ranking stops updating. An outdated RWS (the usual cause) keeps serving the data it already has to everyone. Fix RWS, save the group again, then press Regenerate |
+| RWS rejects the visibility PUT (4xx) | WARNING logged; the group's new data is held back until RWS accepts new settings for it, so the ranking stops updating. An outdated RWS (the usual cause) keeps serving the data it already has to everyone. Fix RWS, save the group again (or wait for the next sweep), then press Regenerate |
 | Malformed `visibility.json` | Group treated as hidden without password (fail closed), ERROR logged |
 | Hidden group without a staff password | Everyone sees the notice; login always fails |
 | Wrong password | 1 s delay, notice with error, 401 |

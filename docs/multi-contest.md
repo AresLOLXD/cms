@@ -140,7 +140,8 @@ If ProxyService cannot deliver the visibility settings to RankingWebServer
 3. To fix it:
    - Update RankingWebServer to a version that supports visibility settings
      (with the `/visibility` endpoint).
-   - Save the group again in AWS (re-send the visibility settings).
+   - Save the group again in AWS to re-send the visibility settings at once.
+     ProxyService also re-sends them by itself within about 6 minutes.
    - Press **Regenerate** for that group to resend the scores held back
      meanwhile.
 
