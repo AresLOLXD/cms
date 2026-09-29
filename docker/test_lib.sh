@@ -93,6 +93,51 @@ else
   check "_env_var CMS_USE_LOCALDB falls back to default when unset" "got '$result'"
 fi
 
+# ── _do_up: ranking-only options ──────────────────────────────────────────────
+# Run _do_up against a stub "docker" that records its arguments, in a scratch
+# copy of the repo layout (so the .env that _do_up writes is not the real one).
+
+TMP_ROOT=$(mktemp -d)
+trap 'rm -rf "$TMP_ROOT"' EXIT
+mkdir -p "$TMP_ROOT/docker" "$TMP_ROOT/bin"
+cp "$REPO_ROOT/docker/_lib.sh" "$TMP_ROOT/docker/_lib.sh"
+printf '#!/usr/bin/env bash\necho "$*" >> "$DOCKER_CALLS"\n' > "$TMP_ROOT/bin/docker"
+chmod +x "$TMP_ROOT/bin/docker"
+
+# run_do_up ANSWER... — feed the answers (local database, rebuild choice) to
+# _do_up; docker calls end up in $TMP_ROOT/calls, its output in $DO_UP_OUT.
+run_do_up() {
+  : > "$TMP_ROOT/calls"
+  DO_UP_OUT=$(printf '%s\n' "$@" | DOCKER_CALLS="$TMP_ROOT/calls" PATH="$TMP_ROOT/bin:$PATH" \
+    bash -c "source '$TMP_ROOT/docker/_lib.sh'; _do_up" 2>&1)
+}
+
+for entry in "3:build ranking" "6:build --no-cache ranking"; do
+  choice="${entry%%:*}" build="${entry#*:}"
+  run_do_up n "$choice"
+  up_calls=$(grep -E ' up ' "$TMP_ROOT/calls" || true)
+  if grep -q " ${build}\$" "$TMP_ROOT/calls" \
+      && [[ "$(wc -l <<<"$up_calls")" -eq 1 && "$up_calls" == *" up -d --no-deps --wait --wait-timeout 90 ranking" ]] \
+      && [[ "$DO_UP_OUT" == *"Only the ranking container was started or updated"* ]]; then
+    check "_do_up choice $choice builds and starts only ranking, and says so" "ok"
+  else
+    check "_do_up choice $choice builds and starts only ranking, and says so" "calls: $(tr '\n' '|' < "$TMP_ROOT/calls")"
+  fi
+done
+
+for entry in "1:" "2:build" "4:build cms db-init" "7:build --no-cache"; do
+  choice="${entry%%:*}" build="${entry#*:}"
+  run_do_up n "$choice"
+  up_calls=$(grep -E ' up ' "$TMP_ROOT/calls" || true)
+  if [[ ( -z "$build" ) || "$(grep -c " ${build}\$" "$TMP_ROOT/calls")" -eq 1 ]] \
+      && [[ "$(wc -l <<<"$up_calls")" -eq 1 && "$up_calls" == *" up -d --wait --wait-timeout 90" ]] \
+      && [[ "$DO_UP_OUT" != *"Only the ranking container"* ]]; then
+    check "_do_up choice $choice still starts every service" "ok"
+  else
+    check "_do_up choice $choice still starts every service" "calls: $(tr '\n' '|' < "$TMP_ROOT/calls")"
+  fi
+done
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

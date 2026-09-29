@@ -90,20 +90,31 @@ _do_up() {
   fi
 
   local choice
-  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only\n  4) CMS only\n  5) CMS only (no cache)\n  6) Ranking only (no cache)\n  7) All services (no cache)\n"
+  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only (starts only the ranking container)\n  4) CMS only\n  5) CMS only (no cache)\n  6) Ranking only (no cache; starts only the ranking container)\n  7) All services (no cache)\n"
   read -r -p "Choice [1-7]: " choice
   choice="${choice:-1}"
 
+  local ranking_only=false
   case "$choice" in
     2) "${up_cmd[@]}" build ;;
-    3) "${up_cmd[@]}" build ranking ;;
+    3) "${up_cmd[@]}" build ranking; ranking_only=true ;;
     4) "${up_cmd[@]}" build cms db-init ;;
     5) "${up_cmd[@]}" build --no-cache cms db-init ;;
-    6) "${up_cmd[@]}" build --no-cache ranking ;;
+    6) "${up_cmd[@]}" build --no-cache ranking; ranking_only=true ;;
     7) "${up_cmd[@]}" build --no-cache ;;
   esac
 
-  "${up_cmd[@]}" up -d --wait --wait-timeout 90
+  if [[ "$ranking_only" == true ]]; then
+    # Start only the ranking container. A plain "up -d" would also recreate
+    # cms from the image it was last built from, which may predate the current
+    # compose file (for example the cms-data mount that moved to cms/data).
+    "${up_cmd[@]}" up -d --no-deps --wait --wait-timeout 90 ranking
+    echo "Only the ranking container was started or updated; the other services were not touched" \
+         "(after ./restart.sh they stay stopped)." \
+         "Run ./up.sh and choose 4) CMS only to update or start the CMS container."
+  else
+    "${up_cmd[@]}" up -d --wait --wait-timeout 90
+  fi
 }
 
 # _run_timed LABEL CMD [ARGS...] — run CMD streaming output, print elapsed time.
