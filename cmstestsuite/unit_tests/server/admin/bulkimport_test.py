@@ -97,6 +97,29 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows("usuario\nñ\n".encode("latin-1"), MAPPING)
         self.assertTrue(any("UTF-8" in e for e in errors))
 
+    def test_field_over_the_csv_limit_is_an_error(self):
+        # The csv module refuses fields over 131072 characters; that must
+        # come back as an error, not as an exception.
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,A,L,%s,\n" % ("x" * 200000)), MAPPING)
+        self.assertEqual(rows, [])
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0].startswith("el archivo no es un CSV válido"))
+        # The error never echoes the content of a cell.
+        self.assertNotIn("x" * 100, errors[0])
+
+    def test_row_errors_follow_the_field_order(self):
+        # Every required cell but the team is empty. The errors must come
+        # in the order of FIELDS, whatever the hash seed of the process.
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            ",,,,JAL\n"), MAPPING)
+        self.assertEqual(errors, ["fila 2: el usuario está vacío",
+                                  "fila 2: el nombre está vacío",
+                                  "fila 2: el apellido está vacío",
+                                  "fila 2: la contraseña está vacía"])
+
 
 if __name__ == "__main__":
     unittest.main()

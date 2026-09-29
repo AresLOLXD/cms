@@ -74,9 +74,13 @@ def read_rows(data: bytes, mapping: dict[str, str]
         else ","
     reader = csv.reader(io.StringIO(text), delimiter=delimiter)
     try:
-        header = [h.strip() for h in next(reader)]
-    except StopIteration:
+        records = list(reader)
+    except csv.Error as error:
+        # The message of a csv.Error never includes the content of a cell.
+        return [], ["el archivo no es un CSV válido: %s" % error]
+    if not records:
         return [], ["el archivo está vacío"]
+    header = [h.strip() for h in records[0]]
 
     errors: list[str] = []
     columns: dict[str, int] = {}
@@ -96,7 +100,7 @@ def read_rows(data: bytes, mapping: dict[str, str]
 
     rows: list[ImportRow] = []
     seen: dict[str, int] = {}
-    for line, cells in enumerate(reader, start=2):
+    for line, cells in enumerate(records[1:], start=2):
         if not any(cell.strip() for cell in cells):
             continue
         if len(rows) >= MAX_ROWS:
@@ -110,8 +114,8 @@ def read_rows(data: bytes, mapping: dict[str, str]
             return value if field == "password" else value.strip()
 
         values = {field: cell(field) for field in FIELDS}
-        for field in REQUIRED:
-            if values[field] == "":
+        for field in FIELDS:
+            if field in REQUIRED and values[field] == "":
                 errors.append("fila %d: %s está vacío" % (
                     line, LABELS[field]) if field != "password" else
                     "fila %d: la contraseña está vacía" % line)
