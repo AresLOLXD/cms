@@ -95,8 +95,42 @@ class TestFlushingDict(unittest.TestCase):
         gevent.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1)
         self.assertCountEqual(expected_data, sum(self.received_data, []))
 
+    def test_callback_error_is_logged_and_drops_its_batch(self):
+        # The batch that the callback raised on is not kept as being
+        # flushed: its keys are not in the dict any more.
+        self.d = FlushingDict(
+            TestFlushingDict.SIZE, TestFlushingDict.FLUSH_LATENCY_SECONDS,
+            self.failing_callback)
+        with self.assertLogs("cms.service.flushingdict", level="ERROR"):
+            self.d.add(0, 0)
+            gevent.sleep(2 * TestFlushingDict.FLUSH_LATENCY_SECONDS)
+
+        self.assertEqual(1, len(self.received_data))
+        self.assertEqual({}, self.d.fd)
+        self.assertNotIn(0, self.d)
+
+    def test_flushing_goes_on_after_callback_error(self):
+        self.d = FlushingDict(
+            TestFlushingDict.SIZE, TestFlushingDict.FLUSH_LATENCY_SECONDS,
+            self.failing_callback)
+        self.d.add(0, 0)
+        gevent.sleep(2 * TestFlushingDict.FLUSH_LATENCY_SECONDS)
+        self.d.add(1, 1)
+        gevent.sleep(2 * TestFlushingDict.FLUSH_LATENCY_SECONDS)
+
+        # The second batch got to the callback, which raised on the
+        # first one only.
+        self.assertEqual([[(0, 0)], [(1, 1)]], self.received_data)
+        self.assertEqual({}, self.d.fd)
+
     def callback(self, data):
         self.received_data.append(data)
+
+    def failing_callback(self, data):
+        """Raise on the first batch, and go on normally after that."""
+        self.received_data.append(data)
+        if len(self.received_data) == 1:
+            raise RuntimeError("Simulated failure of the callback.")
 
     def long_callback(self, data):
         gevent.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS * 2)
