@@ -905,8 +905,10 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import()
 
         self.assertIn('addEventListener("pageshow"', html)
-        self.assertIn("event.persisted", html)
         self.assertIn(".disabled = false", html)
+        # Not only from the back/forward cache: Firefox can restore the
+        # disabled state of a form without it, so every pageshow re-enables.
+        self.assertNotIn("persisted", html)
 
     def test_a_job_shows_a_progress_bar_and_its_status_url(self):
         job = SimpleNamespace(id="job-1", processed=3, total=10)

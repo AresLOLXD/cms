@@ -183,10 +183,11 @@ guarda nada.</p>
                 button.disabled = true;
             });
         });
-        // Going back may restore the page as it was left, with the
-        // buttons disabled.
-        window.addEventListener("pageshow", function (event) {
-            if (!event.persisted) { return; }
+        // Going back may show the page as it was left, with the buttons
+        // disabled, whether it comes from the back/forward cache or the
+        // browser only restores the state of the form. On a normal load
+        // there is nothing to undo.
+        window.addEventListener("pageshow", function () {
             buttons.forEach(function (button) {
                 button.disabled = false;
             });
