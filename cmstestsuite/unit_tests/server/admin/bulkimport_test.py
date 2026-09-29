@@ -362,7 +362,8 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         self.assertEqual(plan.updated_participations, ["ana"])
         self.assertEqual(plan.summary(), {
             "usuarios_nuevos": 1, "usuarios_actualizados": 2,
-            "participaciones_nuevas": 2, "participaciones_actualizadas": 1})
+            "participaciones_nuevas": 2, "participaciones_actualizadas": 1,
+            "equipos_quitados": 0, "movidas_al_grupo_principal": 0})
         self.assertEqual(plan.main_group_id, self.contest.main_group_id)
         self.assertEqual(list(plan.teams), ["JAL"])
 
@@ -447,6 +448,101 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
             import_row(2, "carla")])
         self.assertEqual(result,
                          (None, ["el concurso no tiene grupo principal"]))
+
+
+class TestPlanImportLosses(ImportFixtureMixin, unittest.TestCase):
+    """The participations that an empty team or group cell changes."""
+
+    def setUp(self):
+        super().setUp()
+        self.afternoon = self.get_group(name="tarde", contest=self.contest)
+        self.session.add(self.afternoon)
+        # Every combination of a current team and a current group, in this
+        # contest: ana has neither (main group, no team).
+        self.add_participant("carla", team=self.team)
+        self.add_participant("dora", group=self.afternoon)
+        self.add_participant("eva", team=self.team, group=self.afternoon)
+        self.session.flush()
+
+    def add_participant(self, username, **kwargs):
+        user = self.add_user(username=username)
+        return self.add_participation(user=user, contest=self.contest,
+                                      **kwargs)
+
+    def plan(self, rows):
+        plan, errors = plan_import(self.session, self.contest.id, rows)
+        self.assertEqual(errors, [])
+        return plan
+
+    def test_empty_cells_lose_the_team_and_the_group(self):
+        plan = self.plan([import_row(2, "ana"), import_row(3, "carla"),
+                          import_row(4, "dora"), import_row(5, "eva")])
+
+        # carla and eva lose their team; dora and eva go to the main group.
+        self.assertEqual(plan.removed_teams, 2)
+        self.assertEqual(plan.moved_to_main_group, 2)
+        summary = plan.summary()
+        self.assertEqual(summary["equipos_quitados"], 2)
+        self.assertEqual(summary["movidas_al_grupo_principal"], 2)
+
+    def test_the_two_counts_are_independent(self):
+        plan = self.plan([import_row(2, "carla"), import_row(3, "dora")])
+
+        # carla only loses her team (she is in the main group already) and
+        # dora is only moved (she has no team).
+        self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
+                         (1, 1))
+
+    def test_a_cell_with_a_value_loses_nothing(self):
+        # The row gives a team and a group, even if they are not the
+        # current ones: that is a replacement, not a loss.
+        plan = self.plan([
+            import_row(2, "carla", team="JAL", group="tarde"),
+            import_row(3, "dora", team="JAL", group="tarde"),
+            import_row(4, "eva", team="JAL", group="tarde")])
+
+        self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
+                         (0, 0))
+
+    def test_only_the_missing_cell_counts(self):
+        plan = self.plan([import_row(2, "eva", team="JAL")])
+
+        self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
+                         (0, 1))
+
+        plan = self.plan([import_row(2, "eva", group="tarde")])
+
+        self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
+                         (1, 0))
+
+    def test_nothing_is_lost_by_a_participation_that_does_not_exist(self):
+        # beto is a user without participation, and frida is a new user:
+        # their empty cells have nothing to clear.
+        plan = self.plan([import_row(2, "beto"), import_row(3, "frida")])
+
+        self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
+                         (0, 0))
+
+    def test_participations_of_other_contests_are_not_counted(self):
+        other_contest = self.add_contest()
+        gina = self.add_user(username="gina")
+        other_group = self.get_group(name="noche", contest=other_contest)
+        self.session.add(other_group)
+        self.add_participation(user=gina, contest=other_contest,
+                               group=other_group, team=self.team)
+        self.session.flush()
+
+        plan = self.plan([import_row(2, "gina")])
+
+        self.assertEqual(plan.new_participations, ["gina"])
+        self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
+                         (0, 0))
+
+    def test_the_counts_are_zero_when_nothing_is_lost(self):
+        plan = self.plan([import_row(2, "ana")])
+
+        self.assertEqual(plan.summary()["equipos_quitados"], 0)
+        self.assertEqual(plan.summary()["movidas_al_grupo_principal"], 0)
 
 
 class TestHashPasswords(unittest.TestCase):

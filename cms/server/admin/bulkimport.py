@@ -221,6 +221,11 @@ class ImportPlan:
     groups: name -> id of every group of the contest.
     main_group_id: the id of the main group of the contest, where a
         participation goes when its row has no group.
+    removed_teams: how many existing participations have a team that the
+        import clears, because their row has no team.
+    moved_to_main_group: how many existing participations are in a group
+        other than the main one and go to it, because their row has no
+        group.
 
     """
     new_users: list[str]
@@ -230,18 +235,24 @@ class ImportPlan:
     teams: dict[str, int]
     groups: dict[str, int]
     main_group_id: int
+    removed_teams: int = 0
+    moved_to_main_group: int = 0
 
     def summary(self) -> dict[str, int]:
         """Count what the import would do.
 
-        return: the number of new and updated users and participations.
+        return: the number of new and updated users and participations,
+            and of the participations that lose their team or go to the
+            main group.
 
         """
         return {"usuarios_nuevos": len(self.new_users),
                 "usuarios_actualizados": len(self.updated_users),
                 "participaciones_nuevas": len(self.new_participations),
                 "participaciones_actualizadas":
-                    len(self.updated_participations)}
+                    len(self.updated_participations),
+                "equipos_quitados": self.removed_teams,
+                "movidas_al_grupo_principal": self.moved_to_main_group}
 
 
 def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
@@ -281,18 +292,34 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         existing = set(session.execute(
             select(User.username).filter(User.username.in_(usernames))
         ).scalars())
-        participating = set(session.execute(
-            select(User.username).join(Participation)
+        current = session.execute(
+            select(User.username, Participation.team_id,
+                   Participation.group_id)
+            .select_from(User).join(Participation)
             .filter(Participation.contest_id == contest_id,
-                    User.username.in_(usernames))
-        ).scalars())
+                    User.username.in_(usernames))).all()
+    # username -> (team id, group id) of the existing participations.
+    participating = {username: (team_id, group_id)
+                     for username, team_id, group_id in current}
+    # An empty cell replaces: it clears the team and puts the participation
+    # in the main group, so the page has to say how many that is.
+    removed_teams = moved_to_main_group = 0
+    for row in rows:
+        if row.username not in participating:
+            continue
+        team_id, group_id = participating[row.username]
+        if row.team is None and team_id is not None:
+            removed_teams += 1
+        if row.group is None and group_id != contest.main_group_id:
+            moved_to_main_group += 1
     return ImportPlan(
         new_users=[u for u in usernames if u not in existing],
         updated_users=[u for u in usernames if u in existing],
         new_participations=[u for u in usernames if u not in participating],
         updated_participations=[u for u in usernames if u in participating],
-        teams=teams, groups=groups,
-        main_group_id=contest.main_group_id), []
+        teams=teams, groups=groups, main_group_id=contest.main_group_id,
+        removed_teams=removed_teams,
+        moved_to_main_group=moved_to_main_group), []
 
 
 def hash_passwords(rows: list[ImportRow], new_users: set[str],

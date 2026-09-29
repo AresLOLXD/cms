@@ -493,6 +493,29 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
             self.assertNotIn(PASSWORD, html)
 
 
+class TestLossesReachThePage(unittest.TestCase):
+    """The counts of plan_import are what the warnings of the page show."""
+
+    def test_the_validation_of_a_plan_that_clears_things(self):
+        plan = ImportPlan(new_users=[], updated_users=["ana"],
+                          new_participations=[],
+                          updated_participations=["ana"], teams={},
+                          groups={}, main_group_id=1, removed_teams=7,
+                          moved_to_main_group=2)
+        handler = make_handler(form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_import", return_value=(plan, [])):
+            handler._post_sync(str(CONTEST_ID))
+
+        params = rendered_params(handler)
+        self.assertEqual(params["summary"]["equipos_quitados"], 7)
+        self.assertEqual(params["summary"]["movidas_al_grupo_principal"], 2)
+        template = AWS_ENVIRONMENT.get_template("contest_users_import.html")
+        html = "".join(template.blocks["core"](
+            template.new_context(dict(params))))
+        self.assertIn("7 participaciones perderán su equipo", html)
+        self.assertIn("2 participaciones pasarán al grupo principal", html)
+
+
 class TestImportJobStatus(unittest.TestCase):
 
     def setUp(self):
@@ -828,6 +851,67 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn("Usuarios nuevos: 1", html)
         self.assertIn("Participaciones nuevas: 1", html)
         self.assertIn("Usuarios actualizados: 0", html)
+
+    def test_the_validation_warns_about_what_an_import_clears(self):
+        summary = {**make_plan().summary(), "equipos_quitados": 3,
+                   "movidas_al_grupo_principal": 2}
+
+        html = self.render_import(summary=summary)
+
+        self.assertIn("3 participaciones perderán su equipo", html)
+        self.assertIn("2 participaciones pasarán al grupo principal", html)
+        # The warnings come after the counts of the summary.
+        self.assertLess(html.index("Participaciones actualizadas"),
+                        html.index("perderán su equipo"))
+
+    def test_the_warnings_of_the_validation_have_a_singular(self):
+        summary = {**make_plan().summary(), "equipos_quitados": 1,
+                   "movidas_al_grupo_principal": 1}
+
+        html = self.render_import(summary=summary)
+
+        self.assertIn("1 participación perderá su equipo", html)
+        self.assertIn("1 participación pasará al grupo principal", html)
+        self.assertNotIn("1 participaciones", html)
+
+    def test_each_warning_of_the_validation_shows_only_when_it_applies(self):
+        html = self.render_import(summary={
+            **make_plan().summary(), "equipos_quitados": 4})
+        self.assertIn("4 participaciones perderán su equipo", html)
+        self.assertNotIn("pasarán al grupo principal", html)
+
+        html = self.render_import(summary={
+            **make_plan().summary(), "movidas_al_grupo_principal": 5})
+        self.assertIn("5 participaciones pasarán al grupo principal", html)
+        self.assertNotIn("perderán su equipo", html)
+
+    def test_no_warning_when_the_import_clears_nothing(self):
+        html = self.render_import(summary=make_plan().summary())
+
+        self.assertIn("Usuarios nuevos: 1", html)
+        self.assertNotIn("perderá", html)
+        self.assertNotIn("pasará", html)
+        self.assertNotIn('class="import-box import-warning"', html)
+
+    def test_the_form_warns_that_empty_team_and_group_cells_replace(self):
+        note = ("Vacío o sin asignar: la participación se queda sin equipo "
+                "/ en el grupo principal.")
+
+        html = self.render_import()
+
+        self.assertEqual(html.count(note), 1)
+        # It sits in the table of the selectors, after the last of them.
+        self.assertGreater(html.index(note), html.index('name="map_team"'))
+        self.assertLess(html.index(note), html.index("</table>"))
+
+    def test_the_script_reports_what_the_import_cleared(self):
+        html = self.render_import()
+
+        self.assertIn("summary.equipos_quitados", html)
+        self.assertIn("summary.movidas_al_grupo_principal", html)
+        # The import is over by then, so the lines are in the past.
+        self.assertIn("perdieron su equipo", html)
+        self.assertIn("pasaron al grupo principal", html)
 
     def test_the_users_page_links_to_the_import_for_admins_with_all(self):
         contest = SimpleNamespace(id=CONTEST_ID, participations=[],

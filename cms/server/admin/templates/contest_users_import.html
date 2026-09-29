@@ -23,6 +23,7 @@ guarda nada.</p>
 </div>
 {% endif %}
 
+{% macro count_of(count, one, many) %}{% if count == 1 %}1 {{ one }}{% else %}{{ count }} {{ many }}{% endif %}{% endmacro %}
 {% if summary %}
 <div class="notification">
   <p>El archivo es válido. Al importarlo:</p>
@@ -33,6 +34,12 @@ guarda nada.</p>
     <li>Participaciones actualizadas: {{ summary.participaciones_actualizadas }}</li>
   </ul>
 </div>
+{% if summary.equipos_quitados or summary.movidas_al_grupo_principal %}
+<div class="import-box import-warning">
+  {% if summary.equipos_quitados %}<p>{{ count_of(summary.equipos_quitados, "participación perderá su equipo", "participaciones perderán su equipo") }}</p>{% endif %}
+  {% if summary.movidas_al_grupo_principal %}<p>{{ count_of(summary.movidas_al_grupo_principal, "participación pasará al grupo principal", "participaciones pasarán al grupo principal") }}</p>{% endif %}
+</div>
+{% endif %}
 {% endif %}
 
 {% if job %}
@@ -56,6 +63,7 @@ guarda nada.</p>
     <tr>
       <td>{{ field }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</td>
       <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}"><option value="">(sin asignar)</option></select></td>
+      {% if field == "team" %}<td rowspan="2" class="import-note">Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal.</td>{% endif %}
     </tr>
     {% endfor %}
   </table>
@@ -152,6 +160,14 @@ guarda nada.</p>
             });
         });
     }
+    function addLine(parent, text) {
+        var line = document.createElement("p");
+        line.textContent = text;
+        parent.appendChild(line);
+    }
+    function countOf(count, one, many) {
+        return count === 1 ? "1 " + one : count + " " + many;
+    }
     var job = document.getElementById("import_job");
     if (job) {
         var url = job.getAttribute("data-status-url");
@@ -169,10 +185,24 @@ guarda nada.</p>
                     "Procesando " + s.processed + " de " + s.total;
                 var out = document.getElementById("import_result");
                 if (s.status === "done") {
-                    out.textContent = "Listo. Usuarios nuevos: " + s.summary.usuarios_nuevos +
+                    addLine(out, "Listo. Usuarios nuevos: " + s.summary.usuarios_nuevos +
                         ", actualizados: " + s.summary.usuarios_actualizados +
                         ". Participaciones nuevas: " + s.summary.participaciones_nuevas +
-                        ", actualizadas: " + s.summary.participaciones_actualizadas + ".";
+                        ", actualizadas: " + s.summary.participaciones_actualizadas + ".");
+                    // The import is over, so what it cleared is told in the past.
+                    var losses = document.createElement("div");
+                    losses.className = "import-box import-warning";
+                    if (s.summary.equipos_quitados > 0) {
+                        addLine(losses, countOf(s.summary.equipos_quitados,
+                            "participación perdió su equipo",
+                            "participaciones perdieron su equipo"));
+                    }
+                    if (s.summary.movidas_al_grupo_principal > 0) {
+                        addLine(losses, countOf(s.summary.movidas_al_grupo_principal,
+                            "participación pasó al grupo principal",
+                            "participaciones pasaron al grupo principal"));
+                    }
+                    if (losses.firstChild) { out.appendChild(losses); }
                 } else if (s.status === "error") {
                     out.textContent = "Error: " + s.error;
                 } else {
