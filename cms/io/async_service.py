@@ -197,6 +197,9 @@ class AsyncService:
         self._my_coord = ServiceCoord(self.name, self.shard)
 
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Set by exit(), which may be called before the loop exists
+        # (e.g. from __init__): _async_run checks it once it does.
+        self._exit_requested = False
         self._background_tasks: set[asyncio.Task] = set()
         # Calls that need a running event loop but were requested
         # before one existed (e.g. from __init__, since the launcher
@@ -402,10 +405,16 @@ class AsyncService:
 
         Safe to call from a signal handler (schedules the actual
         asyncio-touching work via call_soon_threadsafe) or as an
-        ordinary method call from already-running async code.
+        ordinary method call from already-running async code. It may
+        also be called before run(), e.g. from __init__: the service
+        then doesn't start.
 
         """
         logger.warning("%s received request to shut down.", self._my_coord)
+        # Record the request before looking for the loop, and have
+        # _async_run look at it after creating the loop: whichever of
+        # the two happens last, the request is seen.
+        self._exit_requested = True
         if self._loop is not None and self._exit_event is not None:
             self._loop.call_soon_threadsafe(self._exit_event.set)
 
@@ -460,7 +469,8 @@ class AsyncService:
         point, matching cms.io.service.Service.run's contract: blocks
         the calling thread until the service shuts down).
 
-        return: True if successful.
+        return: True if successful; False if it couldn't start, or
+            was asked to exit before it did.
 
         """
         return asyncio.run(self._async_run())
@@ -468,6 +478,11 @@ class AsyncService:
     async def _async_run(self) -> bool:
         self._loop = asyncio.get_running_loop()
         self._exit_event = asyncio.Event()
+
+        if self._exit_requested:
+            logger.info("%s %d was asked to shut down before starting, "
+                        "so it doesn't.", *self._my_coord)
+            return False
 
         self._loop.add_signal_handler(signal.SIGINT, self.exit)
         self._loop.add_signal_handler(signal.SIGTERM, self.exit)
@@ -522,7 +537,9 @@ class AsyncService:
         for connection in list(self._connections):
             connection.disconnect("Service shutting down.")
         try:
-            # Bounded like gevent's StreamServer.stop(stop_timeout=1).
+            # Only a safety net: the connections were closed just above.
+            # (The gevent StreamServer this replaced had no pool, so its
+            # stop() never waited for its connections at all.)
             await asyncio.wait_for(self._server.wait_closed(), timeout=1)
         except asyncio.TimeoutError:
             logger.warning("Some connections did not close in time.")

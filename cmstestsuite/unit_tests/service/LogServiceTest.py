@@ -20,11 +20,16 @@
 
 """
 
+import asyncio
 import logging
 import unittest
+from unittest.mock import patch
 
+from cms.conf import Address
 from cms.io.async_service import AsyncService
 from cms.service.LogService import LogService
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 
 class TestLogService(unittest.TestCase):
@@ -81,6 +86,31 @@ class TestLogServiceIsAsyncService(unittest.TestCase):
 
     def test_log_service_subclasses_async_service(self):
         self.assertTrue(issubclass(LogService, AsyncService))
+
+
+class TestLogServiceWithoutDirectories(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
+
+    @patch("cms.io.async_service.get_service_address")
+    async def test_service_exits_instead_of_running_half_built(
+        self, mock_get_address
+    ):
+        # Without its directories LogService's __init__ asks to exit and
+        # returns before it has a file handler or a message list: it
+        # must not go on to serve Log() calls it cannot handle.
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        with patch("cms.service.LogService.mkdir", return_value=False):
+            service = LogService(0)
+
+        run_task = asyncio.create_task(service._async_run())
+        done, _ = await asyncio.wait({run_task}, timeout=2)
+        if not done:
+            service.exit()
+            await run_task
+            self.fail("LogService went on running without its directories.")
+
+        self.assertFalse(run_task.result())
 
 
 if __name__ == "__main__":

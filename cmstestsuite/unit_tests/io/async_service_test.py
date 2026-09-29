@@ -26,6 +26,15 @@ class EchoingAsyncService(AsyncService):
         return value * 2
 
 
+class ExitingInInitService(AsyncService):
+    """A service that gives up while it is being built, like a
+    LogService that cannot create its directories."""
+
+    def __init__(self, shard: int):
+        super().__init__(shard)
+        self.exit()
+
+
 class TestAsyncServiceLifecycle(unittest.IsolatedAsyncioTestCase):
 
     @patch("cms.io.async_service.get_service_address")
@@ -39,6 +48,33 @@ class TestAsyncServiceLifecycle(unittest.IsolatedAsyncioTestCase):
         service.exit()
         await asyncio.wait_for(run_task, timeout=2)
         self.assertFalse(service._server.is_serving())
+
+
+class TestExitBeforeRun(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
+    """exit() called before there is an event loop is not lost."""
+
+    @patch("cms.io.async_service.get_service_address")
+    async def test_exit_requested_in_init_stops_run_at_once(
+        self, mock_get_address
+    ):
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        service = ExitingInInitService(shard=0)
+
+        run_task = asyncio.create_task(service._async_run())
+        done, _ = await asyncio.wait({run_task}, timeout=2)
+        if not done:
+            # Stop it anyway, so that it doesn't outlive the test.
+            service.exit()
+            await run_task
+            self.fail("The service went on running although exit() was "
+                      "called before run().")
+
+        # It didn't run at all, which is not a success: the exit status
+        # of the launcher script tells.
+        self.assertFalse(run_task.result())
+        self.assertIsNone(service._server)
 
 
 class TestShutdownWithConnectedPeer(unittest.IsolatedAsyncioTestCase):
