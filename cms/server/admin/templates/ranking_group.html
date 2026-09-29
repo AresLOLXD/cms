@@ -9,6 +9,8 @@
   <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
   <form enctype="multipart/form-data" action="{{ url("ranking_group", ranking_group.id) }}" method="POST" style="display:inline;">
     {{ xsrf_form_html|safe }}
+    <!-- Pressing Enter in a field submits with the first submit button of the form: it must be Update, not one of the "now" buttons below. -->
+    <input type="submit" value="Update" tabindex="-1" aria-hidden="true" style="position:absolute; left:-9999px;" />
     <table>
       <tr>
         <td>
@@ -23,13 +25,35 @@
       </tr>
       <tr>
         <td>
-          <span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking."></span>
-          Hide ranking from the public
+          <span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Times are UTC; the local time is shown next to each."></span>
+          Now
         </td>
+        <td><strong>{{ view.summary }}</strong>{% if view.next_change %} &middot; next: {{ view.next_change }}{% endif %}</td>
+      </tr>
+      {% for f in view.fields %}
+      <tr>
+        <td>{{ f.label }}</td>
         <td>
-          <input type="checkbox" autocomplete="off" name="hidden" {% if ranking_group.hidden %}checked{% endif %}/>
-          <!-- What the checkbox was rendered with: only a change to it counts, so a stale page does not undo somebody else's change. autocomplete="off" stops a soft reload from restoring an old checkbox state. -->
-          <input type="hidden" autocomplete="off" name="hidden_shown" value="{% if ranking_group.hidden %}1{% else %}0{% endif %}" />
+          <input type="text" autocomplete="off" name="{{ f.name }}" value="{{ f.utc }}" placeholder="YYYY-MM-DD HH:MM:SS"/>
+          <!-- What the field was rendered with: only a change to it counts, so a stale page does not undo somebody else's schedule. -->
+          <input type="hidden" autocomplete="off" name="{{ f.name }}_shown" value="{{ f.utc }}"/>
+          {% if f.local %}= {{ f.local }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td></td>
+        <td>
+          {% if view.hidden_now %}
+          <button type="submit" name="visibility_action" value="show_now">Mostrar ahora</button>
+          {% else %}
+          <button type="submit" name="visibility_action" value="hide_now">Ocultar ahora</button>
+          {% endif %}
+          {% if view.frozen_now %}
+          <button type="submit" name="visibility_action" value="unfreeze_now">Descongelar ahora</button>
+          {% else %}
+          <button type="submit" name="visibility_action" value="freeze_now">Congelar ahora</button>
+          {% endif %}
         </td>
       </tr>
       <tr>
