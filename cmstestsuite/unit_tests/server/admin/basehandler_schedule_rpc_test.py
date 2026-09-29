@@ -109,6 +109,8 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.code, 200)
         self.assertIn("fake_rpc", "\n".join(logs.output))
         self.assertIn("boom", "\n".join(logs.output))
+        # An unexpected exception type keeps its traceback.
+        self.assertIsNotNone(logs.records[0].exc_info)
 
     async def test_real_client_failure_names_service_and_method(self):
         with self.assertLogs(
@@ -122,6 +124,8 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         message = "\n".join(logs.output)
         self.assertIn("reinitialize", message)
         self.assertIn("ProxyService", message)
+        # An RPCError is logged without a traceback.
+        self.assertIsNone(logs.records[0].exc_info)
 
 
 if __name__ == "__main__":

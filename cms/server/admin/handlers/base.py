@@ -59,6 +59,7 @@ from cms.db import Admin, Contest, Participation, Question, RankingGroup, \
 import cms.db
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
+from cms.io.rpc import RPCError
 from cms.server import CommonRequestHandler, FileHandlerMixin
 from cmscommon.crypto import hash_password, parse_authentication
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -448,7 +449,11 @@ class BaseHandler(CommonRequestHandler):
             if done.cancelled():
                 return
             exc = done.exception()
-            if exc is not None:
+            if isinstance(exc, RPCError):
+                # The message already names the RPC and the error;
+                # a traceback of the client internals adds nothing.
+                logger.warning("RPC %s failed: %r", name, exc)
+            elif exc is not None:
                 logger.warning("RPC %s failed: %r", name, exc,
                                exc_info=exc)
 
