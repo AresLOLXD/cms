@@ -229,40 +229,44 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
                 ) -> tuple[ImportPlan | None, list[str]]:
     """Check the rows against the database and plan the import.
 
-    session: a read-only use of a session; nothing is added or flushed.
+    session: a read-only use of a session; nothing is added or flushed,
+        not even what the caller has left pending in it.
     contest_id: the contest the participations go to.
     rows: the rows from read_rows, without errors.
 
-    return: the plan, or None and the errors (the contest has no main
-        group, or a team or a group is unknown).
+    return: the plan, or None and the errors (the contest does not exist
+        or has no main group, or a team or a group is unknown).
 
     """
-    contest = session.get(Contest, contest_id)
-    if contest.main_group_id is None:
-        return None, ["el concurso no tiene grupo principal"]
-    teams = dict(session.execute(select(Team.code, Team.id)).all())
-    groups = dict(session.execute(
-        select(Group.name, Group.id).filter(Group.contest_id == contest_id)
-    ).all())
-    errors: list[str] = []
-    for row in rows:
-        if row.team is not None and row.team not in teams:
-            errors.append("fila %d: el equipo %s no existe"
-                          % (row.line, row.team))
-        if row.group is not None and row.group not in groups:
-            errors.append("fila %d: el grupo %s no existe en este concurso"
-                          % (row.line, row.group))
-    if errors:
-        return None, errors
-    usernames = [row.username for row in rows]
-    existing = set(session.execute(
-        select(User.username).filter(User.username.in_(usernames))
-    ).scalars())
-    participating = set(session.execute(
-        select(User.username).join(Participation)
-        .filter(Participation.contest_id == contest_id,
-                User.username.in_(usernames))
-    ).scalars())
+    with session.no_autoflush:
+        contest = session.get(Contest, contest_id)
+        if contest is None:
+            return None, ["el concurso no existe"]
+        if contest.main_group_id is None:
+            return None, ["el concurso no tiene grupo principal"]
+        teams = dict(session.execute(select(Team.code, Team.id)).all())
+        groups = dict(session.execute(
+            select(Group.name, Group.id)
+            .filter(Group.contest_id == contest_id)).all())
+        errors: list[str] = []
+        for row in rows:
+            if row.team is not None and row.team not in teams:
+                errors.append("fila %d: el equipo %s no existe"
+                              % (row.line, row.team))
+            if row.group is not None and row.group not in groups:
+                errors.append("fila %d: el grupo %s no existe en este "
+                              "concurso" % (row.line, row.group))
+        if errors:
+            return None, errors
+        usernames = [row.username for row in rows]
+        existing = set(session.execute(
+            select(User.username).filter(User.username.in_(usernames))
+        ).scalars())
+        participating = set(session.execute(
+            select(User.username).join(Participation)
+            .filter(Participation.contest_id == contest_id,
+                    User.username.in_(usernames))
+        ).scalars())
     return ImportPlan(
         new_users=[u for u in usernames if u not in existing],
         updated_users=[u for u in usernames if u in existing],
