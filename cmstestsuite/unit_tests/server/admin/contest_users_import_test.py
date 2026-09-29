@@ -58,6 +58,11 @@ POSTED_MAPPING = {**{field: "" for field in FIELDS}, **MAPPING}
 NOT_FOUND = ("No se encontró la importación: no existe o ya expiró. "
              "Revisa la lista de usuarios para ver si se aplicó.")
 NOT_APPLIED = "No se aplicó nada"
+# Said with the progress of the admin's own running import, when a second
+# file was sent while it ran: that file was refused, not imported.
+REPEATED_NOTICE = ("Ya tenías una importación en curso en este concurso; "
+                   "este es su progreso. El archivo que acabas de enviar no "
+                   "se importó.")
 # Said when the contest already has an import running: the file is fine, so
 # it is not one of the errors that say that nothing was applied.
 RUNNING_NOTICE = ("Hay una importación en curso para este concurso; "
@@ -260,13 +265,15 @@ class TestImportUsersPost(unittest.TestCase):
         return handler
 
     def test_a_running_job_of_the_admin_redirects_to_its_progress(self):
-        # A double click on "Importar": the second request finds the job
-        # the first one started, and the admin must not lose its page.
+        # A second request while the admin's own import runs: the admin
+        # must not lose its page. The redirect says that the page is the
+        # progress of an earlier import, as the file just sent may be a
+        # different one and was not imported.
         handler = self.refuse_import(
             SimpleNamespace(id="job-1", owner_id=ADMIN_ID))
 
         handler.redirect.assert_called_once_with(
-            "/contest/1/users/import?job=job-1")
+            "/contest/1/users/import?job=job-1&repetido=1")
         handler.render.assert_not_called()
         self.jobs.running_job.assert_called_once_with(CONTEST_ID)
 
@@ -292,9 +299,9 @@ class TestImportUsersPost(unittest.TestCase):
         self.assertEqual(rendered_params(handler)["notice"], RUNNING_NOTICE)
         handler.redirect.assert_not_called()
 
-    def test_a_double_click_ends_in_the_page_of_the_first_job(self):
+    def test_a_second_request_ends_in_the_page_of_the_first_job(self):
         # The store is the real one: the first request starts the job, the
-        # second one is refused and follows the first.
+        # second one is refused and follows the first, marked as repeated.
         store = ImportJobStore()
         redirects = []
         for _ in range(2):
@@ -307,10 +314,10 @@ class TestImportUsersPost(unittest.TestCase):
             handler.render.assert_not_called()
             redirects.append(handler.redirect.call_args.args[0])
 
-        self.assertEqual(redirects[0], redirects[1])
         (job_id,) = store._jobs
-        self.assertEqual(redirects[0],
-                         "/contest/1/users/import?job=" + job_id)
+        self.assertEqual(redirects, [
+            "/contest/1/users/import?job=" + job_id,
+            "/contest/1/users/import?job=" + job_id + "&repetido=1"])
 
     def test_a_missing_file_is_reported(self):
         handler = make_handler(data=None, form=import_form("import"))
@@ -381,6 +388,31 @@ class TestImportUsersGet(unittest.TestCase):
         self.assertIsNone(params["notice"])
         jobs.get.assert_called_once_with("job-1", ADMIN_ID)
 
+    def test_a_repeated_import_shows_the_progress_with_a_notice(self):
+        # The second file was refused while the first import runs, so the
+        # progress must not look like the progress of the second one.
+        handler = make_handler(form={"job": "job-1", "repetido": "1"})
+        job = SimpleNamespace(id="job-1", contest_id=CONTEST_ID)
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = job
+            handler._get_sync(str(CONTEST_ID))
+
+        params = rendered_params(handler)
+        self.assertIs(params["job"], job)
+        self.assertEqual(params["notice"], REPEATED_NOTICE)
+        # Not an error: the first import is fine.
+        self.assertEqual(params["errors"], [])
+
+    def test_a_repeated_import_of_an_unknown_job_is_only_not_found(self):
+        handler = make_handler(form={"job": "gone", "repetido": "1"})
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = None
+            handler._get_sync(str(CONTEST_ID))
+
+        params = rendered_params(handler)
+        self.assertEqual(params["notice"], NOT_FOUND)
+        self.assertIsNone(params["job"])
+
     def test_an_unknown_job_is_a_notice_not_a_silent_form_or_an_error(self):
         handler = make_handler(form={"job": "gone"})
         with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
@@ -446,6 +478,22 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
         self.assertNotIn(NOT_APPLIED, html)
         self.assertNotIn("Corrige estos errores", html)
         self.assertIn('data-selected="usuario"', html)
+
+    def test_the_notice_of_a_repeated_import_comes_with_the_progress(self):
+        for form, shown in (({"job": "job-1", "repetido": "1"}, True),
+                            ({"job": "job-1"}, False)):
+            handler = make_handler(form=form)
+            job = SimpleNamespace(id="job-1", contest_id=CONTEST_ID,
+                                  processed=2, total=4)
+            with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+                jobs.get.return_value = job
+                handler._get_sync(str(CONTEST_ID))
+
+            html = self.render_last_page(handler)
+
+            self.assertIn("Procesando 2 de 4", html)
+            self.assertEqual(REPEATED_NOTICE in html, shown, msg=form)
+            self.assertNotIn(NOT_APPLIED, html)
 
     def test_the_progress_of_a_job(self):
         handler = make_handler(form={"job": "job-1"})

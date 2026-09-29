@@ -341,8 +341,9 @@ class MessageHandler(BaseHandler):
 class ImportUsersHandler(BaseHandler):
     """Bulk import of users and participations into a contest (CSV).
 
-    GET shows the form, or the progress of the job given by ?job=. POST
-    reads the file: "validate" only reports what an import would do,
+    GET shows the form, or the progress of the job given by ?job= (with
+    &repetido=1, also a notice that the file just sent was not imported).
+    POST reads the file: "validate" only reports what an import would do,
     "import" starts the job and redirects to its progress page.
 
     """
@@ -400,7 +401,13 @@ class ImportUsersHandler(BaseHandler):
                 "No se encontró la importación: no existe o ya expiró. "
                 "Revisa la lista de usuarios para ver si se aplicó."))
             return
-        self._render_page(job=job)
+        # A second file was sent while this import ran and was refused: the
+        # admin must not take the progress for the one of that file.
+        repeated = bool(self.get_argument("repetido", None))
+        self._render_page(job=job, notice=(
+            "Ya tenías una importación en curso en este concurso; este es "
+            "su progreso. El archivo que acabas de enviar no se importó."
+            if repeated else None))
 
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def get(self, contest_id: str) -> None:
@@ -437,13 +444,14 @@ class ImportUsersHandler(BaseHandler):
                                     rows, on_done)
         except ValueError:
             # The contest already has a running import. If it is this
-            # admin's (a double click on "Importar"), follow it instead of
-            # losing its progress page. Otherwise there is nothing wrong
-            # with the file: the admin only has to wait.
+            # admin's, follow it instead of losing its progress page. The
+            # file just sent may not be the one that is running, so the
+            # page is told that it was not imported. Otherwise there is
+            # nothing wrong with the file: the admin only has to wait.
             running = IMPORT_JOBS.running_job(self.contest.id)
             if running is not None \
                     and running.owner_id == self.current_user.id:
-                self.redirect(self._job_url(running))
+                self.redirect(self._job_url(running) + "&repetido=1")
                 return
             self._render_page(mapping, notice=(
                 "Hay una importación en curso para este concurso; "

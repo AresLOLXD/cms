@@ -207,10 +207,14 @@ groups are checked after the rest of the file.
 ## Progress problems
 
 - **Only one import per contest can run at once.** If you press "Importar"
-  while an import of that contest that you started is running (for example, a
-  second click, or the button pressed again from another tab), the page takes
-  you to the progress of that import. If the running import was started by
-  another admin, the page says "Hay una importación en curso para este
+  while an import of that contest that you started is still running (for
+  example, after you left its progress page, or from another tab), the page
+  takes you to the progress of that running import and says: "Ya tenías una
+  importación en curso en este concurso; este es su progreso. El archivo que
+  acabas de enviar no se importó." **The file you just sent was not
+  imported**, and it may not be the one that is running. When that import
+  shows "Listo.", import the file you sent. If the running import was started
+  by another admin, the page says "Hay una importación en curso para este
   concurso; espera a que termine." This is a notice, not an error: the file is
   fine and nothing was applied by this request, so wait for the other import to
   end and import the file again. Choose the file again, as the page asks.
