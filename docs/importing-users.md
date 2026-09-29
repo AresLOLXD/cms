@@ -41,9 +41,12 @@ it and cannot open the page.
 | `group` | no | The name of a group of this contest. | `group`, `grupo` |
 
 Headers are matched without capitals or accents. When you choose the file, the
-page shows one selector per field, filled in with the matching column. If your
-headers are different, pick the right column yourself. Required fields are
-marked with `*`; **"(sin asignar)"** means no column. A column cannot be used
+page shows one selector per field, filled in with the matching column. Each
+selector is labelled in Spanish with the name of the field in brackets, for
+example "Usuario (username)" for `username` and "Contraseña del día (password)"
+for `password`. If your headers are different, pick the right column yourself.
+Required fields are marked with `*`, and the page explains it with the legend
+"* obligatorio". **"(sin asignar)"** means no column. A column cannot be used
 for two fields.
 
 Cells are stripped of surrounding spaces, except the password, which is used
@@ -83,16 +86,37 @@ used.
    Check that the numbers are what you expect. On a fresh contest, "Usuarios
    actualizados" above 0 means those usernames already exist in CMS, and their
    first and last names will be overwritten.
+
+   If the import would also clear teams or change groups, a highlighted
+   warning follows the counts, one line for each thing that would happen:
+   "N participaciones perderán su equipo" and "N participaciones pasarán al
+   grupo principal" (with one participation: "1 participación perderá su
+   equipo" and "1 participación pasará al grupo principal"). A line shows only
+   when its number is above 0. The first counts the participations that are
+   already in this contest with a team, whose row has an empty `team` cell or
+   "(sin asignar)". The second counts those that are in a group other than the
+   main one, whose row has an empty `group` cell or "(sin asignar)". See the
+   warning about empty cells below. If it is not what you want, fix the file
+   before importing.
 3. **Choose the file again.** The browser cannot keep the file between the two
-   steps, so the page asks: "Vuelve a elegir el archivo para importarlo; se
-   conservan las columnas asignadas." Your column choices are kept, except the
-   password column, which is guessed again from the headers in the table above.
-   **Check it before going on.**
-4. Press **"Importar"**. A progress bar shows "Procesando X de N".
-5. It ends with "Listo." and the counts: "Usuarios nuevos: …, actualizados: ….
-   Participaciones nuevas: …, actualizadas: ….". "Procesando N de N" can show
-   before "Listo.", because saving comes after the hashing. Wait for "Listo.";
-   only then is everything saved.
+   steps, so the page asks: "Vuelve a elegir el archivo para importarlo. Se
+   conservan las columnas asignadas, salvo la de la contraseña: revísala." Your
+   column choices are kept, except the password column, which is guessed again
+   from the headers in the table above. **Check it before going on.**
+4. Press **"Importar"**. A progress bar shows "Procesando X de N". Both buttons
+   are disabled after the first click, so a double click does not send the
+   file twice.
+5. It ends with **"Listo."**, in bold, and the counts: "Usuarios nuevos: …,
+   actualizados: …. Participaciones nuevas: …, actualizadas: ….". If the import
+   cleared teams or moved participations to the main group, the same lines as
+   in the validation follow, in the past tense: "N participaciones perdieron su
+   equipo" and "N participaciones pasaron al grupo principal" (with one
+   participation: "1 participación perdió su equipo" and "1 participación pasó
+   al grupo principal"). Two links close the page: "Lista de usuarios", the
+   Users list of the contest, and "Importar otro archivo", the import page
+   again with no file chosen. "Procesando N de N" can show before "Listo.",
+   because saving comes after the hashing. Wait for "Listo."; only then is
+   everything saved.
 
 Passwords are hashed, which is slow. A new user needs two hashes and an
 existing user one. On a 4-core server, 300 new users take about **40 s** and
@@ -125,6 +149,12 @@ updated. Nothing is ever deleted.
 > uploading again a file **without the team column** clears the team of every
 > contestant in it. Include the team and group columns in every file you
 > upload.
+>
+> The page warns about it in three places: a note beside the "Equipo (team)"
+> and "Grupo (group)" selectors ("Vacío o sin asignar: la participación se
+> queda sin equipo / en el grupo principal."), and the lines "N participaciones
+> perderán su equipo" and "N participaciones pasarán al grupo principal" after
+> "Solo validar", which are repeated in the past tense after "Listo.".
 
 ### Teams and groups must exist first
 
@@ -147,6 +177,10 @@ team or group is an error.
 the list of errors. Errors about one row start with "fila N:", where N is the
 position of the row in the file, counting the header as row 1. Other errors are
 about the file as a whole. No error shows the contents of the password column.
+
+The list starts with the number of errors ("N errores", or "1 error" when there
+is one) and shows only the **first 50**. If there are more, it ends with "y N
+más". Fix those and validate again to see the next ones.
 
 Fix the file, choose it again and press **"Solo validar"** until it is valid.
 Some errors only show once the others are fixed: for example, unknown teams and
@@ -172,9 +206,14 @@ groups are checked after the rest of the file.
 
 ## Progress problems
 
-- **Only one import per contest can run at once.** If you start another while
-  one is running, the page says "ya hay una importación en curso para este
-  concurso". Wait for the first to end.
+- **Only one import per contest can run at once.** If you press "Importar"
+  while an import of that contest that you started is running (for example, a
+  second click, or the button pressed again from another tab), the page takes
+  you to the progress of that import. If the running import was started by
+  another admin, the page says "Hay una importación en curso para este
+  concurso; espera a que termine." This is a notice, not an error: the file is
+  fine and nothing was applied by this request, so wait for the other import to
+  end and import the file again. Choose the file again, as the page asks.
 - **A progress page lives 1 hour**, counted from the start of the import.
   After that, or if the link is not yours (only the admin who started an
   import can see its progress), the page says "No se encontró la importación:
