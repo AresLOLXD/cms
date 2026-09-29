@@ -425,6 +425,26 @@ class BaseHandler(CommonRequestHandler):
             select(RankingGroup).order_by(RankingGroup.name)).scalars().all()
         return params
 
+    def finish(self, chunk=None):
+        """Finish the response, unless called from an executor thread.
+
+        Handler bodies run via run_in_executor may call redirect() or
+        finish(chunk), but finishing does socket I/O, which fails off
+        the event-loop thread. In that case only buffer the chunk:
+        Tornado auto-finishes the request on the loop thread once the
+        handler method's awaitable completes.
+
+        chunk (str|bytes|dict|None): final data to write, if any.
+
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            if chunk is not None:
+                self.write(chunk)
+            return None
+        return super().finish(chunk)
+
     def write_error(self, status_code, **kwargs):
         if "exc_info" in kwargs and \
                 kwargs["exc_info"][0] != tornado.web.HTTPError:
