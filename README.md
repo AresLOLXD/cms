@@ -62,7 +62,7 @@ native `asyncio`, one layer of the system at a time:
 | Async DB access | Done | Async-safe session/query layer (`AsyncSessionGen`) for code running on the asyncio loop |
 | Service migration | Done | `EvaluationService`, `ScoringService`, `ProxyService`, `Worker`, etc. ported to `AsyncTriggeredService` |
 | `WebService`/Tornado-native | Done | `WebService` and the admin/contest RPC handlers now run on native Tornado instead of gevent-patched WSGI |
-| AdminWebServer handlers | Design phase | Porting `cms/server/admin/handlers/` and its login/session logic to the native-Tornado framework above |
+| AdminWebServer handlers | Done | `cms/server/admin/handlers/` run their blocking DB work off the event loop, and admin login/session uses native Tornado secure cookies |
 | ContestWebServer handlers | Planned | Same migration for the contestant-facing server |
 
 Each stage has a written design spec under
