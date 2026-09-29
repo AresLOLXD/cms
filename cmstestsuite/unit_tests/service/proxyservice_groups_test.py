@@ -478,7 +478,9 @@ class TestProxyServiceGroups(
                          {encode_id(self.contest_b.name)})
         self.assertEqual(set(self.put_payload(url("omips/submissions/"))),
                          {"%d" % self.sub_b.id})
-        self.assertFalse(any("olim/" in u for u in self.put_urls()))
+        # Of OLIM, only its visibility settings, which each sweep sends.
+        self.assertEqual([u for u in self.put_urls() if "olim/" in u],
+                         [url("olim/visibility")])
 
     async def test_contests_broken_by_a_database_error_all_heal(self):
         # A failed statement aborts the PostgreSQL transaction, so the
@@ -497,10 +499,11 @@ class TestProxyServiceGroups(
             self.assertEqual(
                 service._broken_contests,
                 {self.contest_a.id, self.contest_b.id})
-            # Only the visibility settings of the groups got there.
-            self.assertCountEqual(
-                self.put_urls(),
-                [url("olim/visibility"), url("omips/visibility")])
+            # Only the visibility settings of the groups got there (at
+            # startup, and again with the sweep).
+            self.assertEqual(
+                set(self.put_urls()),
+                {url("olim/visibility"), url("omips/visibility")})
 
             database_is_failing[0] = False
             await service._missing_operations()
@@ -552,7 +555,10 @@ class TestProxyServiceGroups(
         real_enqueue = service._threadsafe_enqueue
 
         def spy(operation, *args):
-            held_back.append(self.contest_b.id in service._broken_contests)
+            # The visibility settings go first, whatever the contests.
+            if operation.type_ != ProxyExecutor.VISIBILITY_TYPE:
+                held_back.append(
+                    self.contest_b.id in service._broken_contests)
             real_enqueue(operation, *args)
 
         service._threadsafe_enqueue = spy
@@ -569,7 +575,10 @@ class TestProxyServiceGroups(
         self.clear_requests()
         self.assertEqual(await service._missing_operations(), 0)
         await self._settle(service)
-        self.assertEqual(self.put_urls(), [])
+        # Only the visibility settings are sent again, at every sweep.
+        self.assertCountEqual(
+            self.put_urls(),
+            [url("olim/visibility"), url("omips/visibility")])
 
     async def test_broken_contest_logs_a_traceback_only_once(self):
         self.break_contest(self.contest_b)
@@ -847,6 +856,101 @@ class TestProxyServiceGroups(
         check_order("olim", with_reset=True)
         self.assertFalse(
             any(operation.group == "omips" for operation in enqueued))
+
+    async def test_sweep_sends_the_visibility_of_every_group(self):
+        service = await self.start()
+        self.clear_requests()
+        # Changed in the database, and no reinitialize tells ProxyService
+        # (lost while it restarted, say).
+        self.omips.hidden = True
+        self.omips.staff_password = "plaintext:pw"
+        self.session.commit()
+
+        await service._missing_operations()
+        await self._settle(service)
+
+        self.assertEqual(self.put_payload(url("olim/visibility")),
+                         {"hidden": False, "staff_password": None})
+        self.assertEqual(self.put_payload(url("omips/visibility")),
+                         {"hidden": True, "staff_password": "plaintext:pw"})
+
+    async def test_sweep_in_legacy_mode_sends_no_visibility(self):
+        service = await self.start(contest_id=self.contest_a.id)
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertFalse(
+            any(u.endswith("/visibility") for u in self.put_urls()))
+
+    async def test_group_whose_visibility_was_rejected_recovers_by_sweep(
+        self,
+    ):
+        refused = {"olim"}
+        self.refuse_visibility(refused)
+        service = await self.start()
+        # RWS is fixed, and nobody saves the group in AWS again.
+        refused.clear()
+        self.clear_requests()
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            await service._missing_operations()
+            await self._settle(service)
+        await service.submission_scored(self.sub_a.id)
+        await self._settle(service)
+
+        self.assertIn(url("olim/visibility"), self.put_urls())
+        self.assertIn(url("olim/submissions/"), self.put_urls())
+        self.assertTrue(any("accepted the visibility of group olim" in line
+                            for line in logs.output))
+
+    async def test_sweep_hides_a_group_before_sending_its_data(self):
+        service = await self.start()
+        batches: list[list[tuple[int, str | None]]] = []
+        executor = service._executors[0]
+        real_execute = executor.execute
+
+        async def recording_execute(entries):
+            batches.append([(e.item.type_, e.item.group) for e in entries])
+            await real_execute(entries)
+
+        executor.execute = recording_execute
+        # Batches may split anywhere when the sweep runs in its thread:
+        # it has to queue the settings first, too.
+        enqueued: list[ProxyOperation] = list()
+        real_enqueue = service._threadsafe_enqueue
+
+        def spy(operation, *args, **kwargs):
+            enqueued.append(operation)
+            real_enqueue(operation, *args, **kwargs)
+
+        service._threadsafe_enqueue = spy
+        self.clear_requests()
+        # OLIM is hidden in AWS and a score of it was missed: only the
+        # sweep tells the rankings.
+        self.olim.hidden = True
+        self.session.commit()
+        service.scores_sent_to_rankings.discard(self.sub_a.id)
+
+        # Run on the event loop, the sweep queues all of its operations
+        # before the executor takes any: they go in a single batch. They
+        # reach the queue once the loop runs, which the yield lets it do.
+        service._missing_operations_sync()
+        await asyncio.sleep(0)
+        await self._settle(service)
+
+        self.assertEqual(
+            [operation.type_ for operation in enqueued
+             if operation.group == "olim"],
+            [ProxyExecutor.VISIBILITY_TYPE, ProxyExecutor.SUBMISSION_TYPE,
+             ProxyExecutor.SUBCHANGE_TYPE])
+        self.assertEqual(len(batches), 1)
+        self.assertIn((ProxyExecutor.VISIBILITY_TYPE, "olim"), batches[0])
+        self.assertIn((ProxyExecutor.SUBMISSION_TYPE, "olim"), batches[0])
+        urls = self.put_urls()
+        self.assertLess(urls.index(url("olim/visibility")),
+                        urls.index(url("olim/submissions/")))
+        self.assertEqual(self.put_payload(url("olim/visibility")),
+                         {"hidden": True, "staff_password": None})
 
 
 if __name__ == "__main__":

@@ -889,9 +889,17 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         data could not be built: whatever broke them may be over, and
         they should not wait for someone to reinitialize the rankings.
 
+        In group mode, send again the visibility settings of every
+        ranking group first (they are not counted). Nothing else would
+        repair a ranking that lost them, or got a reinitialize that
+        never arrived, until someone saves the group in AWS: a hidden
+        group could stay public. It also lets a group whose settings
+        the ranking refused be sent its data again once it takes them.
+
         """
         counter = 0
         with SessionGen() as session:
+            self._enqueue_visibility(session)
             for contest in self._contests_to_send(session):
                 only_missing = True
                 if contest.id in self._broken_contests:
