@@ -21,19 +21,30 @@
 One CSV per contest: each row creates the user if missing and registers
 its participation in the contest, with the day's password.
 
+The error messages are meant to be shown as they are in the page, so they
+never contain a data cell of the column mapped to the password.
+
 """
 
 import csv
 import dataclasses
 import io
+import itertools
+import logging
+from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
 
 FIELDS: tuple[str, ...] = ("username", "first_name", "last_name",
                            "password", "team", "group")
 REQUIRED: frozenset[str] = frozenset({"username", "first_name",
                                       "last_name", "password"})
 LABELS = {"username": "el usuario", "first_name": "el nombre",
-          "last_name": "el apellido", "password": "la contraseña",
-          "team": "el equipo", "group": "el grupo"}
+          "last_name": "el apellido", "password": "la contraseña"}
+EMPTY_MESSAGES = {"username": "el usuario está vacío",
+                  "first_name": "el nombre está vacío",
+                  "last_name": "el apellido está vacío",
+                  "password": "la contraseña está vacía"}
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_PASSWORD_BYTES = 72
@@ -41,7 +52,13 @@ MAX_PASSWORD_BYTES = 72
 
 @dataclasses.dataclass(frozen=True)
 class ImportRow:
-    """One data row of the file, already mapped to the import fields."""
+    """One data row of the file, already mapped to the import fields.
+
+    line: the number of the row in the CSV, with the header as row 1. It
+        is not the physical line: a quoted cell with a line break inside
+        is still one row.
+
+    """
     line: int
     username: str
     first_name: str
@@ -49,6 +66,22 @@ class ImportRow:
     password: str
     team: str | None
     group: str | None
+
+
+def _data_records(reader: Iterator[list[str]]
+                  ) -> Iterator[tuple[int, list[str]]]:
+    """Yield the non-blank rows of a CSV, one at a time.
+
+    reader: the csv reader, with the header already read.
+
+    return: pairs of the number of the row (the header is row 1) and its
+        cells. Rows with nothing but empty cells are skipped, but they
+        still count in the numbering.
+
+    """
+    for line, cells in enumerate(reader, start=2):
+        if any(cell.strip() for cell in cells):
+            yield line, cells
 
 
 def read_rows(data: bytes, mapping: dict[str, str]
@@ -60,7 +93,8 @@ def read_rows(data: bytes, mapping: dict[str, str]
         missing for an unmapped optional field).
 
     return: the rows and the list of errors; if there is any error the
-        rows must not be used. Errors never contain a password.
+        rows must not be used. Errors never contain a data cell of the
+        column mapped to password.
 
     """
     if len(data) > MAX_BYTES:
@@ -74,16 +108,25 @@ def read_rows(data: bytes, mapping: dict[str, str]
         else ","
     reader = csv.reader(io.StringIO(text), delimiter=delimiter)
     try:
-        records = list(reader)
+        header_cells = next(reader, None)
+        # Only the non-blank rows are kept, and only up to one more than
+        # the limit: a file of blank lines costs no memory.
+        records = list(itertools.islice(_data_records(reader),
+                                        MAX_ROWS + 1))
     except csv.Error as error:
-        # The message of a csv.Error never includes the content of a cell.
-        return [], ["el archivo no es un CSV válido: %s" % error]
-    if not records:
+        # The reason is a developer text in English, so it only goes to
+        # the log; the page gets a fixed message.
+        logger.debug("Bulk import file is not a valid CSV: %s", error)
+        return [], ["el archivo no es un CSV válido"]
+    if header_cells is None:
         return [], ["el archivo está vacío"]
-    header = [h.strip() for h in records[0]]
+    if len(records) > MAX_ROWS:
+        return [], ["el archivo pasa de %d filas" % MAX_ROWS]
+    header = [h.strip() for h in header_cells]
 
     errors: list[str] = []
     columns: dict[str, int] = {}
+    assigned: set[str] = set()
     for field in FIELDS:
         name = (mapping.get(field) or "").strip()
         if not name:
@@ -91,6 +134,14 @@ def read_rows(data: bytes, mapping: dict[str, str]
                 errors.append("falta asignar la columna de %s (%s)"
                               % (LABELS[field], field))
             continue
+        # A column used for two fields would let a cell of the password
+        # column reach an error message, for example as a repeated user.
+        if name in assigned:
+            message = "la columna %s está asignada a más de un campo" % name
+            if message not in errors:
+                errors.append(message)
+            continue
+        assigned.add(name)
         if name not in header:
             errors.append("la columna %s no está en el archivo" % name)
             continue
@@ -100,12 +151,7 @@ def read_rows(data: bytes, mapping: dict[str, str]
 
     rows: list[ImportRow] = []
     seen: dict[str, int] = {}
-    for line, cells in enumerate(records[1:], start=2):
-        if not any(cell.strip() for cell in cells):
-            continue
-        if len(rows) >= MAX_ROWS:
-            return [], ["el archivo pasa de %d filas" % MAX_ROWS]
-
+    for line, cells in records:
         def cell(field: str) -> str:
             index = columns.get(field)
             if index is None or index >= len(cells):
@@ -115,10 +161,10 @@ def read_rows(data: bytes, mapping: dict[str, str]
 
         values = {field: cell(field) for field in FIELDS}
         for field in FIELDS:
-            if field in REQUIRED and values[field] == "":
-                errors.append("fila %d: %s está vacío" % (
-                    line, LABELS[field]) if field != "password" else
-                    "fila %d: la contraseña está vacía" % line)
+            # A password of only whitespace is empty; any other password
+            # is used as typed.
+            if field in REQUIRED and not values[field].strip():
+                errors.append("fila %d: %s" % (line, EMPTY_MESSAGES[field]))
         if len(values["password"].encode("utf-8")) > MAX_PASSWORD_BYTES:
             errors.append("fila %d: la contraseña pasa de %d bytes"
                           % (line, MAX_PASSWORD_BYTES))
@@ -134,4 +180,6 @@ def read_rows(data: bytes, mapping: dict[str, str]
             first_name=values["first_name"],
             last_name=values["last_name"], password=values["password"],
             team=values["team"] or None, group=values["group"] or None))
+    if not rows:
+        return [], ["el archivo no tiene filas de datos"]
     return rows, errors

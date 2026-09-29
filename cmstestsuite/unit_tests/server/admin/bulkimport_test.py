@@ -18,6 +18,7 @@
 
 """Tests for reading the bulk import CSV of AWS."""
 
+import logging
 import unittest
 
 from cms.server.admin.bulkimport import MAX_ROWS, read_rows
@@ -100,14 +101,20 @@ class TestReadRows(unittest.TestCase):
     def test_field_over_the_csv_limit_is_an_error(self):
         # The csv module refuses fields over 131072 characters; that must
         # come back as an error, not as an exception.
-        rows, errors = read_rows(csv_bytes(
-            "usuario,nombre,apellido,contraseña,estado\n"
-            "ana,A,L,%s,\n" % ("x" * 200000)), MAPPING)
+        with self.assertLogs("cms.server.admin.bulkimport",
+                             level="DEBUG") as logs:
+            rows, errors = read_rows(csv_bytes(
+                "usuario,nombre,apellido,contraseña,estado\n"
+                "ana,A,L,%s,\n" % ("x" * 200000)), MAPPING)
         self.assertEqual(rows, [])
-        self.assertEqual(len(errors), 1)
-        self.assertTrue(errors[0].startswith("el archivo no es un CSV válido"))
-        # The error never echoes the content of a cell.
-        self.assertNotIn("x" * 100, errors[0])
+        # The page gets a fixed message; the reason of the csv module (a
+        # developer text in English) only goes to the DEBUG log, and
+        # neither of them echoes the content of a cell.
+        self.assertEqual(errors, ["el archivo no es un CSV válido"])
+        self.assertEqual([r.levelno for r in logs.records],
+                         [logging.DEBUG])
+        self.assertIn("field limit", logs.output[0])
+        self.assertNotIn("x" * 100, logs.output[0])
 
     def test_row_errors_follow_the_field_order(self):
         # Every required cell but the team is empty. The errors must come
@@ -119,6 +126,93 @@ class TestReadRows(unittest.TestCase):
                                   "fila 2: el nombre está vacío",
                                   "fila 2: el apellido está vacío",
                                   "fila 2: la contraseña está vacía"])
+
+    def test_column_mapped_twice_is_an_error(self):
+        # With the username and the password in the same column, two rows
+        # with the same password would put it in the "repeated user"
+        # error. The mapping is rejected before any row is checked.
+        mapping = dict(MAPPING, username="contraseña")
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,SECRETPW,\n"
+            "beto,Beto,Pérez,SECRETPW,\n"), mapping)
+        self.assertEqual(rows, [])
+        self.assertEqual(
+            errors, ["la columna contraseña está asignada a más de un campo"])
+        self.assertFalse(any("SECRETPW" in e for e in errors))
+
+    def test_column_mapped_to_three_fields_is_reported_once(self):
+        mapping = dict(MAPPING, last_name="nombre", team="nombre")
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,pw,\n"), mapping)
+        self.assertEqual(
+            errors, ["la columna nombre está asignada a más de un campo"])
+
+    def test_whitespace_only_password_is_empty(self):
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,   ,\n"), MAPPING)
+        self.assertEqual(errors, ["fila 2: la contraseña está vacía"])
+
+    def test_blank_and_separator_only_rows_are_skipped(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario;nombre;apellido;contraseña;estado\n"
+            "ana;Ana;López;pw1;JAL\n"
+            "\n"
+            ";;;;\n"
+            "  ;  ;  ;  ;  \n"
+            "beto;Beto;Pérez;pw2;\n"
+            ";;;;\n"), MAPPING)
+        self.assertEqual(errors, [])
+        # The rows after the skipped ones keep their number in the file.
+        self.assertEqual([(r.line, r.username) for r in rows],
+                         [(2, "ana"), (6, "beto")])
+
+    def test_max_rows_is_accepted_and_blank_rows_do_not_count(self):
+        body = "usuario,nombre,apellido,contraseña,estado\n" + "".join(
+            "u%d,A,L,p,\n\n" % i for i in range(MAX_ROWS))
+        rows, errors = read_rows(csv_bytes(body), MAPPING)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(rows), MAX_ROWS)
+
+    def test_crlf_line_endings(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\r\n"
+            "ana,Ana,López,pw,JAL\r\n"
+            "beto,Beto,Pérez,pw2,\r\n"), MAPPING)
+        self.assertEqual(errors, [])
+        self.assertEqual([(r.line, r.username, r.password, r.team)
+                          for r in rows],
+                         [(2, "ana", "pw", "JAL"), (3, "beto", "pw2", None)])
+
+    def test_bom_with_comma_delimiter(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,pw,JAL\n", bom=True), MAPPING)
+        self.assertEqual(errors, [])
+        self.assertEqual([r.username for r in rows], ["ana"])
+
+    def test_row_shorter_than_the_header(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,pw\n"
+            "beto,Beto,Pérez\n"), MAPPING)
+        # A missing optional cell is None; a missing required one is empty.
+        self.assertEqual(rows[0].team, None)
+        self.assertEqual(errors, ["fila 3: la contraseña está vacía"])
+
+    def test_header_only_file(self):
+        header = "usuario,nombre,apellido,contraseña,estado\n"
+        for text in (header, header + "\n,,,,\n  ,  ,  ,  ,  \n"):
+            rows, errors = read_rows(csv_bytes(text), MAPPING)
+            self.assertEqual(rows, [])
+            self.assertEqual(errors, ["el archivo no tiene filas de datos"])
+
+    def test_empty_file(self):
+        rows, errors = read_rows(b"", MAPPING)
+        self.assertEqual(rows, [])
+        self.assertEqual(errors, ["el archivo está vacío"])
 
 
 if __name__ == "__main__":
