@@ -145,6 +145,20 @@ class TestVisibilityUpdate(VisibilityTestCase):
             self.assertEqual(response.headers["Cache-Control"], "no-store",
                              msg=path)
 
+    def test_only_a_change_is_logged_at_info(self):
+        # ProxyService sends the settings of every group at each sweep:
+        # the same settings sent again must not fill the log.
+        other_hash = build_password("0ther", "plaintext")
+        with self.assertLogs("cmsranking.visibility", "DEBUG") as logs:
+            self.put_visibility("olim", True)
+            self.put_visibility("olim", True)
+            self.put_visibility("olim", True, staff_password=other_hash)
+            self.put_visibility("olim", False, staff_password=other_hash)
+            self.put_visibility("olim", False, staff_password=other_hash)
+        levels = [record.levelname for record in logs.records
+                  if record.getMessage().startswith("Ranking group olim")]
+        self.assertEqual(levels, ["INFO", "DEBUG", "INFO", "INFO", "DEBUG"])
+
     def test_state_persists_across_restart(self):
         self.put_contest("/olim")
         self.put_visibility("olim", True)

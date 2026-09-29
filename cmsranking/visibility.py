@@ -542,7 +542,12 @@ class VisibilityGuard:
         except (ValueError, KeyError, TypeError) as error:
             logger.warning("Bad visibility update: %s.", error)
             return Response(str(error), status=400, mimetype="text/plain")
+        # ProxyService sends the settings again at each sweep: only a
+        # change is worth an INFO line.
+        changed = (hidden, staff_password) \
+            != (self.state.hidden, self.state.staff_password)
         self.state.update(hidden, staff_password)
-        logger.info("Ranking group %s is now %s.", self.group,
-                    "hidden" if hidden else "visible")
+        logger.log(logging.INFO if changed else logging.DEBUG,
+                   "Ranking group %s is now %s.", self.group,
+                   "hidden" if hidden else "visible")
         return Response(status=204)
