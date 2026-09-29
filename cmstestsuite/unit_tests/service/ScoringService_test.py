@@ -74,7 +74,13 @@ class ScoringServiceTest(
         rpc_address_patcher.start()
         self.addCleanup(rpc_address_patcher.stop)
 
-        self.service = ScoringService(shard=0)
+        # The service is built with a loop already running, so its
+        # sweeper would start at once and enqueue (and score, in the
+        # background) whatever earlier tests left in the DB, racing
+        # with the executor calls the tests make by hand.
+        with patch.object(
+                ScoringService, "start_sweeper", lambda self, timeout: None):
+            self.service = ScoringService(shard=0)
         # ScoringService.__init__ auto-connects (auto_retry=0.5) to
         # LogService and (if rankings are configured) ProxyService;
         # disconnect both the same way Checker_test.py/
@@ -97,6 +103,10 @@ class ScoringServiceTest(
         for server in self._servers:
             server.close()
             await server.wait_closed()
+        # What a test commits outlives it (DatabaseMixin only rolls
+        # back): start each test from an empty DB.
+        self.session.rollback()
+        self.delete_data()
 
     async def _add_connected_service(
         self, coord: ServiceCoord, local_service: object
