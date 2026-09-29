@@ -109,7 +109,8 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
     def test_omitted_ranking_group_updates_other_fields_and_keeps_group(self):
         handler = self._post()
 
-        self.assertEqual(self._notifications(handler), ["Operation successful."])
+        self.assertEqual(self._notifications(handler),
+                         ["Operation successful."])
         handler.schedule_rpc.assert_called_once()
         contest = self._reload_contest()
         self.assertEqual(contest.name, "after")
@@ -132,7 +133,8 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
     def test_valid_ranking_group_is_set(self):
         handler = self._post(ranking_group_id=str(self.other_group_id))
 
-        self.assertEqual(self._notifications(handler), ["Operation successful."])
+        self.assertEqual(self._notifications(handler),
+                         ["Operation successful."])
         contest = self._reload_contest()
         self.assertEqual(contest.name, "after")
         self.assertEqual(contest.ranking_group_id, self.other_group_id)
@@ -140,7 +142,8 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
     def test_empty_ranking_group_clears_it(self):
         handler = self._post(ranking_group_id="")
 
-        self.assertEqual(self._notifications(handler), ["Operation successful."])
+        self.assertEqual(self._notifications(handler),
+                         ["Operation successful."])
         contest = self._reload_contest()
         self.assertEqual(contest.name, "after")
         self.assertIsNone(contest.ranking_group_id)
