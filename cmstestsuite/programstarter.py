@@ -300,6 +300,20 @@ class ProgramStarter:
         p.start()
         self._programs[(service_name, shard, contest)] = p
 
+    def stop(self, service_name, shard=0, contest=None):
+        """Stop a service started with start() and forget it.
+
+        It is dropped from the programs stop_all() asks to quit: that would
+        call a service that is no longer there. The arguments are those of
+        start(), so that the same service can then be started again, for
+        example for another contest.
+
+        """
+        p = self._programs.pop((service_name, shard, contest))
+        p.log_cpu_times()
+        p.stop()
+        p.wait_or_kill()
+
     def count_unhealthy(self):
         return len([p for p in self._programs.values() if not p.healthy])
 
