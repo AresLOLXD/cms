@@ -80,6 +80,15 @@ class RejectedError(CannotSendError):
     """
 
 
+class UnencodableError(RejectedError):
+    """The data of a request to a ranking cannot be encoded as JSON.
+
+    Building the same data again would fail the same way: the data has
+    to be fixed first.
+
+    """
+
+
 class SendOutcome(enum.Enum):
     """What became of a request to a ranking."""
 
@@ -136,19 +145,18 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
 
-    raise (RejectedError): if the ranking refuses the data, or the data
-        cannot be encoded as JSON.
+    raise (UnencodableError): if the data cannot be encoded as JSON.
+    raise (RejectedError): if the ranking refuses the data.
     raise (CannotSendError): in case of communication or server errors.
 
     """
     try:
         body = json.dumps(data)
     except (TypeError, ValueError) as error:
-        # Encoding the same data again would fail the same way.
         msg = "Cannot encode the data as JSON while %s: %s." % (
             operation, error)
         logger.warning(msg)
-        raise RejectedError(msg)
+        raise UnencodableError(msg)
     try:
         url = urljoin(ranking, resource)
         # XXX With requests-1.2 auth is automatically extracted from
@@ -310,8 +318,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         # monotonic clock) it may be tried again.
         self._retry_waits: dict[str | None, float] = dict()
         self._retry_after: dict[str | None, float] = dict()
-        # Set when operations are queued, to end a wait for a namespace
-        # early: the data of the others must not wait for it.
+        # Set when operations are queued for a namespace that may be
+        # tried now, to end a wait for another namespace early: their
+        # data must not wait for it.
         self._new_work = asyncio.Event()
 
         # The namespaces whose visibility settings the ranking refused
@@ -325,19 +334,33 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         """Return the resource path prefix of a ranking namespace."""
         return "" if group is None else "%s/" % group
 
+    def _is_due(self, group: str | None, now: float) -> bool:
+        """Return whether namespace group may be tried at time now.
+
+        group: the namespace (None is the root).
+        now: a time on the monotonic clock.
+
+        """
+        return self._retry_after.get(group, now) <= now
+
     def enqueue(
         self,
         item: ProxyOperation,
         priority: int | None = None,
         timestamp: datetime | None = None,
     ) -> bool:
-        """Queue an operation, ending any wait to try a namespace again.
+        """Queue an operation, ending the wait of a round if it is due.
+
+        An operation for a namespace that still waits to be tried again
+        doesn't end it: a round takes the whole queue out and puts back
+        what waits, so a round for each operation queued meanwhile would
+        take time quadratic in the backlog.
 
         See AsyncExecutor.enqueue.
 
         """
         queued = super().enqueue(item, priority, timestamp)
-        if queued:
+        if queued and self._is_due(item.group, monotonic()):
             self._new_work.set()
         return queued
 
@@ -369,7 +392,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         self._new_work.clear()
         now = monotonic()
         ready = [entry for entry in entries
-                 if self._retry_after.get(entry.item.group, now) <= now]
+                 if self._is_due(entry.item.group, now)]
         unsent: list[QueueEntry[ProxyOperation]] = []
         if ready:
             loop = asyncio.get_running_loop()
@@ -608,15 +631,26 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 logger.debug(operation.capitalize())
                 safe_put_data(
                     self._ranking, "%s%s/" % (prefix, name), data, operation)
-        except RejectedError:
-            # The status has already been logged: say what to do about it
+        except RejectedError as error:
+            # The error has already been logged: say what to do about it
             # (for the visibility, _track_visibility does).
-            if type_ != self.VISIBILITY_TYPE:
+            if type_ == self.VISIBILITY_TYPE:
+                return SendOutcome.REJECTED
+            group_name = group if group is not None else "(root)"
+            if isinstance(error, UnencodableError):
+                # Regenerate alone would build the same data again.
+                logger.warning(
+                    "%s of group %s cannot be encoded for ranking %s, and "
+                    "would fail the same way again. Fix the data, then use "
+                    "Regenerate for this group in AWS (Ranking groups) to "
+                    "send it.", what.capitalize(), group_name,
+                    self._visible_ranking)
+            else:
                 logger.warning(
                     "Ranking %s rejected %s of group %s. It will not be sent "
                     "again: use Regenerate for this group in AWS (Ranking "
                     "groups) to send its data again.", self._visible_ranking,
-                    what, group if group is not None else "(root)")
+                    what, group_name)
             return SendOutcome.REJECTED
         except CannotSendError:
             # A log message has already been produced.

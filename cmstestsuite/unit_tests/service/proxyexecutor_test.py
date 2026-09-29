@@ -496,7 +496,10 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
                 hints = [line for line in logs.output
                          if "Regenerate" in line]
                 self.assertEqual(len(hints), 1)
-                self.assertIn("users of group olim", hints[0])
+                self.assertIn("users of group olim cannot be encoded",
+                              hints[0])
+                # Regenerate alone would build the same data again.
+                self.assertIn("Fix the data, then use Regenerate", hints[0])
                 # Not an unexpected error: no traceback.
                 self.assertFalse(any(r.exc_info for r in logs.records))
 
@@ -871,6 +874,42 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         sent = ("put", url("omips/submissions/"), {"1": {}})
         await self.wait_until(lambda: sent in self.calls)
         # olim was not tried again: its wait is not over.
+        self.assertEqual(self.urls().count(url("olim/contests/")), 1)
+
+    async def test_data_of_a_group_backing_off_does_not_start_rounds(self):
+        # Each round takes the whole queue out and puts back what waits:
+        # a round for every score queued for a group that cannot be
+        # tried yet would take time quadratic in its backlog.
+        self.outcomes = {("put", url("olim/contests/")):
+                         requests.exceptions.ConnectionError("down")}
+        # The wait after the failure of olim never ends by itself.
+        self.retry_waits.block_after = 1
+        rounds: list[int] = []
+        real_execute = self.executor.execute
+
+        async def counting_execute(batch):
+            rounds.append(len(batch))
+            await real_execute(batch)
+
+        self.executor.execute = counting_execute
+        self.start_running(self.executor)
+        self.executor.enqueue(
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
+        await self.wait_until(lambda: self.retry_waits.waits)
+
+        # Scores of olim keep coming while it waits.
+        for i in range(20):
+            self.executor.enqueue(ProxyOperation(
+                ProxyExecutor.SUBMISSION_TYPE, {"%d" % i: {}}, "olim"))
+            await asyncio.sleep(0.001)
+        # A score of omips does start a round.
+        self.executor.enqueue(ProxyOperation(
+            ProxyExecutor.SUBMISSION_TYPE, {"x": {}}, "omips"))
+        await self.wait_until(
+            lambda: url("omips/submissions/") in self.urls())
+
+        # The first round, and the one of omips, with all that waits.
+        self.assertEqual(rounds, [1, 22])
         self.assertEqual(self.urls().count(url("olim/contests/")), 1)
 
 
