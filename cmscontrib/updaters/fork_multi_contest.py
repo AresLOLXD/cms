@@ -63,6 +63,18 @@ ALTER TABLE public.ranking_groups
 ALTER TABLE public.ranking_groups ALTER COLUMN hidden DROP DEFAULT;
 ALTER TABLE public.ranking_groups
     ADD COLUMN IF NOT EXISTS staff_password character varying;
+
+ALTER TABLE public.ranking_groups
+    ADD COLUMN IF NOT EXISTS hide_at timestamp without time zone;
+ALTER TABLE public.ranking_groups
+    ADD COLUMN IF NOT EXISTS show_at timestamp without time zone;
+ALTER TABLE public.ranking_groups
+    ADD COLUMN IF NOT EXISTS freeze_at timestamp without time zone;
+ALTER TABLE public.ranking_groups
+    ADD COLUMN IF NOT EXISTS unfreeze_at timestamp without time zone;
+UPDATE public.ranking_groups
+    SET hide_at = (now() AT TIME ZONE 'UTC')
+    WHERE hidden AND hide_at IS NULL;
 """
 
 
