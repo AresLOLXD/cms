@@ -131,6 +131,12 @@ msgstr "Ejecución fallida por código de retorno distinto de cero"
 msgid "Your submission failed because it exited with a return code different from 0."
 msgstr "El envío falló porque terminó con un código de retorno (return code) distinto de 0."
 
+msgid "Skipped after screening phase failure"
+msgstr "Omitido: falló la fase de tamizaje"
+
+msgid "This testcase was not run because the screening testcases for its subtask did not pass."
+msgstr "Este caso de prueba no se ejecutó porque no se superaron los casos de tamizaje de su subtarea."
+
 msgid "Execution completed successfully"
 msgstr "Ejecución completada de manera exitosa"
 
