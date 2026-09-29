@@ -63,14 +63,31 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict):
     An empty password field keeps attrs["staff_password"] as it is, so
     editing a group without retyping the password keeps it.
 
+    The edit form also carries hidden_shown, the value of hidden that
+    the page was rendered with. The checkbox only counts when it differs
+    from it, i.e. when the organizer toggled it: otherwise a page that
+    went stale would undo a change made by somebody else in the
+    meantime, such as making a hidden group public again. In that case
+    attrs["hidden"], the current value, is kept. Without hidden_shown
+    (the add form, or a page cached before it existed), or without a
+    current value in attrs, the checkbox always counts.
+
     handler: the handler whose request carries the form.
     attrs: where to store hidden and staff_password.
 
     raise (ValueError): if a new password and its removal are both
-        requested, or if the new password is too long.
+        requested, if the new password is too long, or if hidden_shown
+        is neither "0" nor "1".
 
     """
-    handler.get_bool(attrs, "hidden")
+    ticked: dict = dict()
+    handler.get_bool(ticked, "hidden")
+    shown = handler.get_argument("hidden_shown", None)
+    if shown not in (None, "0", "1"):
+        raise ValueError("Invalid hidden_shown %r: use 0 or 1." % (shown,))
+    if shown is None or "hidden" not in attrs \
+            or ticked["hidden"] != (shown == "1"):
+        attrs["hidden"] = ticked["hidden"]
     new_password = handler.get_argument("staff_password", "", strip=False)
     remove = handler.get_argument(
         "remove_staff_password", None) is not None

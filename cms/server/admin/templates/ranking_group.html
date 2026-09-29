@@ -26,7 +26,11 @@
           <span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking."></span>
           Hide ranking from the public
         </td>
-        <td><input type="checkbox" name="hidden" {% if ranking_group.hidden %}checked{% endif %}/></td>
+        <td>
+          <input type="checkbox" name="hidden" {% if ranking_group.hidden %}checked{% endif %}/>
+          <!-- What the checkbox was rendered with: only a change to it counts, so a stale page does not undo somebody else's change. -->
+          <input type="hidden" name="hidden_shown" value="{% if ranking_group.hidden %}1{% else %}0{% endif %}" />
+        </td>
       </tr>
       <tr>
         <td>

@@ -255,6 +255,87 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
         handler.schedule_rpc.assert_not_called()
         handler.service.add_notification.assert_called_once()
 
+    def edit(self, stored_hidden: bool, form: dict) -> RankingGroup:
+        """Save form over a group stored with stored_hidden and return it."""
+        group = RankingGroup(name="olim", description="OLIM",
+                             hidden=stored_hidden, staff_password=None)
+        handler = self.make_handler(
+            RankingGroupHandler,
+            {"name": "olim", "description": "OLIM", **form})
+        handler.safe_get_item = MagicMock(return_value=group)
+
+        handler._post_sync("1")
+
+        handler.service.add_notification.assert_not_called()
+        return group
+
+    def test_stale_page_keeps_a_group_hidden_meanwhile(self):
+        # Rendered while visible, then somebody else hid the group.
+        group = self.edit(True, {"hidden_shown": "0"})
+
+        self.assertIs(group.hidden, True)
+
+    def test_stale_page_keeps_a_group_shown_meanwhile(self):
+        # Rendered while hidden, then somebody else showed the group.
+        group = self.edit(False, {"hidden_shown": "1", "hidden": "on"})
+
+        self.assertIs(group.hidden, False)
+
+    def test_stale_page_still_saves_the_staff_password(self):
+        group = self.edit(
+            True, {"hidden_shown": "0", "staff_password": "pw"})
+
+        self.assertIs(group.hidden, True)
+        self.assertTrue(validate_password(group.staff_password, "pw"))
+
+    def test_toggling_the_checkbox_hides_the_group(self):
+        group = self.edit(False, {"hidden_shown": "0", "hidden": "on"})
+
+        self.assertIs(group.hidden, True)
+
+    def test_toggling_the_checkbox_shows_the_group(self):
+        group = self.edit(True, {"hidden_shown": "1"})
+
+        self.assertIs(group.hidden, False)
+
+    def test_toggling_over_a_concurrent_change_is_applied(self):
+        # The page was rendered visible, the organizer ticked the box, and
+        # meanwhile the group was hidden already: the intent is respected.
+        group = self.edit(True, {"hidden_shown": "0", "hidden": "on"})
+
+        self.assertIs(group.hidden, True)
+
+    def test_without_hidden_shown_the_checkbox_is_absolute(self):
+        # The add form and pages cached before hidden_shown existed.
+        self.assertIs(self.edit(False, {"hidden": "on"}).hidden, True)
+        self.assertIs(self.edit(True, {}).hidden, False)
+
+    def test_malformed_hidden_shown_is_rejected(self):
+        group = RankingGroup(name="olim", description="OLIM", hidden=True,
+                             staff_password=None)
+        handler = self.make_handler(
+            RankingGroupHandler,
+            {"name": "olim", "description": "OLIM", "hidden_shown": "maybe"})
+        handler.safe_get_item = MagicMock(return_value=group)
+
+        handler._post_sync("1")
+
+        self.assertIs(group.hidden, True)
+        handler.try_commit.assert_not_called()
+        handler.service.add_notification.assert_called_once()
+
+    def test_add_applies_the_checkbox_even_if_hidden_shown_matches(self):
+        # A new group has no current value to keep: the checkbox rules.
+        handler = self.make_handler(
+            AddRankingGroupHandler,
+            {"name": "olim", "description": "OLIM", "hidden": "on",
+             "hidden_shown": "1"})
+
+        handler._post_sync()
+
+        (group,) = handler.sql_session.add.call_args.args
+        self.assertIs(group.hidden, True)
+
 
 class TestRankingGroupTemplates(unittest.TestCase):
     """The visibility fields of the pages, and that the password stays out.
@@ -304,11 +385,28 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assertIn("(not set)", html)
         self.assertNotIn("(set)", html)
 
+    def test_group_page_carries_the_hidden_value_it_was_rendered_with(self):
+        # The last group has no value yet, as before it is first flushed.
+        for extra, expected in [({"hidden": True}, "1"),
+                                ({"hidden": False}, "0"), ({}, "0")]:
+            group = RankingGroup(name="olim", description="OLIM", **extra)
+
+            html = self.render_core(
+                "ranking_group.html", ranking_group=group,
+                group_contests=[])
+
+            self.assertRegex(
+                html,
+                r'<input type="hidden" name="hidden_shown" value="%s"\s*/?>'
+                % expected)
+            self.assertEqual(html.count('name="hidden_shown"'), 1)
+
     def test_add_page_starts_visible_and_without_password(self):
         html = self.render_core("add_ranking_group.html")
 
         self.assertIn('name="hidden"', html)
         self.assertNotRegex(html, r'name="hidden"\s+checked')
+        self.assertNotIn("hidden_shown", html)
         self.assertIn('type="password" name="staff_password"', html)
         self.assertIn('autocomplete="new-password"', html)
         self.assertNotIn("remove_staff_password", html)
