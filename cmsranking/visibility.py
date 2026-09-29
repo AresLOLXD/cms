@@ -30,6 +30,7 @@ import re
 import secrets
 import tempfile
 
+from gevent.pywsgi import WSGIHandler
 from werkzeug.wrappers import Request, Response
 
 from cmscommon.crypto import parse_authentication
@@ -196,9 +197,45 @@ class VisibilityGuard:
         # Filled in by Task 3.
         return False
 
+    def _guard_writes(self, request: Request, start_response):
+        """Wrap start_response so write() stops once the group is hidden.
+
+        The /events handler sends its data through the write() callable
+        instead of the returned iterable, so _CutWhenHidden never sees
+        it. Its error handling ends the stream when write() raises, and
+        closing the connection makes the browser reconnect and get the
+        403.
+
+        request: the request being served.
+        start_response: the WSGI start_response callable.
+
+        return: a start_response whose write() callables refuse to send
+            data to a client that may no longer see the ranking.
+
+        """
+        handler = getattr(start_response, "__self__", None)
+
+        def guarded_start_response(status, headers, exc_info=None):
+            write = start_response(status, headers, exc_info)
+
+            def guarded_write(data):
+                if self.state.hidden and not self._is_staff(request):
+                    if isinstance(handler, WSGIHandler):
+                        handler.close_connection = True
+                    raise ConnectionAbortedError("The ranking is hidden.")
+                return write(data)
+
+            return guarded_write
+
+        if handler is not None:
+            # The /events handler looks for the gevent handler here.
+            guarded_start_response.__self__ = handler
+        return guarded_start_response
+
     def __call__(self, environ, start_response):
         request = Request(environ)
         path = request.path
+        start_response = self._guard_writes(request, start_response)
         if path == "/visibility":
             return self._update(request)(environ, start_response)
         if self._is_staff(request):

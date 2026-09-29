@@ -26,7 +26,9 @@ import unittest
 from base64 import b64encode
 from importlib.resources import files
 
-from werkzeug.test import Client
+from gevent import socket
+from gevent.pywsgi import WSGIServer
+from werkzeug.test import Client, create_environ
 
 from cmscommon.crypto import build_password
 from cmsranking.Config import Config
@@ -202,6 +204,126 @@ class TestOpenConnections(unittest.TestCase):
         state_holder["guard"] = guard
         response = Client(guard).get("/events")
         self.assertEqual(response.get_data(), b"event 1\n")
+
+    def get_write_stream(self, guard_class=VisibilityGuard):
+        """Get /events from an app that hides its group mid-stream.
+
+        The app sends its data through write(), as the real /events
+        handler does, and gives up when write() raises.
+
+        guard_class: the guard to put in front of the app.
+
+        return: the response.
+
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state_holder = {}
+
+        def writing_app(environ, start_response):
+            write = start_response(
+                "200 OK", [("Content-Type", "text/plain")])
+            write(b"event 1\n")
+            # The group gets hidden while the stream is open.
+            state_holder["guard"].state.update(True, None)
+            try:
+                write(b"event 2\n")
+            except Exception:
+                pass
+            return []
+
+        guard = guard_class(writing_app, tmp, "olim", USERNAME, PASSWORD,
+                            "Scoreboard")
+        state_holder["guard"] = guard
+        return Client(guard).get("/events")
+
+    def test_write_stream_is_cut_when_hidden(self):
+        response = self.get_write_stream()
+        self.assertEqual(response.get_data(), b"event 1\n")
+
+    def test_write_stream_of_staff_is_not_cut(self):
+        class StaffGuard(VisibilityGuard):
+            def _is_staff(self, request):
+                return True
+
+        response = self.get_write_stream(StaffGuard)
+        self.assertEqual(response.get_data(), b"event 1\nevent 2\n")
+
+    def test_app_still_finds_the_server_handler(self):
+        # The /events handler reads start_response.__self__ to spot the
+        # gevent handler, so the guard must not hide it.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        seen = []
+
+        class Handler:
+            def start_response(self, status, headers, exc_info=None):
+                return lambda data: None
+
+        def app(environ, start_response):
+            seen.append(getattr(start_response, "__self__", None))
+            start_response("204 No Content", [])
+            return []
+
+        handler = Handler()
+        guard = VisibilityGuard(app, tmp, "olim", USERNAME, PASSWORD,
+                                "Scoreboard")
+        guard(create_environ("/events"), handler.start_response)
+        self.assertEqual(seen, [handler])
+
+
+class TestRealEventStream(VisibilityTestCase):
+    """The real /events handler, behind a real gevent server."""
+
+    def open_stream(self) -> socket.socket:
+        server = WSGIServer(("127.0.0.1", 0), self.client.application,
+                            log=None)
+        server.start()
+        self.addCleanup(server.stop)
+        stream = socket.create_connection(("127.0.0.1", server.server_port),
+                                          timeout=3)
+        self.addCleanup(stream.close)
+        stream.sendall(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
+                       b"Accept: text/event-stream\r\n\r\n")
+        self.assertIn(b"200 OK", stream.recv(65536))
+        return stream
+
+    @staticmethod
+    def drain(stream: socket.socket) -> tuple[bytes, bool]:
+        """Read until the server closes the stream or the timeout expires.
+
+        return: the received bytes and whether the server closed it.
+
+        """
+        received = b""
+        try:
+            while True:
+                chunk = stream.recv(65536)
+                if not chunk:
+                    return received, True
+                received += chunk
+        except socket.timeout:
+            return received, False
+
+    def put_second_contest(self):
+        return self.client.put(
+            "/olim/contests/c2", data=json.dumps(CONTEST),
+            content_type="application/json", headers=AUTH)
+
+    def test_stream_is_closed_without_data_when_group_gets_hidden(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.put_second_contest()
+        received, closed = self.drain(stream)
+        self.assertNotIn(b"c2", received)
+        self.assertTrue(closed)
+
+    def test_stream_of_a_visible_group_keeps_delivering(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
 
 
 class TestVisibilityState(unittest.TestCase):
