@@ -1109,6 +1109,17 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                             self._enqueue_submissions(
                                 session, contest, only_missing=False)
         except Exception:
+            # Nobody else logs it: the RPC server doesn't, and the
+            # caller (AWS) stops waiting for the answer.
+            if lost:
+                logger.exception(
+                    "Reinitializing the rankings failed. The ranking "
+                    "groups that lost contests (%s) were being reset and "
+                    "may be left empty: once the cause is fixed, use "
+                    "Regenerate for them in AWS (Ranking groups).",
+                    ", ".join(lost))
+            else:
+                logger.exception("Reinitializing the rankings failed.")
             # The groups that lost contests may be empty by now, and
             # nothing has filled them again. Go back to the mapping we
             # had, so that the next reinitialize sees them as lost and

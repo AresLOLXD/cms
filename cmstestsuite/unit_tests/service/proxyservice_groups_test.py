@@ -621,12 +621,19 @@ class TestProxyServiceGroups(
             return real_method(*args, **kwargs)
 
         setattr(service, name, flaky_method)
-        with self.assertRaises(RuntimeError):
-            await service.reinitialize()
+        with self.assertLogs("cms.service.ProxyService", "ERROR") as logs:
+            with self.assertRaises(RuntimeError):
+                await service.reinitialize()
         await self._settle(service)
         self.assertEqual(self.delete_urls(),
                          [url("olim/contests/"), url("olim/users/")])
         self.assertEqual(service._group_contests, old_mapping)
+        # Nobody else logs it: the RPC server does not, and AWS stops
+        # waiting for the answer. The operator learns what to repair.
+        self.assertEqual(len(logs.records), 1)
+        self.assertIsNotNone(logs.records[0].exc_info)
+        self.assertIn("olim", logs.output[0])
+        self.assertIn("Regenerate", logs.output[0])
 
         self.clear_requests()
         await service.reinitialize()
@@ -639,6 +646,21 @@ class TestProxyServiceGroups(
                          {"%d" % sub_a2.id})
         self.assertIn("%d" % self.sub_a.id,
                       self.put_payload(url("omips/submissions/")))
+
+    async def test_reinitialize_failing_without_lost_groups_is_logged(self):
+        service = await self.start()
+
+        def failing_initialize():
+            raise RuntimeError("the database went away")
+
+        service.initialize = failing_initialize
+        with self.assertLogs("cms.service.ProxyService", "ERROR") as logs:
+            with self.assertRaises(RuntimeError):
+                await service.reinitialize()
+        self.assertEqual(len(logs.records), 1)
+        self.assertIsNotNone(logs.records[0].exc_info)
+        # No group was being reset: there is nothing to regenerate.
+        self.assertNotIn("Regenerate", logs.output[0])
 
     async def test_reinitialize_failing_early_is_redone_in_full(self):
         await self.check_reinitialize_recovers_from_failure_in("initialize")
