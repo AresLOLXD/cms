@@ -135,8 +135,12 @@ class EvaluationExecutor(AsyncExecutor[ESOperation]):
 
         We derive the number from the length of the queue divided by
         the number of workers, with a cap at MAX_OPERATIONS_PER_BATCH.
+        With no workers at all (e.g. CMS_WORKER_COUNT=0) nothing can be
+        dispatched, so we do not batch and just return 1.
 
         """
+        if len(self.pool) == 0:
+            return 1
         # TODO: len(self.pool) is the total number of workers,
         # included those that are disabled.
         ratio = len(self._operation_queue) // len(self.pool) + 1

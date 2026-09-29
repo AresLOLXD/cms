@@ -18,7 +18,8 @@ from cms.io.async_triggeredservice import AsyncTriggeredService
 from cms.io.priorityqueue import PriorityQueue
 from cms.io.rpc import rpc_method
 from cms.service.esoperations import ESOperation
-from cms.service.EvaluationService import EvaluationService, Result
+from cms.service.EvaluationService import EvaluationExecutor, \
+    EvaluationService, Result
 from cms.service.workerpool import WorkerPool
 from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -163,16 +164,16 @@ class EvaluationServiceTest(
         service._loop = asyncio.get_running_loop()
         self.addCleanup(service._disconnect_all)
 
-        # EvaluationExecutor.max_operations_per_batch divides by
-        # len(self.pool): with zero workers registered (the case here,
-        # since config.services is patched to {}), the executor's
-        # always-running background run() loop would crash with a
-        # ZeroDivisionError as soon as anything is enqueued. Register one
-        # placeholder worker (left unconnected, so acquire_worker never
-        # actually hands operations to it) so tests that don't care about
-        # real worker dispatch can still enqueue safely; tests that do
-        # care add/override a real connected worker via
-        # _add_connected_worker.
+        # EvaluationExecutor.max_operations_per_batch used to divide by
+        # len(self.pool) and crash the executor's always-running
+        # background run() loop with a ZeroDivisionError when no worker
+        # was registered (the case here, since config.services is patched
+        # to {}); it no longer does (see the "executor without workers"
+        # tests below). Still register one placeholder worker (left
+        # unconnected, so acquire_worker never actually hands operations
+        # to it) so tests that don't care about real worker dispatch keep
+        # a pool like a real deployment's; tests that do care add/override
+        # a real connected worker via _add_connected_worker.
         service.get_executor().pool.add_worker(ServiceCoord("Worker", 0))
         return service
 
@@ -837,6 +838,54 @@ class EvaluationServiceTest(
 
         self.assertTrue(result)
         self.assertEqual(pool._operations[0], WorkerPool.WORKER_INACTIVE)
+
+
+    # -- executor without workers ------------------------------------------
+
+    def _build_workerless_executor(self) -> EvaluationExecutor:
+        """Build an executor whose pool has no workers (CMS_WORKER_COUNT=0).
+
+        _build_service registers a placeholder worker in its own
+        executor, so build a separate one: with config.services patched
+        to {} (see asyncSetUp) the pool of a fresh executor is empty.
+
+        return: the executor, with three operations already queued.
+
+        """
+        executor = EvaluationExecutor(self.service)
+        self.assertEqual(len(executor.pool), 0)
+        for submission_id in range(1, 4):
+            executor.enqueue(
+                ESOperation(ESOperation.COMPILATION, submission_id, 1),
+                PriorityQueue.PRIORITY_HIGH, make_datetime())
+        return executor
+
+    async def test_max_operations_per_batch_without_workers_is_one(self):
+        executor = self._build_workerless_executor()
+
+        self.assertEqual(executor.max_operations_per_batch(), 1)
+
+    async def test_executor_without_workers_survives_and_keeps_queue(self):
+        executor = self._build_workerless_executor()
+        operations = [ESOperation(ESOperation.COMPILATION, i, 1)
+                      for i in range(1, 4)]
+
+        run_task = asyncio.create_task(executor.run())
+        self.addCleanup(run_task.cancel)
+        # Give run() time to pop the first operation, and to crash if
+        # it is going to.
+        await self._wait_until(
+            lambda: run_task.done() or len(executor._operation_queue) < 3)
+        await asyncio.sleep(0.2)
+
+        if run_task.done():
+            run_task.result()  # Re-raises the crash of the executor.
+            self.fail("The executor's run() loop must never return.")
+        # No batching: only the operation being held for a worker has
+        # left the queue, the rest of it is untouched.
+        self.assertEqual(len(executor._operation_queue), 2)
+        for operation in operations:
+            self.assertIn(operation, executor)
 
 
 if __name__ == "__main__":
