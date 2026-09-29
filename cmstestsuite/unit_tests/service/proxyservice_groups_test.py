@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
@@ -23,6 +24,7 @@ from cms.db import RankingGroup
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
     ProxyService, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
+from cmscommon.datetime import make_timestamp
 
 
 RANKING = config.proxy_service.rankings[0]
@@ -709,7 +711,20 @@ class TestProxyServiceGroups(
         self.assertLess(urls.index(visibility),
                         urls.index(url("olim/contests/")))
         self.assertEqual(self.put_payload(visibility),
-                         {"hidden": False, "staff_password": None})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": None})
+
+    async def test_visibility_windows_are_sent(self):
+        self.olim.freeze_at = datetime(2026, 10, 10, 19, 0)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        expected_freeze_at = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        self.assertEqual(self.put_payload(url("olim/visibility")),
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": expected_freeze_at, "unfreeze_at": None,
+                          "staff_password": None})
 
     async def test_reinitialize_sends_new_visibility(self):
         service = await self.start()
@@ -721,7 +736,9 @@ class TestProxyServiceGroups(
         await service.reinitialize()
         await self._settle(service)
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hidden": True, "staff_password": "plaintext:pw"})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": "plaintext:pw"})
 
     async def test_regenerate_sends_visibility(self):
         service = await self.start()
@@ -870,9 +887,13 @@ class TestProxyServiceGroups(
         await self._settle(service)
 
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hidden": False, "staff_password": None})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": None})
         self.assertEqual(self.put_payload(url("omips/visibility")),
-                         {"hidden": True, "staff_password": "plaintext:pw"})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": "plaintext:pw"})
 
     async def test_sweep_in_legacy_mode_sends_no_visibility(self):
         service = await self.start(contest_id=self.contest_a.id)
@@ -950,7 +971,9 @@ class TestProxyServiceGroups(
         self.assertLess(urls.index(url("olim/visibility")),
                         urls.index(url("olim/submissions/")))
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hidden": True, "staff_password": None})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": None})
 
 
 if __name__ == "__main__":

@@ -117,6 +117,16 @@ def encode_id(entity_id: str) -> str:
     return encoded_id
 
 
+def _unix_time(value: datetime | None) -> int | None:
+    """Convert a naive UTC datetime to Unix seconds, keeping None.
+
+    value: a naive datetime in UTC, or None.
+    return: Unix seconds (int), or None.
+
+    """
+    return None if value is None else int(make_timestamp(value))
+
+
 def _check_status(status_code: int, operation: str):
     """Raise the right error if a ranking answered with a failure.
 
@@ -951,7 +961,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         for ranking_group in session.execute(query).scalars().all():
             self._threadsafe_enqueue(ProxyOperation(
                 ProxyExecutor.VISIBILITY_TYPE,
-                {"hidden": ranking_group.hidden,
+                {"hide_at": _unix_time(ranking_group.hide_at),
+                 "show_at": _unix_time(ranking_group.show_at),
+                 "freeze_at": _unix_time(ranking_group.freeze_at),
+                 "unfreeze_at": _unix_time(ranking_group.unfreeze_at),
                  "staff_password": ranking_group.staff_password},
                 ranking_group.name))
 
