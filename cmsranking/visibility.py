@@ -32,6 +32,7 @@ import re
 import secrets
 import tempfile
 import time
+from datetime import datetime
 
 import gevent
 from gevent.pywsgi import WSGIHandler
@@ -61,6 +62,26 @@ MAX_LOGIN_BODY = 4096
 # shares with everything else.
 LOGIN_THREADS = 2
 
+# The environ key through which the guard tells the handlers to serve a
+# frozen group's data as it was at this Unix time.
+FREEZE_AT_ENVIRON = "cmsranking.freeze_at"
+
+# What a public request to a frozen group gets, by first path segment.
+# Every route of the namespace app must be listed (a test checks it):
+# "filter" is served as of the freeze time, "forbid" is refused, "pass"
+# carries nothing that changes after the freeze (the static files are
+# the default, "").
+FROZEN_ROUTES = {
+    "": "pass", "contests": "pass", "tasks": "pass", "teams": "pass",
+    "users": "pass", "faces": "pass", "flags": "pass", "logo": "pass",
+    "config": "pass", "events": "pass",
+    "scores": "filter", "history": "filter", "sublist": "filter",
+    "submissions": "forbid", "subchanges": "forbid",
+}
+
+HIDDEN_MESSAGE = "Este ranking está oculto por ahora."
+FROZEN_LOGIN_MESSAGE = "Acceso del staff al ranking en vivo."
+
 NOTICE_TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -79,7 +100,7 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 <body>
 <main>
 <h1>{group}</h1>
-<p>Este ranking está oculto por ahora.</p>
+<p>{message}</p>
 <form method="post" action="staff-login">
 <label>Contraseña del staff
 <input type="password" name="password"
@@ -102,20 +123,44 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 # is under it). The height of the bar and that room are one property:
 # 2.25rem is a line of 1.25rem and a padding of 0.5rem above and below,
 # and 3.5rem holds the two lines that the text takes on a narrow screen.
-STAFF_BANNER = (
-    '<style>'
-    ':root{--rws-banner:2.25rem}'
-    '@media(max-width:30em){:root{--rws-banner:3.5rem}}'
-    '#InnerFrame,#UserDetail_bg{bottom:var(--rws-banner)}'
-    '#SidePanel{bottom:calc(30px + var(--rws-banner))}'
-    '</style>'
-    '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
-    'box-sizing:border-box;height:var(--rws-banner);overflow:hidden;'
-    'padding:0.5rem;font:0.85rem/1.25rem sans-serif;'
-    'background:#b00020;color:#fff;text-align:center;">Vista staff: este '
-    'ranking está oculto al público &middot; '
-    '<a style="color:#fff" href="staff-logout">Salir</a></div>'
-).encode("utf-8")
+def _banner(text_html: str) -> bytes:
+    """Build a bottom bar with the given text (see STAFF_BANNER's CSS)."""
+    return (
+        '<style>'
+        ':root{--rws-banner:2.25rem}'
+        '@media(max-width:30em){:root{--rws-banner:3.5rem}}'
+        '#InnerFrame,#UserDetail_bg{bottom:var(--rws-banner)}'
+        '#SidePanel{bottom:calc(30px + var(--rws-banner))}'
+        '</style>'
+        '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
+        'box-sizing:border-box;height:var(--rws-banner);overflow:hidden;'
+        'padding:0.5rem;font:0.85rem/1.25rem sans-serif;'
+        'background:#b00020;color:#fff;text-align:center;">'
+        + text_html + '</div>').encode("utf-8")
+
+
+LINK = '<a style="color:#fff" href="%s">%s</a>'
+STAFF_BANNER = _banner("Vista staff: este ranking está oculto al público "
+                       "&middot; " + LINK % ("staff-logout", "Salir"))
+STAFF_FROZEN_BANNER = _banner(
+    "Vista staff: ranking congelado para el público &middot; "
+    + LINK % ("staff-logout", "Salir"))
+
+
+def public_frozen_banner(freeze_at: int) -> bytes:
+    """Build the public bar of a frozen group.
+
+    freeze_at: the freeze time, in Unix seconds.
+
+    return: the bar, with the time in the server's local time zone.
+
+    """
+    when = datetime.fromtimestamp(freeze_at).astimezone()
+    return _banner("Ranking congelado desde las %s (%s) &middot; %s" % (
+        when.strftime("%H:%M"), when.strftime("%Z"),
+        LINK % ("staff-login", "Acceso staff")))
+
+
 BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
 
 
@@ -467,11 +512,13 @@ class VisibilityGuard:
         return request.scheme == "https" or request.headers.get(
             "X-Forwarded-Proto", "").lower() == "https"
 
-    def _login(self, request: Request, start_response) -> Response:
+    def _login(self, request: Request, start_response,
+               message: str = HIDDEN_MESSAGE) -> Response:
         """Check the staff password and start a staff session.
 
         request: the POST to staff-login, with the form field password.
         start_response: the WSGI start_response callable.
+        message: the text of the notice shown after a failed attempt.
 
         return: a redirect that sets the staff cookie, or the notice with
             an error after a failed attempt (or a 413 if the body is too
@@ -510,7 +557,7 @@ class VisibilityGuard:
                 valid = False
         if not valid:
             gevent.sleep(self.FAILED_LOGIN_DELAY)
-            return self._notice(error=True, status=401)
+            return self._notice(error=True, status=401, message=message)
         response = Response(status=303, headers=dict(
             NO_STORE, Location="./"))
         # Sign the hash that was checked, not the current one: if the
@@ -533,11 +580,13 @@ class VisibilityGuard:
         response.delete_cookie(STAFF_COOKIE, path=None)
         return response
 
-    def _with_banner(self, environ, start_response):
-        """Serve the app's page with the staff banner after <body>.
+    def _with_banner(self, environ, start_response,
+                     banner: bytes = STAFF_BANNER):
+        """Serve the app's page with a banner after <body>.
 
         environ: the WSGI environ.
         start_response: the WSGI start_response callable.
+        banner: the bar to insert.
 
         return: the body of the response.
 
@@ -556,8 +605,7 @@ class VisibilityGuard:
             close = getattr(body_iter, "close", None)
             if close is not None:
                 close()
-        body = BODY_TAG.sub(lambda m: m.group(0) + STAFF_BANNER, body,
-                            count=1)
+        body = BODY_TAG.sub(lambda m: m.group(0) + banner, body, count=1)
         dropped = {"content-length", "last-modified", "etag",
                    "cache-control"}
         headers = [(k, v) for k, v in captured["headers"]
@@ -604,7 +652,9 @@ class VisibilityGuard:
     def __call__(self, environ, start_response):
         request = Request(environ)
         path = request.path
-        hidden = self.state.settings.hidden(time.time())
+        now = time.time()
+        hidden = self.state.settings.hidden(now)
+        frozen = self.state.settings.frozen(now)
         start_response = self._guard_writes(request, start_response)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
@@ -618,14 +668,16 @@ class VisibilityGuard:
             # the notice once the group is hidden.
             start_response = _cache_control(start_response, REVALIDATE)
         if self._is_staff(request):
-            if hidden:
+            if hidden or frozen:
                 if path == "/" and request.method == "GET":
-                    return self._with_banner(environ, start_response)
+                    return self._with_banner(
+                        environ, start_response,
+                        STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
                 # A cache shared with the public must not keep this.
                 start_response = _cache_control(
                     start_response, PRIVATE_NO_STORE)
             return self.app(environ, start_response)
-        if not hidden:
+        if not hidden and not frozen:
             return _CutWhenHidden(self.app(environ, start_response),
                                   self.state, start_response)
         if request.method in ("PUT", "DELETE"):
@@ -637,6 +689,8 @@ class VisibilityGuard:
                                extra={"location": request.url})
                 return self._unauthorized()(environ, start_response)
             return self.app(environ, start_response)
+        if frozen:
+            return self._frozen(request, environ, start_response)
         if path == "/" and request.method in ("GET", "HEAD"):
             return self._notice()(environ, start_response)
         if path == "/staff-login" and request.method == "POST":
@@ -646,9 +700,42 @@ class VisibilityGuard:
                         mimetype="text/plain",
                         headers=NO_STORE)(environ, start_response)
 
-    def _notice(self, error: bool = False, status: int = 200) -> Response:
+    def _frozen(self, request: Request, environ, start_response):
+        """Serve a public request to a frozen group.
+
+        request: the request being served.
+        environ: the WSGI environ.
+        start_response: the WSGI start_response callable.
+
+        return: the body of the response.
+
+        """
+        path = request.path
+        if path == "/staff-login":
+            if request.method == "POST":
+                return self._login(request, start_response,
+                                   FROZEN_LOGIN_MESSAGE)(
+                    environ, start_response)
+            return self._notice(message=FROZEN_LOGIN_MESSAGE)(
+                environ, start_response)
+        if path == "/" and request.method == "GET":
+            return self._with_banner(
+                environ, start_response,
+                public_frozen_banner(self.state.settings.freeze_at))
+        kind = FROZEN_ROUTES.get(path.strip("/").split("/")[0], "pass")
+        if kind == "forbid":
+            return Response("Este ranking está congelado.", status=403,
+                            mimetype="text/plain",
+                            headers=NO_STORE)(environ, start_response)
+        if kind == "filter":
+            environ[FREEZE_AT_ENVIRON] = self.state.settings.freeze_at
+            start_response = _cache_control(start_response, "no-store")
+        return self.app(environ, start_response)
+
+    def _notice(self, error: bool = False, status: int = 200,
+                message: str = HIDDEN_MESSAGE) -> Response:
         body = NOTICE_TEMPLATE.format(
-            group=self._escaped_group(),
+            group=self._escaped_group(), message=message,
             error='<p class="error">Contraseña incorrecta.</p>'
                   if error else "")
         return Response(body, status=status, mimetype="text/html",

@@ -41,9 +41,9 @@ from cmscommon.crypto import build_password, hash_password
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
-from cmsranking.visibility import HIDDEN_SINCE_ALWAYS, STAFF_COOKIE, \
-    VISIBILITY_FILE, VisibilityGuard, VisibilitySettings, VisibilityState, \
-    parse_settings, staff_cookie_value
+from cmsranking.visibility import FROZEN_ROUTES, HIDDEN_SINCE_ALWAYS, \
+    STAFF_COOKIE, VISIBILITY_FILE, VisibilityGuard, VisibilitySettings, \
+    VisibilityState, parse_settings, staff_cookie_value
 
 
 USERNAME = "rws"
@@ -722,6 +722,28 @@ class TestOpenConnections(unittest.TestCase):
         response = Client(guard).get("/events")
         self.assertEqual(response.get_data(), b"event 1\n")
 
+    def test_open_stream_is_cut_by_the_clock_alone(self):
+        # The group gets hidden by its schedule, with no PUT involved.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+
+        def streaming_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+
+            def body():
+                yield b"event 1\n"
+                clock.return_value = 100
+                yield b"event 2\n"
+            return body()
+
+        guard = VisibilityGuard(streaming_app, tmp, "olim", USERNAME,
+                                PASSWORD, "Scoreboard")
+        guard.state.update_settings(VisibilitySettings(hide_at=100))
+        with patch("cmsranking.visibility.time.time",
+                   return_value=99) as clock:
+            response = Client(guard).get("/events")
+        self.assertEqual(response.get_data(), b"event 1\n")
+
     def get_write_stream(self, guard_class=VisibilityGuard):
         """Get /events from an app that hides its group mid-stream.
 
@@ -1081,6 +1103,24 @@ class TestUnreadableState(unittest.TestCase):
         os.chmod(self.tmp, 0)
         self.assert_fails_closed()
 
+    def test_json_that_is_not_an_object(self):
+        # A number or a string has no secret to pop.
+        for content in ["3", '"hidden"']:
+            with self.subTest(content=content):
+                with open(self.path, "w") as f:
+                    f.write(content)
+                self.assert_fails_closed()
+
+    def test_new_format_with_bad_times(self):
+        times = {"hide_at": None, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None,
+                 "secret": "00"}
+        for bad in [{"hide_at": True}, {"hide_at": 20, "show_at": 20}]:
+            with self.subTest(bad=bad):
+                with open(self.path, "w") as f:
+                    json.dump(dict(times, **bad), f)
+                self.assert_fails_closed()
+
 
 class TestVisibilitySettings(unittest.TestCase):
 
@@ -1123,7 +1163,9 @@ class TestVisibilitySettings(unittest.TestCase):
                 parse_settings(body)
 
     def test_last_change(self):
-        state = VisibilityState(tempfile.mkdtemp())
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state = VisibilityState(tmp)
         state.update_settings(VisibilitySettings(freeze_at=100,
                                                  unfreeze_at=200))
         state.changed_at = 50
@@ -1189,6 +1231,154 @@ class TestScheduledHiding(VisibilityTestCase):
                        "secret": "ab" * 32}, f)
         state = VisibilityState(group_dir)
         self.assertEqual(state.settings, HIDDEN_SINCE_ALWAYS)
+        # The staff cookies signed with the secret survive the upgrade.
+        self.assertEqual(state.secret, "ab" * 32)
+
+
+class TestFrozenPublicView(VisibilityTestCase):
+
+    TASK = {"name": "T", "short_name": "t", "contest": "c1", "order": 0,
+            "max_score": 100.0, "extra_headers": [], "score_precision": 0,
+            "score_mode": "max"}
+    LIVE = {"early": {"t": 40.0}, "late": {"t": 90.0}}
+    # The handlers of the scores, the history and the submissions refuse a
+    # client that does not accept JSON, as the scoreboard's ajax calls do.
+    JSON = {"Accept": "application/json"}
+
+    def setUp(self):
+        super().setUp()
+        self.put_contest("/olim")
+        for path, data in [
+                ("tasks/", {"t": self.TASK}),
+                ("users/", {
+                    "early": {"f_name": "E", "l_name": "E", "team": None},
+                    "late": {"f_name": "L", "l_name": "L", "team": None}}),
+                ("submissions/", {
+                    "s1": {"user": "early", "task": "t", "time": 100},
+                    "s2": {"user": "late", "task": "t", "time": 300}}),
+                ("subchanges/", {
+                    "c1": {"submission": "s1", "time": 100, "score": 40.0},
+                    "c2": {"submission": "s2", "time": 300, "score": 90.0}})]:
+            self.assertEqual(self.client.put(
+                "/olim/" + path, data=json.dumps(data),
+                content_type="application/json",
+                headers=AUTH).status_code, 204)
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": None, "show_at": None, "freeze_at": 200,
+            "unfreeze_at": 400, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+
+    def at(self, now):
+        return patch("cmsranking.visibility.time.time", return_value=now)
+
+    def test_public_scores_are_the_snapshot(self):
+        with self.at(350):
+            response = self.client.get("/olim/scores", headers=self.JSON)
+        self.assertEqual(response.json, {"early": {"t": 40.0}})
+        self.assertIn("no-store", response.headers["Cache-Control"])
+
+    def test_public_history_and_sublist_are_cut(self):
+        with self.at(350):
+            history = self.client.get("/olim/history", headers=self.JSON)
+            self.assertEqual([h[2] for h in history.json], [100])
+            sublist = self.client.get("/olim/sublist/late", headers=self.JSON)
+            self.assertEqual(sublist.json, [])
+
+    def test_raw_stores_are_forbidden(self):
+        with self.at(350):
+            for path in ("submissions/", "subchanges/", "submissions/s2"):
+                self.assertEqual(
+                    self.client.get("/olim/" + path).status_code, 403, path)
+
+    def test_other_data_passes(self):
+        with self.at(350):
+            for path in ("contests/", "tasks/", "users/", "config"):
+                self.assertEqual(
+                    self.client.get("/olim/" + path).status_code, 200, path)
+
+    def test_staff_see_it_live(self):
+        secret = self.client.application.apps["olim"].state.secret
+        cookie = staff_cookie_value(secret, "olim", STAFF_HASH)
+        with self.at(350):
+            response = self.client.get("/olim/scores", headers=dict(
+                self.JSON, Cookie="%s=%s" % (STAFF_COOKIE, cookie)))
+        self.assertEqual(response.json, self.LIVE)
+
+    def test_unfrozen_at_the_exact_end(self):
+        with self.at(400):
+            self.assertEqual(
+                self.client.get("/olim/scores", headers=self.JSON).json,
+                self.LIVE)
+
+    def test_banners_and_staff_login_page(self):
+        with self.at(350):
+            page = self.client.get("/olim/").get_data(as_text=True)
+            login = self.client.get("/olim/staff-login")
+        self.assertIn("Ranking congelado desde las", page)
+        self.assertIn('href="staff-login"', page)
+        self.assertEqual(login.status_code, 200)
+        self.assertIn('name="password"', login.get_data(as_text=True))
+
+    def test_staff_login_works_while_frozen(self):
+        with self.at(350):
+            response = self.client.post("/olim/staff-login",
+                                        data={"password": "s3cret"})
+        self.assertEqual(response.status_code, 303)
+
+    def staff_headers(self) -> dict[str, str]:
+        secret = self.client.application.apps["olim"].state.secret
+        cookie = staff_cookie_value(secret, "olim", STAFF_HASH)
+        return {"Cookie": "%s=%s" % (STAFF_COOKIE, cookie)}
+
+    def test_staff_get_the_frozen_banner(self):
+        with self.at(350):
+            page = self.client.get(
+                "/olim/", headers=self.staff_headers()).get_data(as_text=True)
+        self.assertIn("Vista staff: ranking congelado", page)
+        self.assertNotIn("Ranking congelado desde las", page)
+
+    def test_wrong_password_while_frozen(self):
+        with self.at(350), patch("cmsranking.visibility.gevent.sleep"):
+            response = self.client.post("/olim/staff-login",
+                                        data={"password": "wrong"})
+        self.assertEqual(response.status_code, 401)
+        text = response.get_data(as_text=True)
+        self.assertIn("Acceso del staff al ranking en vivo.", text)
+        self.assertNotIn("Este ranking está oculto", text)
+
+    def test_writes_are_still_authenticated_while_frozen(self):
+        with self.at(350):
+            self.assertEqual(self.client.put(
+                "/olim/users/", data=json.dumps({}),
+                content_type="application/json").status_code, 401)
+            self.assertEqual(self.client.put(
+                "/olim/users/", data=json.dumps({}),
+                content_type="application/json",
+                headers=AUTH).status_code, 204)
+
+    def test_hidden_wins_over_frozen(self):
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": 300, "show_at": None, "freeze_at": 200,
+            "unfreeze_at": 400, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+        with self.at(350):
+            self.assertEqual(
+                self.client.get("/olim/scores",
+                                headers=self.JSON).status_code, 403)
+            page = self.client.get("/olim/").get_data(as_text=True)
+        self.assertIn("Este ranking está oculto por ahora.", page)
+        self.assertNotIn("congelado", page)
+
+    def test_every_route_is_classified(self):
+        # A new data endpoint must be classified before it can leak.
+        app = build_ranking_app(
+            self.config, os.path.join(self.tmp, "x"), self.web_dir)
+        # SharedDataMiddleware -> DispatcherMiddleware
+        dispatcher = app.app
+        mounts = {m.strip("/").split("/")[0] for m in dispatcher.mounts}
+        routes = {r.rule.strip("/").split("/")[0]
+                  for r in dispatcher.app.router.iter_rules()}
+        self.assertLessEqual(mounts | routes, set(FROZEN_ROUTES) | {""})
 
 
 if __name__ == "__main__":
