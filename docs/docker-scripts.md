@@ -29,8 +29,9 @@ Follow these steps to start the contest system for the first time:
    - Answer **`y`** if you want these scripts to manage the database (most common for new setups).
    - Answer **`n`** only if you already have a PostgreSQL database running somewhere else.
 
-4. **Answer the second question:** `Rebuild image? [y/N]`
-   - Answer **`n`** (faster). Only answer **`y`** after updating the code.
+4. **Answer the second question:** `Rebuild?` is a menu from 1 to 7.
+   - Choose **`1`** (No, the default and the fastest) on the first run or when nothing has changed.
+   - After updating the code, choose **`4`** (CMS only) or **`2`** (all services).
 
 5. **Wait for startup.** You'll see output like:
    ```

@@ -1,8 +1,12 @@
 """Unit tests for docker/generate_config.py."""
 
 import os
+import re
 import sys
+import tomllib
+
 import pytest
+import yaml
 
 sys.path.insert(0, os.path.dirname(__file__))
 import generate_config as gc
@@ -49,6 +53,65 @@ def test_cms_toml_defaults(monkeypatch):
     assert 'Worker = [["localhost", 26000]]' in toml
     assert 'ContestWebServer = [["localhost", 21000]]' in toml
     assert 'AdminWebServer = [["localhost", 21100]]' in toml
+
+
+def test_cms_toml_data_dir_is_a_dedicated_directory(monkeypatch):
+    # data_dir holds the submission copies (submit_local_copy_path is
+    # "%s/submissions/"), the user-test copies (tests_local_copy_path is
+    # "%s/tests/") and the Telegram bot state. It must not be under cms/lib,
+    # the install prefix's lib: that is where site-packages lives, and a volume
+    # mounted there shadows the installed code.
+    _set(monkeypatch)
+    data_dir = tomllib.loads(gc.generate_cms_toml())["global"]["data_dir"]
+    assert data_dir == "/home/cmsuser/cms/data"
+
+
+def test_prod_compose_mounts_cms_data_on_the_configured_data_dir(monkeypatch):
+    # Docker fills a named volume from the image the first time it is used and
+    # never refreshes it. Mounted over cms/lib, cms-data froze the installed
+    # code at the first build and every rebuild kept running the old one.
+    _set(monkeypatch)
+    data_dir = tomllib.loads(gc.generate_cms_toml())["global"]["data_dir"]
+    with open(os.path.join(os.path.dirname(__file__), "docker-compose.prod.yml")) as f:
+        cms_service = yaml.safe_load(f)["services"]["cms"]
+
+    mounts = {}
+    for volume in cms_service["volumes"]:
+        source, target = volume.split(":")[:2]
+        mounts[target] = source
+
+    assert mounts[data_dir] == "cms-data"
+    install_lib = "/home/cmsuser/cms/lib"
+    for target in mounts:
+        assert target != "/home/cmsuser/cms"
+        assert target != install_lib and not target.startswith(install_lib + "/")
+
+
+def test_dockerfile_creates_the_data_dir_as_cmsuser(monkeypatch):
+    # A named volume inherits the ownership of the image's directory the first
+    # time it is created, so the directory must belong to cmsuser (the user
+    # that runs the services) and not to root.
+    _set(monkeypatch)
+    data_dir = tomllib.loads(gc.generate_cms_toml())["global"]["data_dir"]
+    mkdir = re.compile(r"RUN mkdir( -p)? " + re.escape(data_dir))
+    dockerfile = os.path.join(os.path.dirname(__file__), "..", "Dockerfile")
+    if not os.path.isfile(dockerfile):
+        pytest.skip("Dockerfile is not in this tree: .dockerignore keeps it out "
+                    "of the image that runs the tests in CI")
+    with open(dockerfile) as f:
+        lines = [line.strip() for line in f]
+
+    user = "root"
+    users_at_mkdir = []
+    for line in lines:
+        if line.startswith("FROM "):
+            user = "root"
+        elif line.startswith("USER "):
+            user = line.split()[1]
+        elif mkdir.fullmatch(line):
+            users_at_mkdir.append(user)
+
+    assert users_at_mkdir == ["cmsuser"]
 
 
 def test_cms_toml_multiple_cws(monkeypatch):

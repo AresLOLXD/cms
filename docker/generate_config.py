@@ -108,6 +108,7 @@ def generate_cms_toml() -> str:
 
     toml = f"""\
 [global]
+data_dir = "/home/cmsuser/cms/data"
 file_log_debug = {log_debug}
 stream_log_detailed = false
 two_phase_evaluation = {two_phase_evaluation}

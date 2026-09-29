@@ -117,7 +117,7 @@ Everything else has a sensible default and can be left as-is on the first try.
 
 The script asks two questions:
 - **Use local database (Docker)?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly.
-- **Rebuild image?** — answer `n` on the first run (or when nothing has changed).
+- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image).
 
 ### Step 4 — Import a contest and set it as active
 
@@ -172,6 +172,42 @@ Point your load balancer (e.g. nginx) at those two ports.
 ```bash
 docker compose -f docker/docker-compose.prod.yml --env-file .env run --rm db-init
 ```
+
+**Upgrading a deployment that was started before the `cms-data` volume moved:**
+
+The `cms-data` volume used to be mounted on `/home/cmsuser/cms/lib`, which is
+also where the CMS code is installed. Docker filled the volume from the first
+image and never refreshed it, so rebuilding the image did not change the code
+the `cms` container ran. The volume is now mounted on `/home/cmsuser/cms/data`,
+which holds only runtime data (submission and user-test copies, Telegram bot
+state). It keeps its name and its contents, so nothing is lost.
+
+After updating to this version you **must rebuild the CMS image**: run
+`./up.sh` and choose `2) All services` (or `4) CMS only`). `3) Ranking only` is
+not enough: it builds only the ranking image but then starts every service,
+so `cms` is recreated with the old image. Never start this version with an old
+image, which is also what `1) No`
+does (the default in `./up.sh`, `./restart.sh` and `./contest.sh`): the old
+image does not know the new `data_dir`, so submission and user-test copies go to
+the container's own filesystem and are lost the next time it is recreated, and
+the Telegram bot re-sends every question and announcement. Once rebuilt, the
+`cms` container runs the code of the image for real, possibly newer than what
+was running until now.
+
+The old copy of the code left in the volume, the `python3.12` directory, is
+inert. To free the space, find the volume name with
+`docker volume ls | grep cms-data` (with the default project name it is
+`cms-prod_cms-data`) and delete that directory:
+
+```bash
+docker run --rm -v cms-prod_cms-data:/data busybox rm -rf /data/python3.12
+```
+
+This removes only the stale code copy; `submissions/`, `tests/` and `telegram/`
+in the volume are not touched. Do not roll back to a checkout from before this
+change: its compose file mounts the volume over the code again, so the `cms`
+container runs that stale copy instead of the checkout's code, and if the
+directory was deleted it cannot start at all.
 
 ### Troubleshooting
 
