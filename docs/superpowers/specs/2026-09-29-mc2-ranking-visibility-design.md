@@ -153,8 +153,12 @@ error message.
 
 - The group must have a staff password, and
   `cmscommon.crypto.validate_password(stored_hash, password)` must succeed.
-- Success sets the cookie `rws_staff` and redirects (303) to `/<group>/`.
-  - Path: `/<group>/`.
+- Success sets the cookie `rws_staff` and redirects (303) to `./`, i.e.
+  the group's page.
+  - Path: omitted. The browser then scopes the cookie to the directory of
+    the login URL, which is the group's namespace even when a reverse
+    proxy serves RWS under an extra path prefix. For the same reason every
+    redirect and form action is relative.
   - Flags: `HttpOnly`, `SameSite=Lax`, plus `Secure` when the request
     arrived over HTTPS (`X-Forwarded-Proto: https` or the WSGI scheme).
   - Lifetime: session.
@@ -163,7 +167,16 @@ error message.
   - Changing or removing the password therefore invalidates every session.
 - Failure waits 1 s (cooperative sleep; RWS runs on gevent), then renders
   the notice with an error (401).
-- `GET /staff-logout` clears the cookie and redirects to `/<group>/`.
+- `GET /staff-logout` clears the cookie and redirects to `./`.
+- The notice, the 403 responses and the login/logout responses carry
+  `Cache-Control: no-store`, so no cache serves a stale page across a
+  visibility change or a login.
+
+**Connections opened while visible.** A response the guard let through
+while the group was visible (notably the long-lived `/events` stream)
+stops as soon as the group becomes hidden, unless the request carried a
+valid staff cookie. The guard checks the state before yielding each chunk
+of such responses. The browser's reconnection then gets 403.
 
 **Hidden group, valid staff cookie.** Requests pass through unchanged, so the
 live scoreboard, including `/events`, works as today. The HTML of `GET /` is
