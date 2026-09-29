@@ -298,9 +298,11 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     RESET_RESOURCE_PATHS = ["contests", "users"]
 
     # Pseudo-type of an operation that sends the visibility settings of
-    # a ranking group namespace (MC-2): {"hidden": bool,
-    # "staff_password": str | None}. Sent after resets and before any
-    # data, so a hidden namespace never exposes data, even briefly.
+    # a ranking group namespace (MC-2): {"hide_at": int | None,
+    # "show_at": int | None, "freeze_at": int | None,
+    # "unfreeze_at": int | None, "staff_password": str | None} where
+    # the times are Unix seconds. Sent after resets and before any data,
+    # so a hidden namespace never exposes data, even briefly.
     VISIBILITY_TYPE = TYPE_COUNT + 1
 
     # How long a namespace waits after its data could not be pushed to
