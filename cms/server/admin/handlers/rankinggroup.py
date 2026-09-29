@@ -20,6 +20,7 @@
 
 """
 
+import asyncio
 from sqlalchemy import select, func
 
 from cms.db import Contest, RankingGroup
@@ -59,8 +60,7 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
 
     REMOVE = "Remove"
 
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    def _post_sync(self):
         group_id: str = self.get_argument("ranking_group_id")
         operation: str = self.get_argument("operation")
 
@@ -71,11 +71,15 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
                 make_datetime(), "Invalid operation %s" % operation, "")
             self.redirect(self.url("ranking_groups"))
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
 
 class AddRankingGroupHandler(
         SimpleHandler("add_ranking_group.html", permission_all=True)):
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    def _post_sync(self):
         fallback_page = self.url("ranking_groups", "add")
 
         try:
@@ -95,13 +99,17 @@ class AddRankingGroupHandler(
         else:
             self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
 
 class RankingGroupHandler(BaseHandler):
     """Show and edit a single ranking group.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, group_id: str):
+    def _get_sync(self, group_id: str):
         group = self.safe_get_item(RankingGroup, group_id)
 
         self.r_params = self.render_params()
@@ -113,8 +121,12 @@ class RankingGroupHandler(BaseHandler):
         ).scalars().all()
         self.render("ranking_group.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, group_id: str):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, group_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, group_id)
+
+    def _post_sync(self, group_id: str):
         fallback_page = self.url("ranking_group", group_id)
 
         group = self.safe_get_item(RankingGroup, group_id)
@@ -135,6 +147,11 @@ class RankingGroupHandler(BaseHandler):
             self.service.proxy_service.reinitialize()
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, group_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, group_id)
+
 
 class RemoveRankingGroupHandler(BaseHandler):
     """Get returns a page asking for confirmation, delete actually
@@ -142,8 +159,7 @@ class RemoveRankingGroupHandler(BaseHandler):
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, group_id: str):
+    def _get_sync(self, group_id: str):
         group = self.safe_get_item(RankingGroup, group_id)
 
         self.r_params = self.render_params()
@@ -155,7 +171,11 @@ class RemoveRankingGroupHandler(BaseHandler):
         self.render("ranking_group_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, group_id: str):
+    async def get(self, group_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, group_id)
+
+    def _delete_sync(self, group_id: str):
         group = self.safe_get_item(RankingGroup, group_id)
 
         self.sql_session.delete(group)
@@ -165,14 +185,18 @@ class RemoveRankingGroupHandler(BaseHandler):
         # Maybe they'll want to do this again (for another group)
         self.write("../../ranking_groups")
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def delete(self, group_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, group_id)
+
 
 class RegenerateRankingHandler(BaseHandler):
     """Empty a ranking (a group, or the root) and send it again.
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    def _post_sync(self):
         group: str = self.get_argument("group", "")
         self.service.proxy_service.regenerate_ranking(group=group or None)
         self.service.add_notification(
@@ -180,3 +204,8 @@ class RegenerateRankingHandler(BaseHandler):
             "Ranking %s is being emptied and sent again."
             % (group or "root"))
         self.redirect(self.url("ranking_groups"))
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
