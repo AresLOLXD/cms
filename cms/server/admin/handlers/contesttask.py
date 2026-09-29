@@ -25,6 +25,8 @@
 
 """
 
+import asyncio
+
 from sqlalchemy import select
 
 from cms.db import Contest, Task
@@ -40,8 +42,7 @@ class ContestTasksHandler(BaseHandler):
     MOVE_TOP = "to the top"
     MOVE_BOTTOM = "to the bottom"
 
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         self.r_params = self.render_params()
@@ -52,8 +53,12 @@ class ContestTasksHandler(BaseHandler):
         ).scalars().all()
         self.render("contest_tasks.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "tasks")
 
         self.contest = self.safe_get_item(Contest, contest_id)
@@ -158,10 +163,14 @@ class ContestTasksHandler(BaseHandler):
         # Maybe they'll want to do this again (for another task)
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class AddContestTaskHandler(BaseHandler):
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "tasks")
 
         self.contest = self.safe_get_item(Contest, contest_id)
@@ -188,3 +197,8 @@ class AddContestTaskHandler(BaseHandler):
 
         # Maybe they'll want to do this again (for another task)
         self.redirect(fallback_page)
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
