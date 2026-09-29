@@ -27,6 +27,7 @@
 
 """
 
+import asyncio
 import logging
 import traceback
 
@@ -50,7 +51,11 @@ logger = logging.getLogger(__name__)
 
 class AddTaskHandler(SimpleHandler("add_task.html", permission_all=True)):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         fallback_page = self.url("tasks", "add")
 
         try:
@@ -109,7 +114,11 @@ class TaskHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, task_id):
+    async def get(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, task_id)
+
+    def _get_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
         self.contest = task.contest
 
@@ -124,7 +133,11 @@ class TaskHandler(BaseHandler):
         self.render("task.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, task_id):
+    async def post(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, task_id)
+
+    def _post_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
 
         try:
@@ -230,7 +243,11 @@ class AddStatementHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, task_id):
+    async def get(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, task_id)
+
+    def _get_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
         self.contest = task.contest
 
@@ -239,7 +256,11 @@ class AddStatementHandler(BaseHandler):
         self.render("add_statement.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, task_id):
+    async def post(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, task_id)
+
+    def _post_sync(self, task_id):
         fallback_page = self.url("task", task_id, "statements", "add")
 
         task = self.safe_get_item(Task, task_id)
@@ -298,7 +319,11 @@ class StatementHandler(BaseHandler):
     # No page for single statements.
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, task_id, statement_id):
+    async def delete(self, task_id, statement_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, task_id, statement_id)
+
+    def _delete_sync(self, task_id, statement_id):
         statement = self.safe_get_item(Statement, statement_id)
         task = self.safe_get_item(Task, task_id)
 
@@ -318,7 +343,11 @@ class AddAttachmentHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, task_id):
+    async def get(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, task_id)
+
+    def _get_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
         self.contest = task.contest
 
@@ -327,7 +356,11 @@ class AddAttachmentHandler(BaseHandler):
         self.render("add_attachment.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, task_id):
+    async def post(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, task_id)
+
+    def _post_sync(self, task_id):
         fallback_page = self.url("task", task_id, "attachments", "add")
 
         task = self.safe_get_item(Task, task_id)
@@ -370,7 +403,11 @@ class AttachmentHandler(BaseHandler):
     # No page for single attachments.
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, task_id, attachment_id):
+    async def delete(self, task_id, attachment_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, task_id, attachment_id)
+
+    def _delete_sync(self, task_id, attachment_id):
         attachment = self.safe_get_item(Attachment, attachment_id)
         task = self.safe_get_item(Task, task_id)
 
@@ -396,7 +433,11 @@ class AddDatasetHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, task_id):
+    async def get(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, task_id)
+
+    def _get_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
         self.contest = task.contest
 
@@ -412,7 +453,11 @@ class AddDatasetHandler(BaseHandler):
         self.render("add_dataset.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, task_id):
+    async def post(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, task_id)
+
+    def _post_sync(self, task_id):
         fallback_page = self.url("task", task_id, "add_dataset")
 
         task = self.safe_get_item(Task, task_id)
@@ -471,7 +516,11 @@ class TaskListHandler(SimpleHandler("tasks.html")):
     REMOVE = "Remove"
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         task_id = self.get_argument("task_id")
         operation = self.get_argument("operation")
 
@@ -492,7 +541,11 @@ class RemoveTaskHandler(BaseHandler):
     """
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, task_id):
+    async def get(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, task_id)
+
+    def _get_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
         submission_query = select(Submission)\
             .filter(Submission.task == task)
@@ -502,7 +555,11 @@ class RemoveTaskHandler(BaseHandler):
         self.render("task_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, task_id):
+    async def delete(self, task_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, task_id)
+
+    def _delete_sync(self, task_id):
         task = self.safe_get_item(Task, task_id)
         contest_id = task.contest_id
         num = task.num
