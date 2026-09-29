@@ -49,6 +49,18 @@ timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
     pytest --cov . --cov-report= --junitxml=codecov/junit-gevent.xml -o junit_family=legacy $GEVENT_TEST_PATHS
 UNIT_GEVENT=$?
 
+# docker/generate_config.py builds the production configs from environment
+# variables. Its tests are plain Python (no gevent, no cms import), so they
+# need neither group; running them on their own (given a path, pytest
+# ignores testpaths) gives them a junit file and exit code of their own.
+# This comes before the asyncio group because that one writes the final
+# coverage report.
+timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
+    pytest --cov . --cov-append --cov-report= \
+    --junitxml=codecov/junit-docker.xml -o junit_family=legacy \
+    docker/test_generate_config.py
+UNIT_DOCKER=$?
+
 IGNORE_ARGS="--ignore=cmstestsuite/unit_tests/cmscontrib --ignore=cmstestsuite/unit_tests/cmsranking --ignore=cmstestsuite/unit_tests/db/rankinggroup_test.py"
 for f in $GEVENT_SERVICE_FILES; do
     IGNORE_ARGS="$IGNORE_ARGS --ignore=$f"
@@ -71,7 +83,7 @@ FUNC=$?
 # the CI as long as the functional tests are passing. Ideally we should get rid
 # of `cmsRunFunctionalTests` and make those tests work with pytest so they can
 # be auto-discovered and run in a single command.
-if [ $UNIT_GEVENT -ne 0 ] || [ $UNIT_ASYNCIO -ne 0 ] || [ $FUNC -ne 0 ]
+if [ $UNIT_GEVENT -ne 0 ] || [ $UNIT_DOCKER -ne 0 ] || [ $UNIT_ASYNCIO -ne 0 ] || [ $FUNC -ne 0 ]
 then
     exit 1
 else
