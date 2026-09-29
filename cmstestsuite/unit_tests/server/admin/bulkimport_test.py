@@ -16,12 +16,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Tests for reading the bulk import CSV of AWS."""
+"""Tests for reading and planning the bulk import CSV of AWS."""
 
 import logging
 import unittest
 
-from cms.server.admin.bulkimport import MAX_ROWS, read_rows
+from cms.db import Participation, User
+from cms.server.admin.bulkimport import MAX_ROWS, ImportRow, plan_import, \
+    read_rows
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 MAPPING = {"username": "usuario", "first_name": "nombre",
            "last_name": "apellido", "password": "contraseña",
@@ -226,6 +229,87 @@ class TestReadRows(unittest.TestCase):
         rows, errors = read_rows(b"", MAPPING)
         self.assertEqual(rows, [])
         self.assertEqual(errors, ["el archivo está vacío"])
+
+
+def import_row(line: int, username: str, team: str | None = None,
+               group: str | None = None) -> ImportRow:
+    return ImportRow(line=line, username=username, first_name="Nombre",
+                     last_name="Apellido", password="pw", team=team,
+                     group=group)
+
+
+class TestPlanImport(DatabaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.contest = self.add_contest()
+        self.add_team(code="JAL", name="Jalisco")
+        ana = self.add_user(username="ana")
+        self.add_user(username="beto")
+        self.add_participation(user=ana, contest=self.contest)
+        self.session.flush()
+
+    def test_plan(self):
+        plan, errors = plan_import(self.session, self.contest.id, [
+            import_row(2, "ana", team="JAL"),
+            import_row(3, "beto"),
+            import_row(4, "carla")])
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.new_users, ["carla"])
+        self.assertEqual(plan.updated_users, ["ana", "beto"])
+        self.assertEqual(plan.new_participations, ["beto", "carla"])
+        self.assertEqual(plan.updated_participations, ["ana"])
+        self.assertEqual(plan.summary(), {
+            "usuarios_nuevos": 1, "usuarios_actualizados": 2,
+            "participaciones_nuevas": 2, "participaciones_actualizadas": 1})
+        self.assertEqual(plan.main_group_id, self.contest.main_group_id)
+        self.assertEqual(list(plan.teams), ["JAL"])
+
+    def test_unknown_team_and_group(self):
+        users_before = self.session.query(User).count()
+        participations_before = self.session.query(Participation).count()
+        result = plan_import(self.session, self.contest.id, [
+            import_row(2, "carla", team="XYZ", group="tarde")])
+        self.assertEqual(result, (None, [
+            "fila 2: el equipo XYZ no existe",
+            "fila 2: el grupo tarde no existe en este concurso"]))
+        self.assertEqual(self.session.query(User).count(), users_before)
+        self.assertEqual(self.session.query(Participation).count(),
+                         participations_before)
+
+    def test_nothing_is_added(self):
+        plan_import(self.session, self.contest.id, [
+            import_row(2, "carla"), import_row(3, "ana")])
+        self.assertFalse(self.session.new)
+        self.assertFalse(self.session.dirty)
+
+    def test_groups_are_those_of_the_contest(self):
+        afternoon = self.get_group(name="tarde", contest=self.contest)
+        self.session.add(afternoon)
+        other_contest = self.add_contest()
+        other_group = self.get_group(name="noche", contest=other_contest)
+        self.session.add(other_group)
+        self.session.flush()
+
+        plan, errors = plan_import(self.session, self.contest.id, [
+            import_row(2, "carla", group="tarde")])
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.groups[afternoon.name], afternoon.id)
+        self.assertNotIn("noche", plan.groups)
+
+        result = plan_import(self.session, self.contest.id, [
+            import_row(2, "carla", group="noche")])
+        self.assertEqual(result, (None, [
+            "fila 2: el grupo noche no existe en este concurso"]))
+
+    def test_contest_without_main_group(self):
+        contest = self.add_contest(main_group=None)
+        self.session.flush()
+        self.assertIsNone(contest.main_group_id)
+        result = plan_import(self.session, contest.id, [
+            import_row(2, "carla")])
+        self.assertEqual(result,
+                         (None, ["el concurso no tiene grupo principal"]))
 
 
 if __name__ == "__main__":

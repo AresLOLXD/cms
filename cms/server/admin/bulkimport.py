@@ -33,6 +33,11 @@ import itertools
 import logging
 from collections.abc import Iterator
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from cms.db import Contest, Group, Participation, Team, User
+
 logger = logging.getLogger(__name__)
 
 FIELDS: tuple[str, ...] = ("username", "first_name", "last_name",
@@ -183,3 +188,85 @@ def read_rows(data: bytes, mapping: dict[str, str]
     if not rows:
         return [], ["el archivo no tiene filas de datos"]
     return rows, errors
+
+
+@dataclasses.dataclass
+class ImportPlan:
+    """What an import would do; built without writing anything.
+
+    new_users: usernames of the users that do not exist yet.
+    updated_users: usernames of the users that already exist.
+    new_participations: usernames without a participation in the contest.
+    updated_participations: usernames with a participation in the contest.
+    teams: code -> id of every team.
+    groups: name -> id of every group of the contest.
+    main_group_id: the id of the main group of the contest, where a
+        participation goes when its row has no group.
+
+    """
+    new_users: list[str]
+    updated_users: list[str]
+    new_participations: list[str]
+    updated_participations: list[str]
+    teams: dict[str, int]
+    groups: dict[str, int]
+    main_group_id: int
+
+    def summary(self) -> dict[str, int]:
+        """Count what the import would do.
+
+        return: the number of new and updated users and participations.
+
+        """
+        return {"usuarios_nuevos": len(self.new_users),
+                "usuarios_actualizados": len(self.updated_users),
+                "participaciones_nuevas": len(self.new_participations),
+                "participaciones_actualizadas":
+                    len(self.updated_participations)}
+
+
+def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
+                ) -> tuple[ImportPlan | None, list[str]]:
+    """Check the rows against the database and plan the import.
+
+    session: a read-only use of a session; nothing is added or flushed.
+    contest_id: the contest the participations go to.
+    rows: the rows from read_rows, without errors.
+
+    return: the plan, or None and the errors (the contest has no main
+        group, or a team or a group is unknown).
+
+    """
+    contest = session.get(Contest, contest_id)
+    if contest.main_group_id is None:
+        return None, ["el concurso no tiene grupo principal"]
+    teams = dict(session.execute(select(Team.code, Team.id)).all())
+    groups = dict(session.execute(
+        select(Group.name, Group.id).filter(Group.contest_id == contest_id)
+    ).all())
+    errors: list[str] = []
+    for row in rows:
+        if row.team is not None and row.team not in teams:
+            errors.append("fila %d: el equipo %s no existe"
+                          % (row.line, row.team))
+        if row.group is not None and row.group not in groups:
+            errors.append("fila %d: el grupo %s no existe en este concurso"
+                          % (row.line, row.group))
+    if errors:
+        return None, errors
+    usernames = [row.username for row in rows]
+    existing = set(session.execute(
+        select(User.username).filter(User.username.in_(usernames))
+    ).scalars())
+    participating = set(session.execute(
+        select(User.username).join(Participation)
+        .filter(Participation.contest_id == contest_id,
+                User.username.in_(usernames))
+    ).scalars())
+    return ImportPlan(
+        new_users=[u for u in usernames if u not in existing],
+        updated_users=[u for u in usernames if u in existing],
+        new_participations=[u for u in usernames if u not in participating],
+        updated_participations=[u for u in usernames if u in participating],
+        teams=teams, groups=groups,
+        main_group_id=contest.main_group_id), []
