@@ -56,7 +56,7 @@ STAFF_HASH = build_password("s3cret", "plaintext")
 DATA_PATHS = ["contests/", "contests/c1", "tasks/", "teams/", "users/",
               "submissions/", "subchanges/", "sublist/u1", "scores",
               "history", "events", "config", "logo", "faces/u1",
-              "flags/t1", "Ranking.js", "img/favicon.ico"]
+              "flags/t1", "Ranking.html", "Ranking.js", "img/favicon.ico"]
 
 
 class VisibilityTestCase(unittest.TestCase):
@@ -401,6 +401,48 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertGreater(
             int(re.search(r"z-index:\s*(\d+)", style).group(1)), highest)
 
+    def banner_parts(self) -> tuple[str, str]:
+        """Get the style rules and the style of the bar of the banner."""
+        banner = self.staff_page()[1].decode("utf-8")
+        rules = re.search(r"<style>(.*?)</style>", banner, re.DOTALL)
+        self.assertIsNotNone(rules, "the banner reserves no room")
+        return rules.group(1), re.search(r'<div style="([^"]*)"',
+                                         banner).group(1)
+
+    def test_scrolling_areas_leave_room_for_the_banner(self):
+        # The scoreboard scrolls in areas that Ranking.css anchors to the
+        # bottom of the page, where the fixed banner sits: it would cover
+        # the last row, the arrow of the scrollbar and the link of the
+        # side panel. Their room comes from the same property as the
+        # height of the banner, so that the two always match.
+        with open(os.path.join(self.web_dir, "Ranking.css")) as f:
+            css = f.read()
+        rules, style = self.banner_parts()
+        variable = re.search(r"height:\s*var\((--[\w-]+)\)", style).group(1)
+        for selector in ["#InnerFrame", "#SidePanel", "#UserDetail_bg"]:
+            with self.subTest(selector=selector):
+                bottom = re.search(
+                    r"%s\s*\{[^}]*?\bbottom:\s*([^;]+);" % selector,
+                    css).group(1)
+                room = "var(%s)" % variable if bottom == "0" else \
+                    "calc(%s + var(%s))" % (bottom, variable)
+                self.assertRegex(rules, r"%s[^{}]*\{[^}]*\bbottom:\s*%s\s*[;}]"
+                                 % (selector, re.escape(room)))
+
+    def test_banner_height_fits_its_text(self):
+        # One line and its padding, or two lines on a narrow screen.
+        rules, style = self.banner_parts()
+
+        def rem(pattern: str, text: str) -> float:
+            return float(re.search(pattern + r"([\d.]+)rem", text).group(1))
+
+        line = rem(r"font:[^;]*/", style)
+        padding = rem(r"padding:\s*", style)
+        wide = rem(r":root\s*\{--[\w-]+:\s*", rules)
+        narrow = rem(r"@media[^{]*\{\s*:root\s*\{--[\w-]+:\s*", rules)
+        self.assertAlmostEqual(wide, line + 2 * padding)
+        self.assertGreaterEqual(narrow, 2 * line + 2 * padding)
+
     def test_banner_is_inserted_right_after_the_body_tag(self):
         response, banner = self.staff_page()
         page = response.get_data()
@@ -600,6 +642,26 @@ class TestIndexPage(VisibilityTestCase):
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(response.headers["Cache-Control"],
                                      "no-cache")
+
+    def test_index_by_its_file_name_is_revalidated(self):
+        # The same page, that a bookmark can name.
+        for method in ["GET", "HEAD"]:
+            for headers in [{}, self.staff_cookie()]:
+                with self.subTest(method=method, staff=bool(headers)):
+                    response = self.client.open(
+                        "/olim/Ranking.html", method=method,
+                        headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-cache")
+
+    def test_visible_index_is_the_page_as_it_is(self):
+        with open(os.path.join(self.web_dir, "Ranking.html"), "rb") as f:
+            original = f.read()
+        for headers in [{}, self.staff_cookie()]:
+            with self.subTest(staff=bool(headers)):
+                response = self.client.get("/olim/", headers=headers)
+                self.assertEqual(response.get_data(), original)
 
     def test_returning_visitor_gets_the_notice(self):
         response = self.client.get("/olim/")
