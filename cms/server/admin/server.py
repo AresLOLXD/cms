@@ -26,21 +26,18 @@
 """
 
 from datetime import datetime
-import json
 import logging
-import math
 import typing
 
 from sqlalchemy import func, not_, literal_column, select
 
 from cms import config, ServiceCoord, get_service_shards
-from cms.db import Admin, SessionGen, Dataset, Submission, SubmissionResult, Task
+from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
 from cms.io import WebService, rpc_method
 from cms.service import EvaluationService
 from cmscommon.binary import hex_to_bin
-from cmscommon.datetime import make_timestamp
 from .handlers import HANDLERS
-from .handlers.base import BaseHandler
+from .handlers.base import decode_admin_session
 from .jinja2_toolbox import AWS_ENVIRONMENT
 from .rpc_authorization import rpc_authorization_checker
 
@@ -107,45 +104,18 @@ class AdminWebServer(WebService):
         """Decode the awslogin cookie directly off an RPCHandler.
 
         RPCHandler doesn't inherit from BaseHandler (see
-        cms/io/web_rpc.py's module docstring), so it can't reuse
-        BaseHandler._get_session_admin_id -- but get_secure_cookie is
-        a plain tornado.web.RequestHandler method, available here too,
-        since cookie_secret is an Application-level setting.
+        cms/io/web_rpc.py's module docstring), hence the shared
+        module-level decode_admin_session(). The admin isn't looked up
+        here: rpc_authorization_checker() already loads it and rejects
+        a missing or disabled one.
 
         handler: the RPCHandler instance serving the current request.
 
-        return: the admin id from a valid, non-expired, enabled-admin
-            session, or None.
+        return: the admin id from a valid, non-expired session, or
+            None.
 
         """
-        raw = handler.get_secure_cookie(
-            BaseHandler.COOKIE_NAME,
-            max_age_days=math.ceil(
-                config.admin_web_server.cookie_duration / 60 / 60 / 24),
-        )
-        if raw is None:
-            return None
-        try:
-            session = json.loads(raw.decode())
-        except (ValueError, UnicodeDecodeError):
-            return None
-
-        admin_id = session.get("id", None)
-        timestamp = session.get("timestamp", None)
-        if admin_id is None or timestamp is None:
-            return None
-        if not isinstance(admin_id, int) or not isinstance(timestamp, float):
-            return None
-        if make_timestamp() - timestamp > config.admin_web_server.cookie_duration:
-            return None
-
-        with SessionGen() as sql_session:
-            admin = sql_session.execute(
-                select(Admin)
-                .filter(Admin.id == admin_id)
-                .filter(Admin.enabled.is_(True))
-            ).scalars().first()
-        return admin_id if admin is not None else None
+        return decode_admin_session(handler)
 
     def add_notification(self, timestamp: datetime, subject: str, text: str):
         """Store a new notification to send at the first

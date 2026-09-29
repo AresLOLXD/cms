@@ -220,6 +220,72 @@ def require_permission(permission: str = "authenticated", self_allowed: bool = F
     return decorator
 
 
+def _read_admin_session_cookie(
+    handler: tornado.web.RequestHandler,
+) -> bytes | None:
+    """Return the verified raw awslogin cookie, or None.
+
+    None means no cookie or a bad signature.
+
+    """
+    return handler.get_secure_cookie(
+        BaseHandler.COOKIE_NAME,
+        # We do our own expiry checking, so an upper bound here is
+        # fine (same reasoning as the old middleware's max_age_days).
+        max_age_days=math.ceil(
+            config.admin_web_server.cookie_duration / 60 / 60 / 24),
+    )
+
+
+def _admin_id_from_session_cookie(raw: bytes) -> int | None:
+    """Return the admin id in a verified awslogin cookie, or None.
+
+    raw: the signature-verified cookie value.
+
+    return: the admin id if the payload is well-formed and not
+        expired, otherwise None.
+
+    """
+    try:
+        session = json.loads(raw.decode())
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+    admin_id = session.get("id", None)
+    timestamp = session.get("timestamp", None)
+    if admin_id is None or timestamp is None:
+        return None
+    if not isinstance(admin_id, int) or not isinstance(timestamp, float):
+        return None
+    if make_timestamp() - timestamp > config.admin_web_server.cookie_duration:
+        return None
+
+    return admin_id
+
+
+def decode_admin_session(handler: tornado.web.RequestHandler) -> int | None:
+    """Decode the awslogin cookie of a request and return its admin id.
+
+    Applies the same expiry/shape checks the old
+    AWSAuthMiddleware._verify_cookie() did. Any failure (missing
+    cookie, bad signature, malformed JSON, expired timestamp, wrong
+    field types) is treated as "no session," not an error. This is
+    pure: it neither looks the admin up in the database nor clears
+    the cookie. Shared by the page path (BaseHandler) and the /rpc
+    path (AdminWebServer), whose RPCHandler isn't a BaseHandler.
+
+    handler: the handler serving the current request.
+
+    return: the admin id stored in a valid, non-expired cookie, or
+        None.
+
+    """
+    raw = _read_admin_session_cookie(handler)
+    if raw is None:
+        return None
+    return _admin_id_from_session_cookie(raw)
+
+
 class BaseHandler(CommonRequestHandler):
     """Base RequestHandler for this application.
 
@@ -285,43 +351,20 @@ class BaseHandler(CommonRequestHandler):
     def _get_session_admin_id(self) -> int | None:
         """Decode the awslogin cookie and return its admin id.
 
-        Applies the same expiry/shape checks the old
-        AWSAuthMiddleware._verify_cookie() did. Any failure (missing
-        cookie, bad signature, malformed JSON, expired timestamp,
-        wrong field types) is treated as "no session," not an error.
+        See decode_admin_session(). Additionally, a cookie that is
+        validly signed but unusable (malformed, wrong shape, expired)
+        is cleared; a missing or badly signed one is left alone.
 
         return: the admin id stored in a valid, non-expired cookie,
             or None.
 
         """
-        raw = self.get_secure_cookie(
-            self.COOKIE_NAME,
-            # We do our own expiry checking below, so an upper bound
-            # here is fine (same reasoning as the old middleware's
-            # max_age_days).
-            max_age_days=math.ceil(
-                config.admin_web_server.cookie_duration / 60 / 60 / 24),
-        )
+        raw = _read_admin_session_cookie(self)
         if raw is None:
             return None
-        try:
-            session = json.loads(raw.decode())
-        except (ValueError, UnicodeDecodeError):
+        admin_id = _admin_id_from_session_cookie(raw)
+        if admin_id is None:
             self.clear_cookie(self.COOKIE_NAME)
-            return None
-
-        admin_id = session.get("id", None)
-        timestamp = session.get("timestamp", None)
-        if admin_id is None or timestamp is None:
-            self.clear_cookie(self.COOKIE_NAME)
-            return None
-        if not isinstance(admin_id, int) or not isinstance(timestamp, float):
-            self.clear_cookie(self.COOKIE_NAME)
-            return None
-        if make_timestamp() - timestamp > config.admin_web_server.cookie_duration:
-            self.clear_cookie(self.COOKIE_NAME)
-            return None
-
         return admin_id
 
     def _set_admin_session(self, admin_id: int):
@@ -335,7 +378,9 @@ class BaseHandler(CommonRequestHandler):
 
         """
         payload = json.dumps({"id": admin_id, "timestamp": make_timestamp()})
-        self.set_secure_cookie(self.COOKIE_NAME, payload, httponly=True)
+        self.set_secure_cookie(
+            self.COOKIE_NAME, payload, expires_days=None,
+            max_age=config.admin_web_server.cookie_duration, httponly=True)
 
     _GetItemT = typing.TypeVar("_GetItemT", bound=cms.db.Base)
 
