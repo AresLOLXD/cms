@@ -31,6 +31,8 @@ import time
 import tomllib
 from urllib.parse import urlsplit
 
+import requests
+
 from cmstestsuite import CONFIG, TestException, sh
 from cmstestsuite.web import Browser
 from cmstestsuite.web.AWSRequests import \
@@ -173,7 +175,8 @@ class FunctionalTestFramework:
         url = urlsplit(self.get_cms_config()["proxy_service"]["rankings"][0])
         return "%s://%s:%s%s" % (url.scheme, url.hostname, url.port, path)
 
-    def rws_request(self, session, method: str, path: str, **kwargs):
+    def rws_request(self, session: requests.Session, method: str, path: str,
+                    **kwargs) -> requests.Response:
         """Send a request to RWS and return its response.
 
         Unlike Browser, it neither raises on an error status nor follows

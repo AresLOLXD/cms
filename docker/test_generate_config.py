@@ -357,16 +357,22 @@ def test_supervisord_no_telegram_bot_when_all(monkeypatch, capsys):
     assert "Telegram bot" in capsys.readouterr().err
 
 
-def test_testcms_ranking_credentials_match_the_proxy_service_url(monkeypatch):
-    # The testcms container regenerates cms_ranking.toml at startup from
-    # CMS_RWS_USERNAME / CMS_RWS_PASSWORD (default: "rws" and an empty
-    # password), while its cms-testdb.toml is baked from
-    # config/cms.sample.toml, so ProxyService sends the credentials in that
-    # file's rankings URL. If the two differ, RankingWebServer answers every
-    # push with 401 and the functional tests still pass.
+@pytest.mark.parametrize("compose_file, service", [
+    ("docker-compose.test.yml", "testcms"),
+    ("docker-compose.dev.yml", "devcms"),
+])
+def test_ranking_credentials_match_the_proxy_service_url(
+        monkeypatch, compose_file, service):
+    # The testcms and devcms containers regenerate cms_ranking.toml at
+    # startup from CMS_RWS_USERNAME / CMS_RWS_PASSWORD (default: "rws" and
+    # an empty password), while their cms-testdb.toml / cms-devdb.toml are
+    # baked from config/cms.sample.toml, so ProxyService sends the
+    # credentials in that file's rankings URL. If the two differ,
+    # RankingWebServer answers every push with 401 and the functional tests
+    # still pass.
     docker_dir = os.path.dirname(__file__)
-    with open(os.path.join(docker_dir, "docker-compose.test.yml")) as f:
-        environment = yaml.safe_load(f)["services"]["testcms"]["environment"]
+    with open(os.path.join(docker_dir, compose_file)) as f:
+        environment = yaml.safe_load(f)["services"][service]["environment"]
     with open(os.path.join(docker_dir, "..", "config", "cms.sample.toml"), "rb") as f:
         proxy_url = urlsplit(tomllib.load(f)["proxy_service"]["rankings"][0])
 

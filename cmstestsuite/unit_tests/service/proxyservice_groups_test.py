@@ -20,7 +20,7 @@ from cmstestsuite.unit_tests.service.proxyexecutor_test import \
 
 from cms import config
 from cms.conf import Address
-from cms.db import RankingGroup
+from cms.db import Dataset, RankingGroup
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
     ProxyService, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
@@ -32,6 +32,18 @@ RANKING = config.proxy_service.rankings[0]
 
 def url(resource: str) -> str:
     return urljoin(RANKING, resource)
+
+
+# What ProxyService sends to a ranking namespace, as "<method> <resource>"
+# (see namespace_traffic). The reset of a namespace:
+RESET = ["DELETE contests/", "DELETE users/"]
+# Its visibility settings:
+VISIBILITY = ["PUT visibility"]
+# What initialize() sends for its contests: the contests, their users and
+# their tasks (the contests of these tests have no teams).
+CONTEST_DATA = {"PUT contests/", "PUT users/", "PUT tasks/"}
+# What sending the scores of some submissions takes:
+SCORES = {"PUT submissions/", "PUT subchanges/"}
 
 
 class TestProxyServiceGroups(
@@ -982,6 +994,389 @@ class TestProxyServiceGroups(
                          {"hide_at": expected_hide_at, "show_at": None,
                           "freeze_at": None, "unfreeze_at": None,
                           "staff_password": None})
+
+
+    # -- what each transition sends to which namespace -------------------
+
+    def record_requests(self) -> list[tuple[str, str]]:
+        """Record, in order, every request made to the rankings from now on.
+
+        The two mocks of the requests keep their own calls apart: this is
+        the only way to see a reset (a DELETE) between the PUTs.
+
+        return: the list the (method, URL) of each request is added to.
+
+        """
+        log: list[tuple[str, str]] = []
+
+        def recording(method: str, response: MagicMock):
+            def request(target, *args, **kwargs):
+                log.append((method, target))
+                return response
+            return request
+
+        self.requests_put.side_effect = recording(
+            "PUT", self.requests_put.return_value)
+        self.requests_delete.side_effect = recording(
+            "DELETE", self.requests_delete.return_value)
+        return log
+
+    @staticmethod
+    def namespace_traffic(
+        log: list[tuple[str, str]]
+    ) -> dict[str | None, list[str]]:
+        """Split the recorded requests by ranking namespace.
+
+        log: the requests, as record_requests() returns them.
+
+        return: for each namespace (None is the root), what was sent to
+            it, as "<method> <resource>", in the order it was sent.
+
+        """
+        traffic: dict[str | None, list[str]] = dict()
+        for method, target in log:
+            resource = target[len(RANKING):]
+            head, _, rest = resource.partition("/")
+            if head in ProxyExecutor.RESOURCE_PATHS and rest == "":
+                group, path = None, resource
+            else:
+                group, path = head, rest
+            traffic.setdefault(group, list()).append(
+                "%s %s" % (method, path))
+        return traffic
+
+    def assert_traffic(
+        self,
+        log: list[tuple[str, str]],
+        expected: dict[str | None, tuple[bool, bool, set[str]]],
+    ):
+        """Check which namespaces got what, and in which order.
+
+        A namespace is first reset, if it is, then given its visibility
+        settings, if it is, and only then gets data: no other request
+        may come before them, nor be repeated. The data of a namespace
+        is compared as a set, since the executor may send it in several
+        batches, and so in several orders.
+
+        log: the requests, as record_requests() returns them.
+        expected: for each namespace that got something (and only
+            for them): whether it was reset, whether it got its
+            visibility settings, and the set of the data it got.
+
+        """
+        traffic = self.namespace_traffic(log)
+        self.assertEqual(set(traffic), set(expected))
+        for group, (reset, visibility, data) in expected.items():
+            head = ((RESET if reset else [])
+                    + (VISIBILITY if visibility else []))
+            self.assertEqual(traffic[group][:len(head)], head, group)
+            self.assertEqual(set(traffic[group][len(head):]), data, group)
+
+    def payload_keys(self, resource: str) -> set[str]:
+        """Return the ids sent to a resource since the last clear."""
+        return set(self.put_payload(url(resource)))
+
+    async def test_contest_joining_a_group_and_leaving_it_again(self):
+        service = await self.start()
+        self.clear_requests()
+        log = self.record_requests()
+
+        # It joins OLIM: nothing is emptied, its data goes to OLIM along
+        # with the data of the others (what a reinitialize sends), and
+        # only its own scores do, as the group kept the other ones.
+        self.contest_c.ranking_group = self.olim
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+
+        self.assert_traffic(log, {
+            "olim": (False, True, CONTEST_DATA | SCORES),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(
+            self.payload_keys("olim/contests/"),
+            {encode_id(self.contest_a.name), encode_id(self.contest_c.name)})
+        self.assertEqual(self.payload_keys("olim/submissions/"),
+                         {"%d" % self.sub_c.id})
+        self.assertEqual(self.payload_keys("omips/contests/"),
+                         {encode_id(self.contest_b.name)})
+        self.assertEqual(service._group_contests, {
+            "olim": {self.contest_a.id, self.contest_c.id},
+            "omips": {self.contest_b.id}})
+
+        # It leaves OLIM again: the ranking cannot delete one contest, so
+        # OLIM is emptied and filled without it, scores of the contest
+        # that stays included. OMIPS is not touched but for what a
+        # reinitialize always sends.
+        self.clear_requests()
+        log.clear()
+        self.contest_c.ranking_group = None
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+
+        self.assert_traffic(log, {
+            "olim": (True, True, CONTEST_DATA | SCORES),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(self.payload_keys("olim/contests/"),
+                         {encode_id(self.contest_a.name)})
+        self.assertEqual(self.payload_keys("olim/submissions/"),
+                         {"%d" % self.sub_a.id})
+        self.assertEqual(self.payload_keys("omips/contests/"),
+                         {encode_id(self.contest_b.name)})
+        self.assertEqual(service._group_contests, {
+            "olim": {self.contest_a.id}, "omips": {self.contest_b.id}})
+
+    async def test_group_left_by_its_last_contest_is_emptied_and_sent_nothing(
+        self,
+    ):
+        service = await self.start()
+        self.clear_requests()
+        log = self.record_requests()
+
+        self.contest_a.ranking_group = None
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+
+        # OLIM still exists, so it keeps its visibility settings, but it
+        # has no data to send.
+        self.assert_traffic(log, {
+            "olim": (True, True, set()),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(service._group_contests,
+                         {"omips": {self.contest_b.id}})
+
+        # And it fills again, without a reset, when a contest returns.
+        self.clear_requests()
+        log.clear()
+        self.contest_a.ranking_group = self.olim
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+
+        self.assert_traffic(log, {
+            "olim": (False, True, CONTEST_DATA | SCORES),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(self.payload_keys("olim/submissions/"),
+                         {"%d" % self.sub_a.id})
+
+    async def test_deleted_group_is_reset_and_gets_no_visibility(self):
+        service = await self.start()
+        self.clear_requests()
+        log = self.record_requests()
+
+        # The contests of the group are left without one (the foreign
+        # key sets it to NULL).
+        self.session.delete(self.olim)
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+
+        # Its namespace is emptied and nothing more: there are no
+        # settings to send for a group that is not there.
+        self.assert_traffic(log, {
+            "olim": (True, False, set()),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(service._group_contests,
+                         {"omips": {self.contest_b.id}})
+
+    async def test_renamed_group_resets_the_old_name_and_fills_the_new_one(
+        self,
+    ):
+        service = await self.start()
+        self.clear_requests()
+        log = self.record_requests()
+
+        self.olim.name = "olim2"
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+
+        # For the ranking these are two groups: the old namespace is
+        # emptied for good, the new one is sent in full, scores included.
+        self.assert_traffic(log, {
+            "olim": (True, False, set()),
+            "olim2": (False, True, CONTEST_DATA | SCORES),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(self.payload_keys("olim2/contests/"),
+                         {encode_id(self.contest_a.name)})
+        self.assertEqual(self.payload_keys("olim2/submissions/"),
+                         {"%d" % self.sub_a.id})
+        self.assertEqual(service._group_contests, {
+            "olim2": {self.contest_a.id}, "omips": {self.contest_b.id}})
+
+    async def test_legacy_reinitialize_sends_only_the_root_whatever_the_groups(
+        self,
+    ):
+        # The contest served in legacy mode belongs to a group, which
+        # this mode ignores.
+        service = await self.start(self.contest_a.id)
+        self.assertEqual(service._group_contests, {})
+        self.clear_requests()
+        log = self.record_requests()
+
+        await service.reinitialize()
+        await self._settle(service)
+
+        # No reset, no visibility settings, and no scores: only what
+        # initialize() sends, to the root of the ranking.
+        self.assert_traffic(log, {None: (False, False, CONTEST_DATA)})
+        self.assertEqual(self.payload_keys("contests/"),
+                         {encode_id(self.contest_a.name)})
+
+        # Moving the contest to another group, or out of any, changes
+        # nothing either.
+        for group in (self.omips, None):
+            self.clear_requests()
+            log.clear()
+            self.contest_a.ranking_group = group
+            self.session.commit()
+            await service.reinitialize()
+            await self._settle(service)
+
+            self.assert_traffic(log, {None: (False, False, CONTEST_DATA)})
+            self.assertEqual(self.payload_keys("contests/"),
+                             {encode_id(self.contest_a.name)})
+            self.assertEqual(service._group_contests, {})
+
+    def switch_to_new_dataset(self, contest, score: float | None):
+        """Make a new dataset the active one of the contest's task.
+
+        The score type of the new dataset has a maximum score of 250
+        (the others have 100).
+
+        contest: a contest of these tests.
+        score: the score of the contest's submission on the new
+            dataset, or None if it has not been judged on it yet.
+
+        return: the task, and the new dataset.
+
+        """
+        task = contest.tasks[0]
+        dataset = self.add_dataset(task=task)
+        if score is not None:
+            result = self.add_submission_result(
+                submission=task.submissions[0], dataset=dataset)
+            result.compilation_outcome = "ok"
+            result.evaluation_outcome = "ok"
+            result.score = score
+            result.score_details = dict()
+            result.public_score = score
+            result.public_score_details = dict()
+            result.ranking_score_details = ["%d" % score]
+        task.active_dataset = dataset
+        self.session.commit()
+
+        harness_score_type = Dataset.score_type_object
+        score_type = MagicMock()
+        score_type.max_score = 250
+        score_type.ranking_headers = ["250"]
+        new_dataset_id = dataset.id
+
+        def score_type_object(dataset):
+            if dataset.id == new_dataset_id:
+                return score_type
+            return harness_score_type.fget(dataset)
+
+        patcher = patch("cms.db.Dataset.score_type_object",
+                        property(score_type_object))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return task, dataset
+
+    async def test_dataset_updated_sends_the_new_score_and_task_of_its_group(
+        self,
+    ):
+        service = await self.start()
+        task, _ = self.switch_to_new_dataset(self.contest_a, score=70)
+        self.clear_requests()
+        log = self.record_requests()
+
+        await service.dataset_updated(task.id)
+        await self._settle(service)
+
+        # A reinitialize for every group, which is what the tasks with a
+        # new maximum score need, but no reset (nothing is deleted), and
+        # scores of the task's group only.
+        self.assert_traffic(log, {
+            "olim": (False, True, CONTEST_DATA | SCORES),
+            "omips": (False, True, CONTEST_DATA)})
+        tasks = self.put_payload(url("olim/tasks/"))
+        self.assertEqual(tasks[encode_id(task.name)]["max_score"], 250)
+        self.assertEqual(tasks[encode_id(task.name)]["extra_headers"],
+                         ["250"])
+        other_task = self.contest_b.tasks[0]
+        self.assertEqual(
+            self.put_payload(url("omips/tasks/"))[
+                encode_id(other_task.name)]["max_score"], 100)
+        self.assertEqual(self.payload_keys("olim/submissions/"),
+                         {"%d" % self.sub_a.id})
+        subchanges = self.put_payload(url("olim/subchanges/"))
+        self.assertEqual([subchange["score"]
+                          for subchange in subchanges.values()], [70])
+
+    async def test_dataset_updated_without_new_score_keeps_the_old_one(
+        self,
+    ):
+        service = await self.start()
+        task, _ = self.switch_to_new_dataset(self.contest_a, score=None)
+        self.clear_requests()
+        log = self.record_requests()
+
+        await service.dataset_updated(task.id)
+        await self._settle(service)
+
+        # The new tasks are sent, and no score: the submission has none
+        # on the new dataset yet, and the one the ranking has stays.
+        self.assert_traffic(log, {
+            "olim": (False, True, CONTEST_DATA),
+            "omips": (False, True, CONTEST_DATA)})
+        self.assertEqual(
+            self.put_payload(url("olim/tasks/"))[
+                encode_id(task.name)]["max_score"], 250)
+
+    async def test_dataset_updated_of_a_contest_without_group_sends_nothing(
+        self,
+    ):
+        service = await self.start()
+        task, _ = self.switch_to_new_dataset(self.contest_c, score=70)
+        self.clear_requests()
+        log = self.record_requests()
+
+        await service.dataset_updated(task.id)
+        await self._settle(service)
+
+        self.assertEqual(log, [])
+
+    async def test_dataset_updated_also_applies_a_group_change_not_told_yet(
+        self,
+    ):
+        # The reinitialize AWS sends when a contest changes group did not
+        # arrive: the dataset update carries out the change too.
+        service = await self.start()
+        task, _ = self.switch_to_new_dataset(self.contest_a, score=70)
+        self.contest_a.ranking_group = self.omips
+        self.session.commit()
+        self.clear_requests()
+        log = self.record_requests()
+
+        await service.dataset_updated(task.id)
+        await self._settle(service)
+
+        # OLIM is emptied (it has no contest now), and the contest and its
+        # score are sent to OMIPS, once each, with the contest that was
+        # already there.
+        self.assert_traffic(log, {
+            "olim": (True, True, set()),
+            "omips": (False, True, CONTEST_DATA | SCORES)})
+        self.assertEqual(
+            self.payload_keys("omips/contests/"),
+            {encode_id(self.contest_a.name), encode_id(self.contest_b.name)})
+        self.assertEqual(self.payload_keys("omips/submissions/"),
+                         {"%d" % self.sub_a.id})
+        self.assertEqual(
+            [subchange["score"] for subchange in
+             self.put_payload(url("omips/subchanges/")).values()], [70])
 
 
 if __name__ == "__main__":
