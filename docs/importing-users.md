@@ -18,18 +18,20 @@ it and cannot open the page.
 ## The file
 
 - The **first row must be the header row**, with the name of each column. A
-  file without one does not work: the first contestant would be read as the
-  header.
+  file without one does not fail: its first contestant is silently taken as
+  the header and not imported. Check the counts of **"Solo validar"**.
 - **UTF-8**, with commas or semicolons between the cells. Both work.
-- In Excel, save it as **"CSV UTF-8"**. A plain "CSV" is not UTF-8, and the
-  page answers "el archivo no está en UTF-8".
-- At most **2 MB** and **5000 rows** per file. For more contestants, use
-  several files.
+- In Excel, save it as **"CSV UTF-8"**. A plain "CSV" saves accented letters in
+  another encoding, and the page then answers "el archivo no está en UTF-8".
+  This only happens when the file has accented or other non-ASCII characters.
+- At most **2 MB** (2 MiB, 2 × 1024 × 1024 bytes) and **5000 rows** of data per
+  file. The header and completely blank rows do not count. For more
+  contestants, use several files.
 - One file per contest, imported from that contest's page.
 
 | Field | Required | What it holds | Headers recognised automatically |
 |-------|----------|---------------|----------------------------------|
-| `username` | yes | The login. It is unique in the whole of CMS. | `username`, `usuario`, `user` |
+| `username` | yes | The login. It is unique in the whole of CMS. Only letters A-Z a-z, digits, `_` and `-` (no spaces, dots, accents or `@`). Capitals matter: `Ana01` and `ana01` are different users. | `username`, `usuario`, `user` |
 | `first_name` | yes | First name | `first_name`, `nombre`, `nombres` |
 | `last_name` | yes | Last name | `last_name`, `apellido`, `apellidos` |
 | `password` | yes | The day password (see below). At most 72 bytes. | `password`, `contraseña`, `contrasena`, `clave` |
@@ -48,10 +50,12 @@ with an accent takes two.
 
 Example:
 
-    username,first_name,last_name,password,team,group
-    ana01,Ana,Pérez,Q7m2xKp9,JAL,
-    beto02,Beto,López,Zt4wR8nc,JAL,
-    carla03,Carla,Ruiz,h6Fy3LsB,,
+```csv
+username,first_name,last_name,password,team,group
+ana01,Ana,Pérez,Q7m2xKp9,JAL,
+beto02,Beto,López,Zt4wR8nc,JAL,
+carla03,Carla,Ruiz,h6Fy3LsB,,
+```
 
 ## The day password
 
@@ -62,8 +66,10 @@ takes priority over their account password there.
 The `password` column is the participation password of this contest. Upload
 **one file per contest day**, with that day's passwords.
 
-New accounts get a random password that nobody knows, so only the day password
-logs in.
+New accounts get a random account password that nobody knows, so only the day
+password logs in. If you later add these users to another contest by hand, set
+a participation password there, because the account password is not meant to be
+used.
 
 ## Import step by step
 
@@ -72,7 +78,9 @@ logs in.
 2. Press **"Solo validar"**. It reads the whole file and writes nothing. If the
    file is fine, the page says "El archivo es válido. Al importarlo:" and
    counts the new and updated users and the new and updated participations.
-   Check that the numbers are what you expect.
+   Check that the numbers are what you expect. On a fresh contest, "Usuarios
+   actualizados" above 0 means those usernames already exist in CMS, and their
+   first and last names will be overwritten.
 3. **Choose the file again.** The browser cannot keep the file between the two
    steps, so the page asks: "Vuelve a elegir el archivo para importarlo; se
    conservan las columnas asignadas." Your column choices are kept, except the
@@ -80,11 +88,15 @@ logs in.
    **Check it before going on.**
 4. Press **"Importar"**. A progress bar shows "Procesando X de N".
 5. It ends with "Listo." and the counts: "Usuarios nuevos: …, actualizados: ….
-   Participaciones nuevas: …, actualizadas: ….".
+   Participaciones nuevas: …, actualizadas: ….". "Procesando N de N" can show
+   before "Listo.", because saving comes after the hashing. Wait for "Listo.";
+   only then is everything saved.
 
-Passwords are hashed, which is slow: it takes about **30 s for every 300
-rows**. You can close the tab. The import keeps running, and the same progress
-link shows where it is.
+Passwords are hashed, which is slow. A new user needs two hashes and an
+existing user one. On a 4-core server, 300 new users take about **40 s** and
+300 existing users about **20 s**. A 5000-row file of new users takes about 10
+minutes, and fewer cores are slower. You can close the tab. The import keeps
+running, and the same progress link shows where it is.
 
 ## What the import does
 
@@ -116,10 +128,12 @@ updated. Nothing is ever deleted.
 
 The import does not create teams or groups. Create them before importing:
 
-- Teams: **Teams** in the main menu, "(create new team...)". The `team` cell
-  holds the team code.
-- Groups: **Contest → Groups**. The `group` cell holds the name of a group of
-  this contest.
+- Teams: click **Administration** (top of the sidebar), then **Teams** →
+  "(create new team...)". Inside a contest the sidebar shows the contest menu,
+  so the main menu only appears after that click. The `team` cell holds the
+  team code.
+- Groups: **Contest → Groups**, "Add a new group named" and "Add group". The
+  `group` cell holds the name of a group of this contest.
 
 Both must be written exactly as they are in AWS, capitals included. An unknown
 team or group is an error.
@@ -130,7 +144,7 @@ team or group is an error.
 "No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:" with
 the list of errors. Errors about one row start with "fila N:", where N is the
 position of the row in the file, counting the header as row 1. Other errors are
-about the file as a whole. No error ever shows a password.
+about the file as a whole. No error shows the contents of the password column.
 
 Fix the file, choose it again and press **"Solo validar"** until it is valid.
 Some errors only show once the others are fixed: for example, unknown teams and
@@ -140,10 +154,16 @@ groups are checked after the rest of the file.
 |-------|------------|
 | "el archivo no está en UTF-8" | Save the file as "CSV UTF-8". |
 | "el archivo pasa de 2 MB", "el archivo pasa de 5000 filas" | Split the file. |
+| "elige un archivo CSV" | Choose the file. |
+| "el archivo está vacío" | The file has no content. Check that you chose the right file. |
+| "el archivo no tiene filas de datos" | The file has no contestants below the header row. Blank rows do not count. |
+| "el archivo no es un CSV válido" | The file cannot be read as CSV. Save it again as "CSV UTF-8". |
 | "falta asignar la columna para …" (followed by the field) | Pick the column in the selector of that field. |
-| "la columna X está asignada a más de un campo" | Give each field its own column. |
-| "fila N: el usuario está vacío" (also for `el nombre`, `el apellido` and "la contraseña está vacía") | Fill in the cell. |
+| "la columna X está asignada a más de un campo" (for the password column: "la columna de la contraseña está asignada a más de un campo") | Give each field its own column. |
+| "la columna X no está en el archivo" (for the password column: "la columna asignada a la contraseña no está en el archivo") | Pick the column again in the selector of that field, using the file you are uploading. |
+| "fila N: el usuario está vacío", "fila N: el nombre está vacío", "fila N: el apellido está vacío", "fila N: la contraseña está vacía" | Fill in the cell. |
 | "fila N: el usuario X está repetido (fila M)" | Each username may appear only once per file. |
+| "fila N: el usuario X tiene caracteres no permitidos (solo letras sin acentos, números, _ y -)" | Change the username to use only those characters. |
 | "fila N: el equipo X no existe" | Create the team in **Teams**, or fix the code. |
 | "fila N: el grupo X no existe en este concurso" | Create the group in **Contest → Groups**, or fix the name. |
 | "fila N: la contraseña pasa de 72 bytes" | Use a shorter password. |
@@ -155,18 +175,26 @@ groups are checked after the rest of the file.
   concurso". Wait for the first to end.
 - **A progress page lives 1 hour**, counted from the start of the import.
   After that, or if the link is not yours (only the admin who started an
-  import can see its progress), the page says "No se encontró la
-  importación…". The import may or may not have been applied. **Check the
-  contest's Users list.** Do **not** re-run the import blindly: it would
-  overwrite any change made since.
-- **If AWS restarts during an import, nothing from that import is saved**:
-  the database is only written at the very end, in a single step. Run the
-  import again.
+  import can see its progress), the page says "No se encontró la importación:
+  no existe o ya expiró. Revisa la lista de usuarios para ver si se aplicó."
+  The import may or may not have been applied. **Check the contest's Users
+  list.** Do **not** re-run the import blindly: it would overwrite any change
+  made since.
+- **If AWS restarts during an import**, AWS no longer knows the import: its
+  status request answers 404, so the page shows "No se pudo consultar el
+  progreso; recarga la página.", and after a reload it shows the "No se
+  encontró la importación: …" notice above. Normally nothing from that import
+  is saved, because the database is only written at the very end, in a single
+  step. But if the restart came at that very end, the import may already be
+  saved, so check the contest's Users list. If the users are not there, run the
+  import again. Re-running the same file is harmless: it rewrites the same values.
 - "Error: …" instead of "Listo." means the import failed and nothing was saved.
   Run it again, and if it fails again, ask whoever manages the server to look
   at the AWS log.
 - "No se pudo consultar el progreso; recarga la página." means the page lost
-  contact with AWS. Reload the page.
+  contact with AWS. The page retries first, so the message only appears after
+  several failed attempts in a row. Reload the page. If AWS was restarted, see
+  the bullet above.
 
 ## Keep the original file
 
