@@ -21,6 +21,8 @@
 import logging
 import unittest
 
+from sqlalchemy import event, inspect
+
 from cms.db import Participation, User
 from cms.server.admin.bulkimport import MAX_ROWS, ImportRow, plan_import, \
     read_rows
@@ -277,11 +279,47 @@ class TestPlanImport(DatabaseMixin, unittest.TestCase):
         self.assertEqual(self.session.query(Participation).count(),
                          participations_before)
 
-    def test_nothing_is_added(self):
+    def test_nothing_is_added_or_flushed(self):
+        # An object the caller left pending must stay pending: a flush
+        # inside plan_import would write it, and would also hide an
+        # object that plan_import itself added.
+        pending = self.add_user(username="pending")
+        flushes = []
+
+        def record_flush(session, flush_context, instances):
+            flushes.append(instances)
+
+        event.listen(self.session, "before_flush", record_flush)
+        self.addCleanup(event.remove, self.session, "before_flush",
+                        record_flush)
+
         plan_import(self.session, self.contest.id, [
             import_row(2, "carla"), import_row(3, "ana")])
-        self.assertFalse(self.session.new)
+        plan_import(self.session, self.contest.id, [
+            import_row(2, "carla", team="XYZ")])
+
+        self.assertEqual(flushes, [])
+        self.assertEqual(list(self.session.new), [pending])
+        self.assertTrue(inspect(pending).pending)
         self.assertFalse(self.session.dirty)
+
+    def test_participation_in_another_contest_is_not_a_participation(self):
+        other_contest = self.add_contest()
+        dora = self.add_user(username="dora")
+        self.add_participation(user=dora, contest=other_contest)
+        self.session.flush()
+
+        plan, errors = plan_import(self.session, self.contest.id, [
+            import_row(2, "dora")])
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.new_users, [])
+        self.assertEqual(plan.updated_users, ["dora"])
+        self.assertEqual(plan.new_participations, ["dora"])
+        self.assertEqual(plan.updated_participations, [])
+
+    def test_unknown_contest(self):
+        result = plan_import(self.session, -1, [import_row(2, "carla")])
+        self.assertEqual(result, (None, ["el concurso no existe"]))
 
     def test_groups_are_those_of_the_contest(self):
         afternoon = self.get_group(name="tarde", contest=self.contest)
