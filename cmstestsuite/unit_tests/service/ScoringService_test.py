@@ -6,6 +6,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+import cms.service.ScoringService as ScoringServiceModule
 from cms.conf import Address, ServiceCoord
 from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.rpc import rpc_method
@@ -15,6 +16,7 @@ from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
+from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
 class RecordingProxyService:
@@ -290,6 +292,42 @@ class ScoringServiceTest(
             await asyncio.sleep(0)
 
         self.assertEqual(unhandled_exceptions, [])
+
+    async def test_proxy_notification_the_peer_never_answers_is_dropped(
+        self
+    ):
+        # A ProxyService that is connected but stuck: without a bound
+        # every notification would stay pending, together with its
+        # request, for good. Its sweeper sends the score anyway.
+        peer = StuckPeer()
+        await peer.start()
+        self.addAsyncCleanup(peer.stop)
+        client = await connect_client(ServiceCoord("ProxyService", 0), peer)
+        self.addCleanup(client.disconnect)
+        executor = self.service.get_executor()
+        executor.proxy_service = client
+
+        submission, dataset, _submission_result = \
+            self._build_submission_result(
+                compilation_outcome=False, active_dataset=True)
+        executor.enqueue(ScoringOperation(submission.id, dataset.id))
+        entry = await executor._pop()
+
+        with patch.object(
+                ScoringServiceModule, "FIRE_AND_FORGET_TIMEOUT", 0.05):
+            with self.assertLogs(
+                    "cms.service.ScoringService", level="WARNING") as logs:
+                await executor.execute(entry)
+                await peer.wait_for_requests(1)
+                for _ in range(200):
+                    if logs.records:
+                        break
+                    await asyncio.sleep(0.01)
+
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("submission %d" % submission.id, logs.output[0])
+        self.assertEqual(client.pending_outgoing_requests, {})
+        self.assertEqual(client.pending_outgoing_requests_results, {})
 
     async def test_missing_operations_finds_and_enqueues_unscored_result(self):
         submission, dataset, _ = self._build_submission_result(

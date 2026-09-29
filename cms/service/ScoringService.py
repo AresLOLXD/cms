@@ -31,6 +31,7 @@ import logging
 
 from cms import ServiceCoord, config
 from cms.db import SessionGen, Submission, Dataset, get_submission_results
+from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
 from cms.io.rpc import RPCError, rpc_method
@@ -71,16 +72,27 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
         Fire-and-forget: mirrors the old RPC proxy's behavior of never
         surfacing a failed notification as an error (ProxyService being
         unreachable, e.g. because rankings are disabled, is a normal,
-        expected state -- not a failure worth logging loudly).
+        expected state -- not a failure worth logging loudly). It
+        doesn't wait for the answer longer than FIRE_AND_FORGET_TIMEOUT
+        seconds, so a ProxyService that is connected but stuck can't
+        leave the notifications pending forever.
 
         submission_id: the id of the submission to notify about.
 
         """
         try:
-            await self.proxy_service.submission_scored(
-                submission_id=submission_id)
+            await asyncio.wait_for(
+                self.proxy_service.submission_scored(
+                    submission_id=submission_id),
+                FIRE_AND_FORGET_TIMEOUT)
         except RPCError:
             pass
+        except asyncio.TimeoutError:
+            # Not lost: ProxyService's sweeper sends the score.
+            logger.warning("ProxyService gave no answer in %s seconds to "
+                           "the notification that submission %d was "
+                           "scored, giving up on it.",
+                           FIRE_AND_FORGET_TIMEOUT, submission_id)
 
     def _execute_sync(self, operation: ScoringOperation) -> int | None:
         """Do the actual DB work for execute(), synchronously.
