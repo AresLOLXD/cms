@@ -450,6 +450,11 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         caller that wants fire-and-forget behavior can wrap the call
         in asyncio.create_task() itself.
 
+        Whatever happens to the connection meanwhile, the call fails
+        with RPCError. Cancelling it (e.g. with asyncio.wait_for)
+        gives up on the answer: the request stops being pending and a
+        late answer is logged and ignored.
+
         """
         id_ = uuid.uuid4().hex
         request = {"__id": id_, "__method": method, "__data": data}
@@ -467,13 +472,24 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         self.pending_outgoing_requests_results[id_] = result
 
         try:
-            await self._write(data_encoded)
-        except OSError:
-            del self.pending_outgoing_requests[id_]
-            del self.pending_outgoing_requests_results[id_]
-            raise RPCError("Write failed.")
-
-        return await result
+            try:
+                await self._write(data_encoded)
+            except OSError:
+                raise RPCError("Write failed.")
+            return await result
+        finally:
+            # However this ends, the request is no longer pending. The
+            # entries may already be gone (finalize() empties both
+            # dicts when the connection drops) or still be there (the
+            # caller was cancelled, e.g. by a timeout): pop() copes
+            # with both.
+            self.pending_outgoing_requests.pop(id_, None)
+            self.pending_outgoing_requests_results.pop(id_, None)
+            # finalize() may have failed the future while the request
+            # was still being written, when nothing awaits it yet.
+            # Retrieve its exception, or asyncio reports it as lost.
+            if result.done() and not result.cancelled():
+                result.exception()
 
     def __getattr__(self, method: str):
         """Syntactic sugar: unresolved attributes become RPC proxies.
