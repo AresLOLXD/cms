@@ -31,7 +31,7 @@ Follow these steps to start the contest system for the first time:
 
 4. **Answer the second question:** `Rebuild?` is a menu from 1 to 7.
    - Choose **`1`** (No, the default and the fastest) on the first run or when nothing has changed.
-   - After updating the code, choose **`4`** (CMS only) or **`2`** (all services).
+   - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`3`** and then **`4`**, see below.
    - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update, see [multi-contest.md](multi-contest.md).
 
 5. **Wait for startup.** You'll see output like:
