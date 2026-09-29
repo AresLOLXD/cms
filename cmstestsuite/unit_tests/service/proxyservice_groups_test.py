@@ -14,8 +14,8 @@ from cmstestsuite.unit_tests.servicelogmixin import \
 from cms import config
 from cms.conf import Address
 from cms.db import RankingGroup
-from cms.service.ProxyService import ProxyExecutor, ProxyService, \
-    encode_id
+from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
+    ProxyService, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
 
 
@@ -61,7 +61,7 @@ class TestProxyServiceGroups(
         self.addCleanup(delete_patcher.stop)
         self.requests_delete.return_value.status_code = 204
 
-        # Count the batches the executor is sending, for _settle().
+        # Count the batches all the executors are sending, for _settle().
         self.executions_in_flight = 0
         real_execute = ProxyExecutor.execute
 
@@ -177,20 +177,22 @@ class TestProxyServiceGroups(
 
         Call it right after awaiting the service method under test.
         The operations that method enqueues from its worker thread reach
-        the executor in order, all before the method's own result does,
-        but the executor may send them in several batches. So waiting
+        the executors in order, all before the method's own result does,
+        but an executor may send them in several batches. So waiting
         for some request to show up is not enough: a later batch would
         land after the test cleared the recorded requests, or after it
-        checked them. An empty queue with no batch in flight means the
-        rankings have received everything.
+        checked them. Empty queues in all the executors (there is one
+        for each ranking) with no batch in flight mean the rankings
+        have received everything.
 
-        service: the service whose executor to wait for.
+        service: the service whose executors to wait for.
         timeout: seconds after which to fail the test.
 
         """
-        executor = service.get_executor()
+        executors = service._executors
         deadline = time.monotonic() + timeout
-        while executor.get_status() or self.executions_in_flight:
+        while (any(executor.get_status() for executor in executors)
+               or self.executions_in_flight):
             if time.monotonic() > deadline:
                 self.fail("The service did not finish sending its "
                           "operations in %s seconds." % timeout)
@@ -376,6 +378,26 @@ class TestProxyServiceGroups(
                 await service.regenerate_ranking(group)
         self.assertEqual(self.delete_urls(), [])
         self.assertEqual(self.put_urls(), [])
+
+    async def test_settle_waits_for_every_executor(self):
+        # The service has one executor for each configured ranking.
+        second_ranking = "http://rws:secret@localhost:8891/"
+        rankings = (RANKING, second_ranking)
+        with patch.object(config.proxy_service, "rankings", rankings):
+            service = await self.start()
+        self.assertEqual(len(service._executors), 2)
+        self.clear_requests()
+
+        # Only the second executor has work, and nothing yields to its
+        # run loop before _settle() looks at the queues: a _settle()
+        # that only watched the first executor would return right away.
+        service._executors[1].enqueue(ProxyOperation(
+            ProxyExecutor.TEAM_TYPE, {"team": {"name": "Team"}}))
+        await self._settle(service)
+
+        for executor in service._executors:
+            self.assertEqual(executor.get_status(), [])
+        self.assertEqual(self.put_urls(), [urljoin(second_ranking, "teams/")])
 
 
 if __name__ == "__main__":
