@@ -160,6 +160,11 @@ COPY --chown=cmsuser:cmsuser . /home/cmsuser/src
 # Install CMS without dev dependencies (no pytest, coverage, beautifulsoup4).
 RUN --mount=type=cache,target=/home/cmsuser/.cache/pip,uid=2000 ./install.py cms
 
+# Runtime data (data_dir in the generated cms.toml). Created as cmsuser so the
+# named volume mounted here inherits the ownership. It must not be under
+# cms/lib, which holds the installed code and would be shadowed by a volume.
+RUN mkdir /home/cmsuser/cms/data
+
 # Install the cms_rekarel Karel language plugin.
 # No pip cache mount: always fetch fresh from GitHub on every build.
 RUN pip install --no-cache-dir git+https://github.com/AresLOLXD/cms_rekarel.git

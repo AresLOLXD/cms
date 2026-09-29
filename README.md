@@ -195,6 +195,26 @@ Point your load balancer (e.g. nginx) at those two ports.
 docker compose -f docker/docker-compose.prod.yml --env-file .env run --rm db-init
 ```
 
+**Upgrading a deployment that was started before the `cms-data` volume moved:**
+
+The `cms-data` volume used to be mounted on `/home/cmsuser/cms/lib`, which is
+also where the CMS code is installed. Docker filled the volume from the first
+image and never refreshed it, so rebuilding the image did not change the code
+the `cms` container ran. The volume is now mounted on `/home/cmsuser/cms/data`,
+which holds only runtime data (submission copies, Telegram bot state). It keeps
+its name and its contents, so nothing is lost. The next `./up.sh` (answer `y`
+to rebuild) runs the code of the image for real, possibly newer than what was
+running until now.
+
+The old copy of the code left in the volume, the `python3.12` directory, is
+inert. To free the space, delete it (from the repo root; `cms-prod` is the
+`CMS_PROJECT_NAME` from `.env`, which `./up.sh` passes as `-p`):
+
+```bash
+docker compose -f docker/docker-compose.prod.yml --env-file .env -p cms-prod \
+  run --rm --no-deps --entrypoint rm cms -rf /home/cmsuser/cms/data/python3.12
+```
+
 ### Troubleshooting
 
 **The container exits immediately:**

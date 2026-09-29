@@ -100,7 +100,10 @@ services:
       db-init:
         condition: service_completed_successfully
     volumes:
-      - cms-data:/home/cmsuser/cms/lib
+      # Runtime data (data_dir): submission copies, Telegram bot state. Never
+      # mount a volume over cms/lib: that is where the installed code lives,
+      # and the volume would keep serving the code of the first build.
+      - cms-data:/home/cmsuser/cms/data
       - cms-logs:/home/cmsuser/cms/log
       - cms-cache:/home/cmsuser/cms/cache
       - ../dumps:/home/cmsuser/cms/dumps
