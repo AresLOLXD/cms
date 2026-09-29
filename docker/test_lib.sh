@@ -125,11 +125,14 @@ for entry in "3:build ranking" "6:build --no-cache ranking"; do
   fi
 done
 
-for entry in "1:" "2:build" "4:build cms db-init" "7:build --no-cache"; do
+for entry in "1:" "2:build" "4:build cms db-init" "5:build --no-cache cms db-init" "7:build --no-cache"; do
   choice="${entry%%:*}" build="${entry#*:}"
   run_do_up n "$choice"
   up_calls=$(grep -E ' up ' "$TMP_ROOT/calls" || true)
-  if [[ ( -z "$build" ) || "$(grep -c " ${build}\$" "$TMP_ROOT/calls")" -eq 1 ]] \
+  build_calls=$(grep -E ' build( |$)' "$TMP_ROOT/calls" || true)
+  # Choice 1 must not build at all; the others build exactly once, as listed.
+  if [[ ( -z "$build" && -z "$build_calls" ) \
+        || ( -n "$build" && "$build_calls" == *" ${build}" && "$(wc -l <<<"$build_calls")" -eq 1 ) ]] \
       && [[ "$(wc -l <<<"$up_calls")" -eq 1 && "$up_calls" == *" up -d --wait --wait-timeout 90" ]] \
       && [[ "$DO_UP_OUT" != *"Only the ranking container"* ]]; then
     check "_do_up choice $choice still starts every service" "ok"
@@ -137,6 +140,32 @@ for entry in "1:" "2:build" "4:build cms db-init" "7:build --no-cache"; do
     check "_do_up choice $choice still starts every service" "calls: $(tr '\n' '|' < "$TMP_ROOT/calls")"
   fi
 done
+
+# ── _do_up: local database (profile localdb) ─────────────────────────────────
+# Answering "y" to the local database question must add --profile localdb to
+# every compose call _do_up makes and persist CMS_USE_LOCALDB=true in .env;
+# answering "n" must do neither (persisting false instead).
+
+for choice in 1 2 3; do
+  rm -f "$TMP_ROOT/.env"
+  run_do_up y "$choice"
+  compose_calls=$(grep -E '^compose ' "$TMP_ROOT/calls" || true)
+  without_profile=$(grep -E '^compose ' "$TMP_ROOT/calls" | grep -v -e '--profile localdb' || true)
+  if [[ -n "$compose_calls" && -z "$without_profile" ]] \
+      && grep -qx 'CMS_USE_LOCALDB=true' "$TMP_ROOT/.env"; then
+    check "_do_up choice $choice with the local database uses --profile localdb and persists it" "ok"
+  else
+    check "_do_up choice $choice with the local database uses --profile localdb and persists it" "calls: $(tr '\n' '|' < "$TMP_ROOT/calls"); .env: $(tr '\n' '|' < "$TMP_ROOT/.env")"
+  fi
+done
+
+rm -f "$TMP_ROOT/.env"
+run_do_up n 2
+if ! grep -q -e '--profile' "$TMP_ROOT/calls" && grep -qx 'CMS_USE_LOCALDB=false' "$TMP_ROOT/.env"; then
+  check "_do_up without the local database adds no profile and persists false" "ok"
+else
+  check "_do_up without the local database adds no profile and persists false" "calls: $(tr '\n' '|' < "$TMP_ROOT/calls"); .env: $(tr '\n' '|' < "$TMP_ROOT/.env")"
+fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
