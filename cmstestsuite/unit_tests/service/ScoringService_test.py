@@ -313,19 +313,26 @@ class ScoringServiceTest(
         executor.enqueue(ScoringOperation(submission.id, dataset.id))
         entry = await executor._pop()
 
+        # The service's own executor may score what earlier tests left
+        # behind meanwhile, and notify the same peer: look for ours.
+        ours = "submission %d was scored" % submission.id
         with patch.object(
                 ScoringServiceModule, "FIRE_AND_FORGET_TIMEOUT", 0.05):
             with self.assertLogs(
                     "cms.service.ScoringService", level="WARNING") as logs:
                 await executor.execute(entry)
-                await peer.wait_for_requests(1)
                 for _ in range(200):
-                    if logs.records:
+                    if any(ours in line for line in logs.output) \
+                            and not client.pending_outgoing_requests:
                         break
                     await asyncio.sleep(0.01)
 
-        self.assertEqual(len(logs.records), 1)
-        self.assertIn("submission %d" % submission.id, logs.output[0])
+        self.assertIn({"__method": "submission_scored",
+                       "__data": {"submission_id": submission.id}},
+                      [{key: request[key] for key in ("__method", "__data")}
+                       for request in peer.requests])
+        self.assertEqual(
+            len([line for line in logs.output if ours in line]), 1)
         self.assertEqual(client.pending_outgoing_requests, {})
         self.assertEqual(client.pending_outgoing_requests_results, {})
 
