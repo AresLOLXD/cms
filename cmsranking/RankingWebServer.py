@@ -58,6 +58,7 @@ from cmsranking.Submission import Submission
 from cmsranking.Task import Task
 from cmsranking.Team import Team
 from cmsranking.User import User
+from cmsranking.visibility import VisibilityGuard
 
 
 logger = logging.getLogger(__name__)
@@ -578,7 +579,14 @@ class NamespaceDispatcher:
         for name in sorted(os.listdir(groups_dir)):
             path = os.path.join(groups_dir, name)
             if is_valid_group_name(name) and os.path.isdir(path):
-                self.apps[name] = app_factory(path)
+                self.apps[name] = self._make_namespace(name)
+
+    def _make_namespace(self, name: str):
+        """Build the guarded application of the group namespace name."""
+        path = os.path.join(self.groups_dir, name)
+        return VisibilityGuard(
+            self.app_factory(path), path, name,
+            self.username, self.password, self.realm_name)
 
     def authorized(self, request: Request) -> bool:
         return request.authorization is not None and \
@@ -601,7 +609,7 @@ class NamespaceDispatcher:
                 return CustomUnauthorized(self.realm_name)(
                     environ, start_response)
             logger.info("Creating ranking namespace %s.", name)
-            app = self.app_factory(os.path.join(self.groups_dir, name))
+            app = self._make_namespace(name)
             self.apps[name] = app
 
         script_name = environ.get("SCRIPT_NAME", "") + "/" + name
