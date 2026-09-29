@@ -32,6 +32,7 @@ import dataclasses
 import io
 import itertools
 import logging
+import re
 from collections.abc import Callable, Iterator
 
 from sqlalchemy import select
@@ -135,6 +136,10 @@ def read_rows(data: bytes, mapping: dict[str, str]
     errors: list[str] = []
     columns: dict[str, int] = {}
     assigned: set[str] = set()
+    # Without a header row, the "header" is the first contestant's row, so
+    # the header chosen for the password is a real password: the messages
+    # name the field instead of it, whichever field it comes up in.
+    password_name = (mapping.get("password") or "").strip()
     for field in FIELDS:
         name = (mapping.get(field) or "").strip()
         if not name:
@@ -145,13 +150,17 @@ def read_rows(data: bytes, mapping: dict[str, str]
         # A column used for two fields would let a cell of the password
         # column reach an error message, for example as a repeated user.
         if name in assigned:
-            message = "la columna %s está asignada a más de un campo" % name
+            message = "la columna %s está asignada a más de un campo" % (
+                "de la contraseña" if name == password_name else name)
             if message not in errors:
                 errors.append(message)
             continue
         assigned.add(name)
         if name not in header:
-            errors.append("la columna %s no está en el archivo" % name)
+            errors.append(
+                "la columna asignada a la contraseña no está en el archivo"
+                if name == password_name
+                else "la columna %s no está en el archivo" % name)
             continue
         columns[field] = header.index(name)
     if errors:
@@ -178,6 +187,13 @@ def read_rows(data: bytes, mapping: dict[str, str]
                           % (line, MAX_PASSWORD_BYTES))
         username = values["username"]
         if username:
+            # The Codename domain of the database. Not \w: it would also
+            # accept the accented letters.
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", username):
+                errors.append(
+                    "fila %d: el usuario %s tiene caracteres no permitidos "
+                    "(solo letras sin acentos, números, _ y -)"
+                    % (line, username))
             if username in seen:
                 errors.append("fila %d: el usuario %s está repetido "
                               "(fila %d)" % (line, username, seen[username]))

@@ -159,7 +159,8 @@ class TestReadRows(unittest.TestCase):
             "beto,Beto,Pérez,SECRETPW,\n"), mapping)
         self.assertEqual(rows, [])
         self.assertEqual(
-            errors, ["la columna contraseña está asignada a más de un campo"])
+            errors,
+            ["la columna de la contraseña está asignada a más de un campo"])
         self.assertFalse(any("SECRETPW" in e for e in errors))
 
     def test_column_mapped_to_three_fields_is_reported_once(self):
@@ -169,6 +170,96 @@ class TestReadRows(unittest.TestCase):
             "ana,Ana,López,pw,\n"), mapping)
         self.assertEqual(
             errors, ["la columna nombre está asignada a más de un campo"])
+
+    def test_password_header_is_never_echoed_when_mapped_twice(self):
+        # Without a header row, the "header" is the first contestant's row,
+        # so the header chosen for the password is a real password.
+        text = "beto;Roberto;Pérez;s3cret;JAL\nana;Ana;López;pw;\n"
+        for other in ("username", "team"):
+            with self.subTest(other=other):
+                mapping = dict(MAPPING, username="beto",
+                               first_name="Roberto", last_name="Pérez",
+                               password="s3cret", team="JAL")
+                mapping[other] = "s3cret"
+                rows, errors = read_rows(csv_bytes(text), mapping)
+                self.assertEqual(rows, [])
+                self.assertEqual(
+                    errors, ["la columna de la contraseña está asignada a "
+                             "más de un campo"])
+                self.assertFalse(any("s3cret" in e for e in errors))
+
+    def test_password_header_missing_from_the_file_is_never_echoed(self):
+        text = "usuario,nombre,apellido,estado\nana,Ana,López,\n"
+        mapping = dict(MAPPING, password="s3cret")
+        rows, errors = read_rows(csv_bytes(text), mapping)
+        self.assertEqual(rows, [])
+        self.assertEqual(
+            errors,
+            ["la columna asignada a la contraseña no está en el archivo"])
+        self.assertFalse(any("s3cret" in e for e in errors))
+
+    def test_password_header_is_never_echoed_when_another_field_has_it(self):
+        # The username is checked before the password, so it is the
+        # username that reaches the missing header first.
+        text = "usuario,nombre,apellido,estado\nana,Ana,López,\n"
+        mapping = dict(MAPPING, username="s3cret", password="s3cret")
+        rows, errors = read_rows(csv_bytes(text), mapping)
+        self.assertEqual(rows, [])
+        self.assertEqual(
+            errors,
+            ["la columna asignada a la contraseña no está en el archivo",
+             "la columna de la contraseña está asignada a más de un campo"])
+        self.assertFalse(any("s3cret" in e for e in errors))
+
+    def test_other_headers_are_still_echoed(self):
+        text = "usuario,nombre,apellido,contraseña,estado\nana,A,L,pw,\n"
+        _, errors = read_rows(csv_bytes(text), dict(
+            MAPPING, team="equipo", group="equipo"))
+        self.assertEqual(
+            errors, ["la columna equipo no está en el archivo",
+                     "la columna equipo está asignada a más de un campo"])
+
+    def test_usernames_the_database_refuses(self):
+        # The Codename domain of the database: letters without accents,
+        # digits, _ and -. \w would let the accented letters through.
+        for username in ("ana.perez", "josé", "ana perez", "ana@x"):
+            with self.subTest(username=username):
+                _, errors = read_rows(csv_bytes(
+                    "usuario,nombre,apellido,contraseña,estado\n"
+                    "ana,Ana,López,pw,\n"
+                    '"%s",Ana,López,pw,\n' % username), MAPPING)
+                self.assertEqual(
+                    errors,
+                    ["fila 3: el usuario %s tiene caracteres no permitidos "
+                     "(solo letras sin acentos, números, _ y -)" % username])
+
+    def test_username_with_every_allowed_character_passes(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "Ana_01-b,Ana,López,pw,\n"), MAPPING)
+        self.assertEqual(errors, [])
+        self.assertEqual([r.username for r in rows], ["Ana_01-b"])
+
+    def test_username_errors_keep_the_row_order(self):
+        text = ("usuario,nombre,apellido,contraseña,estado\n"
+                "ana.perez,Ana,López,pw,\n"
+                ",Ana,López,pw,\n"
+                "Ana_01-b,Ana,López,pw,\n"
+                "josé,Ana,López,,\n"
+                "ana.perez,Ana,López,pw,\n")
+        message = ("fila %d: el usuario %s tiene caracteres no permitidos "
+                   "(solo letras sin acentos, números, _ y -)")
+        expected = [
+            message % (2, "ana.perez"),
+            # An empty username is only empty; it is not also refused.
+            "fila 3: el usuario está vacío",
+            "fila 5: la contraseña está vacía",
+            message % (5, "josé"),
+            message % (6, "ana.perez"),
+            "fila 6: el usuario ana.perez está repetido (fila 2)"]
+        for _ in range(3):
+            _, errors = read_rows(csv_bytes(text), MAPPING)
+            self.assertEqual(errors, expected)
 
     def test_whitespace_only_password_is_empty(self):
         _, errors = read_rows(csv_bytes(
