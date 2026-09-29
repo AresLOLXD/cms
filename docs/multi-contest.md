@@ -193,7 +193,7 @@ print `204`.
     RWS_PASS=$(grep '^CMS_RWS_PASSWORD=' .env | cut -d= -f2-)
     RWS_PORT=$(grep '^CMS_RWS_HTTP_PORT=' .env | cut -d= -f2-)
     curl -s -o /dev/null -w '%{http_code}\n' \
-        -u "$RWS_USER:$RWS_PASS" -X PUT \
+        -u "${RWS_USER:-rws}:$RWS_PASS" -X PUT \
         -H 'Content-Type: application/json' \
         -d '{"hidden": true, "staff_password": null}' \
         "http://127.0.0.1:${RWS_PORT:-8890}/<group>/visibility"
