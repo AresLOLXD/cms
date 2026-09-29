@@ -17,9 +17,11 @@ it and cannot open the page.
 
 ## The file
 
-- The **first row must be the header row**, with the name of each column. A
-  file without one does not fail: its first contestant is silently taken as
-  the header and not imported. Check the counts of **"Solo validar"**.
+- The **first row must be the header row**, with the name of each column.
+  Without one, no selector is filled in and "Solo validar" usually answers
+  "falta asignar la columna para …". If you then pick the columns by hand, the
+  first contestant is taken as the header and silently not imported, so check
+  the counts of **"Solo validar"**.
 - **UTF-8**, with commas or semicolons between the cells. Both work.
 - In Excel, save it as **"CSV UTF-8"**. A plain "CSV" saves accented letters in
   another encoding, and the page then answers "el archivo no está en UTF-8".
@@ -187,7 +189,8 @@ groups are checked after the rest of the file.
   is saved, because the database is only written at the very end, in a single
   step. But if the restart came at that very end, the import may already be
   saved, so check the contest's Users list. If the users are not there, run the
-  import again. Re-running the same file is harmless: it rewrites the same values.
+  import again. Re-running the same file rewrites the same values, so it is
+  harmless unless someone changed those users or participations since.
 - "Error: …" instead of "Listo." means the import failed and nothing was saved.
   Run it again, and if it fails again, ask whoever manages the server to look
   at the AWS log.
