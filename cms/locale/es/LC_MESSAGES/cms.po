@@ -132,10 +132,13 @@ msgid "Your submission failed because it exited with a return code different fro
 msgstr "El envío falló porque terminó con un código de retorno (return code) distinto de 0."
 
 msgid "Skipped after screening phase failure"
-msgstr "Omitido: falló la fase de muestra"
+msgstr "No se probó: el envío falló los primeros casos de la subtarea"
 
 msgid "This testcase was not run because the screening testcases for its subtask did not pass."
-msgstr "Este caso de prueba no se ejecutó porque no se superaron los casos de muestra de su subtarea."
+msgstr ""
+"Este caso no se probó porque el envío falló alguno de los primeros casos de "
+"su subtarea. Primero se prueban unos pocos casos de cada subtarea y, si "
+"alguno falla, los demás ya no se prueban."
 
 msgid "Execution completed successfully"
 msgstr "Ejecución completada de manera exitosa"
