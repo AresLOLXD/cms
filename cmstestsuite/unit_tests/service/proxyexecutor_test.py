@@ -84,6 +84,22 @@ class TestProxyExecutorGroups(unittest.IsolatedAsyncioTestCase):
             self.delete_urls(),
             [urljoin(RANKING, "contests/"), urljoin(RANKING, "users/")])
 
+    async def test_put_gives_up_on_a_ranking_that_stops_answering(self):
+        # Without a timeout, a hung ranking would block the thread
+        # sending to it forever: connect and read timeouts, in seconds.
+        await self.executor.execute(entries(
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}})))
+        self.assertEqual(self.requests_put.call_count, 1)
+        self.assertEqual(
+            self.requests_put.call_args.kwargs.get("timeout"), (5, 120))
+
+    async def test_delete_gives_up_on_a_ranking_that_stops_answering(self):
+        await self.executor.execute(entries(
+            ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim")))
+        self.assertEqual(self.requests_delete.call_count, 2)
+        for call in self.requests_delete.call_args_list:
+            self.assertEqual(call.kwargs.get("timeout"), (5, 120))
+
 
 if __name__ == "__main__":
     unittest.main()

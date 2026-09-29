@@ -53,6 +53,13 @@ from cmscommon.ranking_groups import is_valid_group_name
 logger = logging.getLogger(__name__)
 
 
+# Seconds to wait for a ranking to accept our connection and, once
+# connected, to answer. Without them a ranking that stops answering
+# would block the thread sending to it forever.
+CONNECT_TIMEOUT = 5
+READ_TIMEOUT = 120
+
+
 class CannotSendError(Exception):
     pass
 
@@ -93,7 +100,8 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
         res = requests.put(url, json.dumps(data),
                            auth=(auth.username, auth.password),
                            headers={'content-type': 'application/json'},
-                           verify=config.proxy_service.https_certfile)
+                           verify=config.proxy_service.https_certfile,
+                           timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     except requests.exceptions.RequestException as error:
         msg = "%s while %s: %s." % (type(error).__name__, operation, error)
         logger.warning(msg)
@@ -120,7 +128,8 @@ def safe_delete_data(ranking: str, resource: str, operation: str):
         auth = urlsplit(url)
         res = requests.delete(url,
                               auth=(auth.username, auth.password),
-                              verify=config.proxy_service.https_certfile)
+                              verify=config.proxy_service.https_certfile,
+                              timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
     except requests.exceptions.RequestException as error:
         msg = "%s while %s: %s." % (type(error).__name__, operation, error)
         logger.warning(msg)
