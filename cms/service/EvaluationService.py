@@ -50,6 +50,7 @@ from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
 from cms.grading import twophase
 from cms.grading.Job import Job, JobGroup
 from cms.grading.steps import EVALUATION_MESSAGES
+from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
@@ -656,7 +657,10 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         Fire-and-forget, matching the old RPC proxy's never-blocking
         behavior; swallows RPCError like WorkerPool._fire_and_forget does
         for the same reason (ScoringService being briefly unreachable is
-        not worth surfacing as an error here).
+        not worth surfacing as an error here). Like it, it doesn't wait
+        for the answer longer than FIRE_AND_FORGET_TIMEOUT seconds, so a
+        ScoringService that is connected but stuck can't leave the
+        notifications pending forever.
 
         Only reachable from compilation_ended/evaluation_ended, i.e. from
         code already running inside loop.run_in_executor, so the loop
@@ -669,10 +673,18 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
     async def _notify_scoring_service(self, submission_id: int, dataset_id: int):
         try:
-            await self.scoring_service.new_evaluation(
-                submission_id=submission_id, dataset_id=dataset_id)
+            await asyncio.wait_for(
+                self.scoring_service.new_evaluation(
+                    submission_id=submission_id, dataset_id=dataset_id),
+                FIRE_AND_FORGET_TIMEOUT)
         except RPCError:
             pass
+        except asyncio.TimeoutError:
+            # Not lost: ScoringService's sweeper finds the evaluation.
+            logger.warning("ScoringService gave no answer in %s seconds to "
+                           "the notification of the evaluation of "
+                           "submission %d on dataset %d, giving up on it.",
+                           FIRE_AND_FORGET_TIMEOUT, submission_id, dataset_id)
 
     async def action_finished(self, data: dict, shard: int, error=None):
         """Callback from a worker, to signal that is finished some

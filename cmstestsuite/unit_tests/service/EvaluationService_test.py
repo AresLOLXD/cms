@@ -24,6 +24,7 @@ from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
+from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
 class FakeWorker:
@@ -320,6 +321,38 @@ class EvaluationServiceTest(
         self.assertEqual(
             self.scoring_service_stub.new_evaluation_calls,
             [(submission.id, dataset.id)])
+
+    async def test_scoring_notification_the_peer_never_answers_is_dropped(
+        self
+    ):
+        # A ScoringService that is connected but stuck: without a bound
+        # every notification would stay pending, together with its
+        # request, for good. Its sweeper finds the evaluation anyway.
+        peer = StuckPeer()
+        await peer.start()
+        self.addAsyncCleanup(peer.stop)
+        client = await connect_client(ServiceCoord("ScoringService", 0), peer)
+        self.addCleanup(client.disconnect)
+        self.service.scoring_service = client
+
+        loop = asyncio.get_running_loop()
+        with patch.object(
+                EvaluationServiceModule, "FIRE_AND_FORGET_TIMEOUT", 0.05):
+            with self.assertLogs(
+                    "cms.service.EvaluationService", level="WARNING") as logs:
+                # As compilation_ended and evaluation_ended do, from a
+                # thread of the executor.
+                await loop.run_in_executor(
+                    None, self.service._threadsafe_notify_scoring_service,
+                    1, 2)
+                await peer.wait_for_requests(1)
+                await self._wait_until(lambda: logs.records)
+
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("submission 1", logs.output[0])
+        self.assertIn("dataset 2", logs.output[0])
+        self.assertEqual(client.pending_outgoing_requests, {})
+        self.assertEqual(client.pending_outgoing_requests_results, {})
 
     # -- post_finish_lock reentrancy ------------------------------------
 

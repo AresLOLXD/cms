@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 # this value across both files.
 MAX_MESSAGE_SIZE = 1024 * 1024
 
+# How many seconds a fire-and-forget RPC (one nobody waits on for real
+# work) waits for its answer before its caller gives up on it. Against a
+# peer that is connected but stuck, nothing else would ever end the
+# call: it would stay pending, together with its request, for good.
+FIRE_AND_FORGET_TIMEOUT = 30.0
+
 
 class AsyncRemoteServiceBase:
     """Base class for both ends of an asyncio RPC connection.

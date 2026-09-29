@@ -26,6 +26,7 @@ without failing the request if the RPC raises.
 
 import asyncio
 import unittest
+from unittest.mock import patch
 
 import tornado.web
 from tornado.httpclient import AsyncHTTPClient
@@ -35,6 +36,7 @@ from tornado.netutil import bind_sockets
 from cms import ServiceCoord
 from cms.io.async_rpc import AsyncFakeRemoteServiceClient
 from cms.server.admin.handlers.base import BaseHandler
+from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
 class _RpcHandler(BaseHandler):
@@ -73,6 +75,7 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         app.fake_rpc = fake_rpc
         app.real_client = AsyncFakeRemoteServiceClient(
             ServiceCoord("ProxyService", 0))
+        self.application = app
         sockets = bind_sockets(0, "127.0.0.1")
         self.port = sockets[0].getsockname()[1]
         self.server = HTTPServer(app)
@@ -126,6 +129,33 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ProxyService", message)
         # An RPCError is logged without a traceback.
         self.assertIsNone(logs.records[0].exc_info)
+
+    async def test_rpc_the_peer_never_answers_is_dropped(self):
+        # A peer that is connected but stuck: without a bound the call
+        # would stay pending, together with its request, for good.
+        peer = StuckPeer()
+        await peer.start()
+        self.addAsyncCleanup(peer.stop)
+        client = await connect_client(ServiceCoord("ProxyService", 0), peer)
+        self.addCleanup(client.disconnect)
+        self.application.real_client = client
+
+        with patch("cms.io.async_rpc.FIRE_AND_FORGET_TIMEOUT", 0.05):
+            with self.assertLogs(
+                    "cms.server.util", level="WARNING") as logs:
+                response = await self._fetch("?real=1")
+                await peer.wait_for_requests(1)
+                for _ in range(100):
+                    if logs.records:
+                        break
+                    await asyncio.sleep(0.02)
+
+        self.assertEqual(response.code, 200)
+        message = "\n".join(logs.output)
+        self.assertIn("reinitialize", message)
+        self.assertIn("ProxyService", message)
+        self.assertEqual(client.pending_outgoing_requests, {})
+        self.assertEqual(client.pending_outgoing_requests_results, {})
 
 
 if __name__ == "__main__":

@@ -305,21 +305,30 @@ class CommonRequestHandler(RequestHandler):
         which has no event loop of its own, and from the event loop
         thread itself (a synchronous handler body), since nothing ever
         blocks on the result. Any exception it raises is logged, not
-        propagated.
+        propagated. So is the lack of an answer: a peer that is
+        connected but stuck would otherwise leave the call pending
+        forever, so after FIRE_AND_FORGET_TIMEOUT seconds the call is
+        dropped, with a warning.
 
         remote_method (callable): a remote-service client method,
             e.g. self.service.proxy_service.reinitialize.
         kwargs: the keyword arguments for the RPC.
 
         """
-        # Local import to avoid a circular import: cms.io imports Url
+        # Local imports to avoid a circular import: cms.io imports Url
         # from this module (via cms.io.web_service).
+        from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
         from cms.io.rpc import RPCError
         name = getattr(remote_method, "__qualname__", None) \
             or getattr(remote_method, "__name__", None) \
             or repr(remote_method)
+        rpc = remote_method(**kwargs)
+
+        async def call_with_timeout():
+            await asyncio.wait_for(rpc, FIRE_AND_FORGET_TIMEOUT)
+
         future = asyncio.run_coroutine_threadsafe(
-            remote_method(**kwargs), self._loop)
+            call_with_timeout(), self._loop)
 
         def log_failure(done):
             if done.cancelled():
@@ -329,6 +338,10 @@ class CommonRequestHandler(RequestHandler):
                 # The message already names the RPC and the error;
                 # a traceback of the client internals adds nothing.
                 logger.warning("RPC %s failed: %r", name, exc)
+            elif isinstance(exc, asyncio.TimeoutError):
+                logger.warning("RPC %s got no answer in %s seconds, "
+                               "giving up on it.",
+                               name, FIRE_AND_FORGET_TIMEOUT)
             elif exc is not None:
                 logger.warning("RPC %s failed: %r", name, exc,
                                exc_info=exc)

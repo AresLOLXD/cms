@@ -35,6 +35,7 @@ import typing
 from cms.conf import ServiceCoord
 from cms.db import SessionGen
 from cms.grading.Job import JobGroup
+from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
 from cms.io.rpc import RPCError
 from cmscommon.datetime import make_datetime, make_timestamp
 from cms.service.esoperations import ESOperation
@@ -207,11 +208,21 @@ class WorkerPool:
         """Await coro, swallowing RPCError -- mirrors the old RPC proxy's
         silent-drop-on-failure behavior for calls with no callback.
 
+        Nobody needs the answer, so it is not waited for longer than
+        FIRE_AND_FORGET_TIMEOUT seconds: a worker that is connected but
+        stuck would otherwise leave the call pending forever. The call
+        is then dropped, with a warning.
+
         """
         try:
-            await coro
+            await asyncio.wait_for(coro, FIRE_AND_FORGET_TIMEOUT)
         except RPCError:
             pass
+        except asyncio.TimeoutError:
+            logger.warning("RPC %s got no answer in %s seconds, "
+                           "giving up on it.",
+                           getattr(coro, "__qualname__", coro),
+                           FIRE_AND_FORGET_TIMEOUT)
 
     def acquire_worker(self, operations: list[ESOperation]) -> int | None:
         """Tries to assign an operation to an available worker. If no workers
