@@ -20,6 +20,8 @@
 
 """
 
+import asyncio
+
 from sqlalchemy import select
 
 from cms.db import Dataset, UserTestFile, UserTest
@@ -30,8 +32,7 @@ from .base import BaseHandler, FileHandler, require_permission
 
 class UserTestHandler(BaseHandler):
     """Shows the details of a user test."""
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, user_test_id, dataset_id=None):
+    def _get_sync(self, user_test_id, dataset_id=None):
         user_test = self.safe_get_item(UserTest, user_test_id)
         task = user_test.task
         self.contest = task.contest
@@ -52,6 +53,11 @@ class UserTestHandler(BaseHandler):
             .order_by(Dataset.description)
         ).scalars().all()
         self.render("user_test.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, user_test_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, user_test_id, dataset_id)
 
 
 class UserTestFileHandler(FileHandler):
