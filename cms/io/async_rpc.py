@@ -23,7 +23,7 @@ from weakref import WeakSet
 
 from cms.conf import Address, ServiceCoord
 from cms.util import get_service_address
-from cms.io.rpc import RPCError
+from cms.io.rpc import RPCError, ServiceNotConfiguredError
 
 if typing.TYPE_CHECKING:
     from cms.io.async_service import AsyncService
@@ -540,4 +540,5 @@ class AsyncFakeRemoteServiceClient(AsyncRemoteServiceClient):
         return True
 
     async def execute_rpc(self, method, data):
-        raise RPCError("Called a method of a non-configured service.")
+        raise ServiceNotConfiguredError(
+            "Called a method of a non-configured service.")

@@ -318,7 +318,7 @@ class CommonRequestHandler(RequestHandler):
         # Local imports to avoid a circular import: cms.io imports Url
         # from this module (via cms.io.web_service).
         from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
-        from cms.io.rpc import RPCError
+        from cms.io.rpc import RPCError, ServiceNotConfiguredError
         name = getattr(remote_method, "__qualname__", None) \
             or getattr(remote_method, "__name__", None) \
             or repr(remote_method)
@@ -334,7 +334,11 @@ class CommonRequestHandler(RequestHandler):
             if done.cancelled():
                 return
             exc = done.exception()
-            if isinstance(exc, RPCError):
+            if isinstance(exc, ServiceNotConfiguredError):
+                # Nothing to warn about: the service is not part of this
+                # deployment (e.g. there are no rankings to tell).
+                logger.debug("RPC %s failed: %r", name, exc)
+            elif isinstance(exc, RPCError):
                 # The message already names the RPC and the error;
                 # a traceback of the client internals adds nothing.
                 logger.warning("RPC %s failed: %r", name, exc)

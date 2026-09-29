@@ -25,6 +25,7 @@ without failing the request if the RPC raises.
 """
 
 import asyncio
+import logging
 import unittest
 from unittest.mock import patch
 
@@ -34,7 +35,9 @@ from tornado.httpserver import HTTPServer
 from tornado.netutil import bind_sockets
 
 from cms import ServiceCoord
-from cms.io.async_rpc import AsyncFakeRemoteServiceClient
+from cms.conf import Address
+from cms.io.async_rpc import AsyncFakeRemoteServiceClient, \
+    AsyncRemoteServiceClient
 from cms.server.admin.handlers.base import BaseHandler
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
@@ -53,6 +56,9 @@ class _RpcHandler(BaseHandler):
     def _get_sync(self):
         if self.get_argument("real", None) is not None:
             self.schedule_rpc(self.application.real_client.reinitialize)
+        elif self.get_argument("unconfigured", None) is not None:
+            self.schedule_rpc(
+                self.application.unconfigured_client.reinitialize)
         else:
             self.schedule_rpc(self.application.fake_rpc, x=1)
         self.write("ok")
@@ -73,7 +79,11 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
 
         app = tornado.web.Application([(r"/", _RpcHandler)])
         app.fake_rpc = fake_rpc
-        app.real_client = AsyncFakeRemoteServiceClient(
+        # A real client that never connects: its calls fail with a plain
+        # RPCError. The other one stands for a service that is not
+        # configured (e.g. ProxyService without rankings).
+        app.real_client = self._unconnected_client("ProxyService")
+        app.unconfigured_client = AsyncFakeRemoteServiceClient(
             ServiceCoord("ProxyService", 0))
         self.application = app
         sockets = bind_sockets(0, "127.0.0.1")
@@ -81,6 +91,12 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         self.server = HTTPServer(app)
         self.server.add_sockets(sockets)
         self.client = AsyncHTTPClient()
+
+    @staticmethod
+    def _unconnected_client(service_name):
+        with patch("cms.io.async_rpc.get_service_address",
+                   return_value=Address("127.0.0.1", 0)):
+            return AsyncRemoteServiceClient(ServiceCoord(service_name, 0))
 
     async def asyncTearDown(self):
         self.client.close()
@@ -129,6 +145,41 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ProxyService", message)
         # An RPCError is logged without a traceback.
         self.assertIsNone(logs.records[0].exc_info)
+
+    async def test_rpc_error_of_a_configured_service_is_a_warning(self):
+        # Only the calls on a service that is not configured are let
+        # off: a service that is configured but unreachable, such as
+        # EvaluationService, is worth a warning.
+        self.application.real_client = self._unconnected_client(
+            "EvaluationService")
+        with self.assertLogs(
+                "cms.server.util", level="WARNING") as logs:
+            response = await self._fetch("?real=1")
+            for _ in range(250):
+                if logs.records:
+                    break
+                await asyncio.sleep(0.02)
+        self.assertEqual(response.code, 200)
+        self.assertEqual([record.levelno for record in logs.records],
+                         [logging.WARNING])
+        self.assertIn("EvaluationService", logs.output[0])
+
+    async def test_rpc_to_a_service_not_configured_is_only_debug(self):
+        with self.assertLogs(
+                "cms.server.util", level="DEBUG") as logs:
+            response = await self._fetch("?unconfigured=1")
+            for _ in range(250):
+                if logs.records:
+                    break
+                await asyncio.sleep(0.02)
+            # Time for anything else to be logged.
+            await asyncio.sleep(0.1)
+        self.assertEqual(response.code, 200)
+        self.assertEqual([record.levelno for record in logs.records],
+                         [logging.DEBUG])
+        message = logs.output[0]
+        self.assertIn("reinitialize", message)
+        self.assertIn("ProxyService", message)
 
     async def test_rpc_the_peer_never_answers_is_dropped(self):
         # A peer that is connected but stuck: without a bound the call

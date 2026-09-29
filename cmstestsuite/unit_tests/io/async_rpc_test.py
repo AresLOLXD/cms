@@ -9,8 +9,9 @@ import logging
 import unittest
 from unittest.mock import patch
 
-from cms.io.async_rpc import AsyncRemoteServiceServer, AsyncRemoteServiceClient
-from cms.io.rpc import rpc_method, RPCError
+from cms.io.async_rpc import AsyncFakeRemoteServiceClient, \
+    AsyncRemoteServiceServer, AsyncRemoteServiceClient
+from cms.io.rpc import rpc_method, RPCError, ServiceNotConfiguredError
 from cms.conf import Address, ServiceCoord
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
@@ -229,6 +230,27 @@ class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RPCError):
             await asyncio.wait_for(call, timeout=2)
         self.assert_nothing_pending()
+
+
+class TestFakeRemoteServiceClient(unittest.IsolatedAsyncioTestCase):
+
+    async def test_call_fails_with_service_not_configured_error(self):
+        client = AsyncFakeRemoteServiceClient(ServiceCoord("ProxyService", 0))
+
+        with self.assertRaises(ServiceNotConfiguredError) as context:
+            await client.reinitialize()
+
+        self.assertEqual(str(context.exception),
+                         "Called a method of a non-configured service.")
+
+    async def test_error_is_still_an_rpc_error(self):
+        # Callers that catch RPCError keep catching it.
+        client = AsyncFakeRemoteServiceClient(ServiceCoord("ProxyService", 0))
+
+        with self.assertRaises(RPCError):
+            await client.execute_rpc("reinitialize", {})
+
+        self.assertTrue(issubclass(ServiceNotConfiguredError, RPCError))
 
 
 if __name__ == "__main__":

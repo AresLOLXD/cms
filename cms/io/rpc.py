@@ -51,6 +51,18 @@ class RPCError(Exception):
     pass
 
 
+class ServiceNotConfiguredError(RPCError):
+    """An RPC was called on a service that is not configured.
+
+    That is not a failure: the service is simply not part of this
+    deployment (e.g. ProxyService, when there is no ranking to send
+    anything to), so callers that fire RPCs and forget about them have
+    nothing to complain about.
+
+    """
+    pass
+
+
 _T = typing.TypeVar("_T", bound=Callable)
 
 
