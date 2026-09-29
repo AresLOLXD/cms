@@ -99,7 +99,8 @@ class _PendingLogin:
     username: str
     contest_name: str
     stored_username: str
-    correct_password: str
+    # Kept out of the repr, as it can be the plaintext password.
+    correct_password: str = dataclasses.field(repr=False)
     ip_restriction: bool
     block_hidden_participations: bool
     participation_ip: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network,

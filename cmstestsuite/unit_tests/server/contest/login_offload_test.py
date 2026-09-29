@@ -41,6 +41,7 @@ from cms.db import Contest, Participation, Session, engine
 from cms.server import Url
 from cms.server.contest import authentication
 from cms.server.contest.authentication import validate_login
+from cms.server.contest.handlers.api import ApiLoginHandler
 from cms.server.contest.handlers.main import LoginHandler
 from cmscommon.crypto import build_password, hash_password, validate_password
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -112,29 +113,51 @@ class LoginTestBase(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
         session.commit()
 
 
-class TestLoginHandlerOffload(LoginTestBase):
-    """LoginHandler.post, driven the way Tornado drives it."""
+class LoginHandlerOffloadTests:
+    """Tests for a handler whose post logs a user in, run the way Tornado
+    runs it.
 
-    def make_handler(self, username="myuser", password="mypass"):
-        arguments = {"username": username, "password": password}
+    Subclasses (together with LoginTestBase) say which handler it is,
+    how to stub its responses and how a successful and a failed login
+    look like.
+
+    """
+
+    handler_class: type
+
+    def stub_response(self, handler):
+        """Replace the parts of the handler that talk to the client."""
+        raise NotImplementedError
+
+    def assert_login_succeeded(self, handler, stored_password=None):
+        """Check the login worked, with the cookie for the stored password.
+
+        stored_password: the password on record for the user, if it is
+            not the default one.
+
+        """
+        raise NotImplementedError
+
+    def assert_login_failed(self, handler):
+        raise NotImplementedError
+
+    def make_handler(self, username="myuser", password="mypass",
+                     remote_ip="127.0.0.1", **arguments):
+        arguments.update(username=username, password=password)
         session = self.new_session()
 
-        handler = LoginHandler.__new__(LoginHandler)
+        handler = self.handler_class.__new__(self.handler_class)
         handler.sql_session = session
         # As in prepare(): the contest is loaded through the request's
         # session, which is then left inside a transaction.
         handler.contest = session.get(Contest, self.contest_id)
         handler.timestamp = self.timestamp
-        handler.url = Url(".")
-        handler.contest_url = Url(".")
         handler.request = MagicMock()
-        handler.request.remote_ip = "127.0.0.1"
+        handler.request.remote_ip = remote_ip
         handler.is_multi_contest = lambda: False
         handler.get_argument = \
             lambda name, default=None: arguments.get(name, default)
-        handler.set_secure_cookie = MagicMock()
-        handler.clear_cookie = MagicMock()
-        handler.redirect = MagicMock()
+        self.stub_response(handler)
         return handler
 
     @staticmethod
@@ -150,30 +173,15 @@ class TestLoginHandlerOffload(LoginTestBase):
             self.assertLess(time.monotonic(), deadline, "timed out")
             await asyncio.sleep(0.005)
 
-    async def test_successful_login_sets_the_cookie_and_redirects(self):
+    async def test_successful_login(self):
         handler = self.make_handler()
-
         await self.run_post(handler)
+        self.assert_login_succeeded(handler)
 
-        handler.set_secure_cookie.assert_called_once_with(
-            self.contest_name + "_login",
-            json.dumps(["myuser", build_password("mypass"),
-                        make_timestamp(self.timestamp), False]).encode(),
-            expires_days=None,
-            max_age=config.contest_web_server.cookie_duration)
-        handler.clear_cookie.assert_not_called()
-        handler.redirect.assert_called_once_with(handler.contest_url())
-
-    async def test_failed_login_clears_the_cookie_and_redirects(self):
+    async def test_failed_login(self):
         handler = self.make_handler(password="wrong")
-
         await self.run_post(handler)
-
-        handler.set_secure_cookie.assert_not_called()
-        handler.clear_cookie.assert_called_once_with(
-            self.contest_name + "_login")
-        handler.redirect.assert_called_once_with(
-            handler.contest_url(login_error="true"))
+        self.assert_login_failed(handler)
 
     async def test_check_does_not_block_the_event_loop(self):
         handler = self.make_handler()
@@ -204,7 +212,7 @@ class TestLoginHandlerOffload(LoginTestBase):
                 await login_task
                 ticker_task.cancel()
 
-        handler.redirect.assert_called_once_with(handler.contest_url())
+        self.assert_login_succeeded(handler)
 
     async def test_other_login_is_served_while_a_check_is_pending(self):
         pending_handler = self.make_handler()
@@ -216,8 +224,7 @@ class TestLoginHandlerOffload(LoginTestBase):
             try:
                 await self.wait_until(check.entered.is_set)
                 await asyncio.wait_for(self.run_post(other_handler), 1.0)
-                other_handler.redirect.assert_called_once_with(
-                    other_handler.contest_url(login_error="true"))
+                self.assert_login_failed(other_handler)
                 self.assertFalse(login_task.done())
             finally:
                 check.release.set()
@@ -242,20 +249,65 @@ class TestLoginHandlerOffload(LoginTestBase):
         self.assertFalse(seen["in_transaction"])
         self.assertEqual(seen["checked_out"], others)
 
-    async def test_no_db_connection_is_taken_back_after_the_check(self):
-        handler = self.make_handler()
+    async def assert_connection_released_by_login(
+            self, handler, succeeded: bool):
+        """Run the login, and check it leaves no connection checked out.
+
+        Neither the code after the password check nor the response may
+        lazily reload an (expired) attribute, as that would check a
+        connection out again, and nothing would give it back before the
+        request finishes.
+
+        """
+        # The handler's own session holds one connection.
+        self.assertTrue(handler.sql_session.in_transaction())
         others = engine.pool.checkedout() - 1
 
         await self.run_post(handler)
 
-        # Neither the cookie nor the redirect may lazily reload the
-        # (expired) contest, which would check a connection out again.
         self.assertFalse(handler.sql_session.in_transaction())
         self.assertEqual(engine.pool.checkedout(), others)
-        handler.redirect.assert_called_once()
+        if succeeded:
+            self.assert_login_succeeded(handler)
+        else:
+            self.assert_login_failed(handler)
+
+    async def test_no_db_connection_after_a_successful_check(self):
+        await self.assert_connection_released_by_login(
+            self.make_handler(), True)
+
+    async def test_no_db_connection_after_a_wrong_password(self):
+        await self.assert_connection_released_by_login(
+            self.make_handler(password="wrong"), False)
+
+    async def test_no_db_connection_after_a_hidden_participation(self):
+        self.change(contest__block_hidden_participations=True,
+                    participation__hidden=True)
+        await self.assert_connection_released_by_login(
+            self.make_handler(), False)
+
+    async def test_no_db_connection_after_a_visible_participation(self):
+        self.change(contest__block_hidden_participations=True)
+        await self.assert_connection_released_by_login(
+            self.make_handler(), True)
+
+    async def test_no_db_connection_after_an_invalid_stored_hash(self):
+        # It's invalid, as it's not created by build_password.
+        self.change(user__password="mypass")
+        await self.assert_connection_released_by_login(
+            self.make_handler(), False)
+
+    async def test_no_db_connection_after_an_ip_restriction(self):
+        self.change(contest__ip_restriction=True,
+                    participation__ip=[ipaddress.ip_network("10.0.0.0/24")])
+        await self.assert_connection_released_by_login(
+            self.make_handler(remote_ip="10.0.1.1"), False)
+        await self.assert_connection_released_by_login(
+            self.make_handler(remote_ip="10.0.0.1"), True)
 
     async def test_bcrypt_check_runs_in_the_dedicated_pool(self):
-        self.change(user__password=hash_password("mypass"))
+        stored_password = hash_password("mypass")
+        self.change(user__password=stored_password)
         handler = self.make_handler()
         thread_names = []
 
@@ -269,8 +321,106 @@ class TestLoginHandlerOffload(LoginTestBase):
         self.assertEqual(len(thread_names), 1)
         self.assertTrue(
             thread_names[0].startswith("cws-password-check"), thread_names)
+        self.assert_login_succeeded(handler, stored_password)
+
+
+class TestLoginHandlerOffload(LoginHandlerOffloadTests, LoginTestBase):
+    """LoginHandler, the login of the contestants' web page."""
+
+    handler_class = LoginHandler
+
+    def stub_response(self, handler):
+        handler.url = Url(".")
+        handler.contest_url = Url(".")
+        handler.set_secure_cookie = MagicMock()
+        handler.clear_cookie = MagicMock()
+        handler.redirect = MagicMock()
+
+    def assert_login_succeeded(self, handler, stored_password=None):
+        handler.set_secure_cookie.assert_called_once_with(
+            self.contest_name + "_login",
+            json.dumps(["myuser", stored_password or build_password("mypass"),
+                        make_timestamp(self.timestamp), False]).encode(),
+            expires_days=None,
+            max_age=config.contest_web_server.cookie_duration)
+        handler.clear_cookie.assert_not_called()
         handler.redirect.assert_called_once_with(handler.contest_url())
-        handler.set_secure_cookie.assert_called_once()
+
+    def assert_login_failed(self, handler):
+        handler.set_secure_cookie.assert_not_called()
+        handler.clear_cookie.assert_called_once_with(
+            self.contest_name + "_login")
+        handler.redirect.assert_called_once_with(
+            handler.contest_url(login_error="true"))
+
+
+class TestApiLoginHandlerOffload(LoginHandlerOffloadTests, LoginTestBase):
+    """ApiLoginHandler, the login of the API (which skips the XSRF check)."""
+
+    handler_class = ApiLoginHandler
+
+    def stub_response(self, handler):
+        handler.get_current_user = MagicMock(return_value=None)
+        handler.json = MagicMock()
+        handler.create_signed_value = lambda name, value: \
+            ("signed:" + name + ":").encode() + value
+
+    def assert_login_succeeded(self, handler, stored_password=None):
+        cookie = json.dumps(["myuser", stored_password or build_password("mypass"),
+                             make_timestamp(self.timestamp), False])
+        handler.json.assert_called_once_with(
+            {"login_data": "signed:%s_login:%s" % (self.contest_name, cookie)})
+
+    def assert_login_failed(self, handler):
+        handler.json.assert_called_once_with({"error": "Login failed"}, 403)
+
+    async def test_admin_token_login(self):
+        handler = self.make_handler(password="", admin_token="admin-token")
+
+        with patch.object(config.contest_web_server,
+                          "contest_admin_token", "admin-token"), \
+                patch(VALIDATE_PASSWORD) as check:
+            await self.run_post(handler)
+
+        check.assert_not_called()
+        cookie = json.dumps(
+            ["myuser", "", make_timestamp(self.timestamp), True])
+        handler.json.assert_called_once_with(
+            {"login_data": "signed:%s_login:%s" % (self.contest_name, cookie)})
+
+    async def test_wrong_admin_token_fails(self):
+        handler = self.make_handler(password="", admin_token="wrong")
+
+        with patch.object(config.contest_web_server,
+                          "contest_admin_token", "admin-token"):
+            await self.run_post(handler)
+
+        self.assert_login_failed(handler)
+
+    async def test_already_logged_in(self):
+        handler = self.make_handler()
+        handler.get_current_user.return_value = MagicMock(
+            **{"user.username": "myuser"})
+        handler.request.headers = {}
+        handler.get_secure_cookie = MagicMock(return_value=None)
+
+        with patch(VALIDATE_PASSWORD) as check:
+            await self.run_post(handler)
+
+        check.assert_not_called()
+        handler.json.assert_called_once_with(
+            {"login_data": "Already-Logged-In"})
+
+    async def test_already_logged_in_as_someone_else(self):
+        handler = self.make_handler(username="someoneelse")
+        handler.get_current_user.return_value = MagicMock(
+            **{"user.username": "myuser"})
+
+        await self.run_post(handler)
+
+        handler.json.assert_called_once_with(
+            {"error": "Logged in as myuser but trying to login as "
+                      "someoneelse"}, 400)
 
 
 class TestValidateLoginAsync(LoginTestBase):
@@ -410,6 +560,19 @@ class TestValidateLoginAsync(LoginTestBase):
         with patch(VALIDATE_PASSWORD, side_effect=RuntimeError("boom")):
             with self.assertRaisesRegex(RuntimeError, "boom"):
                 await self.login()
+
+    async def test_pending_login_does_not_show_the_password(self):
+        # A pending login can end up in a log or in a traceback, and the
+        # stored password can be the plaintext one.
+        session = self.new_session()
+        login = authentication._begin_login(
+            session, session.get(Contest, self.contest_id), self.timestamp,
+            "myuser", ipaddress.ip_address("127.0.0.1"), "")
+
+        self.assertIsInstance(login, authentication._PendingLogin)
+        self.assertEqual(login.correct_password, build_password("mypass"))
+        self.assertNotIn("mypass", repr(login))
+        self.assertNotIn("mypass", str(login))
 
     async def test_pool_is_dedicated_and_bounded(self):
         pool = authentication._PASSWORD_CHECK_POOL
