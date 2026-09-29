@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from cms.conf import Address
-from cms.io.async_service import AsyncService
+from cms.io.async_service import AsyncLogServiceHandler, AsyncService
 from cms.io.rpc import rpc_method
 from cms.log import FileHandler, root_logger, shell_handler
 from cmstestsuite.unit_tests.servicelogmixin import ServiceLoggingIsolationMixin
@@ -134,14 +134,16 @@ class TestLoggingHandlersUseThreadingLocks(
 ):
     """Verify AsyncService's log handlers use real threading locks.
 
-    They can be hit both from the event loop thread and from
-    run_in_executor worker threads, where a gevent lock could leave a
-    thread waiting forever (see cmstestsuite/unit_tests/log_test.py).
+    That covers the shell handler and the file and remote LogService
+    handlers the service adds to the root logger. They can be hit both
+    from the event loop thread and from run_in_executor worker threads,
+    where a gevent lock could leave a thread waiting forever (see
+    cmstestsuite/unit_tests/log_test.py).
 
     """
 
     @patch("cms.io.async_service.get_service_address")
-    async def test_shell_and_file_handlers_get_threading_locks(
+    async def test_logging_handlers_get_threading_locks(
         self, mock_get_address
     ):
         mock_get_address.return_value = Address("127.0.0.1", 0)
@@ -159,6 +161,10 @@ class TestLoggingHandlersUseThreadingLocks(
                          if isinstance(handler, FileHandler)]
         self.assertEqual(len(file_handlers), 1)
         self.assertIs(type(file_handlers[0].lock), real_lock_type)
+        remote_handlers = [handler for handler in new_handlers
+                           if isinstance(handler, AsyncLogServiceHandler)]
+        self.assertEqual(len(remote_handlers), 1)
+        self.assertIs(type(remote_handlers[0].lock), real_lock_type)
 
 
 class TestAddTimeout(unittest.IsolatedAsyncioTestCase):
