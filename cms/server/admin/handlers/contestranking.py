@@ -26,6 +26,7 @@
 
 """
 
+import asyncio
 import csv
 import io
 
@@ -41,8 +42,7 @@ class RankingHandler(BaseHandler):
     """Shows the ranking for a contest.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id, format="online"):
+    def _get_sync(self, contest_id, format="online"):
         # This validates the contest id.
         self.safe_get_item(Contest, contest_id)
 
@@ -133,3 +133,8 @@ class RankingHandler(BaseHandler):
             self.finish(output.getvalue())
         else:
             self.render("ranking.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id, format="online"):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, format)
