@@ -587,7 +587,7 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.drain(), [])
 
     async def test_failed_visibility_holds_back_the_data_of_its_group(self):
-        hidden = {"hide_at": None, "show_at": None, "freeze_at": None,
+        hidden = {"hide_at": 1791658800, "show_at": None, "freeze_at": None,
                   "unfreeze_at": None, "staff_password": None}
         visible = {"hide_at": None, "show_at": None, "freeze_at": None,
                    "unfreeze_at": None, "staff_password": None}
@@ -631,7 +631,7 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.drain(), [])
 
     async def test_rejected_visibility_drops_the_data_of_its_group(self):
-        hidden = {"hide_at": None, "show_at": None, "freeze_at": None,
+        hidden = {"hide_at": 1791658800, "show_at": None, "freeze_at": None,
                   "unfreeze_at": None, "staff_password": None}
         visible = {"hide_at": None, "show_at": None, "freeze_at": None,
                    "unfreeze_at": None, "staff_password": None}

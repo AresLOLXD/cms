@@ -721,22 +721,26 @@ class TestProxyServiceGroups(
         service = await self.start()
         await self._settle(service)
         expected_freeze_at = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
-        self.assertEqual(self.put_payload(url("olim/visibility")),
+        payload = self.put_payload(url("olim/visibility"))
+        self.assertEqual(payload,
                          {"hide_at": None, "show_at": None,
                           "freeze_at": expected_freeze_at, "unfreeze_at": None,
                           "staff_password": None})
+        self.assertIsInstance(payload["freeze_at"], int)
 
     async def test_reinitialize_sends_new_visibility(self):
         service = await self.start()
         await self._settle(service)
         self.requests_put.reset_mock()
         self.olim.hidden = True
+        self.olim.hide_at = datetime(2026, 1, 1)
         self.olim.staff_password = "plaintext:pw"
         self.session.commit()
         await service.reinitialize()
         await self._settle(service)
+        expected_hide_at = int(make_timestamp(datetime(2026, 1, 1)))
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hide_at": None, "show_at": None,
+                         {"hide_at": expected_hide_at, "show_at": None,
                           "freeze_at": None, "unfreeze_at": None,
                           "staff_password": "plaintext:pw"})
 
@@ -880,6 +884,7 @@ class TestProxyServiceGroups(
         # Changed in the database, and no reinitialize tells ProxyService
         # (lost while it restarted, say).
         self.omips.hidden = True
+        self.omips.hide_at = datetime(2026, 1, 1)
         self.omips.staff_password = "plaintext:pw"
         self.session.commit()
 
@@ -890,8 +895,9 @@ class TestProxyServiceGroups(
                          {"hide_at": None, "show_at": None,
                           "freeze_at": None, "unfreeze_at": None,
                           "staff_password": None})
+        expected_hide_at = int(make_timestamp(datetime(2026, 1, 1)))
         self.assertEqual(self.put_payload(url("omips/visibility")),
-                         {"hide_at": None, "show_at": None,
+                         {"hide_at": expected_hide_at, "show_at": None,
                           "freeze_at": None, "unfreeze_at": None,
                           "staff_password": "plaintext:pw"})
 
@@ -949,6 +955,7 @@ class TestProxyServiceGroups(
         # OLIM is hidden in AWS and a score of it was missed: only the
         # sweep tells the rankings.
         self.olim.hidden = True
+        self.olim.hide_at = datetime(2026, 1, 1)
         self.session.commit()
         service.scores_sent_to_rankings.discard(self.sub_a.id)
 
@@ -970,8 +977,9 @@ class TestProxyServiceGroups(
         urls = self.put_urls()
         self.assertLess(urls.index(url("olim/visibility")),
                         urls.index(url("olim/submissions/")))
+        expected_hide_at = int(make_timestamp(datetime(2026, 1, 1)))
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hide_at": None, "show_at": None,
+                         {"hide_at": expected_hide_at, "show_at": None,
                           "freeze_at": None, "unfreeze_at": None,
                           "staff_password": None})
 
