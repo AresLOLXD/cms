@@ -300,6 +300,13 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     MIN_RETRY_WAIT = 1.0
     MAX_RETRY_WAIT = 60.0
 
+    # How many seconds the operations queued while some namespace waits
+    # to be tried again gather before a round takes them. A round takes
+    # the whole queue out and puts back what waits, which costs time in
+    # proportion to that backlog: one round for each operation of a
+    # burst would cost that much for each of them.
+    BATCH_WINDOW = 0.2
+
     def __init__(self, ranking: str):
         """Create a proxy for the ranking at the given URL.
 
@@ -322,6 +329,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         # tried now, to end a wait for another namespace early: their
         # data must not wait for it.
         self._new_work = asyncio.Event()
+        # The timer that sets _new_work at the end of a batch window.
+        self._batch_window: asyncio.TimerHandle | None = None
 
         # The namespaces whose visibility settings the ranking refused
         # the last time they were sent. Their data is dropped until it
@@ -354,15 +363,26 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         An operation for a namespace that still waits to be tried again
         doesn't end it: a round takes the whole queue out and puts back
         what waits, so a round for each operation queued meanwhile would
-        take time quadratic in the backlog.
+        take time quadratic in the backlog. For the same reason, while
+        some namespace waits, the wait ends BATCH_WINDOW seconds after
+        the operation, so that a burst goes out in a few rounds.
 
         See AsyncExecutor.enqueue.
 
         """
         queued = super().enqueue(item, priority, timestamp)
         if queued and self._is_due(item.group, monotonic()):
-            self._new_work.set()
+            if not self._retry_after:
+                self._new_work.set()
+            elif self._batch_window is None:
+                self._batch_window = asyncio.get_running_loop().call_later(
+                    self.BATCH_WINDOW, self._end_batch_window)
         return queued
+
+    def _end_batch_window(self):
+        """End the wait of a round for the operations queued meanwhile."""
+        self._batch_window = None
+        self._new_work.set()
 
     async def execute(self, entries: list[QueueEntry[ProxyOperation]]):
         """Send one batch of operations already fetched from the queue.
@@ -388,8 +408,12 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         entries: entries containing the operations to perform.
 
         """
-        # Operations queued from now on are new to this round.
+        # Operations queued from now on are new to this round: this
+        # round takes those of a batch window already.
         self._new_work.clear()
+        if self._batch_window is not None:
+            self._batch_window.cancel()
+            self._batch_window = None
         now = monotonic()
         ready = [entry for entry in entries
                  if self._is_due(entry.item.group, now)]

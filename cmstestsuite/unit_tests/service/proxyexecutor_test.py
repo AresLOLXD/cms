@@ -912,6 +912,45 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rounds, [1, 22])
         self.assertEqual(self.urls().count(url("olim/contests/")), 1)
 
+    async def test_data_of_other_groups_is_batched_while_one_backs_off(self):
+        # A round costs time proportional to what waits in the queue: a
+        # round for each score of a group that can be sent, while
+        # another group backs off with a backlog, would cost that much
+        # for each of them.
+        self.outcomes = {("put", url("olim/contests/")):
+                         requests.exceptions.ConnectionError("down")}
+        # The wait after the failure of olim never ends by itself.
+        self.retry_waits.block_after = 1
+        rounds: list[int] = []
+        real_execute = self.executor.execute
+
+        async def counting_execute(batch):
+            rounds.append(len(batch))
+            await real_execute(batch)
+
+        self.executor.execute = counting_execute
+        self.start_running(self.executor)
+        self.executor.enqueue(
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
+        await self.wait_until(lambda: self.retry_waits.waits)
+
+        # A burst of scores of omips, a millisecond apart.
+        scores = {"%d" % i for i in range(20)}
+        for score in sorted(scores):
+            self.executor.enqueue(ProxyOperation(
+                ProxyExecutor.SUBMISSION_TYPE, {score: {}}, "omips"))
+            await asyncio.sleep(0.001)
+
+        def sent_scores():
+            return {score for method, target, payload in self.calls
+                    if target == url("omips/submissions/")
+                    for score in payload}
+
+        await self.wait_until(lambda: sent_scores() == scores)
+        # They go out together, in a round or two after the first one.
+        self.assertLessEqual(len(rounds), 3, rounds)
+        self.assertEqual(self.urls().count(url("olim/contests/")), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
