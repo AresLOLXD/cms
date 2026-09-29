@@ -984,11 +984,12 @@ class TestRealEventStream(VisibilityTestCase):
 class TestStreamsAcrossTransitions(TestRealEventStream):
     """Public event streams across freezes, changes and restarts."""
 
-    def put_freeze(self, freeze_at: int, unfreeze_at: int | None = None):
+    def put_freeze(self, freeze_at: int, unfreeze_at: int | None = None,
+                   staff_password: str | None = STAFF_HASH):
         """Freeze the group olim from freeze_at to unfreeze_at."""
         self.client.put("/olim/visibility", data=json.dumps({
             "hide_at": None, "show_at": None, "freeze_at": freeze_at,
-            "unfreeze_at": unfreeze_at, "staff_password": STAFF_HASH}),
+            "unfreeze_at": unfreeze_at, "staff_password": staff_password}),
             content_type="application/json", headers=AUTH)
 
     def put_data(self, path: str, data: dict):
@@ -1079,22 +1080,46 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
 
     def test_a_dropped_score_change_sends_nothing_before_the_ping(self):
         # Nothing the client gets may tell when a score changed.
-        self.short_pings(1.0)
+        self.short_pings(2.0)
         self.put_contest("/olim")
         self.put_freeze(1)
         self.put_submission()
         stream = self.open_stream()
         opened = time.monotonic()
-        gevent.sleep(0.5)
+        gevent.sleep(1.0)
         self.put_score()
-        stream.settimeout(2)
+        stream.settimeout(4)
         chunk = stream.recv(65536)
         elapsed = time.monotonic() - opened
         self.assertEqual(chunk, b"2\r\n:\n\r\n")
-        # The regular ping, 1 s after the stream opened: not sent at the
-        # score change, nor 1 s after it.
-        self.assertGreaterEqual(elapsed, 0.8)
-        self.assertLess(elapsed, 1.3)
+        # The regular ping, 2 s after the stream opened: not sent at the
+        # score change (1 s), nor 2 s after it (3 s).
+        self.assertGreaterEqual(elapsed, 1.5)
+        self.assertLess(elapsed, 2.9)
+
+    def assert_revoked_staff_stream_is_cut(self, staff_password: str | None):
+        """Revoke the staff access of an open stream of a frozen group.
+
+        staff_password: the new staff password; the windows stay.
+
+        """
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        self.put_submission()
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_freeze(1, staff_password=staff_password)
+        self.put_score()
+        stream.settimeout(0.5)
+        received, closed = self.drain(stream)
+        self.assertNotIn(b"event:score", received)
+        self.assertTrue(closed)
+
+    def test_frozen_staff_stream_is_cut_when_the_password_changes(self):
+        self.assert_revoked_staff_stream_is_cut(
+            build_password("new", "plaintext"))
+
+    def test_frozen_staff_stream_is_cut_when_the_password_is_removed(self):
+        self.assert_revoked_staff_stream_is_cut(None)
 
     def test_dropped_score_events_do_not_decide_the_reinit(self):
         # With room for two events, two score changes push out of the

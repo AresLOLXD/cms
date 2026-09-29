@@ -630,7 +630,7 @@ class VisibilityGuard:
         return [body]
 
     def _guard_writes(self, request: Request, start_response,
-                      opened_at: float):
+                      opened_at: float, served_as_staff: bool):
         """Wrap start_response so write() follows the public view.
 
         The /events handler sends its data through the write() callable
@@ -648,10 +648,14 @@ class VisibilityGuard:
         start_response: the WSGI start_response callable.
         opened_at: the Unix time at which the request came, the one its
             view was decided at.
+        served_as_staff: whether the request got the staff's live view,
+            which a client that is no longer staff must not keep getting
+            (the password changing does not change the public view).
 
         return: a start_response whose write() callables refuse to send
             data to a public client once the group is hidden or its view
-            changed since the request came.
+            changed since the request came, or once a staff client lost
+            its access.
 
         """
         handler = getattr(start_response, "__self__", None)
@@ -662,7 +666,7 @@ class VisibilityGuard:
             def guarded_write(data):
                 if not self._is_staff(request):
                     now = time.time()
-                    if self.state.settings.hidden(now) \
+                    if served_as_staff or self.state.settings.hidden(now) \
                             or self.state.last_change(now) > opened_at:
                         _close_connection(start_response)
                         raise ConnectionAbortedError(
@@ -682,12 +686,13 @@ class VisibilityGuard:
         now = time.time()
         hidden = self.state.settings.hidden(now)
         frozen = self.state.settings.frozen(now)
-        start_response = self._guard_writes(request, start_response, now)
+        staff = self._is_staff(request)
+        start_response = self._guard_writes(request, start_response, now,
+                                            staff)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
-        staff = self._is_staff(request)
         if not hidden and not (staff and frozen) and \
                 path in INDEX_PATHS and request.method in ("GET", "HEAD"):
             # The index page has a Last-Modified and nothing else (or, by
