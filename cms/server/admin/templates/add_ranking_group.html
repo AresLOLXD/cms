@@ -21,11 +21,11 @@
         <td>Description</td>
         <td><input type="text" name="description"/></td>
       </tr>
-      {% for name, label in [("hide_at", "Hide from (UTC)"), ("show_at", "Show again at (UTC)"), ("freeze_at", "Freeze at (UTC)"), ("unfreeze_at", "Unfreeze at (UTC)")] %}
+      {% for name, label in window_fields %}
       <tr>
         <td>
           {% if loop.first %}<span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Leave a time empty for none."></span>{% endif %}
-          {{ label }}
+          {{ label }} (UTC)
         </td>
         <td><input type="text" name="{{ name }}" value="" placeholder="YYYY-MM-DD HH:MM:SS"/></td>
       </tr>

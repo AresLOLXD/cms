@@ -3,12 +3,13 @@
 import re
 import unittest
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from cms.db import RankingGroup
 from cms.server.admin.handlers.rankinggroup import \
-    AddRankingGroupHandler, RankingGroupHandler, \
+    WINDOW_FIELDS, AddRankingGroupHandler, RankingGroupHandler, \
     RankingGroupListHandler, RegenerateRankingHandler, \
     read_ranking_group_attrs, read_ranking_group_visibility, \
     visibility_view
@@ -98,6 +99,51 @@ def make_group(group_id: int, name: str, **kwargs) -> RankingGroup:
     group = RankingGroup(name=name, description=name.upper(), **kwargs)
     group.id = group_id
     return group
+
+
+def make_form_handler(handler_class, form: dict):
+    """Return a handler of handler_class reading its fields from form."""
+    handler = handler_class.__new__(handler_class)
+    handler.application = MagicMock()
+    handler.sql_session = MagicMock()
+
+    def get_string(dest, name, empty=""):
+        if name in form:
+            dest[name] = form[name] if form[name] != "" else empty
+    fake = visibility_handler(form)
+    handler.get_string = MagicMock(side_effect=get_string)
+    handler.get_argument = fake.get_argument
+    handler.try_commit = MagicMock(return_value=True)
+    handler.schedule_rpc = MagicMock()
+    handler.redirect = MagicMock()
+    handler.url = MagicMock(return_value="/ranking_groups")
+    return handler
+
+
+class FormFields(HTMLParser):
+    """Collect what a browser posts for the first form of a page.
+
+    Unchecked boxes and buttons that were not pressed are not posted.
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.fields = dict()
+        self.done = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if self.done or tag != "input" or "name" not in attrs:
+            return
+        if attrs.get("type", "text") in (
+                "submit", "reset", "button", "checkbox", "radio"):
+            return
+        self.fields[attrs["name"]] = attrs.get("value", "")
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self.done = True
 
 
 class TestReadWindows(unittest.TestCase):
@@ -328,7 +374,7 @@ class TestVisibilityView(unittest.TestCase):
         fields = {f["name"]: f for f in view["fields"]}
         self.assertEqual(
             list(fields), ["hide_at", "show_at", "freeze_at", "unfreeze_at"])
-        self.assertEqual(fields["hide_at"]["label"], "Hide from (UTC)")
+        self.assertEqual(fields["hide_at"]["label"], "Hide from")
         self.assertEqual(fields["hide_at"]["utc"], "2026-10-10 20:30:15")
         self.assertEqual(fields["hide_at"]["local"], "2026-10-10 14:30 XYZ")
         self.assertEqual(fields["show_at"]["utc"], "")
@@ -341,8 +387,10 @@ class TestVisibilityView(unittest.TestCase):
                 hide_at=NOW - self.HOUR,
                 show_at=NOW + 3 * self.HOUR,
                 freeze_at=NOW + self.HOUR)
-        self.assertEqual(view["next_change"],
-                         "Freeze at (UTC): 2026-10-10 13:00 XYZ")
+        # Both the UTC time and the local one, each marked as such.
+        self.assertEqual(
+            view["next_change"],
+            "Freeze at: 2026-10-10 19:00:00 UTC (2026-10-10 13:00 XYZ)")
 
     def test_next_change_is_empty_without_future_times(self):
         self.assertEqual(self.view()["next_change"], "")
@@ -372,6 +420,17 @@ class TestRankingGroupHandlersUseTheView(unittest.TestCase):
         (page,), params = handler.render.call_args
         self.assertEqual(page, "ranking_group.html")
         self.assertEqual(params["view"]["summary"], "oculto")
+
+    def test_add_page_gets_the_time_fields(self):
+        handler = AddRankingGroupHandler.__new__(AddRankingGroupHandler)
+        handler.render_params = MagicMock(return_value=dict())
+        handler.render = MagicMock()
+
+        handler._get_sync()
+
+        (page,), params = handler.render.call_args
+        self.assertEqual(page, "add_ranking_group.html")
+        self.assertEqual(params["window_fields"], WINDOW_FIELDS)
 
     def test_list_page_gets_a_view_per_group(self):
         hidden = make_group(1, "olim", hide_at=NOW - timedelta(hours=1))
@@ -428,26 +487,8 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
         handler.schedule_rpc.assert_called_once_with(
             handler.service.proxy_service.reinitialize)
 
-    def make_handler(self, handler_class, form: dict):
-        """Return a handler of handler_class reading its fields from form."""
-        handler = handler_class.__new__(handler_class)
-        handler.application = MagicMock()
-        handler.sql_session = MagicMock()
-
-        def get_string(dest, name, empty=""):
-            if name in form:
-                dest[name] = form[name] if form[name] != "" else empty
-        fake = visibility_handler(form)
-        handler.get_string = MagicMock(side_effect=get_string)
-        handler.get_argument = fake.get_argument
-        handler.try_commit = MagicMock(return_value=True)
-        handler.schedule_rpc = MagicMock()
-        handler.redirect = MagicMock()
-        handler.url = MagicMock(return_value="/ranking_groups")
-        return handler
-
     def test_add_stores_windows_and_hashed_password(self):
-        handler = self.make_handler(
+        handler = make_form_handler(
             AddRankingGroupHandler,
             {"name": "olim", "description": "OLIM",
              "hide_at": "2026-10-10 20:00:00", "staff_password": "pw"})
@@ -462,7 +503,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
             handler.service.proxy_service.reinitialize)
 
     def test_add_without_visibility_fields_is_visible_without_password(self):
-        handler = self.make_handler(
+        handler = make_form_handler(
             AddRankingGroupHandler, {"name": "olim", "description": "OLIM"})
 
         handler._post_sync()
@@ -474,7 +515,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
 
     def test_add_applies_the_times_even_if_shown_matches(self):
         # A new group has no current value to keep: the times rule.
-        handler = self.make_handler(
+        handler = make_form_handler(
             AddRankingGroupHandler,
             {"name": "olim", "description": "OLIM",
              "freeze_at": "2026-10-10 19:00:00",
@@ -486,7 +527,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
         self.assertEqual(group.freeze_at, datetime(2026, 10, 10, 19, 0))
 
     def test_add_rejects_an_invalid_window(self):
-        handler = self.make_handler(
+        handler = make_form_handler(
             AddRankingGroupHandler,
             {"name": "olim", "description": "OLIM",
              "hide_at": "2026-10-10 20:00:00",
@@ -501,7 +542,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
     def test_edit_keeps_the_password_when_the_field_is_empty(self):
         group = RankingGroup(name="olim", description="OLIM", hidden=True,
                              staff_password="bcrypt:old")
-        handler = self.make_handler(
+        handler = make_form_handler(
             RankingGroupHandler,
             {"name": "olim", "description": "OLIM", "staff_password": ""})
         handler.safe_get_item = MagicMock(return_value=group)
@@ -514,7 +555,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
     def test_edit_rejects_conflicting_password_fields(self):
         group = RankingGroup(name="olim", description="OLIM", hidden=False,
                              staff_password="bcrypt:old")
-        handler = self.make_handler(
+        handler = make_form_handler(
             RankingGroupHandler,
             {"name": "olim", "description": "OLIM",
              "visibility_action": "hide_now",
@@ -534,7 +575,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
         """Save form over a group stored with stored and return it."""
         group = RankingGroup(name="olim", description="OLIM",
                              staff_password=None, **stored)
-        handler = self.make_handler(
+        handler = make_form_handler(
             RankingGroupHandler,
             {"name": "olim", "description": "OLIM", **form})
         handler.safe_get_item = MagicMock(return_value=group)
@@ -601,7 +642,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
         """Save form over a group and check that the save is refused."""
         group = RankingGroup(name="olim", description="OLIM",
                              staff_password=None, **stored)
-        handler = self.make_handler(
+        handler = make_form_handler(
             RankingGroupHandler,
             {"name": "olim", "description": "OLIM", **form})
         handler.safe_get_item = MagicMock(return_value=group)
@@ -786,11 +827,67 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assertIn("Mostrar ahora", html)
         self.assertIn("<strong>oculto (congelado)</strong>", html)
 
+    def test_group_page_marks_the_time_labels_as_utc(self):
+        html = self.render_group()
+
+        for _name, label in WINDOW_FIELDS:
+            self.assertIn("<td>%s (UTC)</td>" % label, html)
+
+    def test_group_page_explains_what_a_now_button_does(self):
+        self.assertIn(
+            "Un botón «… ahora» reemplaza la hora escrita en ese campo.",
+            self.render_group())
+
+    def test_saving_the_page_untouched_changes_nothing(self):
+        # What the page posts back, as a browser would, must leave the
+        # group as it is: the times keep their microseconds (make_datetime
+        # produces them, the page shows whole seconds), and hidden is
+        # derived the same way.
+        windows_of = {
+            "hidden now, frozen later": {
+                "hide_at": datetime(2026, 10, 10, 12, 0, 0, 123456),
+                "show_at": datetime(2026, 10, 10, 20, 0, 0, 500000),
+                "freeze_at": datetime(2026, 10, 10, 18, 30, 5, 999999),
+                "unfreeze_at": datetime(2026, 10, 10, 19, 0, 0, 1)},
+            "shown again, frozen now": {
+                "hide_at": datetime(2026, 10, 10, 10, 0, 0, 250000),
+                "show_at": datetime(2026, 10, 10, 12, 0, 0, 750000),
+                "freeze_at": datetime(2026, 10, 10, 13, 0, 0, 500000)},
+            "no windows": {},
+        }
+        for case, windows in windows_of.items():
+            with self.subTest(case):
+                group = RankingGroup(name="olim", description="OLIM Ω",
+                                     staff_password=self.STORED, **windows)
+                group.hidden = group.hide_pending_at(NOW)
+                expected = group.get_attrs()
+                html = self.render_core(
+                    "ranking_group.html", ranking_group=group,
+                    group_contests=[], view=visibility_view(group, NOW))
+                parser = FormFields()
+                parser.feed(html)
+                self.assertEqual(
+                    set(parser.fields),
+                    {"name", "description", "staff_password"}
+                    | {n for n, _l in WINDOW_FIELDS}
+                    | {n + "_shown" for n, _l in WINDOW_FIELDS})
+                handler = make_form_handler(RankingGroupHandler,
+                                            parser.fields)
+                handler.safe_get_item = MagicMock(return_value=group)
+
+                with patch("cms.server.admin.handlers.rankinggroup."
+                           "make_datetime", return_value=NOW):
+                    handler._post_sync("1")
+
+                handler.service.add_notification.assert_not_called()
+                handler.try_commit.assert_called_once()
+                self.assertEqual(group.get_attrs(), expected)
+
     def test_group_page_says_what_changes_next(self):
         html = self.render_group(hide_at=NOW + self.HOUR)
 
         self.assertIn("<strong>visible</strong> &middot; next: "
-                      "Hide from (UTC): ", html)
+                      "Hide from: 2026-10-10 19:00:00 UTC (", html)
         self.assertNotIn("&middot; next:", self.render_group())
 
     def test_group_page_stops_the_browser_restoring_the_password(self):
@@ -800,18 +897,32 @@ class TestRankingGroupTemplates(unittest.TestCase):
             'autocomplete="new-password"', self.render_group())
 
     def test_add_page_has_the_four_empty_times_and_no_actions(self):
-        html = self.render_core("add_ranking_group.html")
+        html = self.render_core("add_ranking_group.html",
+                                window_fields=WINDOW_FIELDS)
 
-        for name in ("hide_at", "show_at", "freeze_at", "unfreeze_at"):
+        for name, label in WINDOW_FIELDS:
             tag = self.input_tag(html, name)
             self.assertIn('value=""', tag)
+            self.assertIn("%s (UTC)" % label, html)
         self.assertNotIn("_shown", html)
         self.assertNotIn("visibility_action", html)
         self.assertNotIn("<button", html)
         self.assertNotIn('name="hidden"', html)
 
+    def test_add_page_takes_its_time_fields_from_the_handler(self):
+        # No list of its own that could drift from WINDOW_FIELDS.
+        html = self.render_core(
+            "add_ranking_group.html",
+            window_fields=(("thaw_at", "Thaw at"),))
+
+        self.assertIn('name="thaw_at"', html)
+        self.assertIn("Thaw at (UTC)", html)
+        for name, _label in WINDOW_FIELDS:
+            self.assertNotIn('name="%s"' % name, html)
+
     def test_add_page_starts_without_password(self):
-        html = self.render_core("add_ranking_group.html")
+        html = self.render_core("add_ranking_group.html",
+                                window_fields=WINDOW_FIELDS)
 
         self.assertIn('type="password" name="staff_password"', html)
         self.assertIn('autocomplete="new-password"', html)
@@ -846,7 +957,8 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assertEqual(html.count("<td>congelado</td>"), 1)
         self.assertEqual(html.count("<td>oculto (congelado)</td>"), 1)
         self.assertEqual(html.count(
-            "<td>visible &middot; next: Hide from (UTC): "), 1)
+            "<td>visible &middot; next: Hide from: "
+            "2026-10-10 19:00:00 UTC ("), 1)
         self.assertEqual(html.count("<td>set</td>"), 2)
         self.assertEqual(html.count("<td>not set</td>"), 4)
         self.assert_no_stored_password(html)

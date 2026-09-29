@@ -32,7 +32,7 @@
       </tr>
       {% for f in view.fields %}
       <tr>
-        <td>{{ f.label }}</td>
+        <td>{{ f.label }} (UTC)</td>
         <td>
           <input type="text" autocomplete="off" name="{{ f.name }}" value="{{ f.utc }}" placeholder="YYYY-MM-DD HH:MM:SS"/>
           <!-- What the field was rendered with: only a change to it counts, so a stale page does not undo somebody else's schedule. -->
@@ -54,6 +54,7 @@
           {% else %}
           <button type="submit" name="visibility_action" value="freeze_now">Congelar ahora</button>
           {% endif %}
+          <br/><small>Un botón «… ahora» reemplaza la hora escrita en ese campo.</small>
         </td>
       </tr>
       <tr>

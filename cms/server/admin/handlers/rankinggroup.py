@@ -60,12 +60,13 @@ def read_ranking_group_attrs(handler: BaseHandler, attrs: dict):
 MAX_STAFF_PASSWORD_BYTES = 72
 
 
-# The time fields of a ranking group: the column and its label.
+# The time fields of a ranking group: the column and its label. The pages
+# add "(UTC)" to the label of an input: the times are written in UTC.
 WINDOW_FIELDS = (
-    ("hide_at", "Hide from (UTC)"),
-    ("show_at", "Show again at (UTC)"),
-    ("freeze_at", "Freeze at (UTC)"),
-    ("unfreeze_at", "Unfreeze at (UTC)"),
+    ("hide_at", "Hide from"),
+    ("show_at", "Show again at"),
+    ("freeze_at", "Freeze at"),
+    ("unfreeze_at", "Unfreeze at"),
 )
 FORM_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -203,8 +204,8 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
                       for name, label in WINDOW_FIELDS
                       if getattr(group, name) is not None
                       and getattr(group, name) > now)
-    next_change = "" if not upcoming else "%s: %s" % (
-        upcoming[0][1], local(upcoming[0][0]))
+    next_change = "" if not upcoming else "%s: %s UTC (%s)" % (
+        upcoming[0][1], format_utc(upcoming[0][0]), local(upcoming[0][0]))
     return {"fields": fields, "hidden_now": hidden, "frozen_now": frozen,
             "summary": summary, "next_change": next_change}
 
@@ -244,6 +245,11 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
 
 class AddRankingGroupHandler(
         SimpleHandler("add_ranking_group.html", permission_all=True)):
+    def _get_sync(self):
+        self.r_params = self.render_params()
+        self.r_params["window_fields"] = WINDOW_FIELDS
+        self.render("add_ranking_group.html", **self.r_params)
+
     def _post_sync(self):
         fallback_page = self.url("ranking_groups", "add")
 
