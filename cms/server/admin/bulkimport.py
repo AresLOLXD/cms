@@ -305,11 +305,17 @@ def hash_passwords(rows: list[ImportRow], new_users: set[str],
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=HASH_THREADS,
             thread_name_prefix="aws-import-hash") as pool:
-        for future in concurrent.futures.as_completed(
-                [pool.submit(work, row) for row in rows]):
-            username, hashes = future.result()
-            result[username] = hashes
-            progress()
+        try:
+            for future in concurrent.futures.as_completed(
+                    [pool.submit(work, row) for row in rows]):
+                username, hashes = future.result()
+                result[username] = hashes
+                progress()
+        except BaseException:
+            # Do not hash the rows still queued for a result nobody will
+            # use; only the ones already running are waited for.
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
     return result
 
 

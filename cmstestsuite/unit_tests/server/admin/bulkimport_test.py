@@ -20,6 +20,7 @@
 
 import concurrent.futures
 import logging
+import time
 import unittest
 from unittest import mock
 
@@ -394,6 +395,47 @@ class TestHashPasswords(unittest.TestCase):
             hash_passwords(self.rows, set(), lambda: None)
         self.assertEqual(created, [HASH_THREADS])
 
+    def test_error_stops_the_queued_rows(self):
+        rows = [import_row(line, "user%d" % line) for line in range(2, 12)]
+        hashed = []
+
+        def failing_hash(password, method="bcrypt"):
+            hashed.append(password)
+            if len(hashed) == 1:
+                raise RuntimeError("first row")
+            # Slow enough for the pool to be cancelled while this row is
+            # the only one being hashed.
+            time.sleep(0.1)
+            return "fake:" + password
+
+        with mock.patch("cms.server.admin.bulkimport.HASH_THREADS", 1), \
+                mock.patch("cms.server.admin.bulkimport.hash_password",
+                           failing_hash):
+            with self.assertRaises(RuntimeError):
+                hash_passwords(rows, set(), lambda: None)
+        # The failed row and, at most, the one the worker had already
+        # taken; the other eight are never hashed.
+        self.assertLessEqual(len(hashed), 2)
+
+    def test_error_in_progress_stops_the_queued_rows(self):
+        rows = [import_row(line, "user%d" % line) for line in range(2, 12)]
+        hashed = []
+
+        def slow_hash(password, method="bcrypt"):
+            hashed.append(password)
+            time.sleep(0.1)
+            return "fake:" + password
+
+        def failing_progress():
+            raise RuntimeError("progress")
+
+        with mock.patch("cms.server.admin.bulkimport.HASH_THREADS", 1), \
+                mock.patch("cms.server.admin.bulkimport.hash_password",
+                           slow_hash):
+            with self.assertRaises(RuntimeError):
+                hash_passwords(rows, set(), failing_progress)
+        self.assertLessEqual(len(hashed), 2)
+
 
 class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
 
@@ -426,8 +468,9 @@ class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
             "carla": ("fake:pw", "fake:RANDOM"),
             "dora": ("fake:pw-dora", "fake:RANDOM-dora")}
 
-    def plan(self, session):
-        plan, errors = plan_import(session, self.contest.id, self.rows)
+    def plan(self, session, rows=None):
+        plan, errors = plan_import(session, self.contest.id,
+                                   self.rows if rows is None else rows)
         self.assertEqual(errors, [])
         return plan
 
@@ -487,6 +530,56 @@ class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
         self.assertEqual(ana.password, "account:ana")
         self.assertEqual(beto.password, "account:beto")
 
+    def test_row_replaces_team_and_group(self):
+        # A row without team or group does not keep what the participation
+        # had: it leaves it with no team and in the main group.
+        self.ana_participation.team_id = self.team.id
+        self.ana_participation.group_id = self.afternoon.id
+        self.session.flush()
+        rows = [import_row(2, "ana")]
+
+        apply_import(self.session, self.contest.id, rows,
+                     self.plan(self.session, rows),
+                     {"ana": ("fake:pw", None)})
+        self.session.commit()
+
+        self.assertIsNone(self.ana_participation.team_id)
+        self.assertEqual(self.ana_participation.group_id,
+                         self.contest.main_group_id)
+        self.assertNotEqual(self.contest.main_group_id, self.afternoon.id)
+
+    def test_participations_of_another_contest_are_left_alone(self):
+        # ana takes part in both contests and beto only in the other one.
+        other_contest = self.add_contest()
+        other_group = self.get_group(name="noche", contest=other_contest)
+        self.session.add(other_group)
+        self.session.flush()
+        others = {user.username: self.add_participation(
+            user=user, contest=other_contest, group=other_group,
+            team=self.team, password="other:" + user.username, hidden=True)
+            for user in (self.ana, self.beto)}
+        self.session.flush()
+
+        def state(participation):
+            return (participation.contest_id, participation.password,
+                    participation.team_id, participation.group_id,
+                    participation.hidden)
+
+        before = {name: state(p) for name, p in others.items()}
+
+        apply_import(self.session, self.contest.id, self.rows,
+                     self.plan(self.session), self.hashes)
+        self.session.commit()
+
+        self.assertEqual({name: state(p) for name, p in others.items()},
+                         before)
+        in_contest = {p.user.username: p.password for p in
+                      self.session.query(Participation).filter(
+                          Participation.contest_id == self.contest.id)}
+        self.assertEqual(in_contest, {
+            "ana": "fake:pw-ana", "beto": "fake:pw-beto",
+            "carla": "fake:pw", "dora": "fake:pw-dora"})
+
     def test_nothing_is_committed(self):
         self.session.commit()
         before = self.snapshot()
@@ -504,16 +597,22 @@ class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
         before = self.snapshot()
         original_init = Participation.__init__
         created = []
+        written = []
 
         def failing_init(participation, *args, **kwargs):
             created.append(participation)
             if len(created) == 2:
+                # Send what has been added so far to the open transaction,
+                # so the rollback has something to undo.
+                session.flush()
+                written.append((session.query(User).count(),
+                                session.query(Participation).count()))
                 raise RuntimeError("second new participation")
             original_init(participation, *args, **kwargs)
 
         # beto is the first new participation and carla the second, so
         # ana's update, beto's participation and carla's user have been
-        # added to the session when this fails.
+        # written to the transaction when this fails.
         with self.assertRaises(RuntimeError):
             with SessionGen() as session:
                 plan = self.plan(session)
@@ -523,6 +622,9 @@ class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
                                  self.hashes)
 
         self.assertEqual(len(created), 2)
+        # carla's user and beto's participation did reach the transaction.
+        self.assertEqual(written, [(len(before[0]) + 1,
+                                    len(before[1]) + 1)])
         self.assertEqual(self.snapshot(), before)
 
 
