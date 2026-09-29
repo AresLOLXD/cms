@@ -13,3 +13,7 @@ dumps/
 .superpowers/
 .agents/
 .pytest_cache/
+# .env holds the secrets (POSTGRES_PASSWORD, CMS_SECRET_KEY, ...). Compose
+# reads it on the host; nothing in the image build needs it, or .env.example.
+**/.env
+**/.env.*
