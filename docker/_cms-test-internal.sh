@@ -35,7 +35,15 @@ GEVENT_TEST_PATHS="cmstestsuite/unit_tests/cmscontrib cmstestsuite/unit_tests/cm
 # makes pytest's faulthandler dump every thread's traceback first.
 # --foreground keeps pytest in the terminal's process group, so Ctrl-C
 # still reaches it when the script runs interactively with a TTY.
-UNIT_TIMEOUT=1200
+#
+# The functional tests get FUNC_TIMEOUT seconds and SIGINT instead: the
+# harness then shuts its services down rather than leaving them running
+# (it is SIGKILLed 60 s later if it still hasn't exited).
+# Override either limit with `docker compose run -e UNIT_TIMEOUT=...`.
+# ulimit -c 0 keeps the SIGABRTs from leaving core dumps behind.
+UNIT_TIMEOUT=${UNIT_TIMEOUT:-1200}
+FUNC_TIMEOUT=${FUNC_TIMEOUT:-1800}
+ulimit -c 0
 
 timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
     pytest --cov . --cov-report= --junitxml=codecov/junit-gevent.xml -o junit_family=legacy $GEVENT_TEST_PATHS
@@ -55,7 +63,8 @@ dropdb --host=testdb --username=postgres cmsdbfortesting
 createdb --host=testdb --username=postgres cmsdbfortesting
 cmsInitDB
 
-cmsRunFunctionalTests -v --coverage codecov/functionaltests.xml
+timeout --foreground --signal=INT --kill-after=60 "$FUNC_TIMEOUT" \
+    cmsRunFunctionalTests -v --coverage codecov/functionaltests.xml
 FUNC=$?
 
 # This check is needed because otherwise failing unit tests aren't reported in
