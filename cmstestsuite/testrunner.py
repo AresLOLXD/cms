@@ -534,9 +534,17 @@ class TestRunner:
             expected["contests"].add(encode_id(self.contest_name))
 
         session = requests.Session()
-        wait_until(
-            "RWS to receive the data of contest %s" % self.contest_id,
-            lambda: self._unmet_ranking_data(session, "", expected))
+        try:
+            wait_until(
+                "RWS to receive the data of contest %s" % self.contest_id,
+                lambda: self._unmet_ranking_data(session, "", expected))
+        except TestFailure as error:
+            # ProxyService says why, if RWS refused it.
+            try:
+                self.check_proxy_service_log()
+            except TestFailure as log_error:
+                raise TestFailure("%s\n%s" % (error, log_error))
+            raise
         self.check_proxy_service_log()
         logger.info("RWS received the data, and ProxyService reported no "
                     "failure (%.1fs).", time.monotonic() - started)
