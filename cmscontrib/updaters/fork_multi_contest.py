@@ -57,6 +57,12 @@ BEGIN
     END IF;
 END
 $$;
+
+ALTER TABLE public.ranking_groups
+    ADD COLUMN IF NOT EXISTS hidden boolean NOT NULL DEFAULT false;
+ALTER TABLE public.ranking_groups ALTER COLUMN hidden DROP DEFAULT;
+ALTER TABLE public.ranking_groups
+    ADD COLUMN IF NOT EXISTS staff_password character varying;
 """
 
 

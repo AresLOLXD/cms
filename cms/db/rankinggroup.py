@@ -21,7 +21,7 @@
 """
 
 from sqlalchemy.schema import Column
-from sqlalchemy.types import Integer, Unicode
+from sqlalchemy.types import Boolean, Integer, Unicode
 
 from . import Base
 
@@ -53,3 +53,16 @@ class RankingGroup(Base):
     description: str = Column(
         Unicode,
         nullable=False)
+
+    # Whether the group's public scoreboard is hidden (MC-2): RWS then
+    # shows a notice to the public and the live ranking only to staff.
+    hidden: bool = Column(
+        Boolean,
+        nullable=False,
+        default=False)
+
+    # Staff password as a cmscommon.crypto authentication string (e.g.
+    # "bcrypt:..."), or None when nobody can log in to a hidden ranking.
+    staff_password: str | None = Column(
+        Unicode,
+        nullable=True)
