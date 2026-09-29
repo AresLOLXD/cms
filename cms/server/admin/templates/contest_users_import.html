@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block core %}
+<div class="core_title">
+  <h1>Importar CSV &mdash; {{ contest.name }}</h1>
+</div>
+
+<p>Un renglón por concursante: crea los usuarios que falten y registra su
+participación en este concurso con la contraseña del día. Si el usuario o
+la participación ya existen, se actualizan. Si hay cualquier error, no se
+guarda nada.</p>
+
+{% if errors %}
+<div class="notification error">
+  <p>No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:</p>
+  <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if summary %}
+<div class="notification">
+  <p>El archivo es válido. Al importarlo:</p>
+  <ul>
+    <li>Usuarios nuevos: {{ summary.usuarios_nuevos }}</li>
+    <li>Usuarios actualizados: {{ summary.usuarios_actualizados }}</li>
+    <li>Participaciones nuevas: {{ summary.participaciones_nuevas }}</li>
+    <li>Participaciones actualizadas: {{ summary.participaciones_actualizadas }}</li>
+  </ul>
+</div>
+{% endif %}
+
+{% if job %}
+<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") }}">
+  <p id="import_text">Procesando {{ job.processed }} de {{ job.total }}</p>
+  <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" style="width: 100%"></progress>
+  <div id="import_result"></div>
+</div>
+{% else %}
+<form enctype="multipart/form-data" method="POST"
+      action="{{ url("contest", contest.id, "users", "import") }}">
+  {{ xsrf_form_html|safe }}
+  <p><input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
+  <table>
+    {% for field in fields %}
+    <tr>
+      <td>{{ field }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</td>
+      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{{ (mapping or {}).get(field, "") }}"><option value="">(sin asignar)</option></select></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p>La importación cifra las contraseñas y puede tardar ~30 s por cada 300 concursantes.</p>
+  <button type="submit" name="action" value="validate">Solo validar</button>
+  <button type="submit" name="action" value="import">Importar</button>
+</form>
+{% endif %}
+
+<script>
+(function () {
+    "use strict";
+    var ALIASES = {
+        "username": ["username", "usuario", "user"],
+        "first_name": ["first_name", "nombre", "nombres"],
+        "last_name": ["last_name", "apellido", "apellidos"],
+        "password": ["password", "contraseña", "contrasena", "clave"],
+        "team": ["team", "equipo", "estado"],
+        "group": ["group", "grupo"]
+    };
+    function norm(s) {
+        return s.trim().toLowerCase().normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "").replace(/^"|"$/g, "");
+    }
+    var fileInput = document.getElementById("import_file");
+    if (fileInput) {
+        fileInput.addEventListener("change", function () {
+            var file = fileInput.files[0];
+            if (!file) { return; }
+            var reader = new FileReader();
+            reader.onload = function () {
+                var text = String(reader.result).replace(/^\ufeff/, "");
+                var first = text.split(/\r?\n/)[0];
+                var sep = (first.split(";").length > first.split(",").length) ? ";" : ",";
+                var headers = first.split(sep).map(function (h) {
+                    return h.trim().replace(/^"|"$/g, "");
+                });
+                document.querySelectorAll("select[data-field]").forEach(function (select) {
+                    var field = select.getAttribute("data-field");
+                    // The column the admin chose before, if this file has it;
+                    // otherwise the one the aliases point at.
+                    var chosen = select.getAttribute("data-selected");
+                    var useChosen = Boolean(chosen) && headers.indexOf(chosen) !== -1;
+                    select.length = 1;
+                    headers.forEach(function (h) {
+                        var option = document.createElement("option");
+                        option.value = h;
+                        option.textContent = h;
+                        if (useChosen ? h === chosen : ALIASES[field].indexOf(norm(h)) !== -1) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                });
+            };
+            reader.readAsText(file.slice(0, 65536), "utf-8");
+        });
+    }
+    var job = document.getElementById("import_job");
+    if (job) {
+        var url = job.getAttribute("data-status-url");
+        var poll = function () {
+            fetch(url, {credentials: "same-origin"}).then(function (r) {
+                if (!r.ok) { throw new Error(r.status); }
+                return r.json();
+            }).then(function (s) {
+                document.getElementById("import_bar").value = s.processed;
+                document.getElementById("import_bar").max = s.total;
+                document.getElementById("import_text").textContent =
+                    "Procesando " + s.processed + " de " + s.total;
+                var out = document.getElementById("import_result");
+                if (s.status === "done") {
+                    out.textContent = "Listo. Usuarios nuevos: " + s.summary.usuarios_nuevos +
+                        ", actualizados: " + s.summary.usuarios_actualizados +
+                        ". Participaciones nuevas: " + s.summary.participaciones_nuevas +
+                        ", actualizadas: " + s.summary.participaciones_actualizadas + ".";
+                } else if (s.status === "error") {
+                    out.textContent = "Error: " + s.error;
+                } else {
+                    setTimeout(poll, 500);
+                }
+            }).catch(function () {
+                document.getElementById("import_result").textContent =
+                    "No se pudo consultar el progreso; recarga la página.";
+            });
+        };
+        poll();
+    }
+}());
+</script>
+{% endblock core %}

@@ -33,6 +33,7 @@
 """
 
 import asyncio
+import json
 import logging
 
 import collections
@@ -47,6 +48,8 @@ from sqlalchemy import select
 
 from cms.db import Contest, Group, Message, Participation, Submission, User, \
     Team
+from cms.server.admin.bulkimport import FIELDS, plan_import, read_rows
+from cms.server.admin.importjobs import IMPORT_JOBS
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
 
@@ -333,3 +336,106 @@ class MessageHandler(BaseHandler):
     async def post(self, contest_id, user_id):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._post_sync, contest_id, user_id)
+
+
+class ImportUsersHandler(BaseHandler):
+    """Bulk import of users and participations into a contest (CSV).
+
+    GET shows the form, or the progress of the job given by ?job=. POST
+    reads the file: "validate" only reports what an import would do,
+    "import" starts the job and redirects to its progress page.
+
+    """
+
+    def _render_page(self, mapping: dict[str, str] | None = None,
+                     errors: list[str] | None = None,
+                     summary: dict[str, int] | None = None, job=None):
+        """Render the page.
+
+        The template gets every one of these parameters, as AWS renders
+        with StrictUndefined.
+
+        mapping: import field -> header the admin chose for it, so that
+            the choice survives the page being shown again.
+        errors: why nothing was imported, to list them.
+        summary: what an import of the file would do, after "validate".
+        job: the import job whose progress to show, instead of the form.
+
+        """
+        self.r_params = self.render_params()
+        self.r_params["contest"] = self.contest
+        self.r_params["fields"] = FIELDS
+        self.r_params["mapping"] = mapping or {}
+        self.r_params["errors"] = errors or []
+        self.r_params["summary"] = summary
+        self.r_params["job"] = job
+        self.render("contest_users_import.html", **self.r_params)
+
+    def _get_sync(self, contest_id):
+        self.contest = self.safe_get_item(Contest, contest_id)
+        job_id = self.get_argument("job", None)
+        if job_id is None:
+            self._render_page()
+            return
+        job = IMPORT_JOBS.get(job_id, self.current_user.id)
+        if job is None or job.contest_id != self.contest.id:
+            self._render_page(errors=["la importación no existe o ya expiró"])
+            return
+        self._render_page(job=job)
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id):
+        self.contest = self.safe_get_item(Contest, contest_id)
+        mapping = {field: self.get_argument("map_" + field, "")
+                   for field in FIELDS}
+        files = self.request.files.get("file")
+        if not files:
+            self._render_page(mapping, errors=["elige un archivo CSV"])
+            return
+        rows, errors = read_rows(files[0]["body"], mapping)
+        plan = None
+        if not errors:
+            plan, errors = plan_import(self.sql_session, self.contest.id,
+                                       rows)
+        if errors:
+            self._render_page(mapping, errors=errors)
+            return
+        if self.get_argument("action", "validate") != "import":
+            self._render_page(mapping, summary=plan.summary())
+            return
+        service = self.service
+
+        def on_done():
+            # Called from the job's thread, once the import is saved.
+            self.schedule_rpc(service.proxy_service.reinitialize)
+
+        try:
+            job = IMPORT_JOBS.start(self.current_user.id, self.contest.id,
+                                    rows, on_done)
+        except ValueError as error:
+            self._render_page(mapping, errors=[str(error)])
+            return
+        self.redirect(self.url("contest", self.contest.id, "users",
+                               "import") + "?job=" + job.id)
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
+
+class ImportJobStatusHandler(BaseHandler):
+    """The progress of an import job, as JSON, for its owner only."""
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, contest_id, job_id):
+        job = IMPORT_JOBS.get(job_id, self.current_user.id)
+        if job is None or str(job.contest_id) != contest_id:
+            raise tornado.web.HTTPError(404)
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.write(json.dumps(job.as_json()))
