@@ -27,13 +27,14 @@ import re
 import sys
 import time
 import types
+from collections.abc import Callable
 
 import requests
 
 from cms import TOKEN_MODE_FINITE
 from cms.service.ProxyService import encode_id
 from cmscommon.datetime import get_system_timezone
-from cmstestsuite import CONFIG
+from cmstestsuite import CONFIG, TestException
 from cmstestsuite.Test import TestFailure
 from cmstestsuite.Tests import ALL_LANGUAGES
 from cmstestsuite.functionaltestframework import FunctionalTestFramework
@@ -47,11 +48,14 @@ logger = logging.getLogger(__name__)
 # AWS. They take a moment, since ProxyService works in the background.
 RANKING_TIMEOUT = 30.0
 
-# What ProxyService logs when RWS refuses or fails on what it sends (a 4xx or
-# 5xx status, a visibility that is rejected, or an error nobody expected). A
-# rejected push is only logged, so the tests would otherwise still pass.
+# What ProxyService logs when data does not get to RWS: RWS refuses or fails
+# on it (a 4xx or 5xx status, a visibility that is rejected), the data cannot
+# be encoded or built, a reinitialize fails, or something nobody expected
+# happens. Nothing else reports it, so the tests would otherwise still pass.
 PROXY_LOG_PROBLEMS = re.compile(
-    r"Status [45]\d\d while|rejected|Unexpected error")
+    r"Status [45]\d\d while|rejected|Unexpected error|Cannot encode the data"
+    r"|cannot be encoded|Cannot build the ranking data"
+    r"|Reinitializing the rankings failed")
 
 # The staff password of the ranking group of check_ranking_visibility.
 STAFF_PASSWORD = "staffpwd"
@@ -63,10 +67,13 @@ NOTICE_MARKER = 'action="staff-login"'
 STAFF_BANNER_MARKER = "Vista staff"
 
 
-def wait_until(description: str, unmet, timeout: float = RANKING_TIMEOUT,
-               interval: float = 0.25, retry=None,
+def wait_until(description: str, unmet: Callable[[], str | None],
+               timeout: float = RANKING_TIMEOUT, interval: float = 0.25,
+               retry: Callable[[], None] | None = None,
                retry_interval: float = 5.0):
     """Wait for something that happens in the background.
+
+    No call is started once timeout seconds have passed.
 
     description: what we wait for, for the error message.
     unmet: a function returning None once the wait is over, or else a
@@ -76,29 +83,33 @@ def wait_until(description: str, unmet, timeout: float = RANKING_TIMEOUT,
     interval: how many seconds to wait between two calls.
     retry: a function that does again what is meant to make it happen,
         or None. It is called every retry_interval seconds while the
-        wait is not over.
+        wait is not over. If it fails, that only counts as missing.
     retry_interval: how many seconds before it is called again.
 
     raise (TestFailure): if it is still not over after timeout seconds.
 
     """
-    deadline = time.monotonic() + timeout
-    next_retry = time.monotonic() + retry_interval
-    while True:
+    start = time.monotonic()
+    deadline = start + timeout
+    next_retry = start + retry_interval
+    reason = "not even tried"
+    while time.monotonic() < deadline:
         try:
             reason = unmet()
         except requests.RequestException as error:
             reason = "request failed: %s" % error
         if reason is None:
             return
-        now = time.monotonic()
-        if now >= deadline:
-            raise TestFailure("Timed out after %g s waiting for %s: %s" %
-                              (timeout, description, reason))
-        if retry is not None and now >= next_retry:
-            retry()
-            next_retry = now + retry_interval
-        time.sleep(interval)
+        if retry is not None and time.monotonic() >= next_retry:
+            next_retry = time.monotonic() + retry_interval
+            try:
+                retry()
+            except (requests.RequestException, TestException) as error:
+                reason = "%s (and doing it again failed: %s)" % (
+                    reason, error)
+        time.sleep(max(0.0, min(interval, deadline - time.monotonic())))
+    raise TestFailure("Timed out after %.1f s waiting for %s: %s" %
+                      (time.monotonic() - start, description, reason))
 
 
 def expect_status(what: str, actual: int, expected: int):
@@ -268,6 +279,10 @@ class TestRunner:
             logging.info("Created user with id %s.", self.user_id)
         return self.user_id
 
+    def _task_name(self, task_module: types.ModuleType) -> str:
+        """Return the name of a task of the tests in the contest."""
+        return "%s_%s" % (task_module.task_info['name'], self.suffix)
+
     def create_or_get_task(self, task_module: types.ModuleType) -> int:
         """Create a new task if it does not exist.
 
@@ -276,7 +291,7 @@ class TestRunner:
         return: task id of the new (or existing) task.
 
         """
-        name = "%s_%s" % (task_module.task_info['name'], self.suffix)
+        name = self._task_name(task_module)
 
         # Have we done this before? Pull it out of our cache if so.
         if name in self.task_id_map:
@@ -460,32 +475,78 @@ class TestRunner:
                 problems.append("%s: %s" % (check.__name__, error))
         return problems
 
-    def _unmet_ranking_data(self, session, group_path: str,
-                            expected: dict[str, set[str]]) -> str | None:
+    def _unmet_ranking_data(
+        self, session: requests.Session, group_path: str,
+        expected: dict[str, set[str]],
+        submissions: dict[str, tuple[str, str]] | None = None
+    ) -> str | None:
         """Tell what a ranking of RWS still lacks.
 
         session: the requests.Session to read RWS with.
         group_path: "" for the root ranking, else "/<group>".
         expected: for each store of RWS, the ids that must be there. Each
             store must have something anyway.
+        submissions: if given, the ids of the submissions that must be in
+            RWS, each with the keys of its user and of its task, and each
+            must have a subchange that carries its score.
 
         return: what is missing, or None if nothing.
 
         """
+        contents: dict[str, dict] = dict()
         for store, ids in expected.items():
             response = self.framework.rws_request(
                 session, "GET", "%s/%s/" % (group_path, store))
             if response.status_code != 200:
                 return "%s/ answered HTTP %d" % (store, response.status_code)
             try:
-                present = set(response.json())
+                contents[store] = response.json()
             except ValueError:
                 return "%s/ did not answer JSON" % store
-            if not present:
+            if not contents[store]:
                 return "RWS has no %s" % store
-            if not ids <= present:
-                return "RWS lacks the %s %s" % (store, sorted(ids - present))
+            missing = sorted(ids - set(contents[store]))
+            if missing:
+                return "RWS lacks %d of the %d %s, for example %s" % (
+                    len(missing), len(ids), store, missing[:3])
+
+        if submissions:
+            wrong = sorted(
+                id_ for id_, keys in submissions.items()
+                if (contents["submissions"][id_].get("user"),
+                    contents["submissions"][id_].get("task")) != keys)
+            if wrong:
+                return "RWS has %d submissions of another user or task, " \
+                    "for example %s" % (len(wrong), wrong[:3])
+            with_score = {
+                subchange.get("submission")
+                for subchange in contents["subchanges"].values()
+                if "score" in subchange}
+            unscored = sorted(set(submissions) - with_score)
+            if unscored:
+                return "RWS lacks the score of %d submissions, for " \
+                    "example %s" % (len(unscored), unscored[:3])
         return None
+
+    def _scored_submissions(self, user_key: str) -> dict[str, tuple[str, str]]:
+        """Return the submissions of the tests that RWS must have.
+
+        Those of the tests that got to be scored: the ones that failed
+        (to be submitted, or evaluated) are reported as such already.
+
+        user_key: the key of the user that submitted them in RWS.
+
+        return: for each id of submission, the key of its user and of its
+            task in RWS.
+
+        """
+        failed = {(test, lang) for test, lang, _ in self.failures}
+        return {
+            str(test.submission_id[lang]): (
+                user_key, encode_id(self._task_name(test.task_module)))
+            for test, lang in self._all_submissions()
+            if test.submission_id.get(lang) is not None
+            and (test, lang) not in failed}
 
     def check_proxy_service_log(self):
         """Check that ProxyService logged no failure to push to RWS.
@@ -518,17 +579,20 @@ class TestRunner:
         one of the single contest ProxyService serves), and at that log.
 
         raise (TestFailure): if RWS lacks the contest, the user or the
-            tasks of the tests, or has no submission, or if ProxyService
-            logged a failure.
+            tasks of the tests, or a submission that was scored, or its
+            score, or if ProxyService logged a failure.
 
         """
         started = time.monotonic()
         username = self.framework.created_users[self.user_id]["username"]
+        user_key = encode_id(username)
+        submissions = self._scored_submissions(user_key)
         expected: dict[str, set[str]] = {
             "contests": set(),
-            "users": {encode_id(username)},
+            "users": {user_key},
             "tasks": {encode_id(name) for name in self.task_id_map},
-            "submissions": set(),
+            "submissions": set(submissions),
+            "subchanges": set(),
         }
         if self.contest_name is not None:
             expected["contests"].add(encode_id(self.contest_name))
@@ -537,7 +601,8 @@ class TestRunner:
         try:
             wait_until(
                 "RWS to receive the data of contest %s" % self.contest_id,
-                lambda: self._unmet_ranking_data(session, "", expected))
+                lambda: self._unmet_ranking_data(
+                    session, "", expected, submissions))
         except TestFailure as error:
             # ProxyService says why, if RWS refused it.
             try:
@@ -546,8 +611,9 @@ class TestRunner:
                 raise TestFailure("%s\n%s" % (error, log_error))
             raise
         self.check_proxy_service_log()
-        logger.info("RWS received the data, and ProxyService reported no "
-                    "failure (%.1fs).", time.monotonic() - started)
+        logger.info("RWS received the data, %d submissions with their "
+                    "scores, and ProxyService reported no failure (%.1fs).",
+                    len(submissions), time.monotonic() - started)
 
     def check_ranking_visibility(self):
         """Check that an admin can hide a ranking group, and reveal it.
@@ -576,14 +642,14 @@ class TestRunner:
         public = requests.Session()
         staff = requests.Session()
 
-        def status(session, path: str) -> int:
+        def status(session: requests.Session, path: str) -> int:
             # Stream: /events of a visible group never ends.
             response = fw.rws_request(
                 session, "GET", group_path + path, stream=True)
             response.close()
             return response.status_code
 
-        def page(session) -> requests.Response:
+        def page(session: requests.Session) -> requests.Response:
             return fw.rws_request(session, "GET", group_path + "/")
 
         def notice_unmet() -> str | None:
@@ -612,6 +678,8 @@ class TestRunner:
         self._add_contest("testvis_%s" % stamp, description,
                           ranking_group_id=str(group_id))
         self.ps.stop("ProxyService", contest=self.contest_id)
+        # Its log is still the last one, so this covers its whole life.
+        self.check_proxy_service_log()
         self.ps.start("ProxyService", contest="ALL")
         self.ps.wait()
 
