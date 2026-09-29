@@ -59,3 +59,81 @@ jobs:
           files: ./codecov/functionaltests.xml
           flags: functionaltests
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # The same tests on the maintainer's own server. The job is skipped until
+  # the repository variable SELF_HOSTED_RUNNER is set to "true" (Settings >
+  # Secrets and variables > Actions > Variables), so that pushes don't queue
+  # up for a runner that isn't registered yet. It runs on pushes only
+  # because this repository is public: the test containers are privileged
+  # (cgroup: host), and a pull request from a fork must never get to start
+  # them on that server. Pull requests are covered by the hosted job above.
+  test-self-hosted:
+    if: github.event_name == 'push' && vars.SELF_HOSTED_RUNNER == 'true'
+    runs-on: [self-hosted, linux, cms-ci]
+
+    strategy:
+      matrix:
+        base_image: ["ubuntu:noble"]
+
+    env:
+      # A compose project of its own for every run, so that nothing on this
+      # shared host can collide with it. Re-running a workflow keeps its
+      # run_id, hence run_attempt.
+      COMPOSE_PROJECT: cms-ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Check available cgroups
+        run: |
+          mount | grep cgroup
+
+      - name: Build docker image
+        run: |
+          docker compose -p "$COMPOSE_PROJECT" -f docker/docker-compose.test.yml build \
+              --build-arg BASE_IMAGE=${{ matrix.base_image }} testcms
+
+      # The container's cmsuser (uid 2000) writes the test reports into the
+      # bind-mounted codecov/ but can't chown it (its sudo is limited to
+      # isolate). Left to Docker, the directory would be created root:root
+      # 755 and pytest couldn't write its junit report there.
+      - name: Make the codecov directory writable
+        run: |
+          mkdir -p codecov && chmod 777 codecov
+
+      - name: Run tests
+        run: |
+          docker compose -p "$COMPOSE_PROJECT" -f docker/docker-compose.test.yml run --rm testcms
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          files: ./codecov/junit-gevent.xml,./codecov/junit-docker.xml,./codecov/junit-asyncio.xml
+          flags: unittests
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload unit test coverage results to Codecov
+        uses: codecov/codecov-action@v4
+        if: ${{ !cancelled() }}
+        with:
+          files: ./codecov/unittests.xml
+          flags: unittests
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload functional test coverage results to Codecov
+        uses: codecov/codecov-action@v4
+        if: ${{ !cancelled() }}
+        with:
+          files: ./codecov/functionaltests.xml
+          flags: functionaltests
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      # `run --rm` only removes the testcms container: the testdb it depends
+      # on, the network and the database volume stay behind, and unlike on a
+      # throwaway hosted VM they would pile up here. Also drop the image
+      # built for this run, whose name no later run will reuse.
+      - name: Remove the containers and volumes of this run
+        if: always()
+        run: |
+          docker compose -p "$COMPOSE_PROJECT" -f docker/docker-compose.test.yml down -v --remove-orphans --rmi local
