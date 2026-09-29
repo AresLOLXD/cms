@@ -51,6 +51,15 @@ from .async_rpc import AsyncRemoteServiceServer, AsyncRemoteServiceClient, \
 logger = logging.getLogger(__name__)
 
 
+# The most log records the remote handler keeps in flight (sent, and
+# waiting for LogService's answer) at once. A LogService that is
+# connected but stuck never answers, and every record would otherwise
+# stay pending, together with its request, for good. Beyond this the
+# records are left out of the remote log only: the local ones are not
+# affected.
+MAX_PENDING_REMOTE_LOGS = 1000
+
+
 async def async_repeater(func: Callable[[], Any], period: float):
     """Repeatedly call the given (possibly async) function.
 
@@ -83,6 +92,12 @@ class AsyncLogServiceHandler(LogServiceHandler):
     run_in_executor threads. As with the gevent handler, records are
     dropped while not connected to LogService.
 
+    At most MAX_PENDING_REMOTE_LOGS records are in flight at once.
+    While LogService doesn't answer, the records that don't fit are
+    dropped: only by this handler, the local ones still get them. The
+    drops are counted, and the count is reported (to the local handlers
+    only) when the backlog has drained.
+
     """
     def __init__(
         self, log_service: AsyncRemoteServiceClient, service: "AsyncService"
@@ -95,6 +110,22 @@ class AsyncLogServiceHandler(LogServiceHandler):
         """
         super().__init__(log_service)
         self._service = service
+        # How many records are being sent, and how many were dropped
+        # since the last report. Only the event loop thread touches
+        # them (see _spawn_log and _log_finished), so they need no lock.
+        self._pending_logs = 0
+        self._dropped_logs = 0
+
+    def emit(self, record: logging.LogRecord):
+        """Send the record to LogService, unless it is for local use.
+
+        record: the record to send. A record whose local_only
+            attribute is true (see _log_finished) is not sent.
+
+        """
+        if getattr(record, "local_only", False):
+            return
+        super().emit(record)
 
     def _send(self, d: dict):
         """Schedule sending the encoded record on the service's loop.
@@ -113,9 +144,42 @@ class AsyncLogServiceHandler(LogServiceHandler):
             pass
 
     def _spawn_log(self, d: dict):
-        """Start sending the record (runs in the event loop thread)."""
-        if self._log_service.connected:
-            self._service._spawn(self._log(d))
+        """Start sending the record, if there is room for it.
+
+        Runs in the event loop thread.
+
+        d: the record's attributes, to be used as keyword arguments
+            for LogService.Log.
+
+        """
+        if not self._log_service.connected:
+            return
+        if self._pending_logs >= MAX_PENDING_REMOTE_LOGS:
+            self._dropped_logs += 1
+            return
+        self._pending_logs += 1
+        task = self._service._spawn(self._log(d))
+        task.add_done_callback(self._log_finished)
+
+    def _log_finished(self, task: asyncio.Task):
+        """Note that a record is not in flight anymore.
+
+        If that empties the backlog, report the records dropped since
+        the last report. Runs in the event loop thread.
+
+        task: the task that sent a record.
+
+        """
+        self._pending_logs -= 1
+        if self._pending_logs > 0 or self._dropped_logs == 0:
+            return
+        dropped, self._dropped_logs = self._dropped_logs, 0
+        # For the local handlers only (see emit): sending this to
+        # LogService, which was just too slow, could drop it as well and
+        # so report itself again and again.
+        logger.warning("LogService could not keep up: %d log records were "
+                       "not sent to it, they are only in the local log.",
+                       dropped, extra={"local_only": True})
 
     async def _log(self, d: dict):
         """Send the record, ignoring failures like the gevent handler."""

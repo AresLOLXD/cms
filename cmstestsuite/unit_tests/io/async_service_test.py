@@ -3,6 +3,7 @@
 """Tests for cms.io.async_service."""
 
 import asyncio
+import logging
 import os
 import signal
 import threading
@@ -10,11 +11,12 @@ import time
 import unittest
 from unittest.mock import patch
 
-from cms.conf import Address
+from cms.conf import Address, ServiceCoord
 from cms.io.async_service import AsyncLogServiceHandler, AsyncService
 from cms.io.rpc import rpc_method
 from cms.log import FileHandler, root_logger, shell_handler
 from cmstestsuite.unit_tests.servicelogmixin import ServiceLoggingIsolationMixin
+from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
 class EchoingAsyncService(AsyncService):
@@ -127,6 +129,155 @@ class TestAsyncServiceLogsToLogService(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(service_task, timeout=2)
             log_service.exit()
             await asyncio.wait_for(log_task, timeout=2)
+
+
+class LoopOwner:
+    """The little of an AsyncService that AsyncLogServiceHandler uses."""
+
+    _spawn = AsyncService._spawn
+
+    def __init__(self):
+        self._loop = asyncio.get_running_loop()
+        self._background_tasks = set()
+
+
+class RecordingHandler(logging.Handler):
+    """Keep the records logged to it, like any other local handler."""
+
+    def __init__(self):
+        super().__init__()
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+class TestRemoteLogBackpressure(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
+    """A LogService that is connected but never answers must not make
+    the remote log records pile up.
+
+    """
+
+    async def asyncSetUp(self):
+        self.peer = StuckPeer()
+        await self.peer.start()
+        self.addAsyncCleanup(self.peer.stop)
+        self.client = await connect_client(
+            ServiceCoord("LogService", 0), self.peer)
+        self.addCleanup(self.client.disconnect)
+
+        # The handler is on the root logger, like AsyncService's, but
+        # only sees the records of this test and its own report (any
+        # other record, such as a slow callback warning from asyncio,
+        # would take up room). The recording handler stands for the
+        # local ones. The mixin removes both handlers afterwards.
+        self.service = LoopOwner()
+        handler = AsyncLogServiceHandler(self.client, self.service)
+        handler.setLevel(logging.INFO)
+        handler.addFilter(lambda record: record.name in (
+            "backpressure_test", "cms.io.async_service"))
+        root_logger.addHandler(handler)
+        self.local = RecordingHandler()
+        root_logger.addHandler(self.local)
+        self.logger = logging.getLogger("backpressure_test")
+
+    def emit_records(self, count, prefix="record"):
+        for index in range(count):
+            self.logger.info("%s %d", prefix, index)
+
+    def reports(self):
+        """Return the messages the handler reported about its drops."""
+        return [record.getMessage() for record in self.local.records
+                if record.name == "cms.io.async_service"
+                and record.levelno >= logging.WARNING]
+
+    async def wait_for_reports(self, count=1):
+        for _ in range(100):
+            if len(self.reports()) >= count:
+                return
+            await asyncio.sleep(0.02)
+
+    async def test_records_beyond_the_cap_are_not_sent(self):
+        with patch("cms.io.async_service.MAX_PENDING_REMOTE_LOGS", 3):
+            self.emit_records(10)
+            await self.peer.wait_for_requests(3)
+            # Time for any record that should not have been sent.
+            await asyncio.sleep(0.1)
+
+            self.assertEqual(len(self.service._background_tasks), 3)
+        self.assertEqual(len(self.client.pending_outgoing_requests), 3)
+        self.assertEqual(
+            [request["__data"]["msg"] for request in self.peer.requests],
+            ["record 0", "record 1", "record 2"])
+
+    async def test_records_from_threads_respect_the_cap_too(self):
+        loop = asyncio.get_running_loop()
+
+        def emit_from_thread(index):
+            self.emit_records(50, prefix="thread %d record" % index)
+
+        with patch("cms.io.async_service.MAX_PENDING_REMOTE_LOGS", 10):
+            await asyncio.gather(*(
+                loop.run_in_executor(None, emit_from_thread, index)
+                for index in range(4)))
+            await self.peer.wait_for_requests(10)
+            await asyncio.sleep(0.1)
+
+            self.assertEqual(len(self.service._background_tasks), 10)
+            self.assertEqual(len(self.peer.requests), 10)
+
+            # Every other record of the 200 was dropped and counted.
+            self.peer.release()
+            await self.wait_for_reports()
+        self.assertEqual(len(self.reports()), 1)
+        self.assertIn("190 log records", self.reports()[0])
+
+    async def test_drops_are_reported_once_when_the_backlog_drains(self):
+        with patch("cms.io.async_service.MAX_PENDING_REMOTE_LOGS", 3):
+            self.emit_records(10)
+            await self.peer.wait_for_requests(3)
+            await asyncio.sleep(0.1)
+            # Nothing is reported while the backlog is still there.
+            self.assertEqual(self.reports(), [])
+
+            self.peer.release()
+            await self.wait_for_reports()
+            await asyncio.sleep(0.1)
+
+            self.assertEqual(len(self.reports()), 1)
+            self.assertIn("7 log records", self.reports()[0])
+
+            # The room is back, and the count starts from zero again.
+            self.emit_records(2, prefix="later record")
+            await self.peer.wait_for_requests(5)
+            await asyncio.sleep(0.1)
+            self.assertEqual(len(self.reports()), 1)
+
+    async def test_report_is_not_sent_to_log_service(self):
+        # Sending it would log it again and again, if it also dropped.
+        with patch("cms.io.async_service.MAX_PENDING_REMOTE_LOGS", 3):
+            self.emit_records(10)
+            await self.peer.wait_for_requests(3)
+            self.peer.release()
+            await self.wait_for_reports()
+            await asyncio.sleep(0.1)
+
+        self.assertEqual(len(self.reports()), 1)
+        self.assertEqual(
+            [request["__data"]["name"] for request in self.peer.requests],
+            ["backpressure_test"] * 3)
+
+    async def test_nothing_is_reported_when_nothing_was_dropped(self):
+        with patch("cms.io.async_service.MAX_PENDING_REMOTE_LOGS", 5):
+            self.emit_records(3)
+            await self.peer.wait_for_requests(3)
+            self.peer.release()
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(self.reports(), [])
+        self.assertEqual(len(self.service._background_tasks), 0)
 
 
 class TestLoggingHandlersUseThreadingLocks(
