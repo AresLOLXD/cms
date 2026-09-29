@@ -58,6 +58,8 @@ class Codename(TypeDecorator):
 
     domain_name = "CODENAME"
     impl = Unicode
+    # Stateless (no __init__ arguments), so safe to use in cache keys.
+    cache_ok = True
 
     @classmethod
     def get_create_command(cls):
@@ -95,6 +97,8 @@ class Filename(TypeDecorator):
 
     domain_name = "FILENAME"
     impl = Unicode
+    # Stateless (no __init__ arguments), so safe to use in cache keys.
+    cache_ok = True
 
     @classmethod
     def get_create_command(cls):
@@ -140,6 +144,8 @@ class FilenameSchema(TypeDecorator):
 
     domain_name = "FILENAME_SCHEMA"
     impl = Unicode
+    # Stateless (no __init__ arguments), so safe to use in cache keys.
+    cache_ok = True
 
     @classmethod
     def get_create_command(cls):
@@ -182,6 +188,8 @@ class FilenameSchemaArray(TypeDecorator):
 
     domain_name = "FILENAME_SCHEMA_ARRAY"
     impl = CastingArray(Unicode)
+    # Stateless (no __init__ arguments), so safe to use in cache keys.
+    cache_ok = True
 
     @classmethod
     def get_create_command(cls):
@@ -234,6 +242,8 @@ class Digest(TypeDecorator):
 
     domain_name = "DIGEST"
     impl = Unicode
+    # Stateless (no __init__ arguments), so safe to use in cache keys.
+    cache_ok = True
 
     # The fake digest used to mark a file as deleted in the backend.
     TOMBSTONE = "x"
