@@ -163,15 +163,24 @@ class BaseHandler(CommonRequestHandler):
                 "Uncaught exception (%r) while processing a request: %s",
                 exc_info[1], ''.join(traceback.format_exception(*exc_info)))
 
-        # We assume that if r_params is defined then we have at least
-        # the data we need to display a basic template with the error
-        # information. If r_params is not defined (i.e. something went
-        # *really* bad) we simply return a basic textual error notice.
-        if self.r_params is not None:
-            self.render("error.html", status_code=status_code, **self.r_params)
-        else:
-            self.write("A critical error has occurred :-(")
-            self.finish()
+        # If r_params is not defined, the error was raised before
+        # prepare() finished (e.g. by the XSRF check, which Tornado
+        # runs first), so there is no contest yet. Build the params
+        # that do not depend on it. If even that fails (i.e. something
+        # went *really* bad) we simply return a basic textual error
+        # notice.
+        if self.r_params is None:
+            try:
+                # No contest, hence nobody is logged in; without this,
+                # xsrf_form_html() would look up the current user.
+                self._current_user = None
+                self.setup_locale()
+                self.r_params = BaseHandler.render_params(self)
+            except Exception:
+                self.write("A critical error has occurred :-(")
+                self.finish()
+                return
+        self.render("error.html", status_code=status_code, **self.r_params)
 
     def is_multi_contest(self):
         """Return whether CWS serves all contests."""
