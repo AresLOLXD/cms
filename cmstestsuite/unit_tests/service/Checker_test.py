@@ -256,14 +256,20 @@ class CheckerTest(
         await self._add_connected_service(coord, HangingLocalService())
         self._spy_on_spawn()
 
-        with patch("cms.service.Checker.time.time", side_effect=[100.0]):
+        # Replace the name Checker looks up, not time.time itself: patching
+        # "cms.service.Checker.time.time" would patch the global time module,
+        # so unrelated callers (e.g. logging.LogRecord on Python 3.12) would
+        # also consume the mocked values.
+        with patch("cms.service.Checker.time") as mock_time:
+            mock_time.time.return_value = 100.0
             await self.checker.check()
 
         self.assertIn(coord, self.checker.waiting_for)
         self.assertEqual(self.checker.waiting_for[coord], 100.0)
 
         with patch("cms.service.Checker.logger") as mock_logger, \
-                patch("cms.service.Checker.time.time", side_effect=[200.0]):
+                patch("cms.service.Checker.time") as mock_time:
+            mock_time.time.return_value = 200.0
             await self.checker.check()
 
         mock_logger.info.assert_any_call(
