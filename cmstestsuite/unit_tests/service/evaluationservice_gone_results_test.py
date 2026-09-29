@@ -41,7 +41,7 @@ from unittest.mock import MagicMock, patch
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms import config
-from cms.db import Submission
+from cms.db import Contest, Dataset, Submission, Task
 from cms.grading.Job import CompilationJob, EvaluationJob
 from cms.service.esoperations import ESOperation
 from cms.service.EvaluationService import EvaluationService, Result
@@ -55,10 +55,10 @@ GONE_ID = 987654321
 class Fixture:
     """A contest with one submission, and the objects it refers to."""
 
-    contest: object
-    task: object
-    dataset: object
-    submission: object
+    contest: Contest
+    task: Task
+    dataset: Dataset
+    submission: Submission
 
     def compilation(self) -> ESOperation:
         """Return the compilation operation of the submission."""
@@ -81,8 +81,16 @@ class TestWriteResultsOfGoneObjects(DatabaseMixin, unittest.TestCase):
 
     def setUp(self):
         super().setUp()
-        self.service = EvaluationService(0)
-        # No ScoringService is reachable: record what ES tells it.
+        # A real connect_to() starts an RPC client for each peer of ES
+        # (the LogService, the ScoringService and every Worker), which
+        # retries forever and holds a file descriptor for as long as the
+        # test process lives. Nothing here needs a peer: give ES fakes
+        # that are never connected, so that no Worker is ever chosen.
+        with patch.object(
+                EvaluationService, "connect_to",
+                return_value=MagicMock(connected=False)):
+            self.service = EvaluationService(0)
+        # Record what ES tells the ScoringService.
         self.service.scoring_service = MagicMock()
 
     def tearDown(self):
