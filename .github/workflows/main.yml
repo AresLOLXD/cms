@@ -24,6 +24,14 @@ jobs:
           docker compose -p cms -f docker/docker-compose.test.yml build \
               --build-arg BASE_IMAGE=${{ matrix.base_image }} testcms
 
+      # The container's cmsuser (uid 2000) writes the test reports into the
+      # bind-mounted codecov/ but can't chown it (its sudo is limited to
+      # isolate). Left to Docker, the directory would be created root:root
+      # 755 and pytest couldn't write its junit report there.
+      - name: Make the codecov directory writable
+        run: |
+          mkdir -p codecov && chmod 777 codecov
+
       - name: Run tests
         run: |
           docker compose -p cms -f docker/docker-compose.test.yml run --rm testcms

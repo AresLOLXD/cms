@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-sudo chown cmsuser:cmsuser ./codecov
+# codecov/ is bind-mounted from the host, which is expected to make it
+# writable (see main.yml and cms-test.sh). This chown only helps where sudo
+# allows it, and the image's sudoers permits nothing but isolate, so it must
+# neither prompt for a password (-n) nor abort the run when it fails.
+sudo -n chown cmsuser:cmsuser ./codecov 2>/dev/null || true
 
 dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting
 createdb --host=testdb --username=postgres cmsdbfortesting
