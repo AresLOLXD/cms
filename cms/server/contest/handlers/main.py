@@ -54,7 +54,7 @@ from cms.grading.languagemanager import get_language
 from cms.grading.steps import COMPILATION_MESSAGES, EVALUATION_MESSAGES
 from cms.server import multi_contest
 from cms.server.util import normalize_login_next_page
-from cms.server.contest.authentication import validate_login
+from cms.server.contest.authentication import validate_login_async
 from cms.server.contest.communication import get_communications
 from cmscommon.crypto import hash_password, validate_password
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -223,7 +223,7 @@ class LoginHandler(ContestHandler):
 
     """
     @multi_contest
-    def post(self):
+    async def post(self):
         error_args = {"login_error": "true"}
         next_page: str | None = self.get_argument("next", None)
         if next_page is not None:
@@ -241,11 +241,14 @@ class LoginHandler(ContestHandler):
                            self.request.remote_ip)
             return None
 
-        participation, cookie = validate_login(
+        # Read it now: validate_login_async ends the session's transaction,
+        # which expires the contest.
+        cookie_name = self.contest.name + "_login"
+
+        participation, cookie = await validate_login_async(
             self.sql_session, self.contest, self.timestamp, username, password,
             ip_address)
 
-        cookie_name = self.contest.name + "_login"
         if cookie is None:
             self.clear_cookie(cookie_name)
         else:
