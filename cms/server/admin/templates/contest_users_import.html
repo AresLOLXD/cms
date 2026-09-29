@@ -39,8 +39,11 @@ guarda nada.</p>
 <form enctype="multipart/form-data" method="POST"
       action="{{ url("contest", contest.id, "users", "import") }}">
   {{ xsrf_form_html|safe }}
+  {% if mapping %}
+  <p>Vuelve a elegir el archivo para importarlo; se conservan las columnas asignadas.</p>
+  {% endif %}
   <p><input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
-  <table>
+  <table{% if mapping %} data-has-mapping="1"{% endif %}>
     {% for field in fields %}
     <tr>
       <td>{{ field }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</td>
@@ -82,18 +85,19 @@ guarda nada.</p>
                 var headers = first.split(sep).map(function (h) {
                     return h.trim().replace(/^"|"$/g, "");
                 });
+                // With a previous mapping the admin's choices are kept as they
+                // were, an unassigned field included; the aliases only guess
+                // the columns on the first visit.
+                var hasMapping = document.querySelector("table[data-has-mapping]") !== null;
                 document.querySelectorAll("select[data-field]").forEach(function (select) {
                     var field = select.getAttribute("data-field");
-                    // The column the admin chose before, if this file has it;
-                    // otherwise the one the aliases point at.
                     var chosen = select.getAttribute("data-selected");
-                    var useChosen = Boolean(chosen) && headers.indexOf(chosen) !== -1;
                     select.length = 1;
                     headers.forEach(function (h) {
                         var option = document.createElement("option");
                         option.value = h;
                         option.textContent = h;
-                        if (useChosen ? h === chosen : ALIASES[field].indexOf(norm(h)) !== -1) {
+                        if (hasMapping ? (Boolean(chosen) && h === chosen) : ALIASES[field].indexOf(norm(h)) !== -1) {
                             option.selected = true;
                         }
                         select.appendChild(option);

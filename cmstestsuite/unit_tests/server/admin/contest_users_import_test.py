@@ -226,6 +226,18 @@ class TestImportUsersPost(unittest.TestCase):
 
         self.assertEqual(rendered_params(handler)["mapping"], POSTED_MAPPING)
 
+    def test_a_mapping_with_nothing_assigned_still_counts_as_submitted(self):
+        # The page tells "no previous mapping" from "the admin left every
+        # field unassigned" by the mapping being empty or not.
+        handler = make_handler(form=import_form("import", {}))
+        with mock.patch(MODULE + ".IMPORT_JOBS"):
+            handler._post_sync(str(CONTEST_ID))
+
+        params = rendered_params(handler)
+        self.assertTrue(params["errors"])
+        self.assertEqual(params["mapping"], {field: "" for field in FIELDS})
+        self.assertTrue(params["mapping"])
+
     def test_a_running_job_of_the_contest_is_reported(self):
         handler = make_handler(form=import_form("import"))
         message = "ya hay una importación en curso para este concurso"
@@ -590,10 +602,35 @@ class TestImportTemplates(unittest.TestCase):
             html, r'data-field="username" data-selected="(&#34;|&quot;)'
                   r'&gt;&lt;b&gt;x&lt;/b&gt;"')
 
-    def test_the_script_prefers_the_column_chosen_before(self):
+    def test_the_script_reads_the_columns_chosen_before(self):
         html = self.render_import()
 
         self.assertIn('getAttribute("data-selected")', html)
+        self.assertIn("table[data-has-mapping]", html)
+
+    def test_the_table_says_whether_there_is_a_previous_mapping(self):
+        first_visit = self.render_import()
+        self.assertNotIn('data-has-mapping="1"', first_visit)
+        self.assertIn("<table>", first_visit)
+
+        for mapping in ({"username": "usuario"},
+                        {field: "" for field in FIELDS}):
+            html = self.render_import(mapping=mapping)
+            self.assertEqual(html.count('data-has-mapping="1"'), 1,
+                             msg=mapping)
+            self.assertIn('<table data-has-mapping="1">', html)
+
+    def test_the_form_asks_to_pick_the_file_again_only_with_a_mapping(self):
+        hint = ("Vuelve a elegir el archivo para importarlo; se conservan "
+                "las columnas asignadas.")
+
+        self.assertNotIn(hint, self.render_import())
+        html = self.render_import(mapping={"username": "usuario"})
+
+        self.assertIn("<p>%s</p>" % hint, html)
+        # The hint is above the file input.
+        self.assertLess(html.index(hint),
+                        html.index('<input type="file" name="file"'))
 
     def test_a_job_shows_a_progress_bar_and_its_status_url(self):
         job = SimpleNamespace(id="job-1", processed=3, total=10)
