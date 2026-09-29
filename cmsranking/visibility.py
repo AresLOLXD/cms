@@ -116,8 +116,6 @@ class VisibilityState:
         self._load()
 
     def _load(self):
-        if not os.path.exists(self.path):
-            return
         try:
             with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
@@ -130,6 +128,11 @@ class VisibilityState:
                             or isinstance(staff_password, str)):
                 raise ValueError("Wrong types.")
             bytes.fromhex(secret)
+        except FileNotFoundError:
+            # A group that was never configured is visible. Any other
+            # failure to read the file must not make it public: checking
+            # for the file first would take an unreadable one for none.
+            return
         except (OSError, ValueError, KeyError, TypeError):
             logger.error("Cannot read %s: hiding the ranking until its "
                          "visibility is sent again.", self.path,
@@ -163,16 +166,37 @@ class VisibilityState:
         self.staff_password = staff_password
 
 
-class _CutWhenHidden:
-    """Wrap a response body so it stops once the group gets hidden."""
+def _close_connection(start_response):
+    """Make the gevent server close the connection after this response.
 
-    def __init__(self, iterable, state: VisibilityState):
+    A response that stops short of its promised length would otherwise
+    leave the browser waiting on a keep-alive connection for the rest.
+
+    start_response: the WSGI start_response callable of the request.
+
+    """
+    handler = getattr(start_response, "__self__", None)
+    if isinstance(handler, WSGIHandler):
+        handler.close_connection = True
+
+
+class _CutWhenHidden:
+    """Wrap a response body so it stops once the group gets hidden.
+
+    The connection is closed when that happens, because the body ends
+    before its headers say it does.
+
+    """
+
+    def __init__(self, iterable, state: VisibilityState, start_response):
         self._iterable = iterable
         self._state = state
+        self._start_response = start_response
 
     def __iter__(self):
         for chunk in self._iterable:
             if self._state.hidden:
+                _close_connection(self._start_response)
                 return
             yield chunk
 
@@ -347,8 +371,7 @@ class VisibilityGuard:
 
             def guarded_write(data):
                 if self.state.hidden and not self._is_staff(request):
-                    if isinstance(handler, WSGIHandler):
-                        handler.close_connection = True
+                    _close_connection(start_response)
                     raise ConnectionAbortedError("The ranking is hidden.")
                 return write(data)
 
@@ -363,7 +386,7 @@ class VisibilityGuard:
         request = Request(environ)
         path = request.path
         start_response = self._guard_writes(request, start_response)
-        if path == "/visibility":
+        if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
@@ -374,9 +397,15 @@ class VisibilityGuard:
             return self.app(environ, start_response)
         if not self.state.hidden:
             return _CutWhenHidden(self.app(environ, start_response),
-                                  self.state)
+                                  self.state, start_response)
         if request.method in ("PUT", "DELETE"):
-            # The store handlers check the proxy's credentials.
+            # The store handlers check the proxy's credentials too, but
+            # after they look the key up, so an anonymous DELETE would
+            # tell which keys exist. Static files would take a PUT.
+            if not self._writer_authorized(request):
+                logger.warning("Unauthorized request.",
+                               extra={"location": request.url})
+                return self._unauthorized()(environ, start_response)
             return self.app(environ, start_response)
         if path == "/" and request.method in ("GET", "HEAD"):
             return self._notice()(environ, start_response)
@@ -398,16 +427,21 @@ class VisibilityGuard:
         # Group names are validated to [a-z0-9_-] by RWS and AWS.
         return re.sub(r"[^a-z0-9_-]", "", self.group)
 
+    def _unauthorized(self) -> Response:
+        """Build the answer to a write without the proxy's credentials.
+
+        return: a 401 that asks for them and must not be cached.
+
+        """
+        return Response("Unauthorized", status=401, headers={
+            **NO_STORE,
+            "WWW-Authenticate": 'Basic realm="%s"' % self.realm_name})
+
     def _update(self, request: Request) -> Response:
-        if request.method != "PUT":
-            return Response(status=405, headers={"Allow": "PUT"})
         if not self._writer_authorized(request):
             logger.warning("Unauthorized visibility update.",
                            extra={"location": request.url})
-            return Response(
-                "Unauthorized", status=401, headers={
-                    "WWW-Authenticate":
-                        'Basic realm="%s"' % self.realm_name})
+            return self._unauthorized()
         try:
             data = json.loads(request.get_data(as_text=True))
             hidden = data["hidden"]

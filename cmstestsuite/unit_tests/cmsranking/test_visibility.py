@@ -119,11 +119,27 @@ class TestVisibilityUpdate(VisibilityTestCase):
                 content_type="application/json", headers=AUTH)
             self.assertEqual(response.status_code, 400, msg=body)
 
+    def test_put_rejects_missing_keys(self):
+        self.put_contest("/olim")
+        for body in [{}, {"hidden": True}, {"staff_password": None}]:
+            response = self.client.put(
+                "/olim/visibility", data=json.dumps(body),
+                content_type="application/json", headers=AUTH)
+            self.assertEqual(response.status_code, 400, msg=body)
+
     def test_put_creates_namespace(self):
         self.assertEqual(self.put_visibility("omips", True).status_code,
                          204)
         self.assertTrue(os.path.isfile(os.path.join(
             self.lib_dir, "groups", "omips", VISIBILITY_FILE)))
+
+    def test_namespace_created_hidden_is_forbidden(self):
+        self.put_visibility("omips", True)
+        for path in DATA_PATHS:
+            response = self.client.get("/omips/" + path)
+            self.assertEqual(response.status_code, 403, msg=path)
+            self.assertEqual(response.headers["Cache-Control"], "no-store",
+                             msg=path)
 
     def test_state_persists_across_restart(self):
         self.put_contest("/olim")
@@ -162,6 +178,80 @@ class TestHiddenGroup(VisibilityTestCase):
             content_type="application/json", headers=AUTH)
         self.assertEqual(response.status_code, 204)
         self.assertEqual(self.client.get("/olim/users/").status_code, 403)
+
+    def test_proxy_deletes_still_accepted(self):
+        self.assertEqual(
+            self.client.delete("/olim/contests/missing",
+                               headers=AUTH).status_code, 404)
+        self.assertEqual(
+            self.client.delete("/olim/contests/c1",
+                               headers=AUTH).status_code, 204)
+
+    def test_anonymous_writes_get_a_uniform_401(self):
+        # The guard answers before the store handlers, which look the key
+        # up before checking the credentials: an anonymous DELETE would
+        # tell which keys exist, and a PUT would reach the static files.
+        wrong = {"Authorization": "Basic " + b64encode(
+            (USERNAME + ":wrong").encode()).decode()}
+        for method, path, headers in [
+                ("PUT", "contests/c2", {}), ("PUT", "contests/", {}),
+                ("PUT", "Ranking.js", {}), ("DELETE", "contests/c1", {}),
+                ("DELETE", "contests/missing", {}),
+                ("DELETE", "contests/", {}),
+                ("DELETE", "contests/missing", wrong)]:
+            with self.subTest(method=method, path=path):
+                response = self.client.open(
+                    "/olim/" + path, method=method, headers=headers,
+                    data=json.dumps(CONTEST),
+                    content_type="application/json")
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "no-store")
+                self.assertEqual(response.headers["WWW-Authenticate"],
+                                 'Basic realm="Scoreboard"')
+        existing = self.client.delete("/olim/contests/c1")
+        missing = self.client.delete("/olim/contests/missing")
+        self.assertEqual(existing.get_data(), missing.get_data())
+        # None of them had any effect.
+        self.put_visibility("olim", False)
+        self.assertEqual(self.client.get("/olim/contests/").json,
+                         {"c1": CONTEST})
+
+    def test_anonymous_write_is_logged(self):
+        with self.assertLogs("cmsranking.visibility", "WARNING"):
+            self.client.delete("/olim/contests/c1")
+
+    def test_proxy_credentials_do_not_open_reads(self):
+        for path in DATA_PATHS:
+            response = self.client.get("/olim/" + path, headers=AUTH)
+            self.assertEqual(response.status_code, 403, msg=path)
+
+    def test_visibility_is_only_special_for_put(self):
+        response = self.client.get("/olim/visibility")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(self.client.post("/olim/visibility").status_code,
+                         403)
+        self.assertEqual(self.client.delete("/olim/visibility").status_code,
+                         401)
+        # Once visible, the app answers as for any unknown path.
+        self.put_visibility("olim", False)
+        self.assertEqual(self.client.get("/olim/visibility").status_code,
+                         404)
+
+    def test_odd_methods_and_paths_stay_closed(self):
+        paths = ["/events", "//events", "/events/", "/events?x=1",
+                 "/%65vents"]
+        for method in ["HEAD", "OPTIONS", "POST", "PATCH", "PUT", "DELETE"]:
+            for path in paths:
+                with self.subTest(method=method, path=path):
+                    response = self.client.open("/olim" + path,
+                                                method=method)
+                    self.assertEqual(
+                        response.status_code,
+                        401 if method in ["PUT", "DELETE"] else 403)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-store")
 
     def test_unhide_restores_public_access(self):
         self.put_visibility("olim", False)
@@ -569,6 +659,39 @@ class TestRealEventStream(VisibilityTestCase):
         self.assertTrue(closed)
 
 
+class TestCutBody(unittest.TestCase):
+    """A body cut short must not leave the browser waiting for the rest."""
+
+    def test_connection_is_closed_when_the_body_is_cut(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+
+        def app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain"),
+                                      ("Content-Length", "12")])
+
+            def body():
+                yield b"first\n"
+                # The group gets hidden while the body is being sent.
+                guard.state.update(True, None)
+                yield b"second"
+            return body()
+
+        guard = VisibilityGuard(app, tmp, "olim", USERNAME, PASSWORD,
+                                "Scoreboard")
+        server = WSGIServer(("127.0.0.1", 0), guard, log=None)
+        server.start()
+        self.addCleanup(server.stop)
+        stream = socket.create_connection(("127.0.0.1", server.server_port),
+                                          timeout=3)
+        self.addCleanup(stream.close)
+        stream.sendall(b"GET /file HTTP/1.1\r\nHost: rws\r\n\r\n")
+        received, closed = TestRealEventStream.drain(stream)
+        self.assertIn(b"first\n", received)
+        self.assertNotIn(b"second", received)
+        self.assertTrue(closed)
+
+
 class TestVisibilityState(unittest.TestCase):
 
     def test_update_is_persisted_with_a_stable_secret(self):
@@ -581,6 +704,52 @@ class TestVisibilityState(unittest.TestCase):
         reloaded = VisibilityState(tmp)
         self.assertEqual((reloaded.hidden, reloaded.staff_password,
                           reloaded.secret), (False, None, secret))
+
+
+class TestUnreadableState(unittest.TestCase):
+    """A state file that is there but cannot be used hides the group."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        # rmtree cannot enter a directory that has lost its permissions.
+        self.addCleanup(os.chmod, self.tmp, 0o700)
+        self.path = os.path.join(self.tmp, VISIBILITY_FILE)
+
+    def assert_fails_closed(self):
+        with self.assertLogs("cmsranking.visibility", "ERROR"):
+            state = VisibilityState(self.tmp)
+        self.assertEqual((state.hidden, state.staff_password), (True, None))
+
+    def test_no_file_means_visible(self):
+        state = VisibilityState(self.tmp)
+        self.assertEqual((state.hidden, state.staff_password),
+                         (False, None))
+
+    def test_directory_instead_of_file(self):
+        os.mkdir(self.path)
+        self.assert_fails_closed()
+
+    def test_link_to_itself(self):
+        # os.path.exists() says False for it, although the file is there.
+        os.symlink(VISIBILITY_FILE, self.path)
+        self.assert_fails_closed()
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads any file")
+    def test_file_without_read_permission(self):
+        with open(self.path, "w") as f:
+            json.dump({"hidden": False, "staff_password": None,
+                       "secret": "00"}, f)
+        os.chmod(self.path, 0)
+        self.assert_fails_closed()
+
+    @unittest.skipIf(os.geteuid() == 0, "root enters any directory")
+    def test_directory_without_search_permission(self):
+        with open(self.path, "w") as f:
+            json.dump({"hidden": False, "staff_password": None,
+                       "secret": "00"}, f)
+        os.chmod(self.tmp, 0)
+        self.assert_fails_closed()
 
 
 if __name__ == "__main__":
