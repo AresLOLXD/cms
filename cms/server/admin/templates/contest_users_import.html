@@ -76,8 +76,8 @@ guarda nada.</p>
 <div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") }}"
      data-users-url="{{ url("contest", contest.id, "users") }}"
      data-import-url="{{ url("contest", contest.id, "users", "import") }}">
-  <p id="import_text">Procesando {{ job.processed }} de {{ job.total }}</p>
-  <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" style="width: 100%"></progress>
+  <p id="import_text" aria-live="polite">Procesando {{ job.processed }} de {{ job.total }}</p>
+  <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" aria-label="Progreso de la importación" style="width: 100%"></progress>
   <div id="import_result"></div>
 </div>
 {% else %}
@@ -85,21 +85,24 @@ guarda nada.</p>
       action="{{ url("contest", contest.id, "users", "import") }}">
   {{ xsrf_form_html|safe }}
   {% if mapping %}
-  <p>Vuelve a elegir el archivo para importarlo; se conservan las columnas asignadas.</p>
+  <p>Vuelve a elegir el archivo para importarlo. Se conservan las columnas asignadas, salvo la de la contraseña: revísala.</p>
   {% endif %}
-  <p><input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
+  <p>* obligatorio</p>
+  <p><label for="import_file">Archivo CSV *</label>
+    <input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
   {# The header chosen for the password is not echoed back: in a file without
      a header row it would be a contestant's password. #}
+  {% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
   <table{% if mapping %} data-has-mapping="1"{% endif %}>
     {% for field in fields %}
     <tr>
-      <td>{{ field }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</td>
-      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}"><option value="">(sin asignar)</option></select></td>
+      <td><label for="map_{{ field }}">{{ labels[field] }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</label></td>
+      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"><option value="">(sin asignar)</option></select></td>
       {% if field == "team" %}<td rowspan="2" class="import-note">Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal.</td>{% endif %}
     </tr>
     {% endfor %}
   </table>
-  <p>La importación cifra las contraseñas y puede tardar ~30 s por cada 300 concursantes.</p>
+  <p>La importación cifra las contraseñas y puede tardar de 20 a 40 s por cada 300 concursantes.</p>
   <button type="submit" name="action" value="validate">Solo validar</button>
   <button type="submit" name="action" value="import">Importar</button>
 </form>

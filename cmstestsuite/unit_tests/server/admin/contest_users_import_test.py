@@ -714,15 +714,15 @@ class TestImportTemplates(unittest.TestCase):
 
         self.assertRegex(
             html, r'<select name="map_username" data-field="username" '
-                  r'data-selected="usuario">')
+                  r'data-selected="usuario" id="map_username">')
         # The column of the password is the one thing never echoed.
         self.assertRegex(
             html, r'<select name="map_password" data-field="password" '
-                  r'data-selected="">')
+                  r'data-selected="" id="map_password">')
         # An optional field left unassigned has nothing to select.
         self.assertRegex(
             html, r'<select name="map_team" data-field="team" '
-                  r'data-selected="">')
+                  r'data-selected="" id="map_team">')
 
     def test_the_columns_chosen_before_are_escaped(self):
         html = self.render_import(mapping={"username": '"><b>x</b>'})
@@ -751,8 +751,9 @@ class TestImportTemplates(unittest.TestCase):
             self.assertIn('<table data-has-mapping="1">', html)
 
     def test_the_form_asks_to_pick_the_file_again_only_with_a_mapping(self):
-        hint = ("Vuelve a elegir el archivo para importarlo; se conservan "
-                "las columnas asignadas.")
+        hint = ("Vuelve a elegir el archivo para importarlo. Se conservan "
+                "las columnas asignadas, salvo la de la contraseña: "
+                "revísala.")
 
         self.assertNotIn(hint, self.render_import())
         html = self.render_import(mapping={"username": "usuario"})
@@ -761,6 +762,52 @@ class TestImportTemplates(unittest.TestCase):
         # The hint is above the file input.
         self.assertLess(html.index(hint),
                         html.index('<input type="file" name="file"'))
+
+    def test_every_field_has_a_label_in_spanish(self):
+        html = self.render_import()
+
+        labels = {
+            "import_file": "Archivo CSV *",
+            "map_username": "Usuario (username) *",
+            "map_first_name": "Nombre (first_name) *",
+            "map_last_name": "Apellidos (last_name) *",
+            "map_password": "Contraseña del día (password) *",
+            "map_team": "Equipo (team)",
+            "map_group": "Grupo (group)"}
+        for control, text in labels.items():
+            self.assertIn('<label for="%s">%s</label>' % (control, text),
+                          html, msg=control)
+            # The label points at a control that exists.
+            self.assertIn('id="%s"' % control, html, msg=control)
+        self.assertEqual(html.count("<label "), len(labels))
+        # The selects keep what the script and the server read.
+        for field in FIELDS:
+            self.assertRegex(html, r'<select name="map_%s" data-field="%s" '
+                                   % (field, field))
+
+    def test_the_required_marks_are_explained(self):
+        html = self.render_import()
+
+        self.assertIn("* obligatorio", html)
+        # The optional fields are not marked.
+        self.assertNotIn("(team) *", html)
+        self.assertNotIn("(group) *", html)
+
+    def test_the_progress_is_announced_and_the_bar_has_a_name(self):
+        job = SimpleNamespace(id="job-1", processed=3, total=10)
+
+        html = self.render_import(job=job)
+
+        self.assertRegex(html, r'<p id="import_text" aria-live="polite">'
+                               r'Procesando 3 de 10</p>')
+        self.assertRegex(html, r'<progress id="import_bar" value="3" '
+                               r'max="10" aria-label="[^"]+"')
+
+    def test_the_form_gives_the_time_of_an_import(self):
+        html = self.render_import()
+
+        self.assertIn("de 20 a 40 s por cada 300 concursantes", html)
+        self.assertNotIn("~30 s", html)
 
     def test_the_form_disables_its_buttons_after_the_first_submit(self):
         # A double click would post the file twice; the second post is
@@ -884,7 +931,7 @@ class TestImportTemplates(unittest.TestCase):
         self.assertNotIn("s3cret", html)
         self.assertRegex(
             html, r'<select name="map_password" data-field="password" '
-                  r'data-selected="">')
+                  r'data-selected="" id="map_password">')
         self.assertIn('data-selected="usuario"', html)
 
     def test_the_summary_of_a_validation_is_shown(self):
