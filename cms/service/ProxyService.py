@@ -34,6 +34,7 @@ import enum
 import json
 import logging
 import string
+from time import monotonic
 from urllib.parse import urljoin, urlsplit
 
 import requests
@@ -232,6 +233,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
 
     What the ranking cannot take because it is unreachable or failing is
     put back in the queue for a later round; what it refuses is dropped.
+    Each namespace waits on its own before it is tried again, so one
+    that keeps failing doesn't slow down the others.
 
     Each entity type is identified by a integral class-level constant.
 
@@ -272,10 +275,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     # data, so a hidden namespace never exposes data, even briefly.
     VISIBILITY_TYPE = TYPE_COUNT + 1
 
-    # How long we wait after having failed to push data to a ranking
-    # before trying again: MIN_RETRY_WAIT seconds the first time, then
-    # twice as long at each failure that follows, up to MAX_RETRY_WAIT.
-    # Pushing data successfully starts it over.
+    # How long a namespace waits after its data could not be pushed to
+    # the ranking before it is tried again: MIN_RETRY_WAIT seconds the
+    # first time, then twice as long at each failure that follows, up
+    # to MAX_RETRY_WAIT. Pushing its data successfully starts it over.
     MIN_RETRY_WAIT = 1.0
     MAX_RETRY_WAIT = 60.0
 
@@ -292,8 +295,14 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         self._ranking = ranking
         self._visible_ranking = safe_url(ranking)
 
-        # How long to wait if the next attempt to push data fails.
-        self._retry_wait = self.MIN_RETRY_WAIT
+        # For each namespace whose data the ranking could not take: how
+        # long it waits if its next attempt fails too, and when (on the
+        # monotonic clock) it may be tried again.
+        self._retry_waits: dict[str | None, float] = dict()
+        self._retry_after: dict[str | None, float] = dict()
+        # Set when operations are queued, to end a wait for a namespace
+        # early: the data of the others must not wait for it.
+        self._new_work = asyncio.Event()
 
         # The namespaces whose visibility settings the ranking refused
         # the last time they were sent. Their data is dropped until it
@@ -306,36 +315,107 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         """Return the resource path prefix of a ranking namespace."""
         return "" if group is None else "%s/" % group
 
+    def enqueue(
+        self,
+        item: ProxyOperation,
+        priority: int | None = None,
+        timestamp: datetime | None = None,
+    ) -> bool:
+        """Queue an operation, ending any wait to try a namespace again.
+
+        See AsyncExecutor.enqueue.
+
+        """
+        queued = super().enqueue(item, priority, timestamp)
+        if queued:
+            self._new_work.set()
+        return queued
+
     async def execute(self, entries: list[QueueEntry[ProxyOperation]]):
         """Send one batch of operations already fetched from the queue.
 
         Combine the given entries and send them to the target ranking
         with a single synchronous batch call run in a worker thread
-        (via run_in_executor). The entries whose data the ranking
-        could not take are put back in the queue as they were (same
-        priority and timestamp, so they keep their place in the order)
-        and we sleep before returning, so the caller's next round
-        doesn't immediately retry. The sleep starts at MIN_RETRY_WAIT
-        seconds, doubles at each failure in a row up to MAX_RETRY_WAIT
-        and starts over after a success.
+        (via run_in_executor), except the ones of the namespaces that
+        still wait to be tried again after a failure. Those, and the
+        entries whose data the ranking could not take, are put back in
+        the queue as they were (same priority and timestamp, so they
+        keep their place in the order).
+
+        Each namespace waits on its own: MIN_RETRY_WAIT seconds after
+        a failure, twice as long at each failure in a row up to
+        MAX_RETRY_WAIT, and it starts over once the ranking takes all
+        of its data. Before returning, we sleep until the first
+        namespace is due, so the caller's next round doesn't retry
+        immediately; but at most MIN_RETRY_WAIT seconds if another
+        namespace got its data in this round, and new operations end
+        the sleep early: a failing namespace must not hold back the
+        data of the others.
 
         entries: entries containing the operations to perform.
 
         """
-        loop = asyncio.get_running_loop()
-        unsent = await loop.run_in_executor(None, self._execute_sync, entries)
-        if not unsent:
-            self._retry_wait = self.MIN_RETRY_WAIT
-            return
+        # Operations queued from now on are new to this round.
+        self._new_work.clear()
+        now = monotonic()
+        ready = [entry for entry in entries
+                 if self._retry_after.get(entry.item.group, now) <= now]
+        unsent: list[QueueEntry[ProxyOperation]] = []
+        if ready:
+            loop = asyncio.get_running_loop()
+            unsent = await loop.run_in_executor(
+                None, self._execute_sync, ready)
 
-        for entry in unsent:
-            self.enqueue(entry.item, entry.priority, entry.timestamp)
-        wait = self._retry_wait
-        self._retry_wait = min(2 * wait, self.MAX_RETRY_WAIT)
-        logger.warning("Could not send %d operation(s) to ranking %s, "
-                       "trying again in %g seconds.",
-                       len(unsent), self._visible_ranking, wait)
-        await asyncio.sleep(wait)
+        now = monotonic()
+        failed = {entry.item.group for entry in unsent}
+        for group in failed:
+            wait = self._retry_waits.get(group, self.MIN_RETRY_WAIT)
+            self._retry_waits[group] = min(2 * wait, self.MAX_RETRY_WAIT)
+            self._retry_after[group] = now + wait
+            logger.warning(
+                "Could not send %d operation(s) of group %s to ranking %s, "
+                "trying again in %g seconds.",
+                sum(entry.item.group == group for entry in unsent),
+                group if group is not None else "(root)",
+                self._visible_ranking, wait)
+        progressed = {entry.item.group for entry in ready} - failed
+        for group in progressed:
+            self._retry_waits.pop(group, None)
+            self._retry_after.pop(group, None)
+
+        ready_ids = {id(entry) for entry in ready}
+        put_back = {id(entry) for entry in unsent}
+        put_back.update(
+            id(entry) for entry in entries if id(entry) not in ready_ids)
+        waiting = [entry for entry in entries if id(entry) in put_back]
+        if not waiting:
+            return
+        for entry in waiting:
+            # Not self.enqueue: this is not new work.
+            super().enqueue(entry.item, entry.priority, entry.timestamp)
+
+        wait = min(self._retry_after[entry.item.group]
+                   for entry in waiting) - now
+        if progressed:
+            wait = min(wait, self.MIN_RETRY_WAIT)
+        await self._wait_for_retry(wait)
+
+    async def _wait_for_retry(self, delay: float):
+        """Sleep for delay seconds, or until operations are queued.
+
+        delay: how many seconds to sleep at most.
+
+        """
+        if delay <= 0 or self._new_work.is_set():
+            return
+        sleeping = asyncio.ensure_future(asyncio.sleep(delay))
+        queueing = asyncio.ensure_future(self._new_work.wait())
+        try:
+            await asyncio.wait((sleeping, queueing),
+                               return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            sleeping.cancel()
+            queueing.cancel()
 
     def _execute_sync(
         self, entries: list[QueueEntry[ProxyOperation]]

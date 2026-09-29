@@ -134,19 +134,29 @@ class FakeRetryWaits:
     (and only that one, so the sleeps of the tests themselves are left
     alone) records those waits and returns at once.
 
+    The executor also reads the clock, with monotonic, to know which
+    groups are due. Patch it with this object's monotonic too: that
+    clock moves forward only by the waits, as if they took place.
+
     """
 
     def __init__(self):
         self.waits: list[float] = []
         # Once this many waits happened, the next ones never end.
         self.block_after: int | None = None
+        # The time on the fake clock, in seconds.
+        self.now = 0.0
 
     async def sleep(self, delay: float) -> None:
         self.waits.append(delay)
         if self.block_after is not None \
                 and len(self.waits) >= self.block_after:
             await asyncio.Event().wait()
+        self.now += delay
         await asyncio.sleep(0)
+
+    def monotonic(self) -> float:
+        return self.now
 
     def __getattr__(self, name):
         return getattr(asyncio, name)
@@ -161,11 +171,15 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         # How the ranking answers, by (method, URL): an exception to
         # raise, or the HTTP status to answer with.
         self.outcomes: dict[tuple[str, str], Exception | int] = {}
+        # When each URL was requested, on the fake clock.
+        self.request_times: dict[str, list[float]] = {}
 
         def fake_request(method, default_status):
             def send(target, body=None, **kwargs):
                 payload = None if body is None else json.loads(body)
                 self.calls.append((method, target, payload))
+                self.request_times.setdefault(target, []).append(
+                    self.retry_waits.now)
                 outcome = self.outcomes.get((method, target), default_status)
                 if isinstance(outcome, Exception):
                     raise outcome
@@ -181,9 +195,11 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
             self.addCleanup(patcher.stop)
 
         self.retry_waits = FakeRetryWaits()
-        patcher = patch("cms.service.ProxyService.asyncio", self.retry_waits)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, fake in (("asyncio", self.retry_waits),
+                           ("monotonic", self.retry_waits.monotonic)):
+            patcher = patch("cms.service.ProxyService." + name, fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
         self.executor = ProxyExecutor(RANKING)
 
@@ -201,6 +217,23 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
     async def next_round(self):
         """Do what run() does for one round."""
         await self.executor.execute(await self.drain())
+
+    async def rounds_until(self, until: float, before_each=None):
+        """Do what run() does, until the fake clock gets to until.
+
+        until: the time (on the fake clock) to stop at.
+        before_each: a function to call before each round, if any.
+
+        """
+        # An executor that stops waiting would never get there.
+        for _ in range(1000):
+            if self.retry_waits.now >= until:
+                return
+            if before_each is not None:
+                before_each()
+            await self.next_round()
+        self.fail("The fake clock is still at %s after 1000 rounds."
+                  % self.retry_waits.now)
 
     def start_running(self, executor: ProxyExecutor) -> asyncio.Task:
         task = asyncio.create_task(executor.run())
@@ -729,6 +762,81 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         self.assertIn("accepted the visibility of group olim",
                       logs.output[0])
         self.assertIn("Regenerate", logs.output[0])
+
+    async def test_failing_group_does_not_slow_down_the_others(self):
+        # olim keeps failing, omips works and gets new data all the time.
+        self.outcomes = {("put", url("olim/contests/")): 503}
+        stamp = datetime(2020, 1, 1, 9, 0, 0)
+        self.executor.enqueue(ProxyOperation(
+            ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"), 3, stamp)
+        scores = iter(range(1000))
+
+        def new_score():
+            self.executor.enqueue(ProxyOperation(
+                ProxyExecutor.SUBMISSION_TYPE, {"%d" % next(scores): {}},
+                "omips"))
+
+        await self.rounds_until(184, before_each=new_score)
+
+        # olim is tried again later and later...
+        olim = self.request_times[url("olim/contests/")]
+        self.assertEqual([later - earlier
+                          for earlier, later in zip(olim, olim[1:])],
+                         [1, 2, 4, 8, 16, 32, 60, 60])
+        # ... while omips gets its data at every round, which comes a
+        # second after the previous one at most.
+        self.assertEqual(self.request_times[url("omips/submissions/")],
+                         list(range(184)))
+        self.assertLessEqual(max(self.retry_waits.waits),
+                             ProxyExecutor.MIN_RETRY_WAIT)
+        # The data of olim was put back as it was, every time.
+        self.assertEqual(
+            [(e.item.data, e.priority, e.timestamp)
+             for e in await self.drain()],
+            [({"c": {}}, 3, stamp)])
+
+    async def test_group_that_recovers_starts_its_wait_over(self):
+        olim = ("put", url("olim/contests/"))
+        omips = ("put", url("omips/contests/"))
+        self.outcomes = {olim: 503, omips: 503}
+        for group in ("olim", "omips"):
+            self.executor.enqueue(ProxyOperation(
+                ProxyExecutor.CONTEST_TYPE, {"c": {}}, group))
+        await self.rounds_until(7)
+        # olim takes its data again, omips still fails.
+        del self.outcomes[olim]
+        await self.rounds_until(8)
+        # olim fails again, with new data.
+        self.outcomes[olim] = 503
+        self.executor.enqueue(ProxyOperation(
+            ProxyExecutor.CONTEST_TYPE, {"c2": {}}, "olim"))
+        await self.rounds_until(16)
+
+        # olim waits 1, 2 and 4 seconds, takes its data at 7, and
+        # starts over from 1 second; omips keeps doubling.
+        self.assertEqual(self.request_times[url("olim/contests/")],
+                         [0, 1, 3, 7, 8, 9, 11, 15])
+        self.assertEqual(self.request_times[url("omips/contests/")],
+                         [0, 1, 3, 7, 15])
+
+    async def test_new_data_does_not_wait_for_a_group_backing_off(self):
+        self.outcomes = {("put", url("olim/contests/")):
+                         requests.exceptions.ConnectionError("down")}
+        # The wait after the failure of olim never ends by itself.
+        self.retry_waits.block_after = 1
+        self.start_running(self.executor)
+        self.executor.enqueue(
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
+        await self.wait_until(lambda: self.retry_waits.waits)
+
+        # A score of omips comes while the executor waits to try olim.
+        self.executor.enqueue(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE, {"1": {}}, "omips"))
+
+        sent = ("put", url("omips/submissions/"), {"1": {}})
+        await self.wait_until(lambda: sent in self.calls)
+        # olim was not tried again: its wait is not over.
+        self.assertEqual(self.urls().count(url("olim/contests/")), 1)
 
 
 if __name__ == "__main__":

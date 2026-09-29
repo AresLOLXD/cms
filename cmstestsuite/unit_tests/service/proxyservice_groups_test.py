@@ -70,10 +70,11 @@ class TestProxyServiceGroups(
         # An executor waits before sending again what a ranking could
         # not take: skip those waits, and record them.
         self.retry_waits = FakeRetryWaits()
-        retry_patcher = patch(
-            "cms.service.ProxyService.asyncio", self.retry_waits)
-        retry_patcher.start()
-        self.addCleanup(retry_patcher.stop)
+        for name, fake in (("asyncio", self.retry_waits),
+                           ("monotonic", self.retry_waits.monotonic)):
+            retry_patcher = patch("cms.service.ProxyService." + name, fake)
+            retry_patcher.start()
+            self.addCleanup(retry_patcher.stop)
 
         # Count the batches all the executors are sending, for _settle().
         self.executions_in_flight = 0
