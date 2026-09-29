@@ -131,7 +131,7 @@ def read_rows(data: bytes, mapping: dict[str, str]
         name = (mapping.get(field) or "").strip()
         if not name:
             if field in REQUIRED:
-                errors.append("falta asignar la columna de %s (%s)"
+                errors.append("falta asignar la columna para %s (%s)"
                               % (LABELS[field], field))
             continue
         # A column used for two fields would let a cell of the password

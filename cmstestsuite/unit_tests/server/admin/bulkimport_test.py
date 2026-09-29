@@ -60,7 +60,20 @@ class TestReadRows(unittest.TestCase):
         mapping = dict(MAPPING, password="")
         _, errors = read_rows(csv_bytes("usuario,nombre,apellido\n"),
                               mapping)
-        self.assertTrue(any("password" in e for e in errors))
+        self.assertIn(
+            "falta asignar la columna para la contraseña (password)", errors)
+
+    def test_unmapped_required_fields_read_well_in_spanish(self):
+        for field, text in (
+                ("username", "el usuario"), ("first_name", "el nombre"),
+                ("last_name", "el apellido"), ("password", "la contraseña")):
+            with self.subTest(field=field):
+                _, errors = read_rows(
+                    csv_bytes("usuario,nombre,apellido,contraseña,estado\n"),
+                    dict(MAPPING, **{field: ""}))
+                self.assertEqual(
+                    errors,
+                    ["falta asignar la columna para %s (%s)" % (text, field)])
 
     def test_mapping_to_a_missing_header(self):
         mapping = dict(MAPPING, team="equipo")
