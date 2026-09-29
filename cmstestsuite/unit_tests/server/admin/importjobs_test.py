@@ -236,6 +236,45 @@ class TestStore(ImportJobsTestCase):
         self.wait_for_job(again)
         self.assertEqual(again.status, "done")
 
+    def test_running_job_is_the_running_job_of_the_contest(self):
+        started = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def blocking_hash(rows, new_users, progress):
+            started.set()
+            release.wait(5)
+            return HASHES
+        self.hash_passwords.side_effect = blocking_hash
+        store = ImportJobStore()
+        self.assertIsNone(store.running_job(CONTEST_ID))
+
+        job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+        self.assertTrue(started.wait(5))
+
+        # It is found whoever asks: the caller compares the owner.
+        self.assertIs(store.running_job(CONTEST_ID), job)
+        self.assertIsNone(store.running_job(CONTEST_ID + 1))
+
+        release.set()
+        self.wait_for_job(job)
+        # A finished job is not a running one.
+        self.assertEqual(job.status, "done")
+        self.assertIsNone(store.running_job(CONTEST_ID))
+
+    def test_running_job_forgets_an_expired_job(self):
+        now = [1000.0]
+        store = ImportJobStore(clock=lambda: now[0])
+        # A job that never ends: its thread is not run.
+        with mock.patch.object(ImportJobStore, "_run"):
+            job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+        self.assertIs(store.running_job(CONTEST_ID), job)
+
+        # start() would let a new job in at this point, so it is not
+        # running any more.
+        now[0] += JOB_TTL + 1
+        self.assertIsNone(store.running_job(CONTEST_ID))
+
     def test_owner_check(self):
         store = ImportJobStore()
         job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)

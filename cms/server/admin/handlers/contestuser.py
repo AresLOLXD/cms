@@ -376,6 +376,15 @@ class ImportUsersHandler(BaseHandler):
         self.r_params["notice"] = notice
         self.render("contest_users_import.html", **self.r_params)
 
+    def _job_url(self, job: ImportJob) -> str:
+        """Return the URL of the page that shows the progress of a job.
+
+        job: the job.
+
+        """
+        return self.url("contest", self.contest.id, "users",
+                        "import") + "?job=" + job.id
+
     def _get_sync(self, contest_id: str) -> None:
         self.contest = self.safe_get_item(Contest, contest_id)
         job_id = self.get_argument("job", None)
@@ -426,11 +435,21 @@ class ImportUsersHandler(BaseHandler):
         try:
             job = IMPORT_JOBS.start(self.current_user.id, self.contest.id,
                                     rows, on_done)
-        except ValueError as error:
-            self._render_page(mapping, errors=[str(error)])
+        except ValueError:
+            # The contest already has a running import. If it is this
+            # admin's (a double click on "Importar"), follow it instead of
+            # losing its progress page. Otherwise there is nothing wrong
+            # with the file: the admin only has to wait.
+            running = IMPORT_JOBS.running_job(self.contest.id)
+            if running is not None \
+                    and running.owner_id == self.current_user.id:
+                self.redirect(self._job_url(running))
+                return
+            self._render_page(mapping, notice=(
+                "Hay una importación en curso para este concurso; "
+                "espera a que termine."))
             return
-        self.redirect(self.url("contest", self.contest.id, "users",
-                               "import") + "?job=" + job.id)
+        self.redirect(self._job_url(job))
 
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def post(self, contest_id: str) -> None:

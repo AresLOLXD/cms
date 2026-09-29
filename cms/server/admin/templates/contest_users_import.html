@@ -42,7 +42,7 @@ guarda nada.</p>
   <div id="import_result"></div>
 </div>
 {% else %}
-<form enctype="multipart/form-data" method="POST"
+<form enctype="multipart/form-data" method="POST" id="import_form"
       action="{{ url("contest", contest.id, "users", "import") }}">
   {{ xsrf_form_html|safe }}
   {% if mapping %}
@@ -118,6 +118,38 @@ guarda nada.</p>
                 });
             };
             reader.readAsText(file.slice(0, 65536), "utf-8");
+        });
+    }
+    var form = document.getElementById("import_form");
+    if (form) {
+        var buttons = form.querySelectorAll("button");
+        // A second submit, from a double click, would be refused while the
+        // first import runs, and its page would hide the progress link.
+        form.addEventListener("submit", function (event) {
+            // A disabled submit button is not sent with the form, so the
+            // one pressed is copied into a hidden input first.
+            if (event.submitter && event.submitter.name) {
+                var input = document.createElement("input");
+                input.type = "hidden";
+                input.name = event.submitter.name;
+                input.value = event.submitter.value;
+                input.setAttribute("data-submitter", "1");
+                form.appendChild(input);
+            }
+            buttons.forEach(function (button) {
+                button.disabled = true;
+            });
+        });
+        // Going back may restore the page as it was left, with the
+        // buttons disabled.
+        window.addEventListener("pageshow", function (event) {
+            if (!event.persisted) { return; }
+            buttons.forEach(function (button) {
+                button.disabled = false;
+            });
+            form.querySelectorAll("input[data-submitter]").forEach(function (input) {
+                input.remove();
+            });
         });
     }
     var job = document.getElementById("import_job");

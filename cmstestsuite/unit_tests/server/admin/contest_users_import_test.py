@@ -58,6 +58,10 @@ POSTED_MAPPING = {**{field: "" for field in FIELDS}, **MAPPING}
 NOT_FOUND = ("No se encontró la importación: no existe o ya expiró. "
              "Revisa la lista de usuarios para ver si se aplicó.")
 NOT_APPLIED = "No se aplicó nada"
+# Said when the contest already has an import running: the file is fine, so
+# it is not one of the errors that say that nothing was applied.
+RUNNING_NOTICE = ("Hay una importación en curso para este concurso; "
+                  "espera a que termine.")
 
 
 def make_plan() -> ImportPlan:
@@ -242,17 +246,71 @@ class TestImportUsersPost(unittest.TestCase):
         self.assertEqual(params["mapping"], {field: "" for field in FIELDS})
         self.assertTrue(params["mapping"])
 
-    def test_a_running_job_of_the_contest_is_reported(self):
-        handler = make_handler(form=import_form("import"))
-        message = "ya hay una importación en curso para este concurso"
+    def refuse_import(self, running_job, form=None):
+        """Post an import that the store refuses; return the handler."""
+        handler = make_handler(form=form or import_form("import"))
         with mock.patch(MODULE + ".plan_import",
                         return_value=(make_plan(), [])), \
                 mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
-            jobs.start.side_effect = ValueError(message)
+            jobs.start.side_effect = ValueError(
+                "ya hay una importación en curso para este concurso")
+            jobs.running_job.return_value = running_job
             handler._post_sync(str(CONTEST_ID))
+        self.jobs = jobs
+        return handler
 
-        self.assertEqual(rendered_params(handler)["errors"], [message])
+    def test_a_running_job_of_the_admin_redirects_to_its_progress(self):
+        # A double click on "Importar": the second request finds the job
+        # the first one started, and the admin must not lose its page.
+        handler = self.refuse_import(
+            SimpleNamespace(id="job-1", owner_id=ADMIN_ID))
+
+        handler.redirect.assert_called_once_with(
+            "/contest/1/users/import?job=job-1")
+        handler.render.assert_not_called()
+        self.jobs.running_job.assert_called_once_with(CONTEST_ID)
+
+    def test_a_running_job_of_another_admin_is_a_notice_not_an_error(self):
+        handler = self.refuse_import(
+            SimpleNamespace(id="job-1", owner_id=ADMIN_ID + 1))
+
+        params = rendered_params(handler)
+        self.assertEqual(params["notice"], RUNNING_NOTICE)
+        # Not in the errors: they say that nothing was applied, and the
+        # file has nothing to correct.
+        self.assertEqual(params["errors"], [])
+        self.assertIsNone(params["summary"])
+        self.assertIsNone(params["job"])
+        # The columns survive, as the file has to be chosen again.
+        self.assertEqual(params["mapping"], POSTED_MAPPING)
         handler.redirect.assert_not_called()
+
+    def test_a_job_that_ended_meanwhile_is_still_a_notice(self):
+        # The store refused, but the job was over before it was asked for.
+        handler = self.refuse_import(None)
+
+        self.assertEqual(rendered_params(handler)["notice"], RUNNING_NOTICE)
+        handler.redirect.assert_not_called()
+
+    def test_a_double_click_ends_in_the_page_of_the_first_job(self):
+        # The store is the real one: the first request starts the job, the
+        # second one is refused and follows the first.
+        store = ImportJobStore()
+        redirects = []
+        for _ in range(2):
+            handler = make_handler(form=import_form("import"))
+            with mock.patch(MODULE + ".plan_import",
+                            return_value=(make_plan(), [])), \
+                    mock.patch(MODULE + ".IMPORT_JOBS", store), \
+                    mock.patch.object(ImportJobStore, "_run"):
+                handler._post_sync(str(CONTEST_ID))
+            handler.render.assert_not_called()
+            redirects.append(handler.redirect.call_args.args[0])
+
+        self.assertEqual(redirects[0], redirects[1])
+        (job_id,) = store._jobs
+        self.assertEqual(redirects[0],
+                         "/contest/1/users/import?job=" + job_id)
 
     def test_a_missing_file_is_reported(self):
         handler = make_handler(data=None, form=import_form("import"))
@@ -371,6 +429,23 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
             self.assertIn('<input type="file" name="file"', html)
             self.assertEqual(NOT_FOUND in html, bool(form))
             self.assertNotIn(NOT_APPLIED, html)
+
+    def test_the_notice_of_a_running_import(self):
+        handler = make_handler(form=import_form("import"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])), \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.start.side_effect = ValueError("running")
+            jobs.running_job.return_value = SimpleNamespace(
+                id="job-1", owner_id=ADMIN_ID + 1)
+            handler._post_sync(str(CONTEST_ID))
+
+        html = self.render_last_page(handler)
+
+        self.assertIn(RUNNING_NOTICE, html)
+        self.assertNotIn(NOT_APPLIED, html)
+        self.assertNotIn("Corrige estos errores", html)
+        self.assertIn('data-selected="usuario"', html)
 
     def test_the_progress_of_a_job(self):
         handler = make_handler(form={"job": "job-1"})
@@ -663,6 +738,37 @@ class TestImportTemplates(unittest.TestCase):
         # The hint is above the file input.
         self.assertLess(html.index(hint),
                         html.index('<input type="file" name="file"'))
+
+    def test_the_form_disables_its_buttons_after_the_first_submit(self):
+        # A double click would post the file twice; the second post is
+        # refused while the first import runs.
+        html = self.render_import()
+
+        self.assertIn('getElementById("import_form")', html)
+        self.assertIn('addEventListener("submit"', html)
+        self.assertIn(".disabled = true", html)
+        self.assertRegex(html, r'<form [^>]*id="import_form"')
+
+    def test_the_script_keeps_the_action_of_the_clicked_button(self):
+        # A disabled submit button is not sent, so its name and value are
+        # copied into a hidden input before disabling it.
+        html = self.render_import()
+
+        self.assertIn("event.submitter", html)
+        self.assertIn('input.type = "hidden"', html)
+        self.assertIn("input.name = event.submitter.name", html)
+        self.assertIn("input.value = event.submitter.value", html)
+        # The copy is made before either button is disabled.
+        self.assertLess(html.index("input.value = event.submitter.value"),
+                        html.index(".disabled = true"))
+
+    def test_the_script_enables_the_buttons_again_when_coming_back(self):
+        # The Back button may restore the page with its buttons disabled.
+        html = self.render_import()
+
+        self.assertIn('addEventListener("pageshow"', html)
+        self.assertIn("event.persisted", html)
+        self.assertIn(".disabled = false", html)
 
     def test_a_job_shows_a_progress_bar_and_its_status_url(self):
         job = SimpleNamespace(id="job-1", processed=3, total=10)

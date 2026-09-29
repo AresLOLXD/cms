@@ -101,6 +101,18 @@ class ImportJobStore:
                        if j.created_at < cutoff]:
             del self._jobs[job_id]
 
+    def _find_running(self, contest_id: int) -> ImportJob | None:
+        """Find the job running for a contest; the caller holds the lock.
+
+        contest_id: the contest.
+
+        return: the job, or None if there is none.
+
+        """
+        return next((j for j in self._jobs.values()
+                     if j.contest_id == contest_id
+                     and j.status == "running"), None)
+
     def start(self, owner_id: int, contest_id: int, rows: list[ImportRow],
               on_done: Callable[[], None]) -> ImportJob:
         """Start importing rows into a contest, in a thread.
@@ -117,8 +129,7 @@ class ImportJobStore:
         """
         with self._lock:
             self._evict()
-            if any(j.contest_id == contest_id and j.status == "running"
-                   for j in self._jobs.values()):
+            if self._find_running(contest_id) is not None:
                 raise ValueError(
                     "ya hay una importación en curso para este concurso")
             job = ImportJob(id=secrets.token_urlsafe(16), owner_id=owner_id,
@@ -180,6 +191,21 @@ class ImportJobStore:
             logger.warning("Bulk import into contest %d was saved, but "
                            "ProxyService was not notified (%s).",
                            job.contest_id, type(exc).__name__)
+
+    def running_job(self, contest_id: int) -> ImportJob | None:
+        """Return the job that is running for a contest, if any.
+
+        It is the job that makes start() refuse another one, whoever
+        started it.
+
+        contest_id: the contest.
+
+        return: the job, or None.
+
+        """
+        with self._lock:
+            self._evict()
+            return self._find_running(contest_id)
 
     def get(self, job_id: str, owner_id: int) -> ImportJob | None:
         """Return a job, if it exists, has not expired and is the owner's.
