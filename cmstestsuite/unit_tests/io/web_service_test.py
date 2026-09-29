@@ -3,6 +3,8 @@
 """Tests for cms.io.web_service.WebService."""
 
 import asyncio
+import contextlib
+import logging
 import unittest
 from unittest.mock import patch
 
@@ -87,6 +89,43 @@ class WebServiceTest(ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestC
         # Also confirm the drain loop actually ran to completion: no
         # connection should be left open in the HTTPServer.
         self.assertEqual(self.service._http_server._connections, set())
+
+    @contextlib.asynccontextmanager
+    async def _idle_keepalive_connections(self, count):
+        # Each connection makes one request and then stays open, idle,
+        # like a browser's: HTTP/1.1 connections are persistent.
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        writers = []
+        try:
+            for _ in range(count):
+                reader, writer = await asyncio.open_connection(
+                    "127.0.0.1", port)
+                writers.append(writer)
+                writer.write(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                await writer.drain()
+                response = await asyncio.wait_for(
+                    reader.read(4096), timeout=5)
+                self.assertIn(b"200 OK", response)
+            yield
+        finally:
+            for writer in writers:
+                writer.close()
+
+    async def test_idle_keepalive_connection_does_not_warn_at_shutdown(self):
+        # An idle keep-alive connection never finishes on its own, so
+        # every shutdown with a browser still connected hits the grace
+        # period timeout: that's routine, not something to warn about.
+        async with self._idle_keepalive_connections(1):
+            with self.assertNoLogs("cms.io.web_service", level="WARNING"):
+                await self._stop_service()
+
+    async def test_shutdown_logs_how_many_connections_it_closes(self):
+        async with self._idle_keepalive_connections(2):
+            with self.assertLogs("cms.io.web_service", level="INFO") as logs:
+                await self._stop_service()
+        self.assertEqual(
+            [record.levelno for record in logs.records], [logging.INFO])
+        self.assertRegex(logs.records[0].getMessage(), r"\b2\b")
 
 
 class ResolveRemoteIpTest(unittest.TestCase):

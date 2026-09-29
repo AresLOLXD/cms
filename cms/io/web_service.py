@@ -235,9 +235,15 @@ class WebService(AsyncService):
                 await asyncio.wait_for(
                     self._wait_for_requests_to_drain(), timeout=1.0)
             except asyncio.TimeoutError:
-                logger.warning(
-                    "Some requests didn't finish within the shutdown "
-                    "grace period; closing their connections.")
+                # Only INFO: what's left is nearly always idle keep-alive
+                # connections, which browsers keep open after their last
+                # response and which never finish on their own, so this
+                # is what a routine shutdown ends up doing.
+                logger.info(
+                    "Closing %d HTTP connection(s) still open after the "
+                    "shutdown grace period (idle keep-alive connections, "
+                    "or requests that did not finish in time).",
+                    len(self._http_server._connections))
             await self._http_server.close_all_connections()
 
     async def _wait_for_requests_to_drain(self) -> None:
