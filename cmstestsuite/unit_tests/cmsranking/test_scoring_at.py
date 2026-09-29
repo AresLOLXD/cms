@@ -77,6 +77,11 @@ class TestScoreAt(unittest.TestCase):
         # The live objects are not modified.
         self.assertEqual(self.score._submissions["s2"].score, 80.0)
 
+    def test_submissions_at_includes_a_submission_made_exactly_at_t(self):
+        subs = self.score.submissions_at(200)
+        self.assertEqual(set(subs), {"s1", "s2"})
+        self.assertEqual(subs["s2"].score, 80.0)
+
     def test_submissions_at_ignores_a_later_token(self):
         self.score.create_subchange(
             "c4", change("c4", "s1", 300, token=True))
@@ -145,6 +150,10 @@ class TestScoringStoreAt(unittest.TestCase):
         self.assertEqual(
             [h[2] for h in self.scoring.get_global_history(until=300)],
             [100, 300])
+
+    def test_submissions_at_includes_a_submission_made_exactly_at_t(self):
+        self.assertEqual(
+            set(self.scoring.get_submissions_at("late", "t", 300)), {"s2"})
 
     def test_submissions_at(self):
         self.assertEqual(
