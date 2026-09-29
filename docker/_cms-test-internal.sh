@@ -26,7 +26,13 @@ cmsInitDB
 GEVENT_SERVICE_FILES="cmstestsuite/unit_tests/service/twophase_evaluationservice_test.py cmstestsuite/unit_tests/service/twophase_reenqueue_test.py"
 GEVENT_TEST_PATHS="cmstestsuite/unit_tests/cmscontrib cmstestsuite/unit_tests/cmsranking cmstestsuite/unit_tests/db/rankinggroup_test.py $GEVENT_SERVICE_FILES"
 
-pytest --cov . --cov-report= --junitxml=codecov/junit-gevent.xml -o junit_family=legacy $GEVENT_TEST_PATHS
+# A hung test would otherwise block the job until the CI runner's own
+# limit. Abort each group after UNIT_TIMEOUT seconds instead: SIGABRT
+# makes pytest's faulthandler dump every thread's traceback first.
+UNIT_TIMEOUT=1200
+
+timeout --signal=ABRT $UNIT_TIMEOUT \
+    pytest --cov . --cov-report= --junitxml=codecov/junit-gevent.xml -o junit_family=legacy $GEVENT_TEST_PATHS
 UNIT_GEVENT=$?
 
 IGNORE_ARGS="--ignore=cmstestsuite/unit_tests/cmscontrib --ignore=cmstestsuite/unit_tests/cmsranking --ignore=cmstestsuite/unit_tests/db/rankinggroup_test.py"
@@ -34,7 +40,8 @@ for f in $GEVENT_SERVICE_FILES; do
     IGNORE_ARGS="$IGNORE_ARGS --ignore=$f"
 done
 
-pytest --cov . --cov-append --cov-report xml:codecov/unittests.xml \
+timeout --signal=ABRT $UNIT_TIMEOUT \
+    pytest --cov . --cov-append --cov-report xml:codecov/unittests.xml \
     --junitxml=codecov/junit-asyncio.xml -o junit_family=legacy $IGNORE_ARGS
 UNIT_ASYNCIO=$?
 
