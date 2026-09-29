@@ -85,14 +85,20 @@ class SubmissionFileHandler(FileHandler):
     # set the proper name (i.e., converting %l to the language).
     @require_permission(BaseHandler.AUTHENTICATED)
     async def get(self, file_id):
+        loop = asyncio.get_running_loop()
+        digest, real_filename = await loop.run_in_executor(
+            None, self._get_file_info_sync, file_id)
+
+        self.sql_session.close()
+        await self.fetch(digest, "text/plain", real_filename)
+
+    def _get_file_info_sync(self, file_id) -> tuple[str, str]:
+        """Look up the file's digest and download name (DB access)."""
         sub_file = self.safe_get_item(File, file_id)
         submission = sub_file.submission
 
         real_filename = safe_get_lang_filename(submission.language, sub_file.filename)
-        digest = sub_file.digest
-
-        self.sql_session.close()
-        await self.fetch(digest, "text/plain", real_filename)
+        return sub_file.digest, real_filename
 
 
 class SubmissionDiffHandler(BaseHandler):

@@ -57,12 +57,23 @@ class _FinishHandler(_ExecutorHandler):
         self.finish("payload")
 
 
+class _NotFoundHandler(_ExecutorHandler):
+    def _get_sync(self):
+        raise tornado.web.HTTPError(404)
+
+    def render_params(self):
+        # Keep the test DB-free: send BaseHandler.write_error down its
+        # "can't build render params" fallback.
+        raise RuntimeError("no render params in this test")
+
+
 class TestBaseHandlerExecutorFinish(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         app = tornado.web.Application([
             (r"/redirect", _RedirectHandler),
             (r"/finish", _FinishHandler),
+            (r"/notfound", _NotFoundHandler),
         ])
         sockets = bind_sockets(0, "127.0.0.1")
         self.port = sockets[0].getsockname()[1]
@@ -89,6 +100,12 @@ class TestBaseHandlerExecutorFinish(unittest.IsolatedAsyncioTestCase):
         response = await self._fetch("/finish")
         self.assertEqual(response.code, 200)
         self.assertEqual(response.body, b"payload")
+
+    async def test_http_error_from_executor_goes_through_write_error(self):
+        response = await self._fetch("/notfound")
+        self.assertEqual(response.code, 404)
+        # BaseHandler.write_error's body, not Tornado's default page.
+        self.assertEqual(response.body, b"A critical error has occurred :-(")
 
 
 if __name__ == "__main__":

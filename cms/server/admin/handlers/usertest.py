@@ -66,11 +66,17 @@ class UserTestFileHandler(FileHandler):
     # set the proper name (i.e., converting %l to the language).
     @require_permission(BaseHandler.AUTHENTICATED)
     async def get(self, file_id):
+        loop = asyncio.get_running_loop()
+        digest, real_filename = await loop.run_in_executor(
+            None, self._get_file_info_sync, file_id)
+
+        self.sql_session.close()
+        await self.fetch(digest, "text/plain", real_filename)
+
+    def _get_file_info_sync(self, file_id) -> tuple[str, str]:
+        """Look up the file's digest and download name (DB access)."""
         user_test_file = self.safe_get_item(UserTestFile, file_id)
         user_test = user_test_file.user_test
 
         real_filename = safe_get_lang_filename(user_test.language, user_test_file.filename)
-        digest = user_test_file.digest
-
-        self.sql_session.close()
-        await self.fetch(digest, "text/plain", real_filename)
+        return user_test_file.digest, real_filename
