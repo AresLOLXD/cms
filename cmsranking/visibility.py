@@ -29,11 +29,14 @@ import os
 import re
 import secrets
 import tempfile
+import time
 
+import gevent
 from gevent.pywsgi import WSGIHandler
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.wrappers import Request, Response
 
-from cmscommon.crypto import parse_authentication
+from cmscommon.crypto import parse_authentication, validate_password
 
 
 logger = logging.getLogger(__name__)
@@ -75,6 +78,14 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 </body>
 </html>
 """
+
+STAFF_BANNER = (
+    '<div style="background:#b00020;color:#fff;padding:0.5em;'
+    'text-align:center;font-family:sans-serif;">Vista staff: este '
+    'ranking está oculto al público &middot; '
+    '<a style="color:#fff" href="staff-logout">Salir</a></div>'
+).encode("utf-8")
+BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
 
 
 def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
@@ -194,8 +205,124 @@ class VisibilityGuard:
             request.authorization.password == self.password
 
     def _is_staff(self, request: Request) -> bool:
-        # Filled in by Task 3.
-        return False
+        """Tell whether the request carries a valid staff cookie.
+
+        request: the request being served.
+
+        return: True if the cookie was issued for the current staff
+            password of this group.
+
+        """
+        stored = self.state.staff_password
+        cookie = request.cookies.get(STAFF_COOKIE)
+        if stored is None or cookie is None:
+            return False
+        expected = staff_cookie_value(self.state.secret, self.group, stored)
+        # The client chooses the cookie, and compare_digest refuses a str
+        # that is not ASCII: compare bytes.
+        return hmac.compare_digest(cookie.encode("utf-8"),
+                                   expected.encode("ascii"))
+
+    @staticmethod
+    def _is_https(request: Request) -> bool:
+        """Tell whether the client reached RWS over HTTPS.
+
+        request: the request being served.
+
+        return: True if the WSGI scheme or the X-Forwarded-Proto header
+            of the reverse proxy that ends TLS says so.
+
+        """
+        return request.scheme == "https" or request.headers.get(
+            "X-Forwarded-Proto", "").lower() == "https"
+
+    def _login(self, request: Request) -> Response:
+        """Check the staff password and start a staff session.
+
+        request: the POST to staff-login, with the form field password.
+
+        return: a redirect that sets the staff cookie, or the notice with
+            an error after a failed attempt (or a 413 if the form is too
+            big to be a password).
+
+        """
+        try:
+            # As typed, without stripping: AWS stores it as it got it.
+            password = request.form.get("password", "")
+        except RequestEntityTooLarge as error:
+            return error.get_response(request.environ)
+        stored = self.state.staff_password
+        valid = False
+        if stored is not None and password != "":
+            try:
+                # bcrypt takes about 250 ms of CPU. On the hub it would
+                # stop every public scoreboard during a burst of attempts,
+                # so it runs in the threadpool.
+                valid = gevent.get_hub().threadpool.apply(
+                    validate_password, (stored, password))
+            except ValueError:
+                # An authentication method that is not known.
+                valid = False
+        if not valid:
+            # cmsRankingWebServer monkey-patches time: only this greenlet
+            # waits.
+            time.sleep(self.FAILED_LOGIN_DELAY)
+            return self._notice(error=True, status=401)
+        response = Response(status=303, headers=dict(
+            NO_STORE, Location="./"))
+        # Sign the hash that was checked, not the current one: if the
+        # password changed meanwhile, the cookie is worth nothing.
+        response.set_cookie(
+            STAFF_COOKIE,
+            staff_cookie_value(self.state.secret, self.group, stored),
+            path=None, httponly=True, samesite="Lax",
+            secure=self._is_https(request))
+        return response
+
+    def _logout(self) -> Response:
+        """End the staff session of the client.
+
+        return: a redirect that clears the staff cookie.
+
+        """
+        response = Response(status=303, headers=dict(
+            NO_STORE, Location="./"))
+        response.delete_cookie(STAFF_COOKIE, path=None)
+        return response
+
+    def _with_banner(self, environ, start_response):
+        """Serve the app's page with the staff banner after <body>.
+
+        environ: the WSGI environ.
+        start_response: the WSGI start_response callable.
+
+        return: the body of the response.
+
+        """
+        captured = {}
+
+        def capture(status, headers, exc_info=None):
+            captured["status"] = status
+            captured["headers"] = headers
+            return lambda data: None
+
+        body_iter = self.app(environ, capture)
+        try:
+            body = b"".join(body_iter)
+        finally:
+            close = getattr(body_iter, "close", None)
+            if close is not None:
+                close()
+        body = BODY_TAG.sub(lambda m: m.group(0) + STAFF_BANNER, body,
+                            count=1)
+        dropped = {"content-length", "last-modified", "etag",
+                   "cache-control"}
+        headers = [(k, v) for k, v in captured["headers"]
+                   if k.lower() not in dropped]
+        headers += [("Content-Length", str(len(body))),
+                    ("Cache-Control", "no-store")]
+        start_response(captured["status"], headers)
+        return [body]
 
     def _guard_writes(self, request: Request, start_response):
         """Wrap start_response so write() stops once the group is hidden.
@@ -238,7 +365,12 @@ class VisibilityGuard:
         start_response = self._guard_writes(request, start_response)
         if path == "/visibility":
             return self._update(request)(environ, start_response)
+        if path == "/staff-logout" and request.method == "GET":
+            return self._logout()(environ, start_response)
         if self._is_staff(request):
+            if self.state.hidden and path == "/" and \
+                    request.method == "GET":
+                return self._with_banner(environ, start_response)
             return self.app(environ, start_response)
         if not self.state.hidden:
             return _CutWhenHidden(self.app(environ, start_response),
@@ -248,6 +380,8 @@ class VisibilityGuard:
             return self.app(environ, start_response)
         if path == "/" and request.method in ("GET", "HEAD"):
             return self._notice()(environ, start_response)
+        if path == "/staff-login" and request.method == "POST":
+            return self._login(request)(environ, start_response)
         return Response("Este ranking está oculto.", status=403,
                         mimetype="text/plain",
                         headers=NO_STORE)(environ, start_response)

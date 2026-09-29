@@ -20,22 +20,25 @@
 
 import json
 import os
+import re
 import shutil
 import tempfile
+import threading
 import unittest
 from base64 import b64encode
 from importlib.resources import files
+from unittest.mock import patch
 
 from gevent import socket
 from gevent.pywsgi import WSGIServer
 from werkzeug.test import Client, create_environ
 
-from cmscommon.crypto import build_password
+from cmscommon.crypto import build_password, hash_password
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
-from cmsranking.visibility import VISIBILITY_FILE, VisibilityGuard, \
-    VisibilityState
+from cmsranking.visibility import STAFF_COOKIE, VISIBILITY_FILE, \
+    VisibilityGuard, VisibilityState, staff_cookie_value
 
 
 USERNAME = "rws"
@@ -70,7 +73,9 @@ class VisibilityTestCase(unittest.TestCase):
         dispatcher = NamespaceDispatcher(
             make_app(self.lib_dir), os.path.join(self.lib_dir, "groups"),
             make_app, USERNAME, PASSWORD, "Scoreboard")
-        return Client(dispatcher)
+        # The tests send their cookies explicitly: with a cookie jar the
+        # client would replace a Cookie header of its own choosing.
+        return Client(dispatcher, use_cookies=False)
 
     def put_contest(self, prefix: str):
         return self.client.put(
@@ -182,6 +187,211 @@ class TestHiddenGroup(VisibilityTestCase):
                          403)
 
 
+class TestStaffLogin(VisibilityTestCase):
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("cmsranking.visibility.time.sleep")
+        self.sleep = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+
+    def login(self, password: str, group: str = "olim", **environ):
+        return self.client.post(
+            "/%s/staff-login" % group, data={"password": password},
+            environ_overrides=environ)
+
+    def cookie_from(self, response) -> str:
+        header = response.headers["Set-Cookie"]
+        return header.split(";", 1)[0].split("=", 1)[1]
+
+    @staticmethod
+    def with_cookie(cookie: str) -> dict[str, str]:
+        return {"Cookie": "%s=%s" % (STAFF_COOKIE, cookie)}
+
+    def test_login_sets_scoped_cookie_and_relative_redirect(self):
+        response = self.login("s3cret", SCRIPT_NAME="/ranking")
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["Location"], "./")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        header = response.headers["Set-Cookie"]
+        self.assertTrue(header.startswith(STAFF_COOKIE + "="))
+        self.assertIn("HttpOnly", header)
+        self.assertIn("SameSite=Lax", header)
+        self.assertNotIn("Path=", header)
+        self.assertNotIn("Secure", header)
+
+    def test_secure_cookie_over_https(self):
+        response = self.client.post(
+            "/olim/staff-login", data={"password": "s3cret"},
+            headers={"X-Forwarded-Proto": "https"})
+        self.assertIn("Secure", response.headers["Set-Cookie"])
+        response = self.login("s3cret", **{"wsgi.url_scheme": "https"})
+        self.assertIn("Secure", response.headers["Set-Cookie"])
+
+    def test_staff_cookie_grants_access_and_banner(self):
+        cookie = self.cookie_from(self.login("s3cret"))
+        headers = self.with_cookie(cookie)
+        self.assertEqual(
+            self.client.get("/olim/contests/", headers=headers).json,
+            {"c1": CONTEST})
+        page = self.client.get("/olim/", headers=headers)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Vista staff: este ranking está oculto al público",
+                      page.get_data(as_text=True))
+
+    def test_banner_is_inserted_right_after_the_body_tag(self):
+        with open(os.path.join(self.web_dir, "Ranking.html"), "rb") as f:
+            original = f.read()
+        after_tag = re.search(rb"<body[^>]*>", original).end()
+        cookie = self.cookie_from(self.login("s3cret"))
+        response = self.client.get("/olim/", headers=self.with_cookie(cookie))
+        page = response.get_data()
+        # Only the banner is added, and nothing else changes.
+        self.assertTrue(page.startswith(original[:after_tag]))
+        self.assertTrue(page.endswith(original[after_tag:]))
+        banner = page[after_tag:len(page) - len(original[after_tag:])]
+        self.assertIn(b"Vista staff", banner)
+        self.assertIn(b'href="staff-logout"', banner)
+        self.assertEqual(response.headers["Content-Length"], str(len(page)))
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("Last-Modified", response.headers)
+
+    def test_wrong_password(self):
+        response = self.login("wrong")
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("Set-Cookie", response.headers)
+        self.assertIn("Contraseña incorrecta.",
+                      response.get_data(as_text=True))
+        self.sleep.assert_called_once_with(1.0)
+
+    def test_login_is_a_post(self):
+        response = self.client.get("/olim/staff-login")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_no_staff_password_means_nobody_logs_in(self):
+        self.put_visibility("olim", True, staff_password=None)
+        self.assertEqual(self.login("s3cret").status_code, 401)
+
+    def test_empty_password_never_logs_in(self):
+        self.put_visibility("olim", True, staff_password=build_password(
+            "", "plaintext"))
+        self.assertEqual(self.login("").status_code, 401)
+
+    def test_password_change_invalidates_cookie(self):
+        cookie = self.cookie_from(self.login("s3cret"))
+        self.put_visibility("olim", True,
+                            staff_password=build_password("new", "plaintext"))
+        response = self.client.get(
+            "/olim/contests/", headers=self.with_cookie(cookie))
+        self.assertEqual(response.status_code, 403)
+
+    def test_cookie_of_another_group_is_rejected(self):
+        self.put_contest("/omips")
+        self.put_visibility("omips", True)
+        cookie = self.cookie_from(self.login("s3cret"))
+        response = self.client.get(
+            "/omips/contests/", headers=self.with_cookie(cookie))
+        self.assertEqual(response.status_code, 403)
+
+    def test_garbage_cookie_is_not_staff(self):
+        # The cookie comes from the client: whatever it holds, the answer
+        # is the same as for a request without it, never an error.
+        for value in ["", "x" * 64, "caf\xe9", "\xc3\xa9"]:
+            with self.subTest(value=value):
+                response = self.client.get(
+                    "/olim/contests/", headers=self.with_cookie(value))
+                self.assertEqual(response.status_code, 403)
+
+    def test_logout_clears_cookie(self):
+        response = self.client.get("/olim/staff-logout")
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["Location"], "./")
+        header = response.headers["Set-Cookie"]
+        self.assertTrue(header.startswith(STAFF_COOKIE + "=;"))
+        self.assertIn("Expires=", header)
+        self.assertNotIn("Path=", header)
+
+    def test_logout_is_a_get_and_works_for_visible_groups_too(self):
+        self.assertEqual(
+            self.client.post("/olim/staff-logout").status_code, 403)
+        self.put_visibility("olim", False)
+        self.assertEqual(
+            self.client.get("/olim/staff-logout").status_code, 303)
+
+    def test_non_ascii_password(self):
+        self.put_visibility("olim", True, staff_password=build_password(
+            "contraseña", "plaintext"))
+        self.assertEqual(self.login("contraseña").status_code, 303)
+
+    def test_password_is_read_verbatim(self):
+        # AWS stores the password exactly as typed: no stripping.
+        self.put_visibility("olim", True, staff_password=build_password(
+            " contraseña ", "plaintext"))
+        self.assertEqual(self.login("contraseña").status_code, 401)
+        self.assertEqual(self.login(" contraseña ").status_code, 303)
+
+    def test_bcrypt_password(self):
+        self.put_visibility("olim", True,
+                            staff_password=hash_password("s3cret"))
+        self.assertEqual(self.login("s3cret").status_code, 303)
+
+    def test_password_is_validated_off_the_hub(self):
+        # bcrypt takes a while: run on the hub, it would stop every other
+        # request meanwhile, so it has to run in a thread of its own.
+        threads = []
+
+        def validate(stored, password):
+            threads.append(threading.get_ident())
+            return True
+
+        with patch("cmsranking.visibility.validate_password", validate):
+            self.assertEqual(self.login("s3cret").status_code, 303)
+        self.assertEqual(len(threads), 1)
+        self.assertNotEqual(threads[0], threading.get_ident())
+
+    def test_unusable_hash_is_a_failed_login(self):
+        for staff_password in ["md5:abc", "bcrypt:not-a-hash"]:
+            with self.subTest(staff_password=staff_password):
+                self.put_visibility("olim", True,
+                                    staff_password=staff_password)
+                response = self.login("abc")
+                self.assertEqual(response.status_code, 401)
+                self.assertNotIn("Set-Cookie", response.headers)
+
+    def test_password_changed_during_validation_grants_nothing(self):
+        # The check runs in a thread, so the group can change meanwhile.
+        guard = self.client.application.apps["olim"]
+
+        def validate(stored, password):
+            guard.state.update(True, build_password("new", "plaintext"))
+            return True
+
+        with patch("cmsranking.visibility.validate_password", validate):
+            response = self.login("s3cret")
+        self.assertEqual(response.status_code, 303)
+        response = self.client.get(
+            "/olim/contests/",
+            headers=self.with_cookie(self.cookie_from(response)))
+        self.assertEqual(response.status_code, 403)
+
+    def test_oversized_login_is_refused(self):
+        response = self.login("x" * 1_000_000)
+        self.assertEqual(response.status_code, 413)
+        self.assertNotIn("Set-Cookie", response.headers)
+
+    def test_visible_group_has_no_banner(self):
+        self.put_visibility("olim", False)
+        cookie = staff_cookie_value(
+            self.client.application.apps["olim"].state.secret, "olim",
+            STAFF_HASH)
+        page = self.client.get("/olim/", headers=self.with_cookie(cookie))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn("Vista staff", page.get_data(as_text=True))
+
+
 class TestOpenConnections(unittest.TestCase):
 
     def test_open_stream_is_cut_when_hidden(self):
@@ -275,7 +485,7 @@ class TestOpenConnections(unittest.TestCase):
 class TestRealEventStream(VisibilityTestCase):
     """The real /events handler, behind a real gevent server."""
 
-    def open_stream(self) -> socket.socket:
+    def open_stream(self, cookie: str | None = None) -> socket.socket:
         server = WSGIServer(("127.0.0.1", 0), self.client.application,
                             log=None)
         server.start()
@@ -283,10 +493,17 @@ class TestRealEventStream(VisibilityTestCase):
         stream = socket.create_connection(("127.0.0.1", server.server_port),
                                           timeout=3)
         self.addCleanup(stream.close)
+        cookie_line = b"" if cookie is None else \
+            b"Cookie: %s=%s\r\n" % (STAFF_COOKIE.encode(), cookie.encode())
         stream.sendall(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
-                       b"Accept: text/event-stream\r\n\r\n")
+                       b"Accept: text/event-stream\r\n" + cookie_line
+                       + b"\r\n")
         self.assertIn(b"200 OK", stream.recv(65536))
         return stream
+
+    def staff_cookie(self) -> str:
+        secret = self.client.application.apps["olim"].state.secret
+        return staff_cookie_value(secret, "olim", STAFF_HASH)
 
     @staticmethod
     def drain(stream: socket.socket) -> tuple[bytes, bool]:
@@ -324,6 +541,32 @@ class TestRealEventStream(VisibilityTestCase):
         stream = self.open_stream()
         self.put_second_contest()
         self.assertIn(b"data:create c2", stream.recv(65536))
+
+    def test_staff_stream_of_a_hidden_group_delivers(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
+
+    def test_staff_stream_survives_hiding(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_visibility("olim", True)
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
+
+    def test_staff_stream_is_closed_when_the_password_changes(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_visibility("olim", True,
+                            staff_password=build_password("new", "plaintext"))
+        self.put_second_contest()
+        received, closed = self.drain(stream)
+        self.assertNotIn(b"c2", received)
+        self.assertTrue(closed)
 
 
 class TestVisibilityState(unittest.TestCase):
