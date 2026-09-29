@@ -327,10 +327,10 @@ class ActivateDatasetHandler(BaseHandler):
 
             # This kicks off judging of any submissions which were previously
             # unloved, but are now part of an autojudged taskset.
-            self.service\
-                .evaluation_service.search_operations_not_done()
-            self.service\
-                .scoring_service.search_operations_not_done()
+            self.schedule_rpc(
+                self.service.evaluation_service.search_operations_not_done)
+            self.schedule_rpc(
+                self.service.scoring_service.search_operations_not_done)
 
         # Now send notifications to contestants.
         datetime = make_datetime()
@@ -376,10 +376,10 @@ class ToggleAutojudgeDatasetHandler(BaseHandler):
 
             # This kicks off judging of any submissions which were previously
             # unloved, but are now part of an autojudged taskset.
-            self.service\
-                .evaluation_service.search_operations_not_done()
-            self.service\
-                .scoring_service.search_operations_not_done()
+            self.schedule_rpc(
+                self.service.evaluation_service.search_operations_not_done)
+            self.schedule_rpc(
+                self.service.scoring_service.search_operations_not_done)
 
         self.write("./%d" % dataset.task_id)
 
