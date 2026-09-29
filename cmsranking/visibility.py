@@ -21,6 +21,7 @@ password-protected live view for the staff (MC-2).
 
 """
 
+import functools
 import hashlib
 import hmac
 import json
@@ -29,10 +30,10 @@ import os
 import re
 import secrets
 import tempfile
-import time
 
 import gevent
 from gevent.pywsgi import WSGIHandler
+from gevent.threadpool import ThreadPool
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.wrappers import Request, Response
 
@@ -46,6 +47,13 @@ VISIBILITY_FILE = "visibility.json"
 STAFF_COOKIE = "rws_staff"
 
 NO_STORE = {"Cache-Control": "no-store"}
+PRIVATE_NO_STORE = "private, no-store"
+
+# A login form is a few hundred bytes at most.
+MAX_LOGIN_BODY = 4096
+# Threads that check staff passwords, apart from the pool that the hub
+# shares with everything else.
+LOGIN_THREADS = 2
 
 NOTICE_TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
@@ -166,11 +174,24 @@ class VisibilityState:
         self.staff_password = staff_password
 
 
+@functools.cache
+def _login_pool() -> ThreadPool:
+    """Return the threads that check staff passwords, made on first use.
+
+    return: a small pool of its own, so that a burst of anonymous logins
+        can neither fill the pool that the hub shares with everything
+        else, nor queue up in front of it.
+
+    """
+    return ThreadPool(LOGIN_THREADS)
+
+
 def _close_connection(start_response):
     """Make the gevent server close the connection after this response.
 
-    A response that stops short of its promised length would otherwise
-    leave the browser waiting on a keep-alive connection for the rest.
+    Used when the response stops short of its promised length, which
+    would leave the browser waiting on a keep-alive connection for the
+    rest, and when the app left part of the request body unread.
 
     start_response: the WSGI start_response callable of the request.
 
@@ -178,6 +199,28 @@ def _close_connection(start_response):
     handler = getattr(start_response, "__self__", None)
     if isinstance(handler, WSGIHandler):
         handler.close_connection = True
+
+
+def _private_no_store(start_response):
+    """Wrap start_response so that no cache keeps the response.
+
+    start_response: the WSGI start_response callable.
+
+    return: a start_response that replaces the Cache-Control header with
+        "private, no-store". The gevent handler stays reachable in its
+        __self__, where the /events handler looks for it.
+
+    """
+    def wrapped(status, headers, exc_info=None):
+        headers = [(name, value) for name, value in headers
+                   if name.lower() != "cache-control"]
+        headers.append(("Cache-Control", PRIVATE_NO_STORE))
+        return start_response(status, headers, exc_info)
+
+    handler = getattr(start_response, "__self__", None)
+    if handler is not None:
+        wrapped.__self__ = handler
+    return wrapped
 
 
 class _CutWhenHidden:
@@ -260,37 +303,49 @@ class VisibilityGuard:
         return request.scheme == "https" or request.headers.get(
             "X-Forwarded-Proto", "").lower() == "https"
 
-    def _login(self, request: Request) -> Response:
+    def _login(self, request: Request, start_response) -> Response:
         """Check the staff password and start a staff session.
 
         request: the POST to staff-login, with the form field password.
+        start_response: the WSGI start_response callable.
 
         return: a redirect that sets the staff cookie, or the notice with
-            an error after a failed attempt (or a 413 if the form is too
-            big to be a password).
+            an error after a failed attempt (or a 413 if the body is too
+            big to be a login form).
 
         """
+        # The gevent server hands the app a chunked body as a stream that
+        # has no end but the client's. With a limit, werkzeug stops
+        # reading at that many bytes and raises for a declared length or
+        # a multipart body over it.
+        request.max_content_length = MAX_LOGIN_BODY
         try:
             # As typed, without stripping: AWS stores it as it got it.
             password = request.form.get("password", "")
+            # A urlencoded form that is read to its end is cut at the
+            # limit without a word. Reading past the limit raises, and
+            # finds nothing if the body was shorter.
+            request.stream.read(1)
         except RequestEntityTooLarge as error:
-            return error.get_response(request.environ)
+            # The rest of the body stays unread: no keep-alive.
+            _close_connection(start_response)
+            response = error.get_response(request.environ)
+            response.headers.update(NO_STORE)
+            return response
         stored = self.state.staff_password
         valid = False
         if stored is not None and password != "":
             try:
                 # bcrypt takes about 250 ms of CPU. On the hub it would
                 # stop every public scoreboard during a burst of attempts,
-                # so it runs in the threadpool.
-                valid = gevent.get_hub().threadpool.apply(
+                # so it runs in threads, apart from the shared pool.
+                valid = _login_pool().apply(
                     validate_password, (stored, password))
             except ValueError:
                 # An authentication method that is not known.
                 valid = False
         if not valid:
-            # cmsRankingWebServer monkey-patches time: only this greenlet
-            # waits.
-            time.sleep(self.FAILED_LOGIN_DELAY)
+            gevent.sleep(self.FAILED_LOGIN_DELAY)
             return self._notice(error=True, status=401)
         response = Response(status=303, headers=dict(
             NO_STORE, Location="./"))
@@ -391,9 +446,11 @@ class VisibilityGuard:
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
         if self._is_staff(request):
-            if self.state.hidden and path == "/" and \
-                    request.method == "GET":
-                return self._with_banner(environ, start_response)
+            if self.state.hidden:
+                if path == "/" and request.method == "GET":
+                    return self._with_banner(environ, start_response)
+                # A cache shared with the public must not keep this.
+                start_response = _private_no_store(start_response)
             return self.app(environ, start_response)
         if not self.state.hidden:
             return _CutWhenHidden(self.app(environ, start_response),
@@ -410,7 +467,8 @@ class VisibilityGuard:
         if path == "/" and request.method in ("GET", "HEAD"):
             return self._notice()(environ, start_response)
         if path == "/staff-login" and request.method == "POST":
-            return self._login(request)(environ, start_response)
+            return self._login(request, start_response)(
+                environ, start_response)
         return Response("Este ranking está oculto.", status=403,
                         mimetype="text/plain",
                         headers=NO_STORE)(environ, start_response)

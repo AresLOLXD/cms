@@ -18,6 +18,8 @@
 
 """Tests for the MC-2 visibility guard of RWS group namespaces."""
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -29,7 +31,9 @@ from base64 import b64encode
 from importlib.resources import files
 from unittest.mock import patch
 
+import gevent
 from gevent import socket
+from gevent.monkey import get_original
 from gevent.pywsgi import WSGIServer
 from werkzeug.test import Client, create_environ
 
@@ -281,7 +285,7 @@ class TestStaffLogin(VisibilityTestCase):
 
     def setUp(self):
         super().setUp()
-        patcher = patch("cmsranking.visibility.time.sleep")
+        patcher = patch("cmsranking.visibility.gevent.sleep")
         self.sleep = patcher.start()
         self.addCleanup(patcher.stop)
         self.put_contest("/olim")
@@ -320,6 +324,39 @@ class TestStaffLogin(VisibilityTestCase):
         response = self.login("s3cret", **{"wsgi.url_scheme": "https"})
         self.assertIn("Secure", response.headers["Set-Cookie"])
 
+    def test_cookie_is_the_documented_hmac(self):
+        # Spelled out here, not computed with staff_cookie_value, so a
+        # change to what it signs (the group, the separator) is noticed.
+        secret = self.client.application.apps["olim"].state.secret
+        expected = hmac.new(bytes.fromhex(secret),
+                            b"olim\n" + STAFF_HASH.encode(),
+                            hashlib.sha256).hexdigest()
+        self.assertEqual(self.cookie_from(self.login("s3cret")), expected)
+
+    def test_staff_responses_of_a_hidden_group_are_not_cacheable(self):
+        # A shared cache that ignores cookies must not keep what only the
+        # staff may see, whatever the app says about caching it.
+        headers = self.with_cookie(self.cookie_from(self.login("s3cret")))
+        headers["Accept"] = "application/json"
+        for path in DATA_PATHS:
+            if path == "events":
+                continue
+            with self.subTest(path=path):
+                response = self.client.get("/olim/" + path, headers=headers)
+                self.assertNotEqual(response.status_code, 403)
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "private, no-store")
+
+    def test_visible_group_keeps_the_caching_of_the_app(self):
+        self.put_visibility("olim", False)
+        cookie = staff_cookie_value(
+            self.client.application.apps["olim"].state.secret, "olim",
+            STAFF_HASH)
+        for headers in [{}, self.with_cookie(cookie)]:
+            response = self.client.get("/olim/Ranking.js", headers=headers)
+            self.assertEqual(response.headers["Cache-Control"],
+                             "max-age=43200, public")
+
     def test_staff_cookie_grants_access_and_banner(self):
         cookie = self.cookie_from(self.login("s3cret"))
         headers = self.with_cookie(cookie)
@@ -354,6 +391,7 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertNotIn("Set-Cookie", response.headers)
         self.assertIn("Contraseña incorrecta.",
                       response.get_data(as_text=True))
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.sleep.assert_called_once_with(1.0)
 
     def test_login_is_a_post(self):
@@ -399,6 +437,7 @@ class TestStaffLogin(VisibilityTestCase):
         response = self.client.get("/olim/staff-logout")
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["Location"], "./")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
         header = response.headers["Set-Cookie"]
         self.assertTrue(header.startswith(STAFF_COOKIE + "=;"))
         self.assertIn("Expires=", header)
@@ -442,6 +481,25 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertEqual(len(threads), 1)
         self.assertNotEqual(threads[0], threading.get_ident())
 
+    def test_login_does_not_use_the_shared_threadpool(self):
+        # Anonymous logins must not be able to fill the pool that the hub
+        # shares with everything else, nor wait in a queue behind it.
+        allocate_lock = get_original("_thread", "allocate_lock")
+        gate = allocate_lock()
+        gate.acquire()
+
+        def blocker():
+            if gate.acquire(timeout=5):
+                gate.release()
+
+        # Released in a chain: each blocker lets the next one go.
+        self.addCleanup(gate.release)
+        shared_pool = gevent.get_hub().threadpool
+        for _ in range(shared_pool.maxsize):
+            shared_pool.spawn(blocker)
+        with gevent.Timeout(2):
+            self.assertEqual(self.login("s3cret").status_code, 303)
+
     def test_unusable_hash_is_a_failed_login(self):
         for staff_password in ["md5:abc", "bcrypt:not-a-hash"]:
             with self.subTest(staff_password=staff_password):
@@ -470,7 +528,13 @@ class TestStaffLogin(VisibilityTestCase):
     def test_oversized_login_is_refused(self):
         response = self.login("x" * 1_000_000)
         self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertNotIn("Set-Cookie", response.headers)
+
+    def test_login_body_limit_is_far_below_the_form_default(self):
+        # A login form is tiny, so a body of a few kB is already too big.
+        self.assertEqual(self.login("x" * 3000).status_code, 401)
+        self.assertEqual(self.login("x" * 5000).status_code, 413)
 
     def test_visible_group_has_no_banner(self):
         self.put_visibility("olim", False)
@@ -548,6 +612,39 @@ class TestOpenConnections(unittest.TestCase):
 
         response = self.get_write_stream(StaffGuard)
         self.assertEqual(response.get_data(), b"event 1\nevent 2\n")
+
+    def test_staff_of_a_hidden_group_get_private_no_store(self):
+        # The header is set on the way out, so the /events handler must
+        # still find the server handler where it looks for it.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        seen = []
+
+        class Handler:
+            headers = None
+
+            def start_response(self, status, headers, exc_info=None):
+                self.headers = headers
+                return lambda data: None
+
+        class StaffGuard(VisibilityGuard):
+            def _is_staff(self, request):
+                return True
+
+        def app(environ, start_response):
+            seen.append(getattr(start_response, "__self__", None))
+            start_response("200 OK", [("Cache-Control", "max-age=60"),
+                                      ("X-Other", "kept")])
+            return []
+
+        handler = Handler()
+        guard = StaffGuard(app, tmp, "olim", USERNAME, PASSWORD,
+                           "Scoreboard")
+        guard.state.update(True, None)
+        guard(create_environ("/config"), handler.start_response)
+        self.assertEqual(seen, [handler])
+        self.assertEqual(handler.headers, [
+            ("X-Other", "kept"), ("Cache-Control", "private, no-store")])
 
     def test_app_still_finds_the_server_handler(self):
         # The /events handler reads start_response.__self__ to spot the
@@ -657,6 +754,86 @@ class TestRealEventStream(VisibilityTestCase):
         received, closed = self.drain(stream)
         self.assertNotIn(b"c2", received)
         self.assertTrue(closed)
+
+
+class TestLoginBodyLimit(VisibilityTestCase):
+    """The login form is tiny: a bigger body is refused, however sent.
+
+    Behind a real gevent server, which streams chunked bodies to the app
+    and so leaves it to the app to stop reading them.
+
+    """
+
+    BOUNDARY = b"XXboundaryXX"
+    FORM = b"Content-Type: application/x-www-form-urlencoded\r\n"
+    MULTIPART = b"Content-Type: multipart/form-data; boundary=%s\r\n" \
+        % BOUNDARY
+
+    def setUp(self):
+        super().setUp()
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+        server = WSGIServer(("127.0.0.1", 0), self.client.application,
+                            log=None)
+        server.start()
+        self.addCleanup(server.stop)
+        self.port = server.server_port
+
+    def post(self, content_type: bytes, body: bytes,
+             chunked: bool) -> socket.socket:
+        """Send a login request, with the body chunked or not."""
+        if chunked:
+            head = b"Transfer-Encoding: chunked\r\n"
+            body = b"".join(
+                b"%x\r\n%s\r\n" % (len(body[i:i + 8192]), body[i:i + 8192])
+                for i in range(0, len(body), 8192)) + b"0\r\n\r\n"
+        else:
+            head = b"Content-Length: %d\r\n" % len(body)
+        stream = socket.create_connection(("127.0.0.1", self.port),
+                                          timeout=3)
+        self.addCleanup(stream.close)
+        stream.sendall(b"POST /olim/staff-login HTTP/1.1\r\nHost: rws\r\n"
+                       + content_type + head + b"\r\n" + body)
+        return stream
+
+    def multipart_with_file(self, size: int) -> bytes:
+        return (b"--%s\r\nContent-Disposition: form-data; name=\"upload\"; "
+                b"filename=\"a.bin\"\r\nContent-Type: "
+                b"application/octet-stream\r\n\r\n%s\r\n--%s--\r\n"
+                % (self.BOUNDARY, b"x" * size, self.BOUNDARY))
+
+    def assert_refused(self, stream: socket.socket):
+        received, closed = TestRealEventStream.drain(stream)
+        self.assertTrue(received.startswith(b"HTTP/1.1 413"), received[:60])
+        self.assertIn(b"Cache-Control: no-store", received)
+        self.assertNotIn(b"Set-Cookie", received)
+        # The rest of the body is not read by the app: no keep-alive.
+        self.assertTrue(closed)
+
+    def test_urlencoded_body_over_the_limit(self):
+        # Both sides of the 500 kB that werkzeug allows a form by default,
+        # and only when the length is declared.
+        for size in [65536, 1_000_000]:
+            for chunked in [False, True]:
+                with self.subTest(size=size, chunked=chunked):
+                    self.assert_refused(self.post(
+                        self.FORM, b"password=" + b"x" * size, chunked))
+
+    def test_multipart_file_part_over_the_limit(self):
+        body = self.multipart_with_file(65536)
+        for chunked in [False, True]:
+            with self.subTest(chunked=chunked):
+                self.assert_refused(self.post(self.MULTIPART, body, chunked))
+
+    def test_normal_login_still_works(self):
+        for chunked in [False, True]:
+            with self.subTest(chunked=chunked):
+                stream = self.post(self.FORM, b"password=s3cret", chunked)
+                received = stream.recv(65536)
+                self.assertTrue(received.startswith(b"HTTP/1.1 303"),
+                                received[:60])
+                self.assertIn(b"Set-Cookie: " + STAFF_COOKIE.encode(),
+                              received)
 
 
 class TestCutBody(unittest.TestCase):
