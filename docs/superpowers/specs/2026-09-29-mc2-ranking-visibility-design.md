@@ -110,6 +110,12 @@ Group mode only (`contest_id is None`). Legacy mode is unchanged.
 - Coordination: SP1 is changing `ProxyService.py` in parallel. This part is
   implemented after SP1 lands, on top of its executor changes.
 
+**Note (post-review):** A rejected visibility (4xx from RWS) is sticky. The
+group stays rejected until a later visibility PUT is accepted. Meanwhile, the
+group's data is dropped (held back by ProxyService, not sent to RWS). A
+transient failure of the group's new settings requeues its data together
+with them, so the data still never reaches RWS before the settings.
+
 ### 4. RankingWebServer
 
 A visibility guard wraps each group namespace app (built by `make_app` /
@@ -205,9 +211,16 @@ request passes through untouched. A staff cookie is ignored.
 - Before the contest: tick "Hide" and set the staff password on each group
   page. Check the public URL shows the notice and the staff can log in.
 - To reveal: untick "Hide". Staff sessions keep working.
-- Rolling RWS back to a version without the guard makes every hidden group
-  public, because older RWS ignores `visibility.json`. Roll back RWS only
-  after un-hiding is acceptable.
+- **Rollback:** Roll back ProxyService and RankingWebServer **together**. Do
+  not roll them back separately:
+  - Rolling back only RWS to a version without the guard leaves **every
+    group ranking empty**, hidden or not: ProxyService sends every group's
+    visibility, the old RWS rejects it, and ProxyService then holds back the
+    group's data. Do not roll back RWS alone.
+  - Rolling back only ProxyService leaves `visibility.json` on disk: hidden
+    groups stay hidden (the staff can still log in and data still arrives,
+    since the guard accepts the proxy's authenticated writes), but hiding and
+    revealing from AWS stop working until ProxyService is updated again.
 - A short operator guide goes into `docs/multi-contest.md`.
 
 ## Error Handling
@@ -215,7 +228,7 @@ request passes through untouched. A staff cookie is ignored.
 | Situation | Behaviour |
 |---|---|
 | RWS down when AWS saves | ProxyService retries with backoff (SP1); the old state holds until delivered |
-| RWS rejects the visibility PUT (4xx) | WARNING with the Regenerate hint; nothing else of the group is affected |
+| RWS rejects the visibility PUT (4xx) | WARNING logged; the group's data is held back until RWS accepts new settings for it (the ranking stays empty rather than exposed); fix RWS, save the group again, then press Regenerate |
 | Malformed `visibility.json` | Group treated as hidden without password (fail closed), ERROR logged |
 | Hidden group without a staff password | Everyone sees the notice; login always fails |
 | Wrong password | 1 s delay, notice with error, 401 |

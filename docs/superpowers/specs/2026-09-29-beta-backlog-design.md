@@ -36,7 +36,7 @@ conversation, on the options and recommendations presented.
 | SP1 send-failure policy (D1-B) | Requeue unsent data on transport errors and 5xx, with backoff; on 4xx drop only that (group, type) pair with a Regenerate hint; `requests` timeouts. |
 | SP8 B2 (D2-B) | Imported contests arrive inactive unless restoring with `--drop`. |
 | SP8 B1 + N1-B (D3-B) | The sweeper retries broken contests; reinitialize restores the group mapping on failure. |
-| CI runners | GitHub-hosted runners once the user enables Actions; an optional self-hosted runner on a dedicated machine, push-only, label `cms-ci`, gated by the repository variable `SELF_HOSTED_RUNNER=true`. |
+| CI runners | GitHub-hosted runners once the user enables Actions; an optional self-hosted runner on a dedicated machine, label `cms-ci`, gated by the repository variable `SELF_HOSTED_RUNNER=true`. The push-only `if` condition is defence in depth, not a security boundary, because fork PRs run their own workflow file. Do not register the self-hosted runner before 2026-10-10. If it is ever registered, require approval for all outside collaborators, use an ephemeral VM, and never put it on a contest host. |
 | SP2 scope | codecov permissions fix, overridable timeouts, functional-test timeouts, harness HTTP timeouts, config-generator tests in CI, harness fix cherry-picked to `main`, a side-by-side Python 3.12 venv. |
 | MC-2 scope | Per group: hide the public scoreboard (the public sees a notice, data endpoints closed) and a staff view with a per-group password configured in AWS. Freezing and schedules are out of scope. |
 | MC-2 approach | AWS -> ProxyService -> RWS, staff log in on the same URL with a signed cookie; chosen over HTTP Basic in RWS (browser popup for every visitor) and hand-configured nginx (not configurable in AWS). See `2026-09-29-mc2-ranking-visibility-design.md`. |
@@ -224,7 +224,7 @@ All items traced to source file `backlog-draft.md` (§ letter). Status marks: �
 | ID | Aliases | Description | Evidence | Urgency | Effort | Verdict | Reason |
 |---|---|---|---|---|---|---|
 | **V1** | (N7-A) | async_rpc.execute_rpc deletes pending request, drops KeyError when peer disconnects → pop(id_, None) | async_rpc.py | Media | S | Q1 (N7-A) | Fixes log spam. QW; same as N7-A. |
-| **V2** | — | Functional-test config mismatch: cms-testdb.toml ranking URL `usern4me:passw0rd@localhost:8890` vs entrypoint-generated cms_ranking.toml (user `rws`, empty password) | docker, cms-testdb.toml | Media | S | SP2 C13 | ProxyService gets 401 from RWS in functional; test infra bug. Pair with C13 phase 0. |
+| **V2** | — | Functional-test config mismatch: cms-testdb.toml ranking URL `usern4me:passw0rd@localhost:8890` vs entrypoint-generated cms_ranking.toml (user `rws`, empty password) | docker, cms-testdb.toml | Media | S | ✓ Done (2f2c5313) | CI ranking credentials fixed. |
 | **V3** | — | Harness creates tasks via AWS before ProxyService starts → 80 RPC warnings ("Write failed."). Noise; pre-fix. | docker harness | Baja | — | Not worth (measure later) | Low priority ordering; pre-existing. May resolve after N1-D / log level fixes. |
 
 ### R — Code Review Findings (code-reviewer, commit 1b6611f0..1b5a149d)
