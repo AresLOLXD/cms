@@ -27,7 +27,8 @@ the root RWS app already serves.
 
 import re
 
-__all__ = ["GROUP_NAME_RE", "RESERVED_GROUP_NAMES", "is_valid_group_name"]
+__all__ = ["GROUP_NAME_RE", "RESERVED_GROUP_NAMES", "is_valid_group_name",
+           "window_is_open", "check_window"]
 
 
 GROUP_NAME_RE = re.compile(r"[a-z0-9_-]+")
@@ -52,3 +53,32 @@ def is_valid_group_name(name: str) -> bool:
     """
     return GROUP_NAME_RE.fullmatch(name) is not None \
         and name not in RESERVED_GROUP_NAMES
+
+
+def window_is_open(start, end, now) -> bool:
+    """Tell whether now falls in the time window [start, end).
+
+    start: when the window opens, or None if it never does.
+    end: when it closes, or None if it never does.
+    now: the time to check; comparable with start and end (Unix
+        seconds, or naive UTC datetimes).
+
+    return: True if start <= now < end, a missing end being +infinity.
+
+    """
+    return start is not None and start <= now \
+        and (end is None or now < end)
+
+
+def check_window(start, end, what: str) -> None:
+    """Check that a time window ends after it starts.
+
+    start: when the window opens, or None.
+    end: when it closes, or None.
+    what: the name of the window, for the error message.
+
+    raise (ValueError): if both ends are set and end <= start.
+
+    """
+    if start is not None and end is not None and end <= start:
+        raise ValueError("The %s window must end after it starts." % what)
