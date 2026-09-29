@@ -77,7 +77,7 @@ class TestRankingHandler(DatabaseMixin, unittest.TestCase):
         # options this raised sqlalchemy.exc.ArgumentError before ever
         # reaching render(). Going through .get() (rather than duplicating
         # the query) proves the actual handler code, not a copy of it.
-        RankingHandler.get.__wrapped__(handler, self.contest.id, "csv")
+        handler._get_sync(self.contest.id, "csv")
 
         handler.finish.assert_called_once()
         csv_output = handler.finish.call_args[0][0]

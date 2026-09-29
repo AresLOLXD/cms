@@ -51,7 +51,7 @@ class TestRegenerateRankingHandler(unittest.TestCase):
         handler.get_argument = MagicMock(return_value=group_arg)
         handler.redirect = MagicMock()
         handler.url = MagicMock(return_value="/ranking_groups")
-        RegenerateRankingHandler.post.__wrapped__(handler)
+        handler._post_sync()
         return handler.application.service.proxy_service.regenerate_ranking
 
     def test_group(self):
