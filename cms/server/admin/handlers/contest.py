@@ -119,11 +119,23 @@ class ContestHandler(SimpleContestHandler("contest.html")):
             self.get_bool(attrs, "ip_restriction")
             self.get_bool(attrs, "ip_autologin")
             self.get_bool(attrs, "active")
-            self.get_int(attrs, "ranking_group_id")
-            if attrs["ranking_group_id"] is not None and \
-                    RankingGroup.get_from_id(
-                        attrs["ranking_group_id"], self.sql_session) is None:
-                raise ValueError("Unknown ranking group.")
+
+            # Contest.get_attrs() and set_attrs() skip foreign keys, so
+            # the ranking group is set through its relationship. An
+            # omitted argument leaves the contest's ranking group
+            # unchanged; an empty one clears it.
+            ranking_group_form: dict = dict()
+            self.get_int(ranking_group_form, "ranking_group_id")
+            if "ranking_group_id" in ranking_group_form:
+                ranking_group_id = ranking_group_form["ranking_group_id"]
+                if ranking_group_id is None:
+                    attrs["ranking_group"] = None
+                else:
+                    ranking_group = RankingGroup.get_from_id(
+                        ranking_group_id, self.sql_session)
+                    if ranking_group is None:
+                        raise ValueError("Unknown ranking group.")
+                    attrs["ranking_group"] = ranking_group
 
             self.get_string(attrs, "token_mode")
             self.get_int(attrs, "token_max_number")
