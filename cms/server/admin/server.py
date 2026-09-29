@@ -27,6 +27,7 @@
 
 from datetime import datetime
 import logging
+import threading
 import typing
 
 from sqlalchemy import func, not_, literal_column, select
@@ -72,8 +73,10 @@ class AdminWebServer(WebService):
 
         self.jinja2_environment = AWS_ENVIRONMENT
 
-        # A list of pending notifications.
+        # A list of pending notifications, appended to and drained
+        # from executor threads; guarded by notifications_lock.
         self.notifications: list[tuple[datetime, str, str]] = []
+        self.notifications_lock = threading.Lock()
 
         self.admin_web_server = self.connect_to(
             ServiceCoord("AdminWebServer", 0))
@@ -121,12 +124,26 @@ class AdminWebServer(WebService):
         """Store a new notification to send at the first
         opportunity (i.e., at the first request for db notifications).
 
+        Handler bodies run in executor threads, so this is guarded by
+        notifications_lock (see take_notifications()).
+
         timestamp: the time of the notification.
         subject: subject of the notification.
         text: body of the notification.
 
         """
-        self.notifications.append((timestamp, subject, text))
+        with self.notifications_lock:
+            self.notifications.append((timestamp, subject, text))
+
+    def take_notifications(self) -> list[tuple[datetime, str, str]]:
+        """Atomically return all pending notifications and clear them.
+
+        return: the pending notifications, each returned exactly once.
+
+        """
+        with self.notifications_lock:
+            pending, self.notifications = self.notifications, []
+        return pending
 
     @staticmethod
     @rpc_method

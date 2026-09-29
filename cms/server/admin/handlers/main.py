@@ -174,12 +174,11 @@ class NotificationsHandler(BaseHandler):
             })
 
         # Simple notifications
-        for notification in self.service.notifications:
+        for notification in self.service.take_notifications():
             res.append({"type": "notification",
                         "timestamp": make_timestamp(notification[0]),
                         "subject": notification[1],
                         "text": notification[2]})
-        self.service.notifications = []
 
         self.write(json.dumps(res))
 

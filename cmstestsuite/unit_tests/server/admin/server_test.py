@@ -20,11 +20,13 @@
 
 """
 
+import threading
 import unittest
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.server.admin.server import AdminWebServer
+from cmscommon.datetime import make_datetime
 
 
 class TestConstruction(unittest.TestCase):
@@ -101,6 +103,55 @@ class TestSubmissionsStatus(DatabaseMixin, unittest.TestCase):
         self.assertEqual(other_stats["total"], 1)
         self.assertEqual(other_stats["evaluating"], 1)
         self.assertEqual(other_stats["compiling"], 0)
+
+
+class TestNotifications(unittest.TestCase):
+    """add_notification/take_notifications from concurrent threads."""
+
+    def setUp(self):
+        self.server = AdminWebServer(0)
+
+    def test_take_returns_all_and_empties(self):
+        now = make_datetime()
+        self.server.add_notification(now, "a", "1")
+        self.server.add_notification(now, "b", "2")
+        self.assertEqual(self.server.take_notifications(),
+                         [(now, "a", "1"), (now, "b", "2")])
+        self.assertEqual(self.server.notifications, [])
+        self.assertEqual(self.server.take_notifications(), [])
+
+    def test_concurrent_add_and_take_delivers_each_exactly_once(self):
+        writers, per_writer = 4, 2000
+        now = make_datetime()
+        taken = []
+        writers_done = threading.Event()
+
+        def write(writer):
+            for i in range(per_writer):
+                self.server.add_notification(now, str(writer), str(i))
+
+        def take():
+            while not writers_done.is_set():
+                taken.extend(self.server.take_notifications())
+            taken.extend(self.server.take_notifications())
+
+        taker = threading.Thread(target=take)
+        taker.start()
+        threads = [threading.Thread(target=write, args=(w,))
+                   for w in range(writers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        writers_done.set()
+        taker.join()
+
+        self.assertEqual(len(taken), writers * per_writer)
+        self.assertEqual(
+            sorted((s, t) for _, s, t in taken),
+            sorted((str(w), str(i))
+                   for w in range(writers) for i in range(per_writer)))
+        self.assertEqual(self.server.notifications, [])
 
 
 if __name__ == "__main__":
