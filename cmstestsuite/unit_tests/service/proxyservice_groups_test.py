@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
 import requests.exceptions
+from sqlalchemy import text
+from sqlalchemy.orm import object_session
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
@@ -456,6 +458,192 @@ class TestProxyServiceGroups(
         self.assertEqual(len(hints), 1)
         self.assertIn("olim", hints[0])
         self.assertIn("submissions", hints[0])
+
+    async def test_sweep_retries_a_broken_contest(self):
+        self.break_contest(self.contest_b)
+        service = await self.start()
+        self.assertEqual(service._broken_contests, {self.contest_b.id})
+        self.assertNotIn(url("omips/contests/"), self.put_urls())
+        self.clear_requests()
+
+        # Whatever broke it is over, and nobody edits anything in AWS.
+        self.broken_datasets.clear()
+        await service._missing_operations()
+        await self._settle(service)
+
+        # The next sweep sends the contest and the scores held back.
+        self.assertEqual(service._broken_contests, set())
+        self.assertEqual(set(self.put_payload(url("omips/contests/"))),
+                         {encode_id(self.contest_b.name)})
+        self.assertEqual(set(self.put_payload(url("omips/submissions/"))),
+                         {"%d" % self.sub_b.id})
+        self.assertFalse(any("olim/" in u for u in self.put_urls()))
+
+    async def test_contests_broken_by_a_database_error_all_heal(self):
+        # A failed statement aborts the PostgreSQL transaction, so the
+        # contests that follow in the same initialize() fail as well.
+        database_is_failing = [True]
+        real_operations = ProxyService._operations_for_contest
+
+        def operations_for_contest(service, contest):
+            if database_is_failing[0] and contest.id == self.contest_a.id:
+                object_session(contest).execute(text("SELECT 1 / 0"))
+            return real_operations(service, contest)
+
+        with patch.object(ProxyService, "_operations_for_contest",
+                          operations_for_contest):
+            service = await self.start()
+            self.assertEqual(
+                service._broken_contests,
+                {self.contest_a.id, self.contest_b.id})
+            self.assertEqual(self.put_urls(), [])
+
+            database_is_failing[0] = False
+            await service._missing_operations()
+            await self._settle(service)
+
+        self.assertEqual(service._broken_contests, set())
+        for group, contest, submission in (
+                ("olim", self.contest_a, self.sub_a),
+                ("omips", self.contest_b, self.sub_b)):
+            self.assertEqual(
+                set(self.put_payload(url("%s/contests/" % group))),
+                {encode_id(contest.name)})
+            self.assertEqual(
+                set(self.put_payload(url("%s/submissions/" % group))),
+                {"%d" % submission.id})
+
+    async def test_healed_contest_gets_all_its_scores_again(self):
+        service = await self.start()
+        # A regenerate empties OMIPS while its contest cannot be built.
+        # The score of its submission was sent before, but it is gone.
+        self.break_contest(self.contest_b)
+        await service.regenerate_ranking("omips")
+        await self._settle(service)
+        self.assertEqual(self.delete_urls(),
+                         [url("omips/contests/"), url("omips/users/")])
+        self.assertEqual(service._broken_contests, {self.contest_b.id})
+        self.clear_requests()
+
+        self.broken_datasets.clear()
+        await service._missing_operations()
+        await self._settle(service)
+
+        self.assertEqual(service._broken_contests, set())
+        self.assertEqual(set(self.put_payload(url("omips/contests/"))),
+                         {encode_id(self.contest_b.name)})
+        self.assertEqual(set(self.put_payload(url("omips/submissions/"))),
+                         {"%d" % self.sub_b.id})
+
+    async def test_healing_contest_is_held_back_until_its_data_is_queued(
+        self,
+    ):
+        # Scores that arrive meanwhile from another thread must queue
+        # up behind the contest and its tasks, or RWS refuses them.
+        self.break_contest(self.contest_b)
+        service = await self.start()
+        self.broken_datasets.clear()
+
+        held_back = list()
+        real_enqueue = service._threadsafe_enqueue
+
+        def spy(operation, *args):
+            held_back.append(self.contest_b.id in service._broken_contests)
+            real_enqueue(operation, *args)
+
+        service._threadsafe_enqueue = spy
+        await service._missing_operations()
+        await self._settle(service)
+
+        # First the four operations of the contest, then its scores.
+        self.assertEqual(held_back[:4], [True] * 4)
+        self.assertEqual(held_back[4:], [False] * (len(held_back) - 4))
+        self.assertEqual(service._broken_contests, set())
+
+    async def test_sweep_leaves_alone_what_is_already_there(self):
+        service = await self.start()
+        self.clear_requests()
+        self.assertEqual(await service._missing_operations(), 0)
+        await self._settle(service)
+        self.assertEqual(self.put_urls(), [])
+
+    async def test_broken_contest_logs_a_traceback_only_once(self):
+        self.break_contest(self.contest_b)
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            # It breaks here, and the first sweep tries it again.
+            service = await self.start()
+            await service._missing_operations()
+            await service._missing_operations()
+        tracebacks = [r for r in logs.records if r.exc_info]
+        retries = [r for r in logs.records if not r.exc_info]
+        self.assertEqual(len(tracebacks), 1)
+        self.assertEqual(len(retries), 3)
+        for record in retries:
+            self.assertIn(self.contest_b.name, record.getMessage())
+            self.assertIn("No testcase matches", record.getMessage())
+
+        # Once it works again, breaking it is news again.
+        self.broken_datasets.clear()
+        await service._missing_operations()
+        self.assertEqual(service._broken_contests, set())
+        self.break_contest(self.contest_b)
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            await service.reinitialize()
+        self.assertEqual(len([r for r in logs.records if r.exc_info]), 1)
+
+    async def check_reinitialize_recovers_from_failure_in(self, name: str):
+        """Fail a reinitialize once, in the method called name, and repeat.
+
+        The reinitialize empties OLIM (it loses a contest) before it
+        breaks: the next one has to know, and empty OLIM again to fill
+        it in full.
+
+        """
+        contest_a2, sub_a2 = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        old_mapping = {group: set(contests) for group, contests
+                       in service._group_contests.items()}
+        self.clear_requests()
+
+        self.contest_a.ranking_group = self.omips
+        self.session.commit()
+        real_method = getattr(service, name)
+        failures = [RuntimeError("the database went away")]
+
+        def flaky_method(*args, **kwargs):
+            if failures:
+                raise failures.pop()
+            return real_method(*args, **kwargs)
+
+        setattr(service, name, flaky_method)
+        with self.assertRaises(RuntimeError):
+            await service.reinitialize()
+        await self._settle(service)
+        self.assertEqual(self.delete_urls(),
+                         [url("olim/contests/"), url("olim/users/")])
+        self.assertEqual(service._group_contests, old_mapping)
+
+        self.clear_requests()
+        await service.reinitialize()
+        await self._settle(service)
+        self.assertEqual(self.delete_urls(),
+                         [url("olim/contests/"), url("olim/users/")])
+        self.assertEqual(set(self.put_payload(url("olim/contests/"))),
+                         {encode_id(contest_a2.name)})
+        self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
+                         {"%d" % sub_a2.id})
+        self.assertIn("%d" % self.sub_a.id,
+                      self.put_payload(url("omips/submissions/")))
+
+    async def test_reinitialize_failing_early_is_redone_in_full(self):
+        await self.check_reinitialize_recovers_from_failure_in("initialize")
+
+    async def test_reinitialize_failing_while_resending_is_redone_in_full(
+        self,
+    ):
+        await self.check_reinitialize_recovers_from_failure_in(
+            "_enqueue_submissions")
 
     async def test_settle_waits_for_every_executor(self):
         # The service has one executor for each configured ranking.

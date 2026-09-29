@@ -633,12 +633,24 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         Runs inside loop.run_in_executor.
 
+        Besides what was not sent yet, try again the contests whose
+        data could not be built: whatever broke them may be over, and
+        they should not wait for someone to reinitialize the rankings.
+
         """
         counter = 0
         with SessionGen() as session:
             for contest in self._contests_to_send(session):
+                only_missing = True
+                if contest.id in self._broken_contests:
+                    counter += self._enqueue_contest_data(contest)
+                    if contest.id in self._broken_contests:
+                        continue
+                    # Its scores were held back, and the ranking may
+                    # have been emptied since it broke: send them all.
+                    only_missing = False
                 counter += self._enqueue_submissions(
-                    session, contest, only_missing=True)
+                    session, contest, only_missing=only_missing)
         return counter
 
     def initialize(self):
@@ -657,24 +669,41 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             for contest in self._contests_to_send(session):
                 self._enqueue_contest_data(contest)
 
-    def _enqueue_contest_data(self, contest: Contest):
+    def _enqueue_contest_data(self, contest: Contest) -> int:
         """Enqueue the contest, its users, teams and tasks.
 
         If the data cannot be built, log the error and enqueue nothing
-        for the contest, without affecting the other contests.
+        for the contest, without affecting the other contests. The
+        traceback is only logged when the contest breaks: the sweeper
+        tries it again every time, and it would fill the logs.
+
+        return: the number of operations enqueued.
 
         """
         try:
             operations = self._operations_for_contest(contest)
-        except Exception:
-            logger.exception("Cannot build the ranking data of contest %d "
-                             "(%s), not sending it until fixed.",
-                             contest.id, contest.name)
-            self._broken_contests.add(contest.id)
-            return
-        self._broken_contests.discard(contest.id)
+        except Exception as error:
+            if contest.id in self._broken_contests:
+                logger.warning("Contest %d (%s) still cannot be sent to "
+                               "the rankings: %s: %s", contest.id,
+                               contest.name, type(error).__name__, error)
+            else:
+                logger.exception("Cannot build the ranking data of contest "
+                                 "%d (%s), not sending it until fixed: the "
+                                 "sweeper will try again.",
+                                 contest.id, contest.name)
+                self._broken_contests.add(contest.id)
+            return 0
         for operation in operations:
             self._threadsafe_enqueue(operation)
+        # Only now the scores of the contest may be sent: another thread
+        # could otherwise queue them before the contest and its tasks,
+        # and rankings refuse submissions of tasks they do not know.
+        if contest.id in self._broken_contests:
+            logger.info("Contest %d (%s) can be sent to the rankings again.",
+                        contest.id, contest.name)
+            self._broken_contests.discard(contest.id)
+        return len(operations)
 
     def _operations_for_contest(
         self, contest: Contest
@@ -836,27 +865,37 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             contest_id for group, contest_ids in new_mapping.items()
             for contest_id in
             contest_ids - self._group_contests.get(group, set())}
+        previous_mapping = self._group_contests
         self._group_contests = new_mapping
 
-        for group in lost:
-            logger.info("Ranking group %s lost contests, resetting it.",
-                        group)
-            self._threadsafe_enqueue(
-                ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
+        try:
+            for group in lost:
+                logger.info("Ranking group %s lost contests, resetting it.",
+                            group)
+                self._threadsafe_enqueue(
+                    ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
 
-        broken_before = set(self._broken_contests)
-        self.initialize()
-        # Contests fixed since the last time: their submissions were
-        # held back, so send them in full.
-        gained |= broken_before - self._broken_contests
+            broken_before = set(self._broken_contests)
+            self.initialize()
+            # Contests fixed since the last time: their submissions were
+            # held back, so send them in full.
+            gained |= broken_before - self._broken_contests
 
-        if lost or gained:
-            with SessionGen() as session:
-                for contest in self._contests_to_send(session):
-                    if self._group_of(contest) in lost or \
-                            contest.id in gained:
-                        self._enqueue_submissions(
-                            session, contest, only_missing=False)
+            if lost or gained:
+                with SessionGen() as session:
+                    for contest in self._contests_to_send(session):
+                        if self._group_of(contest) in lost or \
+                                contest.id in gained:
+                            self._enqueue_submissions(
+                                session, contest, only_missing=False)
+        except Exception:
+            # The groups that lost contests may be empty by now, and
+            # nothing has filled them again. Go back to the mapping we
+            # had, so that the next reinitialize sees them as lost and
+            # does it all again (the sweeper would not: it only sends
+            # what it thinks is missing).
+            self._group_contests = previous_mapping
+            raise
 
     @rpc_method
     async def regenerate_ranking(self, group: str | None = None):
