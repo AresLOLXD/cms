@@ -32,6 +32,7 @@
 
 """
 
+import asyncio
 import logging
 
 import collections
@@ -56,8 +57,7 @@ logger = logging.getLogger(__name__)
 class ContestUsersHandler(BaseHandler):
     REMOVE_FROM_CONTEST = "Remove from contest"
 
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         self.r_params = self.render_params()
@@ -71,8 +71,12 @@ class ContestUsersHandler(BaseHandler):
         ).scalars().all()
         self.render("contest_users.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "users")
 
         try:
@@ -96,6 +100,11 @@ class ContestUsersHandler(BaseHandler):
 
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class RemoveParticipationHandler(BaseHandler):
     """Get returns a page asking for confirmation, delete actually removes
@@ -103,8 +112,7 @@ class RemoveParticipationHandler(BaseHandler):
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, contest_id, user_id):
+    def _get_sync(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
         user = self.safe_get_item(User, user_id)
         participation: Participation = self.sql_session.execute(
@@ -125,7 +133,11 @@ class RemoveParticipationHandler(BaseHandler):
         self.render("participation_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, contest_id, user_id):
+    async def get(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, user_id)
+
+    def _delete_sync(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
         user = self.safe_get_item(User, user_id)
 
@@ -145,10 +157,14 @@ class RemoveParticipationHandler(BaseHandler):
         # Maybe they'll want to do this again (for another participation)
         self.write("../../users")
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def delete(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, contest_id, user_id)
+
 
 class AddContestUserHandler(BaseHandler):
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "users")
 
         self.contest = self.safe_get_item(Contest, contest_id)
@@ -179,14 +195,18 @@ class AddContestUserHandler(BaseHandler):
         # Maybe they'll want to do this again (for another user)
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class ParticipationHandler(BaseHandler):
     """Shows the details of a single user in a contest: submissions,
     questions, messages (and allows to send the latters).
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id, user_id):
+    def _get_sync(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
         participation: Participation = self.sql_session.execute(
             select(Participation)
@@ -209,8 +229,12 @@ class ParticipationHandler(BaseHandler):
             select(Team)).scalars().all()
         self.render("participation.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id, user_id):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, user_id)
+
+    def _post_sync(self, contest_id, user_id):
         fallback_page = \
             self.url("contest", contest_id, "user", user_id, "edit")
 
@@ -269,14 +293,18 @@ class ParticipationHandler(BaseHandler):
             self.service.proxy_service.reinitialize()
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id, user_id)
+
 
 class MessageHandler(BaseHandler):
     """Called when a message is sent to a specific user.
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_MESSAGING)
-    def post(self, contest_id, user_id):
+    def _post_sync(self, contest_id, user_id):
         user = self.safe_get_item(User, user_id)
         self.contest = self.safe_get_item(Contest, contest_id)
         participation: Participation | None = self.sql_session.execute(
@@ -300,3 +328,8 @@ class MessageHandler(BaseHandler):
                         user.username, self.contest.name)
 
         self.redirect(self.url("contest", contest_id, "user", user_id, "edit"))
+
+    @require_permission(BaseHandler.PERMISSION_MESSAGING)
+    async def post(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id, user_id)
