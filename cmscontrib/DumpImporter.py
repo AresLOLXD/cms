@@ -276,12 +276,10 @@ class DumpImporter:
                 # the flag stored in the dump. All the contests of the
                 # dump are covered, also those that are not in _objects
                 # and are added to the session on cascade.
-                inactive_names = list()
                 if not self.drop:
                     for obj in self.objs.values():
                         if isinstance(obj, Contest):
                             obj.active = False
-                            inactive_names.append(obj.name)
 
                 for k, v in list(self.objs.items()):
 
@@ -335,6 +333,15 @@ class DumpImporter:
                             skip_user_tests=self.skip_user_tests,
                             skip_users=self.skip_users,
                             skip_generated=self.skip_generated)
+
+                # Report only the contests that reached the session. One
+                # that is left out (say, because the users that lead to
+                # it are skipped) is not imported at all.
+                inactive_names = list()
+                if not self.drop:
+                    for obj in self.objs.values():
+                        if isinstance(obj, Contest) and obj in session:
+                            inactive_names.append(obj.name)
 
                 session.commit()
 
