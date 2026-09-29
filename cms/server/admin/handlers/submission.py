@@ -26,6 +26,7 @@
 
 """
 
+import asyncio
 import json
 import logging
 import difflib
@@ -48,8 +49,7 @@ class SubmissionHandler(BaseHandler):
     compile please check'.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, submission_id, dataset_id=None):
+    def _get_sync(self, submission_id, dataset_id=None):
         submission = self.safe_get_item(Submission, submission_id)
         task = submission.task
         self.contest = task.contest
@@ -70,6 +70,11 @@ class SubmissionHandler(BaseHandler):
             .order_by(Dataset.description)
         ).scalars().all()
         self.render("submission.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, submission_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, submission_id, dataset_id)
 
 
 class SubmissionFileHandler(FileHandler):
@@ -93,8 +98,7 @@ class SubmissionFileHandler(FileHandler):
 class SubmissionDiffHandler(BaseHandler):
     """Shows a diff between two submissions.
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, old_id, new_id):
+    def _get_sync(self, old_id, new_id):
         sub_old = Submission.get_from_id(old_id, self.sql_session)
         sub_new = Submission.get_from_id(new_id, self.sql_session)
 
@@ -171,13 +175,17 @@ class SubmissionDiffHandler(BaseHandler):
         resp['files'] = result_files
         self.write(json.dumps(resp))
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, old_id, new_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, old_id, new_id)
+
 
 class SubmissionCommentHandler(BaseHandler):
     """Called when the admin comments on a submission.
 
     """
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, submission_id, dataset_id=None):
+    def _post_sync(self, submission_id, dataset_id=None):
         submission = self.safe_get_item(Submission, submission_id)
 
         try:
@@ -197,11 +205,15 @@ class SubmissionCommentHandler(BaseHandler):
         else:
             self.redirect(self.url("submission", submission_id, dataset_id))
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, submission_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, submission_id, dataset_id)
+
 
 class SubmissionOfficialStatusHandler(BaseHandler):
     """Called when the admin changes the official status of a submission."""
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, submission_id, dataset_id=None):
+    def _post_sync(self, submission_id, dataset_id=None):
         submission = self.safe_get_item(Submission, submission_id)
 
         should_make_official = self.get_argument("official", "yes") == "yes"
@@ -219,3 +231,8 @@ class SubmissionOfficialStatusHandler(BaseHandler):
             self.redirect(self.url("submission", submission_id))
         else:
             self.redirect(self.url("submission", submission_id, dataset_id))
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, submission_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, submission_id, dataset_id)
