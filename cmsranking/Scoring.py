@@ -20,6 +20,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from collections.abc import Callable, Generator
+import copy
 import heapq
 import logging
 from itertools import zip_longest
@@ -142,6 +143,51 @@ class Score:
 
     def get_score(self) -> float:
         return self._history[-1][1] if len(self._history) > 0 else 0.0
+
+    def score_at(self, t: int) -> float:
+        """Return the score as it was at time t.
+
+        t: a Unix time; the changes with a time <= t count.
+
+        return: the last score in the history at or before t.
+
+        """
+        score = 0.0
+        for change_time, value in self._history:
+            if change_time > t:
+                break
+            score = value
+        return score
+
+    def submissions_at(self, t: int) -> dict[str, Submission]:
+        """Return the submissions and their results as they were at t.
+
+        t: a Unix time; the submissions and changes with a time <= t
+            count.
+
+        return: copies of the submissions made at or before t, with the
+            score, token and extra that the changes up to t gave them.
+
+        """
+        result: dict[str, Submission] = dict()
+        for key, sub in self._submissions.items():
+            if sub.time <= t:
+                past = copy.copy(sub)
+                past.score, past.token, past.extra = 0.0, False, list()
+                result[key] = past
+        for change in self._changes:
+            if change.time > t:
+                break
+            past = result.get(change.submission)
+            if past is None:
+                continue
+            if change.score is not None:
+                past.score = change.score
+            if change.token is not None:
+                past.token = change.token
+            if change.extra is not None:
+                past.extra = change.extra
+        return result
 
     def reset_history(self):
         # Delete everything except the submissions and the subchanges.
@@ -388,13 +434,50 @@ class ScoringStore:
             return dict()
         return self._scores[user][task]._submissions
 
-    def get_global_history(self) -> Generator[tuple[str, str, int, float]]:
+    def get_scores_at(self, t: int) -> dict[str, dict[str, float]]:
+        """Return the positive scores of every user and task at time t.
+
+        t: a Unix time; the changes with a time <= t count.
+
+        return: user -> task -> score, only for scores above zero, like
+            the live /scores.
+
+        """
+        result: dict[str, dict[str, float]] = dict()
+        for user, tasks in self._scores.items():
+            for task, score_obj in tasks.items():
+                score = score_obj.score_at(t)
+                if score > 0.0:
+                    result.setdefault(user, dict())[task] = score
+        return result
+
+    def get_submissions_at(
+        self, user: str, task: str, t: int
+    ) -> dict[str, Submission]:
+        """Return the submissions of a user for a task as they were at t.
+
+        user: the user key.
+        task: the task key.
+        t: a Unix time.
+
+        return: see Score.submissions_at.
+
+        """
+        if user not in self._scores or task not in self._scores[user]:
+            return dict()
+        return self._scores[user][task].submissions_at(t)
+
+    def get_global_history(
+        self, until: int | None = None
+    ) -> Generator[tuple[str, str, int, float]]:
         """Merge all individual histories into a global one.
 
         Take all per-user/per-task histories and merge them, providing
         a global history of all schore changes and return it using a
         generator.  Returned data is in the form (user_id, task_id,
         time, score).
+
+        until: if not None, only the entries with a time <= until.
 
         """
         # Use a priority queue, containing only one entry
@@ -410,6 +493,9 @@ class ScoringStore:
         # user/task (if any).
         while len(queue) != 0:
             (time, score), user, task, scoring, index = heapq.heappop(queue)
+            if until is not None and time > until:
+                # The queue pops in time order: nothing later counts.
+                break
             yield (user, task, time, score)
             if len(scoring._history) > index + 1:
                 heapq.heappush(queue, (scoring._history[index + 1],
