@@ -494,6 +494,144 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [e.item for e in await self.drain(failing)], [operation])
 
+    async def test_visibility_goes_after_the_reset_and_before_the_data(self):
+        settings = {"hidden": True, "staff_password": "bcrypt:hash"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"),
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, settings, "olim"),
+            ProxyOperation(ProxyExecutor.USER_TYPE, {"u": {}}, "olim"))
+
+        await self.executor.execute(batch)
+
+        # The ranking learns whether to hide the group before it gets
+        # any of its data, even the data queued before the settings.
+        self.assertEqual(self.calls, [
+            ("delete", url("olim/contests/"), None),
+            ("delete", url("olim/users/"), None),
+            ("put", url("olim/visibility"), settings),
+            ("put", url("olim/contests/"), {"c": {}}),
+            ("put", url("olim/users/"), {"u": {}})])
+        self.assertEqual(await self.drain(), [])
+
+    async def test_failed_visibility_holds_back_the_data_of_its_group(self):
+        hidden = {"hidden": True, "staff_password": None}
+        visible = {"hidden": False, "staff_password": None}
+        for failure in (requests.exceptions.ConnectionError("refused"), 503):
+            with self.subTest(failure=failure):
+                self.executor = ProxyExecutor(RANKING)
+                self.calls.clear()
+                self.outcomes = {("put", url("olim/visibility")): failure}
+                batch = stamped_entries(
+                    ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
+                    ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                                   hidden, "olim"),
+                    ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                                   {"c": {}}, "olim"),
+                    ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                                   visible, "omips"),
+                    ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                                   {"d": {}}, "omips"))
+
+                await self.executor.execute(batch)
+
+                # The data of olim waits for its settings, omips goes on.
+                self.assertEqual(self.calls, [
+                    ("delete", url("olim/contests/"), None),
+                    ("delete", url("olim/users/"), None),
+                    ("put", url("olim/visibility"), hidden),
+                    ("put", url("omips/visibility"), visible),
+                    ("put", url("omips/contests/"), {"d": {}})])
+                # The reset got there: only the settings and the data of
+                # olim are put back, as they were.
+                requeued = await self.drain()
+                self.assertEqual(stamps(requeued), stamps(batch[1:3]))
+
+                # The ranking is back: the settings go first.
+                self.outcomes.clear()
+                self.calls.clear()
+                await self.executor.execute(requeued)
+                self.assertEqual(self.calls, [
+                    ("put", url("olim/visibility"), hidden),
+                    ("put", url("olim/contests/"), {"c": {}})])
+                self.assertEqual(await self.drain(), [])
+
+    async def test_rejected_visibility_drops_the_data_of_its_group(self):
+        hidden = {"hidden": True, "staff_password": None}
+        visible = {"hidden": False, "staff_password": None}
+        for status in (400, 401, 403, 404):
+            with self.subTest(status=status):
+                self.executor = ProxyExecutor(RANKING)
+                self.calls.clear()
+                self.retry_waits.waits.clear()
+                self.outcomes = {("put", url("olim/visibility")): status}
+                batch = entries(
+                    ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                                   hidden, "olim"),
+                    ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                                   {"c": {}}, "olim"),
+                    ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                                   {"1": {}}, "olim"),
+                    ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                                   visible, "omips"),
+                    ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                                   {"d": {}}, "omips"))
+
+                with self.assertLogs(
+                        "cms.service.ProxyService", "WARNING") as logs:
+                    await self.executor.execute(batch)
+
+                # The ranking may show olim while it should be hidden:
+                # none of its data is sent. omips is not affected.
+                self.assertEqual(self.urls(), [
+                    url("olim/visibility"), url("omips/visibility"),
+                    url("omips/contests/")])
+                # Sending it again would fail again: nothing is retried.
+                self.assertEqual(await self.drain(), [])
+                self.assertEqual(self.retry_waits.waits, [])
+                # The operator is told how to fix olim, and only olim.
+                hints = [line for line in logs.output
+                         if "Regenerate" in line]
+                self.assertEqual(len(hints), 1)
+                self.assertIn("olim", hints[0])
+                self.assertIn("visibility", hints[0])
+                self.assertNotIn("omips", hints[0])
+
+    async def test_last_visibility_of_a_group_wins(self):
+        self.outcomes = {("put", url("olim/visibility")):
+                         requests.exceptions.ConnectionError("reset")}
+        old = {"hidden": True, "staff_password": "bcrypt:old"}
+        new = {"hidden": False, "staff_password": "bcrypt:new"}
+        other = {"hidden": False, "staff_password": None}
+        batch = stamped_entries(
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, old, "olim"),
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, other, "omips"),
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, new, "olim"))
+
+        await self.executor.execute(batch)
+
+        # One request for each group, with the settings queued last.
+        self.assertEqual(self.calls, [
+            ("put", url("olim/visibility"), new),
+            ("put", url("omips/visibility"), other)])
+        # Only those settings are kept to be sent again.
+        self.assertEqual(stamps(await self.drain()), stamps(batch[2:]))
+
+    async def test_failed_reset_holds_back_the_visibility(self):
+        self.outcomes = {("delete", url("olim/contests/")):
+                         requests.exceptions.ConnectionError("reset")}
+        batch = stamped_entries(
+            ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                           {"hidden": False, "staff_password": None}, "olim"),
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
+
+        await self.executor.execute(batch)
+
+        # Nothing of olim goes after a reset that did not get there.
+        self.assertEqual(self.urls(), [url("olim/contests/")])
+        self.assertEqual(stamps(await self.drain()), stamps(batch))
+
 
 if __name__ == "__main__":
     unittest.main()

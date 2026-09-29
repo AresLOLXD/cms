@@ -30,6 +30,7 @@
 
 from datetime import datetime
 import asyncio
+import enum
 import json
 import logging
 import string
@@ -41,7 +42,7 @@ from sqlalchemy import not_, select
 
 from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
-    Submission, get_submissions
+    RankingGroup, Submission, get_submissions
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
@@ -75,6 +76,18 @@ class RejectedError(CannotSendError):
     The same request would be refused again.
 
     """
+
+
+class SendOutcome(enum.Enum):
+    """What became of a request to a ranking."""
+
+    # The ranking took it.
+    SENT = enum.auto()
+    # The ranking refused it (4xx), and would refuse it again.
+    REJECTED = enum.auto()
+    # It did not reach the ranking, or the ranking failed to handle
+    # it: it has to be sent again.
+    UNSENT = enum.auto()
 
 
 def encode_id(entity_id: str) -> str:
@@ -187,7 +200,8 @@ class ProxyOperation(QueueItem):
         """Create an operation for the ranking namespace of group.
 
         type_: one of ProxyExecutor's *_TYPE constants.
-        data: the entities to send, by id (empty for a reset).
+        data: the entities to send, by id (empty for a reset, the
+            settings for a visibility).
         group: the ranking group namespace, or None for the root.
 
         """
@@ -251,6 +265,12 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     # at startup; leftover teams are harmless.
     RESET_TYPE = TYPE_COUNT
     RESET_RESOURCE_PATHS = ["contests", "users"]
+
+    # Pseudo-type of an operation that sends the visibility settings of
+    # a ranking group namespace (MC-2): {"hidden": bool,
+    # "staff_password": str | None}. Sent after resets and before any
+    # data, so a hidden namespace never exposes data, even briefly.
+    VISIBILITY_TYPE = TYPE_COUNT + 1
 
     # How long we wait after having failed to push data to a ranking
     # before trying again: MIN_RETRY_WAIT seconds the first time, then
@@ -332,6 +352,12 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         to what did not get there (a task, to its contest), and they
         would be lost.
 
+        The visibility settings of a namespace go after its reset and
+        before its data, so the ranking knows whether to hide the data
+        before it gets it. If the ranking refuses the settings, the
+        data of the namespace is dropped as well: the ranking could
+        show it while it should be hidden.
+
         entries: entries containing the operations to perform.
 
         return: the entries whose data was not sent and has to be
@@ -344,6 +370,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         # The entry emptying each namespace before sending data (the
         # last one, if there is more than one).
         resets: dict[str | None, QueueEntry] = dict()
+        # The entry with the visibility settings of each namespace (the
+        # last one, if there is more than one).
+        visibilities: dict[str | None, QueueEntry] = dict()
 
         for entry in entries:
             item = entry.item
@@ -351,6 +380,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 # Data queued before the reset is obsolete.
                 pending.pop(item.group, None)
                 resets[item.group] = entry
+            elif item.type_ == self.VISIBILITY_TYPE:
+                visibilities[item.group] = entry
             else:
                 group_entries = pending.setdefault(
                     item.group, list(list() for i in range(self.TYPE_COUNT)))
@@ -362,9 +393,23 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         stalled: set[str | None] = set()
 
         for group, reset in resets.items():
-            if not self._send(group, self.RESET_TYPE, dict()):
+            outcome = self._send(group, self.RESET_TYPE, dict())
+            if outcome is SendOutcome.UNSENT:
                 unsent.add(id(reset))
                 stalled.add(group)
+
+        for group, visibility in visibilities.items():
+            if group not in stalled:
+                outcome = self._send(
+                    group, self.VISIBILITY_TYPE, visibility.item.data)
+                if outcome is SendOutcome.REJECTED:
+                    # Its data could be shown while the group should be
+                    # hidden: drop it too.
+                    pending.pop(group, None)
+                if outcome is not SendOutcome.UNSENT:
+                    continue
+                stalled.add(group)
+            unsent.add(id(visibility))
 
         for group, group_entries in pending.items():
             for type_, type_entries in enumerate(group_entries):
@@ -375,26 +420,29 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 if len(data) == 0:
                     continue
                 if group not in stalled:
-                    if self._send(group, type_, data):
+                    outcome = self._send(group, type_, data)
+                    if outcome is not SendOutcome.UNSENT:
                         continue
                     stalled.add(group)
                 unsent.update(id(entry) for entry in type_entries)
 
         return [entry for entry in entries if id(entry) in unsent]
 
-    def _send(self, group: str | None, type_: int, data: dict) -> bool:
+    def _send(self, group: str | None, type_: int, data: dict) -> SendOutcome:
         """Send the entities of one type to a namespace of the ranking.
 
         Runs inside loop.run_in_executor.
 
         group: the namespace (None is the root).
         type_: one of the *_TYPE constants. For RESET_TYPE the
-            namespace is emptied instead, and data is ignored.
+            namespace is emptied instead, and data is ignored. For
+            VISIBILITY_TYPE data are the settings of the namespace.
         data: the entities to send, by id.
 
-        return: False if the data did not reach the ranking, or it
-            failed to handle it, and it has to be sent again; True if
-            the ranking took it or refused it (which is final).
+        return: SENT if the ranking took the data; REJECTED if it
+            refused it (which is final); UNSENT if the data did not
+            reach the ranking, or it failed to handle it, and it has
+            to be sent again.
 
         """
         prefix = self._prefix(group)
@@ -407,6 +455,13 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                     logger.debug(operation.capitalize())
                     safe_delete_data(
                         self._ranking, "%s%s/" % (prefix, name), operation)
+            elif type_ == self.VISIBILITY_TYPE:
+                what = "the visibility settings"
+                operation = "sending visibility to ranking %s%s" % (
+                    self._visible_ranking, prefix)
+                logger.debug(operation.capitalize())
+                safe_put_data(self._ranking, "%svisibility" % prefix,
+                              data, operation)
             else:
                 # We abuse the resource path as the English (plural)
                 # name for the entity type.
@@ -424,14 +479,15 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 "again: use Regenerate for this group in AWS (Ranking "
                 "groups) to send its data again.", self._visible_ranking,
                 what, group if group is not None else "(root)")
+            return SendOutcome.REJECTED
         except CannotSendError:
             # A log message has already been produced.
-            return False
+            return SendOutcome.UNSENT
         except Exception:
             # Whoa! That's unexpected!
             logger.error("Unexpected error.", exc_info=True)
-            return False
-        return True
+            return SendOutcome.UNSENT
+        return SendOutcome.SENT
 
 
 class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
@@ -662,12 +718,38 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         No support for teams, flags and faces.
 
+        In group mode, the visibility settings of the ranking groups
+        go first.
+
         """
         logger.info("Initializing rankings.")
 
         with SessionGen() as session:
+            self._enqueue_visibility(session)
             for contest in self._contests_to_send(session):
                 self._enqueue_contest_data(contest)
+
+    def _enqueue_visibility(self, session: Session,
+                            group: str | None = None) -> None:
+        """Enqueue the visibility settings of the ranking groups.
+
+        Only in group mode: legacy mode has no groups.
+
+        session: the session to read the groups with.
+        group: only this group, or None for every group.
+
+        """
+        if self.contest_id is not None:
+            return
+        query = select(RankingGroup)
+        if group is not None:
+            query = query.filter(RankingGroup.name == group)
+        for ranking_group in session.execute(query).scalars().all():
+            self._threadsafe_enqueue(ProxyOperation(
+                ProxyExecutor.VISIBILITY_TYPE,
+                {"hidden": ranking_group.hidden,
+                 "staff_password": ranking_group.staff_password},
+                ranking_group.name))
 
     def _enqueue_contest_data(self, contest: Contest) -> int:
         """Enqueue the contest, its users, teams and tasks.
@@ -930,6 +1012,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         self._threadsafe_enqueue(
             ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
         with SessionGen() as session:
+            if group is not None:
+                self._enqueue_visibility(session, group)
             for contest in self._contests_to_send(session):
                 if self._group_of(contest) == group:
                     self._enqueue_contest_data(contest)

@@ -496,7 +496,10 @@ class TestProxyServiceGroups(
             self.assertEqual(
                 service._broken_contests,
                 {self.contest_a.id, self.contest_b.id})
-            self.assertEqual(self.put_urls(), [])
+            # Only the visibility settings of the groups got there.
+            self.assertCountEqual(
+                self.put_urls(),
+                [url("olim/visibility"), url("omips/visibility")])
 
             database_is_failing[0] = False
             await service._missing_operations()
@@ -664,6 +667,56 @@ class TestProxyServiceGroups(
         for executor in service._executors:
             self.assertEqual(executor.get_status(), [])
         self.assertEqual(self.put_urls(), [urljoin(second_ranking, "teams/")])
+
+    async def test_visibility_is_sent_before_group_data(self):
+        service = await self.start()
+        await self._settle(service)
+        urls = self.put_urls()
+        visibility = url("olim/visibility")
+        self.assertIn(visibility, urls)
+        self.assertLess(urls.index(visibility),
+                        urls.index(url("olim/contests/")))
+        self.assertEqual(self.put_payload(visibility),
+                         {"hidden": False, "staff_password": None})
+
+    async def test_reinitialize_sends_new_visibility(self):
+        service = await self.start()
+        await self._settle(service)
+        self.requests_put.reset_mock()
+        self.olim.hidden = True
+        self.olim.staff_password = "plaintext:pw"
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+        self.assertEqual(self.put_payload(url("olim/visibility")),
+                         {"hidden": True, "staff_password": "plaintext:pw"})
+
+    async def test_regenerate_sends_visibility(self):
+        service = await self.start()
+        await self._settle(service)
+        self.requests_put.reset_mock()
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertIn(url("olim/visibility"), self.put_urls())
+
+    async def test_legacy_mode_never_sends_visibility(self):
+        service = await self.start(contest_id=self.contest_a.id)
+        await self._settle(service)
+        self.assertFalse(
+            any(u.endswith("/visibility") for u in self.put_urls()))
+
+    async def test_rejected_visibility_holds_back_group_data(self):
+        def put(target, *args, **kwargs):
+            response = MagicMock()
+            response.status_code = 400 if target.endswith(
+                "olim/visibility") else 200
+            return response
+        self.requests_put.side_effect = put
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service = await self.start()
+            await self._settle(service)
+        self.assertNotIn(url("olim/contests/"), self.put_urls())
+        self.assertTrue(any("Regenerate" in line for line in logs.output))
 
 
 if __name__ == "__main__":
