@@ -19,7 +19,8 @@
 
 EvaluationService_test.py covers the happy path and the races between
 its threads. These pin today's behavior around failures, with two-phase
-evaluation off (twophase_e2e_test.py drives the same paths with it on):
+evaluation off unless a test says otherwise (twophase_e2e_test.py drives
+the same paths with it on):
 
 - a worker whose RPC fails in the middle of a job: what action_finished
   does with the error, and how the sweeper brings the lost operation
@@ -46,6 +47,7 @@ from unittest.mock import MagicMock, patch
 
 from cms.conf import Address, ServiceCoord
 from cms.db import Submission, UserTest
+from cms.grading import twophase
 from cms.grading.Job import CompilationJob, EvaluationJob
 from cms.io.async_rpc import AsyncRemoteServiceClient
 from cms.io.async_triggeredservice import AsyncTriggeredService
@@ -318,10 +320,19 @@ class EvaluationServiceFailurePathsTest(
         return submission
 
     @staticmethod
-    def _evaluation_job(operation: ESOperation) -> EvaluationJob:
-        """Return the job a worker answers for an evaluation operation."""
+    def _evaluation_job(
+        operation: ESOperation, outcome: str = "1.0"
+    ) -> EvaluationJob:
+        """Return the job a worker answers for an evaluation operation.
+
+        operation: the evaluation operation.
+        outcome: the outcome of the testcase; "0.0" fails it.
+
+        return: the job.
+
+        """
         return EvaluationJob(
-            operation=operation, success=True, outcome="1.0",
+            operation=operation, success=True, outcome=outcome,
             text=["Output is correct"], shard=0, sandboxes=[],
             sandbox_digests={},
             plus={"execution_time": 0.1, "execution_wall_clock_time": 0.1,
@@ -1084,10 +1095,14 @@ class EvaluationServiceFailurePathsTest(
         # still written, and notified to ScoringService once each.
         first = self._add_fixture()
         second = self._add_fixture()
-        job = CompilationJob(
-            operation=first.compilation(), success=True,
-            compilation_success=False, text=["Compilation failed."],
-            plus={})
+
+        def failed_compilation(operation: ESOperation):
+            job = CompilationJob(
+                operation=operation, success=True,
+                compilation_success=False, text=["Compilation failed."],
+                plus={})
+            return operation, Result(job, True)
+
         no_dataset = ESOperation(
             ESOperation.COMPILATION, first.submission.id, 987654321)
         no_submission = ESOperation(
@@ -1100,20 +1115,22 @@ class EvaluationServiceFailurePathsTest(
         with self.assertLogs(
                 "cms.service.EvaluationService", level="INFO") as logs:
             await self.service.write_results([
-                (first.compilation(), Result(job, True)),
-                (no_dataset, Result(job, True)),
-                (no_submission, Result(job, True)),
-                (no_user_test, Result(job, True)),
-                (no_user_test_evaluation, Result(job, True)),
-                (second.compilation(), Result(job, True))])
+                failed_compilation(first.compilation()),
+                failed_compilation(no_dataset),
+                failed_compilation(no_submission),
+                failed_compilation(no_user_test),
+                (no_user_test_evaluation, Result(
+                    self._evaluation_job(no_user_test_evaluation), True)),
+                failed_compilation(second.compilation())])
         await self._wait_until_idle()
 
-        messages = [record.getMessage() for record in logs.records
-                    if record.levelname == "ERROR"]
-        for missing in ("dataset 987654321", "submission 987654321",
-                        "user test 987654321"):
-            self.assertIn("Could not find %s in the database." % missing,
-                          messages)
+        self.assertEqual(
+            sorted(record.getMessage() for record in logs.records
+                   if record.levelname == "ERROR"),
+            ["Could not find %s in the database." % missing
+             for missing in ("dataset 987654321", "submission 987654321",
+                             "user test 987654321",
+                             "user test 987654321")])
         # The loop that ends the operations says what it skips too.
         self.assertEqual(
             [record.getMessage() for record in logs.records
@@ -1168,6 +1185,115 @@ class EvaluationServiceFailurePathsTest(
         self.assertEqual(self.notifications.call_count, 1)
         self.assertEqual(self.scoring_stub.new_evaluation_calls,
                          [sibling.key])
+
+    async def test_evaluation_of_a_gone_submission_does_not_stop_its_batch(
+        self
+    ):
+        # A submission deleted while it was being evaluated, on a dataset
+        # that still has its testcases: its result is skipped, and since
+        # its evaluations don't add up to the testcases, only the loop
+        # that ends the operations meets it. The last evaluation of
+        # another submission, after it in the batch, still completes
+        # that one, which is notified once.
+        sibling = self._add_fixture(testcases=1, compiled=True)
+        of_gone_submission = ESOperation(
+            ESOperation.EVALUATION, 987654321, sibling.dataset.id, "t0")
+        sibling_operation = sibling.evaluation("t0")
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service.write_results([
+                (of_gone_submission,
+                 Result(self._evaluation_job(of_gone_submission), True)),
+                (sibling_operation,
+                 Result(self._evaluation_job(sibling_operation), True))])
+        await self._wait_until_idle()
+
+        self.assertEqual(
+            [record.getMessage() for record in logs.records
+             if record.levelname == "ERROR"],
+            ["Could not find submission 987654321 in the database."])
+        self.assertIn(
+            "Result of submission 987654321(%d) not found, not ending its "
+            "evaluation." % sibling.dataset.id,
+            [record.getMessage() for record in logs.records])
+        result = self._load_result(sibling)
+        self.assertEqual(result.evaluation_outcome, "ok")
+        self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [sibling.key])
+
+    async def test_gone_keys_with_two_phase_on_do_not_stop_their_batch(self):
+        # The real contests run with two-phase evaluation on. Next to the
+        # results of a dataset and of a submission that are gone, a
+        # submission whose screening passes gets its phase 2 queued, and
+        # one whose screening fails gets the rest of its group skipped,
+        # is finalized and is notified once.
+        self.enterContext(
+            patch.object(twophase, "enabled", return_value=True))
+        passing = self._add_fixture(compiled=True)
+        failing = self._add_fixture(compiled=True)
+        for fixture in (passing, failing):
+            for codename in ("s1-00-sample", "s1-01-normal"):
+                self.add_testcase(fixture.dataset, codename=codename)
+        self.session.commit()
+        other_submission = self._add_submission_of(passing)
+        on_gone_dataset = ESOperation(
+            ESOperation.EVALUATION, other_submission.id, 987654321,
+            "s1-00-sample")
+        of_gone_submission = ESOperation(
+            ESOperation.EVALUATION, 987654321, passing.dataset.id,
+            "s1-00-sample")
+
+        def evaluated(operation: ESOperation, outcome: str):
+            job = self._evaluation_job(operation, outcome)
+            return operation, Result(job, True)
+
+        queue = self.service.get_executor()._operation_queue
+        pushed: list[ESOperation] = []
+        real_push = queue.push
+
+        def recording_push(item, *args, **kwargs):
+            pushed.append(item)
+            return real_push(item, *args, **kwargs)
+
+        with patch.object(queue, "push", recording_push), \
+                self.assertLogs(
+                    "cms.service.EvaluationService", level="ERROR") as logs:
+            await self.service.write_results([
+                evaluated(on_gone_dataset, "1.0"),
+                evaluated(passing.evaluation("s1-00-sample"), "1.0"),
+                evaluated(of_gone_submission, "1.0"),
+                evaluated(failing.evaluation("s1-00-sample"), "0.0")])
+            await self._wait_for(
+                lambda: not self.service._pending_operations,
+                "the phase 2 operations to be queued")
+        await self._wait_for(
+            lambda: len(self.scoring_stub.new_evaluation_calls)
+            == self.notifications.call_count,
+            "the notifications to reach ScoringService")
+
+        self.assertEqual(
+            sorted(record.getMessage() for record in logs.records),
+            ["Could not find dataset 987654321 in the database.",
+             "Could not find submission 987654321 in the database."])
+        # Screening passed: phase 2 is queued, and nothing is final yet.
+        self.assertEqual(pushed, [passing.evaluation("s1-01-normal")])
+        self.assertIn(passing.evaluation("s1-01-normal"),
+                      self.service.get_executor())
+        result = self._load_result(passing)
+        self.assertEqual([e.codename for e in result.evaluations],
+                         ["s1-00-sample"])
+        self.assertIsNone(result.evaluation_outcome)
+        # Screening failed: the rest is skipped, and the result is final.
+        result = self._load_result(failing)
+        self.assertEqual(
+            sorted((e.codename, e.outcome) for e in result.evaluations),
+            [("s1-00-sample", "0.0"), ("s1-01-normal", "0.0")])
+        self.assertEqual(result.evaluation_outcome, "ok")
+        self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [failing.key])
 
 
 if __name__ == "__main__":
