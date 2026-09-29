@@ -72,9 +72,10 @@ class CannotSendError(Exception):
 
 
 class RejectedError(CannotSendError):
-    """A ranking refused a request, answering with a 4xx status.
+    """A request to a ranking cannot succeed.
 
-    The same request would be refused again.
+    The ranking refused it, answering with a 4xx status, or its data
+    cannot be encoded. The same request would fail again.
 
     """
 
@@ -135,16 +136,25 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
 
-    raise (RejectedError): if the ranking refuses the data.
+    raise (RejectedError): if the ranking refuses the data, or the data
+        cannot be encoded as JSON.
     raise (CannotSendError): in case of communication or server errors.
 
     """
+    try:
+        body = json.dumps(data)
+    except (TypeError, ValueError) as error:
+        # Encoding the same data again would fail the same way.
+        msg = "Cannot encode the data as JSON while %s: %s." % (
+            operation, error)
+        logger.warning(msg)
+        raise RejectedError(msg)
     try:
         url = urljoin(ranking, resource)
         # XXX With requests-1.2 auth is automatically extracted from
         # the URL: there is no need for this.
         auth = urlsplit(url)
-        res = requests.put(url, json.dumps(data),
+        res = requests.put(url, body,
                            auth=(auth.username, auth.password),
                            headers={'content-type': 'application/json'},
                            verify=config.proxy_service.https_certfile,

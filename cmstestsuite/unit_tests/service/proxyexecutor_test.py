@@ -465,6 +465,41 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stamps(await self.drain()), stamps(batch[:1]))
         self.assertEqual(self.retry_waits.waits, [1])
 
+    async def test_data_that_cannot_be_encoded_is_dropped(self):
+        # Sending it again would fail the same way: it must not keep
+        # the group waiting forever.
+        circular: dict = {}
+        circular["itself"] = circular
+        for error, user in (("TypeError", {"f_name": object()}),
+                            ("ValueError", circular)):
+            with self.subTest(error=error):
+                self.executor = ProxyExecutor(RANKING)
+                self.calls.clear()
+                batch = entries(
+                    ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                                   {"c": {}}, "olim"),
+                    ProxyOperation(ProxyExecutor.USER_TYPE,
+                                   {"u": user}, "olim"),
+                    ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                                   {"1": {}}, "olim"))
+
+                with self.assertLogs(
+                        "cms.service.ProxyService", "WARNING") as logs:
+                    await self.executor.execute(batch)
+
+                # Only the users are dropped: what comes after them in
+                # the group is sent, and nothing is tried again.
+                self.assertEqual(self.urls(), [
+                    url("olim/contests/"), url("olim/submissions/")])
+                self.assertEqual(await self.drain(), [])
+                self.assertEqual(self.retry_waits.waits, [])
+                hints = [line for line in logs.output
+                         if "Regenerate" in line]
+                self.assertEqual(len(hints), 1)
+                self.assertIn("users of group olim", hints[0])
+                # Not an unexpected error: no traceback.
+                self.assertFalse(any(r.exc_info for r in logs.records))
+
     async def test_wait_doubles_up_to_a_cap_and_restarts_after_success(self):
         contests = ("put", url("contests/"))
         self.outcomes = {
