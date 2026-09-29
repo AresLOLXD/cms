@@ -77,10 +77,34 @@ The **Root ranking** row is the scoreboard at `/`. It is only used when a
 single contest is served (`CMS_CONTEST_ID=<id>`). After switching to
 `CMS_CONTEST_ID=ALL`, regenerate it once to clear the old data.
 
+## Hiding a ranking (staff view)
+
+A ranking group can be hidden from the public while the staff keep watching
+it live. On the group's page (**Ranking groups** → the group), tick **Hide
+ranking from the public**, type a **Staff password** (at most 72 bytes) and
+press **Update**. The group's public URL (`/<group>/`) then shows a notice
+instead of the scoreboard, and the staff log in on that same page with the
+staff password.
+
+- To reveal the ranking, untick **Hide ranking from the public** and press
+  **Update**. It takes effect within seconds.
+- Editing a group keeps its staff password unless you type a new one; tick
+  **Remove staff password** to delete it. The page only says whether a
+  password is set, never what it is.
+- Changing the password logs out every staff session: the staff have to log
+  in again with the new one.
+- A hidden group without a staff password is visible to nobody, not even the
+  staff. The **Ranking groups** list warns about it, and shows for every
+  group whether it is hidden and whether it has a staff password.
+- Rolling the Ranking Web Server back to a version without this feature makes
+  hidden groups public, because that version ignores the setting. Do not roll
+  it back while a ranking has to stay hidden.
+
 ## Limitations
 
 - The Telegram bot serves a single contest and is not started with
   `CMS_CONTEST_ID=ALL`.
 - All contests share one Admin Web Server; there are no per-contest admin
   permissions.
-- Hiding, freezing or password-protecting a scoreboard is not available yet.
+- Freezing a scoreboard, or hiding and revealing it on a schedule, is not
+  available yet: hide and reveal it by hand, as described above.

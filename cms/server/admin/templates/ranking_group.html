@@ -21,6 +21,24 @@
         <td>Description</td>
         <td><input type="text" name="description" value="{{ ranking_group.description }}" /></td>
       </tr>
+      <tr>
+        <td>
+          <span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking."></span>
+          Hide ranking from the public
+        </td>
+        <td><input type="checkbox" name="hidden" {% if ranking_group.hidden %}checked{% endif %}/></td>
+      </tr>
+      <tr>
+        <td>
+          <span class="info" title="Leave empty to keep the current password."></span>
+          Staff password
+        </td>
+        <td>
+          <input type="password" name="staff_password" autocomplete="new-password"/>
+          {% if ranking_group.staff_password %}(set){% else %}(not set){% endif %}
+          <label><input type="checkbox" name="remove_staff_password"/> Remove staff password</label>
+        </td>
+      </tr>
     </table>
     <input type="submit" value="Update" />
     <input type="reset" value="Reset" />

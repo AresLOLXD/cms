@@ -24,6 +24,7 @@ import asyncio
 from sqlalchemy import select, func
 
 from cms.db import Contest, RankingGroup
+from cmscommon.crypto import hash_password
 from cmscommon.datetime import make_datetime
 from cmscommon.ranking_groups import RESERVED_GROUP_NAMES, \
     is_valid_group_name
@@ -50,6 +51,40 @@ def read_ranking_group_attrs(handler: BaseHandler, attrs: dict):
             % (name, ", ".join(sorted(RESERVED_GROUP_NAMES))))
     if not attrs.get("description"):
         attrs["description"] = name
+
+
+# bcrypt only uses the first 72 bytes of a password.
+MAX_STAFF_PASSWORD_BYTES = 72
+
+
+def read_ranking_group_visibility(handler: BaseHandler, attrs: dict):
+    """Read the visibility fields of the form (MC-2) into attrs.
+
+    An empty password field keeps attrs["staff_password"] as it is, so
+    editing a group without retyping the password keeps it.
+
+    handler: the handler whose request carries the form.
+    attrs: where to store hidden and staff_password.
+
+    raise (ValueError): if a new password and its removal are both
+        requested, or if the new password is too long.
+
+    """
+    handler.get_bool(attrs, "hidden")
+    new_password = handler.get_argument("staff_password", "", strip=False)
+    remove = handler.get_argument(
+        "remove_staff_password", None) is not None
+    if new_password and remove:
+        raise ValueError(
+            "Set a new staff password or remove it, not both.")
+    if remove:
+        attrs["staff_password"] = None
+    elif new_password:
+        if len(new_password.encode("utf-8")) > MAX_STAFF_PASSWORD_BYTES:
+            raise ValueError(
+                "The staff password is too long (at most %d bytes)."
+                % MAX_STAFF_PASSWORD_BYTES)
+        attrs["staff_password"] = hash_password(new_password, "bcrypt")
 
 
 class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
@@ -85,6 +120,7 @@ class AddRankingGroupHandler(
         try:
             attrs = dict()
             read_ranking_group_attrs(self, attrs)
+            read_ranking_group_visibility(self, attrs)
             self.sql_session.add(RankingGroup(**attrs))
 
         except Exception as error:
@@ -134,6 +170,7 @@ class RankingGroupHandler(BaseHandler):
         try:
             attrs = group.get_attrs()
             read_ranking_group_attrs(self, attrs)
+            read_ranking_group_visibility(self, attrs)
             group.set_attrs(attrs)
 
         except Exception as error:
