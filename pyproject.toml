@@ -16,7 +16,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "tornado==6.5.5",         # http://www.tornadoweb.org/en/stable/releases.html
+    "tornado==6.5.10",         # http://www.tornadoweb.org/en/stable/releases.html
     "psycopg2==2.9.10",       # http://initd.org/psycopg/articles/tag/release/
     "psycopg[binary]==3.3.6", # https://www.psycopg.org/psycopg3/docs/news.html
     "sqlalchemy>=2.0,<2.1",   # http://docs.sqlalchemy.org/en/latest/changelog/index.html
