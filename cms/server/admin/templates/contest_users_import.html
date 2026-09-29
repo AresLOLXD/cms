@@ -13,7 +13,11 @@ guarda nada.</p>
 {% if errors %}
 <div class="notification error">
   <p>No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:</p>
-  <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  {# A file of thousands of bad rows would give a page as long. #}
+  {% set max_errors = 50 %}
+  <h3>{{ errors|length }} error{% if errors|length != 1 %}es{% endif %}</h3>
+  <ul>{% for e in errors[:max_errors] %}<li>{{ e }}</li>{% endfor %}</ul>
+  {% if errors|length > max_errors %}<p>y {{ errors|length - max_errors }} más</p>{% endif %}
 </div>
 {% endif %}
 

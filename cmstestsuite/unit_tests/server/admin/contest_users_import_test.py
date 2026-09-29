@@ -814,6 +814,48 @@ class TestImportTemplates(unittest.TestCase):
         self.assertNotIn("<script>x</script>", html)
         self.assertIn("<form", html)
 
+    def test_the_errors_have_a_count_as_a_heading(self):
+        html = self.render_import(errors=["fila 2: a", "fila 3: b",
+                                          "fila 4: c"])
+
+        self.assertIn("<h3>3 errores</h3>", html)
+        self.assertEqual(html.count("<li>fila"), 3)
+        self.assertNotIn("más", html)
+
+    def test_one_error_is_not_plural(self):
+        html = self.render_import(errors=["fila 2: a"])
+
+        self.assertIn("<h3>1 error</h3>", html)
+        self.assertNotIn("1 errores", html)
+
+    def test_the_error_list_is_capped_at_50(self):
+        errors = ["fila %d: mal" % line for line in range(2, 302)]
+
+        html = self.render_import(errors=errors)
+
+        self.assertIn("<h3>300 errores</h3>", html)
+        self.assertEqual(html.count("<li>fila"), 50)
+        # The first 50 are the ones shown, in order, and the rest is only
+        # counted.
+        self.assertIn("<li>fila 2: mal</li>", html)
+        self.assertIn("<li>fila 51: mal</li>", html)
+        self.assertNotIn("fila 52: mal", html)
+        self.assertNotIn("fila 301: mal", html)
+        self.assertIn("y 250 más", html)
+
+    def test_the_errors_at_the_cap_show_all_without_a_rest(self):
+        for count, rest in ((50, None), (51, "y 1 más")):
+            errors = ["fila %d: mal" % line for line in range(2, 2 + count)]
+
+            html = self.render_import(errors=errors)
+
+            self.assertIn("<h3>%d errores</h3>" % count, html)
+            self.assertEqual(html.count("<li>fila"), 50, msg=count)
+            if rest is None:
+                self.assertNotIn(" más", html)
+            else:
+                self.assertIn(rest, html)
+
     def test_a_notice_is_shown_without_saying_that_nothing_was_applied(self):
         html = self.render_import(notice=NOT_FOUND)
 
