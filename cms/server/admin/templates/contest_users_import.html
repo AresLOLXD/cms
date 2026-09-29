@@ -1,6 +1,32 @@
 {% extends "base.html" %}
 
 {% block core %}
+<style>
+/* AWS styles ".notification" only inside its own "#notifications" toasts,
+   so the blocks of this page have classes of their own. */
+.import-box {
+    margin: 1em 0;
+    padding: 0.25em 1em;
+    border: 1px solid #8a94a6;
+    border-left-width: 5px;
+    background: #f2f4f8;
+}
+p.import-box { padding: 0.75em 1em; }
+.import-box p { padding: 0.5em 0; }
+.import-box h3 { margin-left: 0; }
+.import-box ul { list-style: disc; margin: 0 0 0.75em 1.5em; }
+.import-error { border-color: #c0392b; background: #fdecea; }
+.import-warning { border-color: #d98e04; background: #fff6df; }
+.import-done { border-color: #2e8b57; background: #e8f6ee; }
+td.import-note {
+    width: auto;
+    max-width: 26em;
+    padding-left: 1em;
+    white-space: normal;
+    border-left: 3px solid #d98e04;
+    background: #fff6df;
+}
+</style>
 <div class="core_title">
   <h1>Importar CSV &mdash; {{ contest.name }}</h1>
 </div>
@@ -11,7 +37,7 @@ la participación ya existen, se actualizan. Si hay cualquier error, no se
 guarda nada.</p>
 
 {% if errors %}
-<div class="notification error">
+<div class="import-box import-error">
   <p>No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:</p>
   {# A file of thousands of bad rows would give a page as long. #}
   {% set max_errors = 50 %}
@@ -22,14 +48,14 @@ guarda nada.</p>
 {% endif %}
 
 {% if notice %}
-<div class="notification">
+<div class="import-box import-notice">
   <p>{{ notice }}</p>
 </div>
 {% endif %}
 
 {% macro count_of(count, one, many) %}{% if count == 1 %}1 {{ one }}{% else %}{{ count }} {{ many }}{% endif %}{% endmacro %}
 {% if summary %}
-<div class="notification">
+<div class="import-box import-summary">
   <p>El archivo es válido. Al importarlo:</p>
   <ul>
     <li>Usuarios nuevos: {{ summary.usuarios_nuevos }}</li>
@@ -166,8 +192,9 @@ guarda nada.</p>
             });
         });
     }
-    function addLine(parent, text) {
+    function addLine(parent, text, className) {
         var line = document.createElement("p");
+        if (className) { line.className = className; }
         line.textContent = text;
         parent.appendChild(line);
     }
@@ -196,6 +223,9 @@ guarda nada.</p>
                 document.getElementById("import_text").textContent =
                     "Procesando " + s.processed + " de " + s.total;
                 var out = document.getElementById("import_result");
+                // Written again from scratch each time, so that a failure
+                // half way through never leaves a duplicate behind.
+                out.textContent = "";
                 if (s.status === "done") {
                     var lead = document.createElement("p");
                     lead.className = "import-box import-done";
@@ -231,7 +261,7 @@ guarda nada.</p>
                         "Importar otro archivo"));
                     out.appendChild(links);
                 } else if (s.status === "error") {
-                    out.textContent = "Error: " + s.error;
+                    addLine(out, "Error: " + s.error, "import-box import-error");
                 } else {
                     setTimeout(poll, 500);
                 }
@@ -242,8 +272,10 @@ guarda nada.</p>
                     setTimeout(poll, RETRY_MS);
                     return;
                 }
-                document.getElementById("import_result").textContent =
-                    "No se pudo consultar el progreso; recarga la página.";
+                var lost = document.getElementById("import_result");
+                lost.textContent = "";
+                addLine(lost, "No se pudo consultar el progreso; recarga la página.",
+                    "import-box import-notice");
             });
         };
         poll();

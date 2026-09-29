@@ -976,6 +976,42 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn('strong.textContent = "Listo."', html)
         self.assertIn('createElement("a")', html)
 
+    def test_the_blocks_have_their_own_classes_not_the_toast_ones(self):
+        # AWS styles ".notification" only inside its "#notifications"
+        # container, so on this page it would render as plain text.
+        summary = {**make_plan().summary(), "equipos_quitados": 1}
+        html = self.render_import(errors=["fila 2: mal"], notice="Aviso",
+                                  summary=summary)
+
+        self.assertNotIn('class="notification', html)
+        self.assertIn('<div class="import-box import-error">', html)
+        self.assertIn('<div class="import-box import-notice">', html)
+        self.assertIn('<div class="import-box import-summary">', html)
+        self.assertIn('<div class="import-box import-warning">', html)
+
+    def test_the_page_brings_the_styles_of_its_blocks(self):
+        html = self.render_import()
+
+        # Inside the core block, ahead of the script.
+        self.assertIn("<style>", html)
+        self.assertLess(html.index("<style>"), html.index("<script>"))
+        css = html[html.index("<style>"):html.index("</style>")]
+        # The notice and the summary keep the neutral look of the box.
+        for name in ("import-box", "import-error", "import-warning",
+                     "import-done", "import-note"):
+            self.assertIn("." + name, css)
+        # AWS resets the bullets of the lists.
+        self.assertRegex(css, r"\.import-box ul\s*\{[^}]*list-style: disc")
+
+    def test_the_script_styles_what_it_writes(self):
+        html = self.render_import()
+
+        # The result of the job, its failure and the lost contact.
+        self.assertIn('"import-box import-done"', html)
+        self.assertIn('"import-box import-warning"', html)
+        self.assertIn('"import-box import-error"', html)
+        self.assertIn('"import-box import-notice"', html)
+
     def test_the_users_page_links_to_the_import_for_admins_with_all(self):
         contest = SimpleNamespace(id=CONTEST_ID, participations=[],
                                   groups=[], main_group_id=None)
