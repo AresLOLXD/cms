@@ -772,18 +772,30 @@ def SimpleHandler(page, authenticated=True, permission_all=False) -> type[BaseHa
     if permission_all:
         class Cls(BaseHandler):
             @require_permission(BaseHandler.PERMISSION_ALL)
-            def get(self):
+            async def get(self):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._get_sync)
+
+            def _get_sync(self):
                 self.r_params = self.render_params()
                 self.render(page, **self.r_params)
     elif authenticated:
         class Cls(BaseHandler):
             @require_permission(BaseHandler.AUTHENTICATED)
-            def get(self):
+            async def get(self):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._get_sync)
+
+            def _get_sync(self):
                 self.r_params = self.render_params()
                 self.render(page, **self.r_params)
     else:
         class Cls(BaseHandler):
-            def get(self):
+            async def get(self):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._get_sync)
+
+            def _get_sync(self):
                 self.r_params = self.render_params()
                 self.render(page, **self.r_params)
     return Cls
@@ -792,7 +804,11 @@ def SimpleHandler(page, authenticated=True, permission_all=False) -> type[BaseHa
 def SimpleContestHandler(page) -> type[BaseHandler]:
     class Cls(BaseHandler):
         @require_permission(BaseHandler.AUTHENTICATED)
-        def get(self, contest_id: str):
+        async def get(self, contest_id: str):
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._get_sync, contest_id)
+
+        def _get_sync(self, contest_id: str):
             self.contest = self.safe_get_item(Contest, contest_id)
 
             self.r_params = self.render_params()
