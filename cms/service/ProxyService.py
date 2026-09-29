@@ -61,7 +61,20 @@ READ_TIMEOUT = 120
 
 
 class CannotSendError(Exception):
-    pass
+    """A request to a ranking failed.
+
+    Unless it is a RejectedError, the ranking may take the same request
+    if it is sent again later.
+
+    """
+
+
+class RejectedError(CannotSendError):
+    """A ranking refused a request, answering with a 4xx status.
+
+    The same request would be refused again.
+
+    """
 
 
 def encode_id(entity_id: str) -> str:
@@ -80,6 +93,25 @@ def encode_id(entity_id: str) -> str:
     return encoded_id
 
 
+def _check_status(status_code: int, operation: str):
+    """Raise the right error if a ranking answered with a failure.
+
+    status_code: the HTTP status of the answer.
+    operation: a human-readable description of the operation
+        we're performing (to produce log messages).
+
+    raise (RejectedError): if the ranking refused the request (4xx).
+    raise (CannotSendError): if the ranking failed to handle it (5xx).
+
+    """
+    if 400 <= status_code < 600:
+        msg = "Status %s while %s." % (status_code, operation)
+        logger.warning(msg)
+        if status_code < 500:
+            raise RejectedError(msg)
+        raise CannotSendError(msg)
+
+
 def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
     """Send some data to ranking using a PUT request.
 
@@ -89,7 +121,8 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
 
-    raise (CannotSendError): in case of communication errors.
+    raise (RejectedError): if the ranking refuses the data.
+    raise (CannotSendError): in case of communication or server errors.
 
     """
     try:
@@ -106,10 +139,7 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
         msg = "%s while %s: %s." % (type(error).__name__, operation, error)
         logger.warning(msg)
         raise CannotSendError(msg)
-    if 400 <= res.status_code < 600:
-        msg = "Status %s while %s." % (res.status_code, operation)
-        logger.warning(msg)
-        raise CannotSendError(msg)
+    _check_status(res.status_code, operation)
 
 
 def safe_delete_data(ranking: str, resource: str, operation: str):
@@ -120,7 +150,8 @@ def safe_delete_data(ranking: str, resource: str, operation: str):
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
 
-    raise (CannotSendError): in case of communication errors.
+    raise (RejectedError): if the ranking refuses the request.
+    raise (CannotSendError): in case of communication or server errors.
 
     """
     try:
@@ -134,10 +165,7 @@ def safe_delete_data(ranking: str, resource: str, operation: str):
         msg = "%s while %s: %s." % (type(error).__name__, operation, error)
         logger.warning(msg)
         raise CannotSendError(msg)
-    if 400 <= res.status_code < 600:
-        msg = "Status %s while %s." % (res.status_code, operation)
-        logger.warning(msg)
-        raise CannotSendError(msg)
+    _check_status(res.status_code, operation)
 
 
 def safe_url(url: str) -> str:
@@ -188,6 +216,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     to minimize the number of actual HTTP requests: they'll be at most
     one per entity type.
 
+    What the ranking cannot take because it is unreachable or failing is
+    put back in the queue for a later round; what it refuses is dropped.
+
     Each entity type is identified by a integral class-level constant.
 
     """
@@ -222,8 +253,11 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     RESET_RESOURCE_PATHS = ["contests", "users"]
 
     # How long we wait after having failed to push data to a ranking
-    # before trying again.
-    FAILURE_WAIT = 60.0
+    # before trying again: MIN_RETRY_WAIT seconds the first time, then
+    # twice as long at each failure that follows, up to MAX_RETRY_WAIT.
+    # Pushing data successfully starts it over.
+    MIN_RETRY_WAIT = 1.0
+    MAX_RETRY_WAIT = 60.0
 
     def __init__(self, ranking: str):
         """Create a proxy for the ranking at the given URL.
@@ -238,6 +272,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         self._ranking = ranking
         self._visible_ranking = safe_url(ranking)
 
+        # How long to wait if the next attempt to push data fails.
+        self._retry_wait = self.MIN_RETRY_WAIT
+
     @staticmethod
     def _prefix(group: str | None) -> str:
         """Return the resource path prefix of a ranking namespace."""
@@ -248,84 +285,153 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
 
         Combine the given entries and send them to the target ranking
         with a single synchronous batch call run in a worker thread
-        (via run_in_executor). If that call fails, sleep FAILURE_WAIT
-        seconds before returning, so the caller's next round doesn't
-        immediately retry.
+        (via run_in_executor). The entries whose data the ranking
+        could not take are put back in the queue as they were (same
+        priority and timestamp, so they keep their place in the order)
+        and we sleep before returning, so the caller's next round
+        doesn't immediately retry. The sleep starts at MIN_RETRY_WAIT
+        seconds, doubles at each failure in a row up to MAX_RETRY_WAIT
+        and starts over after a success.
 
         entries: entries containing the operations to perform.
 
         """
         loop = asyncio.get_running_loop()
-        failed = await loop.run_in_executor(None, self._execute_sync, entries)
-        if failed:
-            await asyncio.sleep(self.FAILURE_WAIT)
+        unsent = await loop.run_in_executor(None, self._execute_sync, entries)
+        if not unsent:
+            self._retry_wait = self.MIN_RETRY_WAIT
+            return
 
-    def _execute_sync(self, entries: list[QueueEntry[ProxyOperation]]) -> bool:
+        for entry in unsent:
+            self.enqueue(entry.item, entry.priority, entry.timestamp)
+        wait = self._retry_wait
+        self._retry_wait = min(2 * wait, self.MAX_RETRY_WAIT)
+        logger.warning("Could not send %d operation(s) to ranking %s, "
+                       "trying again in %g seconds.",
+                       len(unsent), self._visible_ranking, wait)
+        await asyncio.sleep(wait)
+
+    def _execute_sync(
+        self, entries: list[QueueEntry[ProxyOperation]]
+    ) -> list[QueueEntry[ProxyOperation]]:
         """Send the given batch of operations, synchronously.
 
         Runs inside loop.run_in_executor -- the actual HTTP requests
         (via the synchronous requests library) happen here; the caller
-        is responsible for the FAILURE_WAIT sleep, which must happen on
-        the event loop (asyncio.sleep), not in this thread.
+        is responsible for putting the unsent entries back in the
+        queue and for the wait before trying again, which must happen
+        on the event loop (asyncio.sleep), not in this thread.
+
+        Namespaces don't depend on each other, so what goes wrong in
+        one of them doesn't stop the others. Data refused by the
+        ranking is dropped, as sending it again would get it refused
+        again, and the following entity types are sent anyway. When
+        data cannot be delivered instead (communication or server
+        error), the entity types that follow it in the same namespace
+        are held back too: the ranking would refuse them if they refer
+        to what did not get there (a task, to its contest), and they
+        would be lost.
 
         entries: entries containing the operations to perform.
 
-        return: True if sending failed (caller should wait FAILURE_WAIT
-            before the executor's next round), False on success.
+        return: the entries whose data was not sent and has to be
+            sent again, in their original order.
 
         """
-        # The cumulative data that we will try to send to the ranking,
-        # per namespace (None is the root), built by combining items in
-        # the queue.
-        data: dict[str | None, list[dict]] = dict()
-        # Namespaces to empty before sending data, in arrival order.
-        resets: list[str | None] = list()
+        # The entries to send in each namespace (None is the root), by
+        # entity type, in arrival order.
+        pending: dict[str | None, list[list[QueueEntry]]] = dict()
+        # The entry emptying each namespace before sending data (the
+        # last one, if there is more than one).
+        resets: dict[str | None, QueueEntry] = dict()
 
         for entry in entries:
             item = entry.item
             if item.type_ == self.RESET_TYPE:
                 # Data queued before the reset is obsolete.
-                data.pop(item.group, None)
-                if item.group not in resets:
-                    resets.append(item.group)
+                pending.pop(item.group, None)
+                resets[item.group] = entry
             else:
-                group_data = data.setdefault(
-                    item.group, list(dict() for i in range(self.TYPE_COUNT)))
-                group_data[item.type_].update(item.data)
+                group_entries = pending.setdefault(
+                    item.group, list(list() for i in range(self.TYPE_COUNT)))
+                group_entries[item.type_].append(entry)
 
+        # The entries to send again (by id, as they are not hashable).
+        unsent: set[int] = set()
+        # The namespaces where something could not be delivered.
+        stalled: set[str | None] = set()
+
+        for group, reset in resets.items():
+            if not self._send(group, self.RESET_TYPE, dict()):
+                unsent.add(id(reset))
+                stalled.add(group)
+
+        for group, group_entries in pending.items():
+            for type_, type_entries in enumerate(group_entries):
+                data: dict = dict()
+                for entry in type_entries:
+                    data.update(entry.item.data)
+                # Nothing to send, nor to send again.
+                if len(data) == 0:
+                    continue
+                if group not in stalled:
+                    if self._send(group, type_, data):
+                        continue
+                    stalled.add(group)
+                unsent.update(id(entry) for entry in type_entries)
+
+        return [entry for entry in entries if id(entry) in unsent]
+
+    def _send(self, group: str | None, type_: int, data: dict) -> bool:
+        """Send the entities of one type to a namespace of the ranking.
+
+        Runs inside loop.run_in_executor.
+
+        group: the namespace (None is the root).
+        type_: one of the *_TYPE constants. For RESET_TYPE the
+            namespace is emptied instead, and data is ignored.
+        data: the entities to send, by id.
+
+        return: False if the data did not reach the ranking, or it
+            failed to handle it, and it has to be sent again; True if
+            the ranking took it or refused it (which is final).
+
+        """
+        prefix = self._prefix(group)
         try:
-            for group in resets:
+            if type_ == self.RESET_TYPE:
+                what = "the reset"
                 for name in self.RESET_RESOURCE_PATHS:
                     operation = "deleting %s from ranking %s%s" % (
-                        name, self._visible_ranking, self._prefix(group))
+                        name, self._visible_ranking, prefix)
                     logger.debug(operation.capitalize())
-                    safe_delete_data(self._ranking, "%s%s/" % (
-                        self._prefix(group), name), operation)
-
-            for group, group_data in data.items():
-                for i in range(self.TYPE_COUNT):
-                    # Send entities of type i.
-                    if len(group_data[i]) > 0:
-                        # We abuse the resource path as the English
-                        # (plural) name for the entity type.
-                        name = self.RESOURCE_PATHS[i]
-                        operation = "sending %s to ranking %s%s" % (
-                            name, self._visible_ranking, self._prefix(group))
-
-                        logger.debug(operation.capitalize())
-                        safe_put_data(
-                            self._ranking, "%s%s/" % (
-                                self._prefix(group), name),
-                            group_data[i], operation)
-
+                    safe_delete_data(
+                        self._ranking, "%s%s/" % (prefix, name), operation)
+            else:
+                # We abuse the resource path as the English (plural)
+                # name for the entity type.
+                name = self.RESOURCE_PATHS[type_]
+                what = "the " + name
+                operation = "sending %s to ranking %s%s" % (
+                    name, self._visible_ranking, prefix)
+                logger.debug(operation.capitalize())
+                safe_put_data(
+                    self._ranking, "%s%s/" % (prefix, name), data, operation)
+        except RejectedError:
+            # The status has already been logged: say what to do about it.
+            logger.warning(
+                "Ranking %s rejected %s of group %s. It will not be sent "
+                "again: use Regenerate for this group in AWS (Ranking "
+                "groups) to send its data again.", self._visible_ranking,
+                what, group if group is not None else "(root)")
         except CannotSendError:
             # A log message has already been produced.
-            return True
+            return False
         except Exception:
             # Whoa! That's unexpected!
             logger.error("Unexpected error.", exc_info=True)
-            return True
-        return False
+            return False
+        return True
 
 
 class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):

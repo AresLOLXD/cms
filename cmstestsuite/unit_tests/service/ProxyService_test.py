@@ -68,9 +68,9 @@ class ProxyExecutorTest(unittest.IsolatedAsyncioTestCase):
             ProxyOperation(ProxyExecutor.USER_TYPE, {"u2": {}}, "omips"),
             ProxyOperation(ProxyExecutor.USER_TYPE, {"u3": {}}, "olim"))
 
-        failed = self.executor._execute_sync(entries)
+        unsent = self.executor._execute_sync(entries)
 
-        self.assertFalse(failed)
+        self.assertEqual(unsent, [])
         bodies = self._put_bodies()
         self.assertEqual(
             bodies[urljoin(RANKING, "olim/users/")], {"u1": {}, "u3": {}})
@@ -83,9 +83,9 @@ class ProxyExecutorTest(unittest.IsolatedAsyncioTestCase):
             ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
             ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
 
-        failed = self.executor._execute_sync(entries)
+        unsent = self.executor._execute_sync(entries)
 
-        self.assertFalse(failed)
+        self.assertEqual(unsent, [])
         self.assertEqual(
             self._delete_urls(),
             [urljoin(RANKING, "olim/contests/"),
@@ -107,7 +107,11 @@ class ProxyExecutorTest(unittest.IsolatedAsyncioTestCase):
                    new_callable=AsyncMock) as sleep_mock:
             await self.executor.execute(entries)
 
-        sleep_mock.assert_awaited_once_with(ProxyExecutor.FAILURE_WAIT)
+        # The first wait is short, and the data is kept for the retry.
+        sleep_mock.assert_awaited_once_with(1)
+        self.assertEqual(
+            [status["item"] for status in self.executor.get_status()],
+            [entries[0].item.to_dict()])
 
 
 class ProxyServiceTest(

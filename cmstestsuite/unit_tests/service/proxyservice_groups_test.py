@@ -7,9 +7,13 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
+import requests.exceptions
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
+from cmstestsuite.unit_tests.service.proxyexecutor_test import \
+    FakeRetryWaits
 
 from cms import config
 from cms.conf import Address
@@ -60,6 +64,14 @@ class TestProxyServiceGroups(
         self.requests_delete = delete_patcher.start()
         self.addCleanup(delete_patcher.stop)
         self.requests_delete.return_value.status_code = 204
+
+        # An executor waits before sending again what a ranking could
+        # not take: skip those waits, and record them.
+        self.retry_waits = FakeRetryWaits()
+        retry_patcher = patch(
+            "cms.service.ProxyService.asyncio", self.retry_waits)
+        retry_patcher.start()
+        self.addCleanup(retry_patcher.stop)
 
         # Count the batches all the executors are sending, for _settle().
         self.executions_in_flight = 0
@@ -378,6 +390,72 @@ class TestProxyServiceGroups(
                 await service.regenerate_ranking(group)
         self.assertEqual(self.delete_urls(), [])
         self.assertEqual(self.put_urls(), [])
+
+    async def test_connection_error_is_retried_without_losing_data(self):
+        delivered: dict[str, dict] = dict()
+        attempts: list[str] = list()
+
+        def flaky_put(target, body, **kwargs):
+            attempts.append(target)
+            if len(attempts) == 1:
+                raise requests.exceptions.ConnectionError("refused")
+            delivered.setdefault(target, dict()).update(json.loads(body))
+            return self.requests_put.return_value
+
+        self.requests_put.side_effect = flaky_put
+        await self.start()
+
+        # The very first request failed, and the executor waited for
+        # a moment before sending that data again.
+        self.assertEqual(self.retry_waits.waits, [1])
+        for group, contest, submission in (
+                ("olim", self.contest_a, self.sub_a),
+                ("omips", self.contest_b, self.sub_b)):
+            self.assertEqual(
+                set(delivered[url("%s/contests/" % group)]),
+                {encode_id(contest.name)})
+            self.assertEqual(
+                set(delivered[url("%s/tasks/" % group)]),
+                {encode_id(contest.tasks[0].name)})
+            self.assertEqual(
+                set(delivered[url("%s/submissions/" % group)]),
+                {"%d" % submission.id})
+            self.assertEqual(
+                len(delivered[url("%s/subchanges/" % group)]), 1)
+
+    async def test_rejected_group_does_not_lose_the_others(self):
+        service = await self.start()
+        self.clear_requests()
+
+        # RWS refuses the submissions of OLIM, all or nothing.
+        def put(target, *args, **kwargs):
+            response = MagicMock()
+            response.status_code = \
+                400 if target == url("olim/submissions/") else 200
+            return response
+
+        self.requests_put.side_effect = put
+
+        # Both scores are queued together, so they go out in one batch.
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            for submission in (self.sub_a, self.sub_b):
+                for operation in service.operations_for_score(submission):
+                    service.enqueue(operation)
+            await self._settle(service)
+
+        # OMIPS got its data, and so did the rest of OLIM's.
+        self.assertEqual(set(self.put_payload(url("omips/submissions/"))),
+                         {"%d" % self.sub_b.id})
+        self.assertIn(url("omips/subchanges/"), self.put_urls())
+        self.assertIn(url("olim/subchanges/"), self.put_urls())
+        # What RWS refused is not sent again.
+        self.assertEqual(self.retry_waits.waits, [])
+        self.assertEqual(self.put_urls().count(url("olim/submissions/")), 1)
+        # The operator learns how to repair OLIM, and only OLIM.
+        hints = [line for line in logs.output if "Regenerate" in line]
+        self.assertEqual(len(hints), 1)
+        self.assertIn("olim", hints[0])
+        self.assertIn("submissions", hints[0])
 
     async def test_settle_waits_for_every_executor(self):
         # The service has one executor for each configured ranking.
