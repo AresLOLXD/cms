@@ -103,7 +103,7 @@ class AddTaskHandler(SimpleHandler("add_task.html", permission_all=True)):
 
         if self.try_commit():
             # Create the task on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
             self.redirect(self.url("task", task.id))
         else:
             self.redirect(fallback_page)
@@ -233,8 +233,8 @@ class TaskHandler(BaseHandler):
 
         if self.try_commit():
             # Update the task and score on RWS.
-            self.service.proxy_service.dataset_updated(
-                task_id=task.id)
+            self.schedule_rpc(self.service.proxy_service.dataset_updated,
+                              task_id=task.id)
         self.redirect(self.url("task", task_id))
 
 
@@ -578,7 +578,7 @@ class RemoveTaskHandler(BaseHandler):
                 task.num -= 1
                 self.sql_session.flush()
         if self.try_commit():
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another task)
         self.write("../../tasks")

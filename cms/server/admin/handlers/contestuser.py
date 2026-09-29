@@ -152,7 +152,7 @@ class RemoveParticipationHandler(BaseHandler):
 
         if self.try_commit():
             # Remove the participation on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another participation)
         self.write("../../users")
@@ -190,7 +190,7 @@ class AddContestUserHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another user)
         self.redirect(fallback_page)
@@ -290,7 +290,7 @@ class ParticipationHandler(BaseHandler):
 
         if self.try_commit():
             # Update the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(fallback_page)
 
     @require_permission(BaseHandler.PERMISSION_ALL)

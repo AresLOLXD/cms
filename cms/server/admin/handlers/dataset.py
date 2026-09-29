@@ -322,8 +322,8 @@ class ActivateDatasetHandler(BaseHandler):
         task.active_dataset = dataset
 
         if self.try_commit():
-            self.service.proxy_service.dataset_updated(
-                task_id=task.id)
+            self.schedule_rpc(self.service.proxy_service.dataset_updated,
+                              task_id=task.id)
 
             # This kicks off judging of any submissions which were previously
             # unloved, but are now part of an autojudged taskset.
@@ -542,7 +542,7 @@ class AddTestcaseHandler(BaseHandler):
 
         if self.try_commit():
             # max_score and/or extra_headers might have changed.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
             self.redirect(self.url("task", task.id))
         else:
             self.redirect(fallback_page)
@@ -615,7 +615,7 @@ class AddTestcasesHandler(BaseHandler):
 
         self.service.add_notification(
             make_datetime(), successful_subject, successful_text)
-        self.service.proxy_service.reinitialize()
+        self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(self.url("task", task.id))
 
 
@@ -642,7 +642,7 @@ class DeleteTestcaseHandler(BaseHandler):
 
         if self.try_commit():
             # max_score and/or extra_headers might have changed.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.write("./%d" % task_id)
 
 

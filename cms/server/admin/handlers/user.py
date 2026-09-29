@@ -103,7 +103,7 @@ class UserHandler(BaseHandler):
 
         if self.try_commit():
             # Update the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(fallback_page)
 
 
@@ -196,7 +196,7 @@ class RemoveUserHandler(BaseHandler):
 
         self.sql_session.delete(user)
         if self.try_commit():
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another user)
         self.write("../../users")
@@ -245,7 +245,7 @@ class RemoveTeamHandler(BaseHandler):
             # delete the team
             self.sql_session.delete(team)
             if self.try_commit():
-                self.service.proxy_service.reinitialize()
+                self.schedule_rpc(self.service.proxy_service.reinitialize)
         except Exception as fallback_error:
             self.service.add_notification(
                 make_datetime(), "Error removing team", repr(fallback_error)
@@ -303,7 +303,7 @@ class TeamHandler(BaseHandler):
 
         if self.try_commit():
             # Update the team on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(fallback_page)
 
 
@@ -337,7 +337,7 @@ class AddTeamHandler(SimpleHandler("add_team.html", permission_all=True)):
 
         if self.try_commit():
             # Create the team on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # In case other teams need to be added.
         self.redirect(fallback_page)
@@ -382,7 +382,7 @@ class AddUserHandler(SimpleHandler("add_user.html", permission_all=True)):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
             self.redirect(self.url("user", user.id))
         else:
             self.redirect(fallback_page)
@@ -422,7 +422,7 @@ class AddParticipationHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another contest).
         self.redirect(fallback_page)
@@ -465,7 +465,7 @@ class EditParticipationHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another contest).
         self.redirect(fallback_page)

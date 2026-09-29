@@ -94,7 +94,7 @@ class AddRankingGroupHandler(
             return
 
         if self.try_commit():
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
             self.redirect(self.url("ranking_groups"))
         else:
             self.redirect(fallback_page)
@@ -144,7 +144,7 @@ class RankingGroupHandler(BaseHandler):
 
         if self.try_commit():
             # A rename moves the ranking to a new namespace.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(fallback_page)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -180,7 +180,7 @@ class RemoveRankingGroupHandler(BaseHandler):
 
         self.sql_session.delete(group)
         if self.try_commit():
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another group)
         self.write("../../ranking_groups")
@@ -198,7 +198,8 @@ class RegenerateRankingHandler(BaseHandler):
 
     def _post_sync(self):
         group: str = self.get_argument("group", "")
-        self.service.proxy_service.regenerate_ranking(group=group or None)
+        self.schedule_rpc(self.service.proxy_service.regenerate_ranking,
+                          group=group or None)
         self.service.add_notification(
             make_datetime(), "Ranking regeneration requested",
             "Ranking %s is being emptied and sent again."

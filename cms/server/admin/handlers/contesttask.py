@@ -158,7 +158,7 @@ class ContestTasksHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another task)
         self.redirect(fallback_page)
@@ -193,7 +193,7 @@ class AddContestTaskHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another task)
         self.redirect(fallback_page)

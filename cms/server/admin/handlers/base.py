@@ -375,8 +375,37 @@ class BaseHandler(CommonRequestHandler):
         await super().prepare()
         self.contest = None
         loop = asyncio.get_running_loop()
+        self._loop = loop
         self._current_user = await loop.run_in_executor(
             None, self.get_current_user)
+
+    def schedule_rpc(self, remote_method, **kwargs):
+        """Fire-and-forget a remote RPC from a run_in_executor body.
+
+        Handler bodies run in a worker thread that has no event loop,
+        and the remote-service client methods are coroutines, so
+        calling them directly would never send anything. Submit the
+        coroutine to the event loop instead, without waiting for it.
+        Any exception it raises is logged, not propagated.
+
+        remote_method (callable): a remote-service client method,
+            e.g. self.service.proxy_service.reinitialize.
+        kwargs: the keyword arguments for the RPC.
+
+        """
+        name = getattr(remote_method, "__name__", repr(remote_method))
+        future = asyncio.run_coroutine_threadsafe(
+            remote_method(**kwargs), self._loop)
+
+        def log_failure(done):
+            if done.cancelled():
+                return
+            exc = done.exception()
+            if exc is not None:
+                logger.warning("RPC %s failed: %r", name, exc,
+                               exc_info=exc)
+
+        future.add_done_callback(log_failure)
 
     def render(self, template_name: str, **params):
         t = self.service.jinja2_environment.get_template(template_name)

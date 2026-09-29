@@ -76,7 +76,7 @@ class AddContestHandler(
 
         if self.try_commit():
             # Create the contest on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
             self.redirect(self.url("contest", contest.id))
         else:
             self.redirect(fallback_page)
@@ -154,7 +154,7 @@ class ContestHandler(SimpleContestHandler("contest.html")):
 
         if self.try_commit():
             # Update the contest on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(self.url("contest", contest_id))
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -252,7 +252,7 @@ class RemoveContestHandler(BaseHandler):
 
         self.sql_session.delete(contest)
         if self.try_commit():
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another contest)
         self.write("../../contests")

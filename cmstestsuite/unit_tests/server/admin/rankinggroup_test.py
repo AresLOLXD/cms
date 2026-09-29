@@ -51,14 +51,21 @@ class TestRegenerateRankingHandler(unittest.TestCase):
         handler.get_argument = MagicMock(return_value=group_arg)
         handler.redirect = MagicMock()
         handler.url = MagicMock(return_value="/ranking_groups")
+        handler.schedule_rpc = MagicMock()
         handler._post_sync()
-        return handler.application.service.proxy_service.regenerate_ranking
+        return handler
 
     def test_group(self):
-        self.run_post("olim").assert_called_once_with(group="olim")
+        handler = self.run_post("olim")
+        handler.schedule_rpc.assert_called_once_with(
+            handler.application.service.proxy_service.regenerate_ranking,
+            group="olim")
 
     def test_root(self):
-        self.run_post("").assert_called_once_with(group=None)
+        handler = self.run_post("")
+        handler.schedule_rpc.assert_called_once_with(
+            handler.application.service.proxy_service.regenerate_ranking,
+            group=None)
 
 
 if __name__ == "__main__":
