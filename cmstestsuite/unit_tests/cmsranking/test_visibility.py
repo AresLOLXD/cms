@@ -368,7 +368,12 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertIn("Vista staff: este ranking está oculto al público",
                       page.get_data(as_text=True))
 
-    def test_banner_is_inserted_right_after_the_body_tag(self):
+    def staff_page(self):
+        """Get / as staff, and cut the banner out of it.
+
+        return: the response and the banner.
+
+        """
         with open(os.path.join(self.web_dir, "Ranking.html"), "rb") as f:
             original = f.read()
         after_tag = re.search(rb"<body[^>]*>", original).end()
@@ -378,7 +383,27 @@ class TestStaffLogin(VisibilityTestCase):
         # Only the banner is added, and nothing else changes.
         self.assertTrue(page.startswith(original[:after_tag]))
         self.assertTrue(page.endswith(original[after_tag:]))
-        banner = page[after_tag:len(page) - len(original[after_tag:])]
+        return response, page[after_tag:len(page) - len(original[after_tag:])]
+
+    def test_banner_stays_above_the_scoreboard(self):
+        # The upper panel of the scoreboard is positioned at the top of
+        # the page, over anything that is in the flow there. The banner
+        # must be a bar of its own that no panel covers and that leaves
+        # the panel alone.
+        with open(os.path.join(self.web_dir, "Ranking.css")) as f:
+            highest = max(int(z) for z in
+                          re.findall(r"z-index:\s*(\d+)", f.read()))
+        banner = self.staff_page()[1].decode("utf-8")
+        style = re.search(r'style="([^"]*)"', banner).group(1)
+        self.assertRegex(style, r"position:\s*fixed")
+        self.assertRegex(style, r"(^|;)\s*bottom:\s*0")
+        self.assertNotRegex(style, r"(^|;)\s*top:")
+        self.assertGreater(
+            int(re.search(r"z-index:\s*(\d+)", style).group(1)), highest)
+
+    def test_banner_is_inserted_right_after_the_body_tag(self):
+        response, banner = self.staff_page()
+        page = response.get_data()
         self.assertIn(b"Vista staff", banner)
         self.assertIn(b'href="staff-logout"', banner)
         self.assertEqual(response.headers["Content-Length"], str(len(page)))
@@ -544,6 +569,57 @@ class TestStaffLogin(VisibilityTestCase):
         page = self.client.get("/olim/", headers=self.with_cookie(cookie))
         self.assertEqual(page.status_code, 200)
         self.assertNotIn("Vista staff", page.get_data(as_text=True))
+
+
+class TestIndexPage(VisibilityTestCase):
+    """A browser must ask again for the index page of a group.
+
+    The page has a Last-Modified and no Cache-Control, so a browser keeps
+    it for a while without asking. A visitor who loaded it while the group
+    was visible would then get the scoreboard, and none of the data, from
+    its cache once the group is hidden, instead of the notice.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+
+    def staff_cookie(self) -> dict[str, str]:
+        secret = self.client.application.apps["olim"].state.secret
+        return {"Cookie": "%s=%s" % (
+            STAFF_COOKIE, staff_cookie_value(secret, "olim", STAFF_HASH))}
+
+    def test_visible_index_is_revalidated(self):
+        for method in ["GET", "HEAD"]:
+            for headers in [{}, self.staff_cookie()]:
+                with self.subTest(method=method, staff=bool(headers)):
+                    response = self.client.open(
+                        "/olim/", method=method, headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-cache")
+
+    def test_returning_visitor_gets_the_notice(self):
+        response = self.client.get("/olim/")
+        self.assertEqual(response.headers["Cache-Control"], "no-cache")
+        self.assertNotIn("staff-login", response.get_data(as_text=True))
+        self.put_visibility("olim", True)
+        response = self.client.get("/olim/")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertIn('action="staff-login"', response.get_data(as_text=True))
+
+    def test_other_pages_keep_their_caching(self):
+        response = self.client.get("/olim/Ranking.js")
+        self.assertEqual(response.headers["Cache-Control"],
+                         "max-age=43200, public")
+
+    def test_index_of_the_root_ranking_is_unchanged(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Cache-Control", response.headers)
+        self.assertIn("Last-Modified", response.headers)
 
 
 class TestOpenConnections(unittest.TestCase):

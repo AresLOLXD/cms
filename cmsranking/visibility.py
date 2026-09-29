@@ -48,6 +48,7 @@ STAFF_COOKIE = "rws_staff"
 
 NO_STORE = {"Cache-Control": "no-store"}
 PRIVATE_NO_STORE = "private, no-store"
+REVALIDATE = "no-cache"
 
 # A login form is a few hundred bytes at most.
 MAX_LOGIN_BODY = 4096
@@ -87,8 +88,12 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 </html>
 """
 
+# A bar of its own at the bottom, above everything (the scoreboard goes up
+# to a z-index of 500): the upper panel of the scoreboard is positioned at
+# the top of the page and would cover a banner that is in the flow there.
 STAFF_BANNER = (
-    '<div style="background:#b00020;color:#fff;padding:0.5em;'
+    '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
+    'background:#b00020;color:#fff;padding:0.5em;'
     'text-align:center;font-family:sans-serif;">Vista staff: este '
     'ranking está oculto al público &middot; '
     '<a style="color:#fff" href="staff-logout">Salir</a></div>'
@@ -201,20 +206,21 @@ def _close_connection(start_response):
         handler.close_connection = True
 
 
-def _private_no_store(start_response):
-    """Wrap start_response so that no cache keeps the response.
+def _cache_control(start_response, value: str):
+    """Wrap start_response to set the Cache-Control of the response.
 
     start_response: the WSGI start_response callable.
+    value: the Cache-Control header to send, whatever the app says.
 
-    return: a start_response that replaces the Cache-Control header with
-        "private, no-store". The gevent handler stays reachable in its
-        __self__, where the /events handler looks for it.
+    return: a start_response that replaces the Cache-Control header. The
+        gevent handler stays reachable in its __self__, where the
+        /events handler looks for it.
 
     """
     def wrapped(status, headers, exc_info=None):
-        headers = [(name, value) for name, value in headers
-                   if name.lower() != "cache-control"]
-        headers.append(("Cache-Control", PRIVATE_NO_STORE))
+        headers = [(key, header) for key, header in headers
+                   if key.lower() != "cache-control"]
+        headers.append(("Cache-Control", value))
         return start_response(status, headers, exc_info)
 
     handler = getattr(start_response, "__self__", None)
@@ -445,12 +451,19 @@ class VisibilityGuard:
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
+        if not self.state.hidden and path == "/" and \
+                request.method in ("GET", "HEAD"):
+            # The index page has a Last-Modified and nothing else, so a
+            # browser would keep it without asking, and show the
+            # scoreboard instead of the notice once the group is hidden.
+            start_response = _cache_control(start_response, REVALIDATE)
         if self._is_staff(request):
             if self.state.hidden:
                 if path == "/" and request.method == "GET":
                     return self._with_banner(environ, start_response)
                 # A cache shared with the public must not keep this.
-                start_response = _private_no_store(start_response)
+                start_response = _cache_control(start_response,
+                                               PRIVATE_NO_STORE)
             return self.app(environ, start_response)
         if not self.state.hidden:
             return _CutWhenHidden(self.app(environ, start_response),
