@@ -25,6 +25,8 @@
 
 """
 
+import asyncio
+
 from sqlalchemy import select
 
 from cms.db import Contest, Submission, UserTest, Task
@@ -36,8 +38,7 @@ class ContestSubmissionsHandler(BaseHandler):
     """Shows all submissions for this contest.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         contest = self.safe_get_item(Contest, contest_id)
         self.contest = contest
 
@@ -48,13 +49,17 @@ class ContestSubmissionsHandler(BaseHandler):
 
         self.render("contest_submissions.html", **self.r_params)
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
 
 class ContestUserTestsHandler(BaseHandler):
     """Shows all user tests for this contest.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         contest = self.safe_get_item(Contest, contest_id)
         self.contest = contest
 
@@ -64,3 +69,8 @@ class ContestUserTestsHandler(BaseHandler):
         self.render_params_for_user_tests(query, page)
 
         self.render("contest_user_tests.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
