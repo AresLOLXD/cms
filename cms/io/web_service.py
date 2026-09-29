@@ -37,9 +37,6 @@ from .static_handler import MultiLocationStaticFileHandler
 logger = logging.getLogger(__name__)
 
 
-SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60
-
-
 def resolve_remote_ip(
     forwarded_for_header: str | None,
     socket_remote_ip: str,

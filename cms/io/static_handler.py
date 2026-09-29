@@ -9,9 +9,16 @@ pre-Tornado-native WebService used for static/doc file serving.
 
 """
 
+import datetime
 import os
 
 import tornado.web
+
+
+# How long browsers may cache a static file whose URL carries a hash of
+# its content (see StaticFileHasher in cms.io.web_service). Defined here
+# rather than in web_service, which imports this module.
+SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60
 
 
 class MultiLocationStaticFileHandler(tornado.web.StaticFileHandler):
@@ -67,6 +74,32 @@ class MultiLocationStaticFileHandler(tornado.web.StaticFileHandler):
         # correctly produces a 404.
         self.root = self.locations[-1] if self.locations else ""
         return os.path.abspath(os.path.join(self.root, path))
+
+    def get_cache_time(
+        self, path: str, modified: datetime.datetime | None, mime_type: str
+    ) -> int:
+        """Return for how long, in seconds, browsers may cache a file.
+
+        The URLs CMS builds with static_url() (see StaticFileHasher in
+        cms.io.web_service) carry a hash of the file's content in an
+        "h" query argument: they change whenever the file does, so they
+        can be cached for a year, as SharedDataMiddleware used to do.
+        StaticFileHandler only grants a long cache time to URLs with a
+        "v" argument instead, which left every hashed asset to be
+        revalidated on each page load. Any other URL is left to its
+        default: a long cache time for "v", none for the rest.
+
+        path: the requested path, relative to the static location.
+        modified: the modification time of the file, if known.
+        mime_type: the MIME type of the file.
+
+        return: the number of seconds the response can be cached for;
+            0 means no explicit expiry.
+
+        """
+        if "h" in self.request.arguments:
+            return SECONDS_IN_A_YEAR
+        return super().get_cache_time(path, modified, mime_type)
 
     @classmethod
     def make_route(

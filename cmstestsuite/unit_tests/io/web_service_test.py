@@ -10,6 +10,7 @@ import tornado.web
 
 from cms.conf import Address
 from cms.io.web_service import WebService, resolve_remote_ip
+from cms.server.util import Url
 from cmstestsuite.unit_tests.servicelogmixin import ServiceLoggingIsolationMixin
 
 
@@ -234,6 +235,26 @@ class WebServiceParametersWireInfraRoutesTest(
             writer.close()
         self.assertIn(b"200 OK", response)
         self.assertIn(b"fixture content", response)
+
+    async def test_static_url_output_is_cached_for_a_year(self):
+        # What templates get from static_url() must be what the static
+        # route caches for a year: browsers otherwise revalidate every
+        # asset on every page load.
+        static_url = self.service.static_file_hasher.make(Url(""))
+        url = static_url("static", "fixture.txt")
+        self.assertIn("?h=", url)
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(
+                ("GET %s HTTP/1.1\r\nHost: localhost\r\n\r\n" % url)
+                .encode())
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"Cache-Control: max-age=31536000\r\n", response)
 
     async def test_rpc_route_is_wired_from_parameters(self):
         port = self.service._http_server_sockets[0].getsockname()[1]
