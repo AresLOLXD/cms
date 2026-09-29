@@ -105,8 +105,8 @@ class SubmitHandler(ContestHandler):
             logger.info("Sent error: `%s' - `%s'", e.subject, e.formatted_text)
             self.notify_error(e.subject, e.text, e.text_params)
         else:
-            self.service.evaluation_service.new_submission(
-                submission_id=submission.id)
+            self.schedule_rpc(self.service.evaluation_service.new_submission,
+                              submission_id=submission.id)
             self.notify_success(N_("Submission received"),
                                 N_("Your submission has been received "
                                    "and is currently being evaluated."))
@@ -407,8 +407,8 @@ class UseTokenHandler(ContestHandler):
         else:
             # Inform ProxyService and eventually the ranking that the
             # token has been played.
-            self.service.proxy_service.submission_tokened(
-                submission_id=submission.id)
+            self.schedule_rpc(self.service.proxy_service.submission_tokened,
+                              submission_id=submission.id)
 
             logger.info("Token played by user %s on task %s.",
                         self.current_user.user.username, task.name)

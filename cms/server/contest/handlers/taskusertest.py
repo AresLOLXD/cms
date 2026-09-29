@@ -149,8 +149,8 @@ class UserTestHandler(ContestHandler):
             logger.info("Sent error: `%s' - `%s'", e.subject, e.formatted_text)
             self.notify_error(e.subject, e.text, e.text_params)
         else:
-            self.service.evaluation_service.new_user_test(
-                user_test_id=user_test.id)
+            self.schedule_rpc(self.service.evaluation_service.new_user_test,
+                              user_test_id=user_test.id)
             self.notify_success(N_("Test received"),
                                 N_("Your test has been received "
                                    "and is currently being executed."))

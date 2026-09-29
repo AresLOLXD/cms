@@ -189,7 +189,10 @@ class ApiSubmitHandler(ApiContestHandler):
             self.json({"error": e.subject, "details": e.formatted_text}, 422)
         else:
             logger.info(f"API submission accepted: Submission ID {submission.id}")
-            self.service.evaluation_service.new_submission(submission_id=submission.id)
+            self.schedule_rpc(
+                self.service.evaluation_service.new_submission,
+                submission_id=submission.id,
+            )
             self.json({"id": str(submission.opaque_id)})
 
 
