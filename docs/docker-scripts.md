@@ -128,6 +128,11 @@ Restores contest data from a `.zip` backup file created by `export.sh`. Lists th
 
 > **Warning:** Choosing to wipe the database before importing will permanently delete all existing contest data. Only do this when you are sure you want to restore from the selected backup.
 
+Imported contests arrive **inactive** unless you choose to wipe the
+database first (`-d`), which restores each contest's active flag from the
+backup. After a normal import, activate the contests from the Admin Web
+Server when they are ready.
+
 ## Configuring the project name
 
 The `CMS_PROJECT_NAME` variable in `.env` (default: `cms-prod`) is used to group Docker containers on your machine. If you run only one copy of CMS, leave it as is. If you need to run two separate CMS setups on the same machine (for example, testing and production), change this to a different short name for the second one — something like `cms-test` or `cms-staging`. This prevents containers from different instances from conflicting. Keep it short and use lowercase letters and hyphens only.

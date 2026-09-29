@@ -41,9 +41,10 @@ conversation, on the options and recommendations presented.
 | MC-2 scope | Per group: hide the public scoreboard (the public sees a notice, data endpoints closed) and a staff view with a per-group password configured in AWS. Freezing and schedules are out of scope. |
 | MC-2 approach | AWS -> ProxyService -> RWS, staff log in on the same URL with a signed cookie; chosen over HTTP Basic in RWS (browser popup for every visitor) and hand-configured nginx (not configurable in AWS). See `2026-09-29-mc2-ranking-visibility-design.md`. |
 | CWS load spike | Approved to decide, with numbers, whether 2.5c or several CWS instances are needed before October 10. A14 is implemented before October 10 only if the spike shows the pool cliff. |
+| B11 log noise (D4-B) | A dedicated `RPCError` subclass for non-configured services, logged at DEBUG by `schedule_rpc`; real RPC failures stay at WARNING. |
+| Dump import rule | Keep "inactive unless `--drop`" also for full restores, and document it (use `-d` when restoring, or activate in AWS afterwards). |
 
-Not decided yet: see "Open Decisions Pending" (e.g. D4-B for the B11 log
-noise).
+Not decided yet: see "Open Decisions Pending".
 
 ---
 
@@ -269,7 +270,6 @@ These are verified as low-priority, pre-existing, blocked by decisions, or upstr
 | **D1-C** | SQLAlchemy deprecation warnings as errors | (a) targeted filterwarnings error::SAWarning; (b) global -W error; (c) skip for now | (a) Targeted after C5.1-3 clean | Wait for full CI green; no RemovedIn20Warning in SA 2.0.54. |
 | **D2-C** | Two-phase E2E gate level | (a) L1 unit E2E now + manual checklist; (b) L2 functional pass + flag on; (c) L3 dedicated task | (a) L1 now + manual | If CMS_TWO_PHASE_EVALUATION is on for 2026-10-10, L1 must pass. L2 after 2.5c lands. L3 optional. |
 | **D5-C** | ProxyService concurrent reinitialize | (a) lock + test; (b) measure first; (c) redesign | (a) Lock + test (S4 N4-C) | Currently untested race; low priority post-Oct-10. |
-| **D4-B** | B11 log noise (schedule_rpc WARNING) | (a) ServiceNotConfiguredError logged DEBUG (recommended); (b) all RPCError DEBUG; (c) no-op fake | (a) ServiceNotConfiguredError @ DEBUG | Fork Docker always configures ProxyService; applies only to scenarios A/B. |
 | **D2-B** | Contest.active on import | (a) always inactive (breaks restore); (b) inactive unless --drop (recommended); (c) omit in exporter | (b) Inactive unless --drop | Prevents surprise activation. Needs E12 doc. |
 | **D3-B** | Broken contests sweeper | (a) sweeper retry + N1-B (recommended); (b) exclude SQLAlchemyError; (c) both | (a) Sweeper retry + reinitialize | Unblocks marathon contests. N1-B: reinitialize restores mapping. |
 | **D1-B** | ProxyExecutor send failure policy | (a) requeue unsent on transport/5xx, drop (group,type) on 4xx + hint (recommended); (b) unmark sent; (c) logs only | (a) Requeue + drop pair | Prevents cascade across groups. B4a hint tells operator "Regenerate this (group,type)". |
