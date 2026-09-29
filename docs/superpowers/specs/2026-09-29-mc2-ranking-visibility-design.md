@@ -212,8 +212,10 @@ ignored.
 
 ### 6. Operations (for the 2026-10-10 contest day)
 
-- Deploy: run `cmsSetupDB` (Docker `db-init` does it), then restart AWS,
-  ProxyService and RWS together.
+- Deploy: update RWS first, then run `cmsSetupDB` (Docker `db-init` does
+  it) and restart AWS and ProxyService. If the new ProxyService reaches the
+  old RWS, the old RWS rejects every group's visibility and every ranking
+  freezes until each group is saved again and regenerated.
 - Deploy before the public first opens the rankings. An older RWS served the
   index page without `Cache-Control`, so a browser that cached it then may
   keep showing that copy (a scoreboard with no data) after the group is
@@ -222,16 +224,20 @@ ignored.
 - Before the contest: tick "Hide" and set the staff password on each group
   page. Check the public URL shows the notice and the staff can log in.
 - To reveal: untick "Hide". Staff sessions keep working.
-- **Rollback:** Roll back ProxyService and RankingWebServer **together**. Do
-  not roll them back separately:
-  - Rolling back only RWS to a version without the guard leaves **every
-    group ranking empty**, hidden or not: ProxyService sends every group's
-    visibility, the old RWS rejects it, and ProxyService then holds back the
-    group's data. Do not roll back RWS alone.
-  - Rolling back only ProxyService leaves `visibility.json` on disk: hidden
-    groups stay hidden (the staff can still log in and data still arrives,
-    since the guard accepts the proxy's authenticated writes), but hiding and
-    revealing from AWS stop working until ProxyService is updated again.
+- **Rollback:** roll back only the CMS side (AWS and ProxyService). **Never
+  roll back RWS while a group is hidden.**
+  - An RWS without the guard ignores `visibility.json`: it serves every
+    group's stored data to everyone, including what was gathered while the
+    group was hidden. (Checked in the final review against the pre-MC-2
+    RWS: `GET /<group>/contests/` answers 200 with the data, and
+    `PUT /<group>/visibility` answers 404.)
+  - The new RWS works with an older CMS: `visibility.json` keeps hidden
+    groups hidden, the staff can still log in, and data still arrives, since
+    the guard accepts the proxy's authenticated writes. Hiding and revealing
+    from AWS stop working; an operator can PUT the visibility straight to
+    RWS with the proxy's credentials instead (see `docs/multi-contest.md`).
+  - An older AWS cannot create ranking groups: `hidden` is NOT NULL with no
+    server default.
 - A short operator guide goes into `docs/multi-contest.md`.
 
 ## Error Handling
@@ -239,7 +245,7 @@ ignored.
 | Situation | Behaviour |
 |---|---|
 | RWS down when AWS saves | ProxyService retries with backoff (SP1); the old state holds until delivered |
-| RWS rejects the visibility PUT (4xx) | WARNING logged; the group's data is held back until RWS accepts new settings for it (the ranking stays empty rather than exposed); fix RWS, save the group again, then press Regenerate |
+| RWS rejects the visibility PUT (4xx) | WARNING logged; the group's new data is held back until RWS accepts new settings for it, so the ranking stops updating. An outdated RWS (the usual cause) keeps serving the data it already has to everyone. Fix RWS, save the group again, then press Regenerate |
 | Malformed `visibility.json` | Group treated as hidden without password (fail closed), ERROR logged |
 | Hidden group without a staff password | Everyone sees the notice; login always fails |
 | Wrong password | 1 s delay, notice with error, 401 |

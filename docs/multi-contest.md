@@ -28,13 +28,15 @@ passwords also apply immediately.
    letters, digits, `-` or `_` (for example `olim`); the name is part of the
    scoreboard URL. Some names are reserved because the scoreboard already uses
    them (`events`, `lib`, `img`, …); the form tells you if you pick one.
+   If the ranking must stay hidden, tick **Hide ranking from the public** and
+   type a **Staff password** in this same form (see "Hiding a ranking (staff
+   view)" below). Do it now, before step 2: as soon as a contest is assigned
+   to a visible group, its contestants' names and its task titles are public.
 2. **Each contest's page:** tick **Active** and choose its **Ranking group**,
    then save.
-3. **On each group's page** (Ranking groups → the group), set up the staff view
-   (see "Hiding a ranking (staff view)" below): tick **Hide ranking from the
-   public**, type a **Staff password** if you want staff to log in, then press
-   **Update**. Verify in a private browser window that the public URL shows the
-   notice (not the scoreboard) and the staff can log in with the password.
+3. **Check each hidden group** in a private browser window: the public URL
+   shows the notice (not the scoreboard), and the staff can log in with the
+   password.
 4. Open `http://<server>:<CMS_RWS_HTTP_PORT>/<group>/` to check each
    scoreboard.
 
@@ -94,6 +96,10 @@ press **Update**. The group's public URL (`/<group>/`) then shows a notice
 instead of the scoreboard, and the staff log in on that same page with the
 staff password.
 
+Hiding works only with ranking groups (`CMS_CONTEST_ID=ALL`). With a single
+contest (`CMS_CONTEST_ID=<id>`) the scores go to the root ranking at `/`,
+which cannot be hidden: the checkbox then has no effect.
+
 ### Configuration and verification
 
 - To reveal the ranking, untick **Hide ranking from the public** and press
@@ -101,8 +107,12 @@ staff password.
 - Editing a group keeps its staff password unless you type a new one; tick
   **Remove staff password** to delete it. The page only says whether a
   password is set, never what it is.
-- Changing the password logs out every staff session: the staff have to log
-  in again with the new one.
+- Typing a password, even the same one again, logs out every staff session:
+  the staff have to log in again.
+- Before revealing a group, press **Regenerate** on it if its name was used
+  before by a group that was deleted, or if contests were moved out of it
+  while ProxyService was down. The scoreboard may still hold that older data,
+  and revealing the group would publish it.
 - **Check after every save:** open the public URL in a private browser window
   and confirm it shows the expected state (the notice if hidden, the ranking
   if visible). While hidden, the scoreboard's data URLs (for example
@@ -120,10 +130,13 @@ staff password.
 If ProxyService cannot deliver the visibility settings to RankingWebServer
 (for example because RWS is outdated and lacks the `/visibility` endpoint):
 
-1. ProxyService logs a **WARNING** saying that RWS rejected the visibility of
-   that group.
-2. From then on, ProxyService holds back that group's data: the ranking stays
-   **empty** rather than exposed.
+1. ProxyService logs a **WARNING**: "Ranking … rejected the visibility of
+   group …, so its data is held back".
+2. From then on, ProxyService holds back that group's new data: the
+   scoreboard stops updating. What the public sees depends on RWS: an
+   outdated RWS does not know about hidden groups at all, so it keeps serving
+   the data it already has **to everyone**, even for a group that should be
+   hidden.
 3. To fix it:
    - Update RankingWebServer to a version that supports visibility settings
      (with the `/visibility` endpoint).
@@ -133,9 +146,18 @@ If ProxyService cannot deliver the visibility settings to RankingWebServer
 
 ### Deployment
 
-Run `cmsSetupDB` (the Docker `db-init` service runs it), then restart AWS,
-ProxyService and RankingWebServer **together**. Do not restart them
-separately.
+Update RankingWebServer **first**, then the rest:
+
+1. `./up.sh` and choose **Ranking only**. Wait until it is up.
+2. `./up.sh` and choose **CMS only**. This runs `cmsSetupDB` (the `db-init`
+   service), which adds the new columns, and restarts AWS and ProxyService.
+3. Check the ProxyService log (`./logs.sh`) for "rejected the visibility".
+   There should be none. If there is, see "Failure mode" above.
+
+Don't rebuild both at once (**All services**). The two containers then
+restart at the same time, and the new ProxyService may reach the old
+RankingWebServer, which rejects the visibility of every group and freezes
+every scoreboard until each group is saved again and regenerated.
 
 Deploy before the public first opens the rankings. Older versions of
 RankingWebServer served the ranking page without cache headers. A browser
@@ -145,23 +167,46 @@ ask the staff to reload the ranking page once after the deploy.
 
 ### Rollback
 
-Roll back ProxyService and RankingWebServer **together**. Rolling back only
-one of them breaks the feature:
+**Roll back only the CMS container** (`./up.sh` → **CMS only**, from the
+older checkout). **Never roll back RankingWebServer while a group is
+hidden.**
 
-- Rolling back only RankingWebServer to a version without this feature leaves
-  **every group ranking empty**, hidden or not: ProxyService sends the
-  visibility of every group, the old RWS rejects it, and ProxyService then
-  holds back the group's data. Do not roll back RWS alone.
-- Rolling back only ProxyService leaves the hidden groups hidden (the staff
-  can still log in and scores still arrive), but hiding and revealing from
-  AWS stop working until ProxyService is updated again.
+- A RankingWebServer without this feature ignores the hidden setting: it
+  serves every group's scoreboard to everyone, including all the data
+  gathered while the group was hidden. If you must roll it back, first stop
+  the `ranking` container, or reveal the groups on purpose.
+- The new RankingWebServer works with an older CMS container. It keeps the
+  hidden groups hidden (it stores their setting on disk), the staff can
+  still log in, and scores still arrive. What stops working is hiding and
+  revealing from AWS: use the command below instead.
+- With an older CMS container, **Add ranking group** in AWS fails (the new
+  `hidden` column has no default). Editing existing groups still works.
+  Create the groups you need before rolling back.
+
+To hide or reveal a group by hand (for example after a rollback), send the
+setting straight to RankingWebServer, with the ranking credentials from
+`.env` (`CMS_RWS_USERNAME`, `CMS_RWS_PASSWORD`):
+
+    curl -u "$CMS_RWS_USERNAME:$CMS_RWS_PASSWORD" -X PUT \
+        -H 'Content-Type: application/json' \
+        -d '{"hidden": true, "staff_password": null}' \
+        http://127.0.0.1:<CMS_RWS_HTTP_PORT>/<group>/visibility
+
+- `"hidden": false` reveals the group.
+- `"staff_password": null` means no staff login. To keep it, put the
+  group's stored hash instead, the `staff_password` value of its row in the
+  `ranking_groups` table (it starts with `bcrypt:`).
+- When the new CMS container is back, ProxyService sends the settings stored
+  in AWS again, and they replace the manual ones. Check every group in AWS
+  right away.
 
 ### Stale form
 
-Saving a group page that was loaded before someone else changed the **Hide**
-setting will overwrite that change. If others are editing groups (for example
-during contest setup), **reload the page before saving** to see the latest
-state.
+The **Hide** checkbox is only applied when you change it. If someone else
+hid or revealed the group after you opened its page, saving the page keeps
+their change. The other fields of the page still overwrite: if others are
+editing groups (for example during contest setup), **reload the page before
+saving**.
 
 ## Limitations
 
