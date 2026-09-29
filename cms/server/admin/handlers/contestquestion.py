@@ -26,6 +26,7 @@
 """
 
 from abc import ABCMeta, abstractmethod
+import asyncio
 import logging
 
 import collections
@@ -50,8 +51,7 @@ class QuestionsHandler(BaseHandler):
     """Page to see and send messages to all the contestants.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         answered = case(
@@ -74,6 +74,11 @@ class QuestionsHandler(BaseHandler):
         ).scalars().all()
         self.render("questions.html", **self.r_params)
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
 
 
 class QuestionActionHandler(BaseHandler, metaclass=ABCMeta):
@@ -85,8 +90,7 @@ class QuestionActionHandler(BaseHandler, metaclass=ABCMeta):
         question."""
         pass
 
-    @require_permission(BaseHandler.PERMISSION_MESSAGING)
-    def post(self, contest_id, question_id):
+    def _post_sync(self, contest_id, question_id):
         user_id = self.get_argument("user_id", None)
         if user_id is not None:
             ref = self.url("contest", contest_id, "user", user_id, "edit")
@@ -102,6 +106,11 @@ class QuestionActionHandler(BaseHandler, metaclass=ABCMeta):
 
         self.process_question(question)
         self.redirect(ref)
+
+    @require_permission(BaseHandler.PERMISSION_MESSAGING)
+    async def post(self, contest_id, question_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id, question_id)
 
 class QuestionReplyHandler(QuestionActionHandler):
     """Called when the manager replies to a question made by a user.
