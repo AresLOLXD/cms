@@ -21,6 +21,7 @@ password-protected live view for the staff (MC-2).
 
 """
 
+import dataclasses
 import functools
 import hashlib
 import hmac
@@ -30,6 +31,7 @@ import os
 import re
 import secrets
 import tempfile
+import time
 
 import gevent
 from gevent.pywsgi import WSGIHandler
@@ -38,6 +40,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.wrappers import Request, Response
 
 from cmscommon.crypto import parse_authentication, validate_password
+from cmscommon.ranking_groups import check_window, window_is_open
 
 
 logger = logging.getLogger(__name__)
@@ -131,6 +134,114 @@ def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
                     hashlib.sha256).hexdigest()
 
 
+TIME_FIELDS = ("hide_at", "show_at", "freeze_at", "unfreeze_at")
+
+
+@dataclasses.dataclass(frozen=True)
+class VisibilitySettings:
+    """The visibility windows of a group and its staff password.
+
+    The times are Unix seconds, or None: the group is hidden during
+    [hide_at, show_at) and frozen during [freeze_at, unfreeze_at), and
+    hidden wins over frozen.
+
+    """
+    hide_at: int | None = None
+    show_at: int | None = None
+    freeze_at: int | None = None
+    unfreeze_at: int | None = None
+    staff_password: str | None = None
+
+    def hidden(self, now: float) -> bool:
+        """Tell whether the group is hidden at a given time.
+
+        now: the Unix time to check.
+
+        return: True if now falls in [hide_at, show_at).
+
+        """
+        return window_is_open(self.hide_at, self.show_at, now)
+
+    def frozen(self, now: float) -> bool:
+        """Tell whether the group is frozen at a given time.
+
+        now: the Unix time to check.
+
+        return: True if now falls in [freeze_at, unfreeze_at) and the
+            group is not hidden then.
+
+        """
+        return not self.hidden(now) and \
+            window_is_open(self.freeze_at, self.unfreeze_at, now)
+
+    def boundaries(self) -> list[int]:
+        """Return the times at which the public view may change.
+
+        return: the times that are not None.
+
+        """
+        return [t for t in (self.hide_at, self.show_at, self.freeze_at,
+                            self.unfreeze_at) if t is not None]
+
+    def to_json(self) -> dict:
+        """Return the settings in the wire format.
+
+        return: the four times and staff_password.
+
+        """
+        return dataclasses.asdict(self)
+
+
+# What an unreadable state file and an old {"hidden": true} both mean.
+HIDDEN_SINCE_ALWAYS = VisibilitySettings(hide_at=0)
+
+
+def parse_settings(data: object) -> VisibilitySettings:
+    """Validate the settings sent by ProxyService, in either format.
+
+    data: the decoded JSON: the new format (the four times and
+        staff_password) or MC-2 minimal's (hidden and staff_password).
+
+    return: the settings.
+
+    raise (ValueError): if data is neither format, a time is not an
+        integer, a window ends before it starts, or the password is not
+        a valid authentication string.
+
+    """
+    if not isinstance(data, dict):
+        raise ValueError("The settings must be an object.")
+    staff_password = data.get("staff_password", ())
+    if staff_password == ():
+        raise ValueError("staff_password is missing.")
+    if staff_password is not None:
+        if not isinstance(staff_password, str):
+            raise ValueError("staff_password must be a string or null.")
+        parse_authentication(staff_password)
+    old = "hidden" in data
+    new = any(field in data for field in TIME_FIELDS)
+    if old == new:
+        raise ValueError("Send either hidden or the four times.")
+    if old:
+        if not isinstance(data["hidden"], bool):
+            raise ValueError("hidden must be a boolean.")
+        base = HIDDEN_SINCE_ALWAYS if data["hidden"] else VisibilitySettings()
+        return dataclasses.replace(base, staff_password=staff_password)
+    times = dict()
+    for field in TIME_FIELDS:
+        if field not in data:
+            raise ValueError("%s is missing." % field)
+        value = data[field]
+        # bool is a subclass of int, and True must not mean 1970.
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, int)):
+            raise ValueError("%s must be an integer or null." % field)
+        times[field] = value
+    check_window(times["hide_at"], times["show_at"], "hide")
+    check_window(times["freeze_at"], times["unfreeze_at"], "freeze")
+    return VisibilitySettings(staff_password=staff_password, **times)
+
+
 class VisibilityState:
     """The visibility settings of one group, stored in its directory.
 
@@ -138,49 +249,52 @@ class VisibilityState:
 
     def __init__(self, group_dir: str):
         self.path = os.path.join(group_dir, VISIBILITY_FILE)
-        self.hidden = False
-        self.staff_password: str | None = None
+        self.settings = VisibilitySettings()
         self.secret = secrets.token_hex(32)
+        # A restart counts as a change: streams opened before it reload.
+        self.changed_at = time.time()
         self._load()
+
+    @property
+    def hidden(self) -> bool:
+        return self.settings.hidden(time.time())
+
+    @property
+    def staff_password(self) -> str | None:
+        return self.settings.staff_password
 
     def _load(self):
         try:
             with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
-            hidden = data["hidden"]
-            staff_password = data["staff_password"]
-            secret = data["secret"]
-            if not isinstance(hidden, bool) \
-                    or not isinstance(secret, str) or secret == "" \
-                    or not (staff_password is None
-                            or isinstance(staff_password, str)):
-                raise ValueError("Wrong types.")
+            secret = data.pop("secret")
+            if not isinstance(secret, str) or secret == "":
+                raise ValueError("Wrong secret.")
             bytes.fromhex(secret)
+            settings = parse_settings(data)
         except FileNotFoundError:
             # A group that was never configured is visible. Any other
             # failure to read the file must not make it public: checking
             # for the file first would take an unreadable one for none.
             return
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             logger.error("Cannot read %s: hiding the ranking until its "
                          "visibility is sent again.", self.path,
                          exc_info=True)
-            self.hidden = True
-            self.staff_password = None
+            self.settings = HIDDEN_SINCE_ALWAYS
             return
-        self.hidden = hidden
-        self.staff_password = staff_password
+        self.settings = settings
         self.secret = secret
 
-    def update(self, hidden: bool, staff_password: str | None):
+    def update_settings(self, settings: VisibilitySettings) -> bool:
         """Replace the settings, storing them atomically first.
 
-        hidden: whether the public scoreboard is hidden.
-        staff_password: the staff authentication string, or None.
+        settings: the new settings.
+
+        return: whether they differ from the previous ones.
 
         """
-        data = {"hidden": hidden, "staff_password": staff_password,
-                "secret": self.secret}
+        data = dict(settings.to_json(), secret=self.secret)
         directory = os.path.dirname(self.path)
         fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".vis-")
         try:
@@ -190,8 +304,37 @@ class VisibilityState:
         except BaseException:
             os.unlink(tmp_path)
             raise
-        self.hidden = hidden
-        self.staff_password = staff_password
+        changed = settings != self.settings
+        # Only the windows change what the public sees: a new staff
+        # password must not make every public page reload.
+        view_changed = dataclasses.replace(settings, staff_password=None) \
+            != dataclasses.replace(self.settings, staff_password=None)
+        self.settings = settings
+        if view_changed:
+            self.changed_at = time.time()
+        return changed
+
+    def update(self, hidden: bool, staff_password: str | None):
+        """Replace the settings from MC-2 minimal's format.
+
+        hidden: whether the public scoreboard is hidden.
+        staff_password: the staff authentication string, or None.
+
+        """
+        self.update_settings(parse_settings(
+            {"hidden": hidden, "staff_password": staff_password}))
+
+    def last_change(self, now: float) -> float:
+        """Return when the public view last changed, as of now.
+
+        now: the current Unix time.
+
+        return: the latest of the last settings change and the scheduled
+            times already passed.
+
+        """
+        passed = [t for t in self.settings.boundaries() if t <= now]
+        return max([self.changed_at] + passed)
 
 
 @functools.cache
@@ -461,12 +604,13 @@ class VisibilityGuard:
     def __call__(self, environ, start_response):
         request = Request(environ)
         path = request.path
+        hidden = self.state.settings.hidden(time.time())
         start_response = self._guard_writes(request, start_response)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
-        if not self.state.hidden and path in INDEX_PATHS and \
+        if not hidden and path in INDEX_PATHS and \
                 request.method in ("GET", "HEAD"):
             # The index page has a Last-Modified and nothing else (or, by
             # its file name, a max-age of 12 hours), so a browser would
@@ -474,14 +618,14 @@ class VisibilityGuard:
             # the notice once the group is hidden.
             start_response = _cache_control(start_response, REVALIDATE)
         if self._is_staff(request):
-            if self.state.hidden:
+            if hidden:
                 if path == "/" and request.method == "GET":
                     return self._with_banner(environ, start_response)
                 # A cache shared with the public must not keep this.
                 start_response = _cache_control(
                     start_response, PRIVATE_NO_STORE)
             return self.app(environ, start_response)
-        if not self.state.hidden:
+        if not hidden:
             return _CutWhenHidden(self.app(environ, start_response),
                                   self.state, start_response)
         if request.method in ("PUT", "DELETE"):
@@ -530,24 +674,16 @@ class VisibilityGuard:
                            extra={"location": request.url})
             return self._unauthorized()
         try:
-            data = json.loads(request.get_data(as_text=True))
-            hidden = data["hidden"]
-            staff_password = data["staff_password"]
-            if not isinstance(hidden, bool):
-                raise ValueError("hidden must be a boolean.")
-            if staff_password is not None:
-                if not isinstance(staff_password, str):
-                    raise ValueError("staff_password must be a string.")
-                parse_authentication(staff_password)
-        except (ValueError, KeyError, TypeError) as error:
+            settings = parse_settings(
+                json.loads(request.get_data(as_text=True)))
+        except (ValueError, TypeError) as error:
             logger.warning("Bad visibility update: %s.", error)
             return Response(str(error), status=400, mimetype="text/plain")
         # ProxyService sends the settings again at each sweep: only a
         # change is worth an INFO line.
-        changed = (hidden, staff_password) \
-            != (self.state.hidden, self.state.staff_password)
-        self.state.update(hidden, staff_password)
+        changed = self.state.update_settings(settings)
         logger.log(logging.INFO if changed else logging.DEBUG,
-                   "Ranking group %s is now %s.", self.group,
-                   "hidden" if hidden else "visible")
+                   "Ranking group %s visibility is now %s.", self.group,
+                   json.dumps({k: v for k, v in settings.to_json().items()
+                               if k != "staff_password"}))
         return Response(status=204)

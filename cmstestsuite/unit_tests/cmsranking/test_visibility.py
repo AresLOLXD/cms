@@ -41,8 +41,9 @@ from cmscommon.crypto import build_password, hash_password
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
-from cmsranking.visibility import STAFF_COOKIE, VISIBILITY_FILE, \
-    VisibilityGuard, VisibilityState, staff_cookie_value
+from cmsranking.visibility import HIDDEN_SINCE_ALWAYS, STAFF_COOKIE, \
+    VISIBILITY_FILE, VisibilityGuard, VisibilitySettings, VisibilityState, \
+    parse_settings, staff_cookie_value
 
 
 USERNAME = "rws"
@@ -1079,6 +1080,115 @@ class TestUnreadableState(unittest.TestCase):
                        "secret": "00"}, f)
         os.chmod(self.tmp, 0)
         self.assert_fails_closed()
+
+
+class TestVisibilitySettings(unittest.TestCase):
+
+    def test_new_format(self):
+        s = parse_settings({"hide_at": 10, "show_at": 20, "freeze_at": None,
+                            "unfreeze_at": None, "staff_password": STAFF_HASH})
+        self.assertEqual((s.hide_at, s.show_at, s.staff_password),
+                         (10, 20, STAFF_HASH))
+        self.assertTrue(s.hidden(10))
+        self.assertFalse(s.hidden(20))
+
+    def test_old_format(self):
+        self.assertEqual(
+            parse_settings({"hidden": True, "staff_password": None}),
+            HIDDEN_SINCE_ALWAYS)
+        self.assertEqual(
+            parse_settings({"hidden": False, "staff_password": None}),
+            VisibilitySettings())
+
+    def test_hidden_wins_over_frozen(self):
+        s = VisibilitySettings(hide_at=10, freeze_at=5)
+        self.assertTrue(s.frozen(7))
+        self.assertFalse(s.frozen(12))
+        self.assertTrue(s.hidden(12))
+
+    def test_rejects(self):
+        for body in [
+                {"hide_at": True, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None},
+                {"hide_at": 1.5, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None},
+                {"hide_at": 20, "show_at": 20, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None},
+                {"hide_at": None, "show_at": None, "freeze_at": 30,
+                 "unfreeze_at": 10, "staff_password": None},
+                {"hidden": True, "hide_at": 3, "staff_password": None},
+                {"hide_at": None, "staff_password": None},
+                []]:
+            with self.assertRaises(ValueError, msg=body):
+                parse_settings(body)
+
+    def test_last_change(self):
+        state = VisibilityState(tempfile.mkdtemp())
+        state.update_settings(VisibilitySettings(freeze_at=100,
+                                                 unfreeze_at=200))
+        state.changed_at = 50
+        self.assertEqual(state.last_change(99), 50)
+        self.assertEqual(state.last_change(150), 100)
+        self.assertEqual(state.last_change(250), 200)
+
+    def test_only_a_new_window_counts_as_a_change_of_the_view(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state = VisibilityState(tmp)
+        state.changed_at = 50
+        # Only the staff password differs: the public sees the same.
+        self.assertTrue(state.update_settings(
+            VisibilitySettings(staff_password=STAFF_HASH)))
+        self.assertEqual(state.changed_at, 50)
+        self.assertFalse(state.update_settings(
+            VisibilitySettings(staff_password=STAFF_HASH)))
+        self.assertEqual(state.changed_at, 50)
+        with patch("cmsranking.visibility.time.time", return_value=80):
+            self.assertTrue(state.update_settings(
+                VisibilitySettings(hide_at=100, staff_password=STAFF_HASH)))
+        self.assertEqual(state.changed_at, 80)
+
+
+class TestScheduledHiding(VisibilityTestCase):
+
+    def put_settings(self, group: str, **times):
+        body = {"hide_at": None, "show_at": None, "freeze_at": None,
+                "unfreeze_at": None, "staff_password": STAFF_HASH}
+        body.update(times)
+        return self.client.put("/%s/visibility" % group,
+                               data=json.dumps(body),
+                               content_type="application/json", headers=AUTH)
+
+    def test_hidden_only_inside_the_window(self):
+        self.put_contest("/olim")
+        self.assertEqual(self.put_settings("olim", hide_at=100,
+                                           show_at=200).status_code, 204)
+        with patch("cmsranking.visibility.time.time", return_value=99):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 200)
+        with patch("cmsranking.visibility.time.time", return_value=100):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 403)
+        with patch("cmsranking.visibility.time.time", return_value=200):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 200)
+
+    def test_settings_survive_a_restart(self):
+        self.put_contest("/olim")
+        self.put_settings("olim", hide_at=100, show_at=200)
+        self.client = self.make_client()
+        with patch("cmsranking.visibility.time.time", return_value=150):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 403)
+
+    def test_old_file_is_read(self):
+        group_dir = os.path.join(self.lib_dir, "groups", "olim")
+        os.makedirs(group_dir)
+        with open(os.path.join(group_dir, VISIBILITY_FILE), "w") as f:
+            json.dump({"hidden": True, "staff_password": None,
+                       "secret": "ab" * 32}, f)
+        state = VisibilityState(group_dir)
+        self.assertEqual(state.settings, HIDDEN_SINCE_ALWAYS)
 
 
 if __name__ == "__main__":
