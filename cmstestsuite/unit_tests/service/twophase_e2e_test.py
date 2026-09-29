@@ -155,6 +155,11 @@ class Fixture:
             ESOperation.EVALUATION, self.submission.id, self.dataset.id,
             codename)
 
+    def compilation_operation(self) -> ESOperation:
+        """Return the compilation operation of the submission."""
+        return ESOperation(
+            ESOperation.COMPILATION, self.submission.id, self.dataset.id)
+
     @property
     def key(self) -> tuple[int, int]:
         """Return the (submission id, dataset id) ScoringService gets."""
@@ -370,6 +375,11 @@ class TwoPhaseEndToEndTest(
                 and not cache.d and not cache.fd
                 and not self.service._pending_operations)
 
+    def _no_enqueue_pending(self) -> bool:
+        """Return whether every enqueue ES decided on has landed."""
+        with self.service.post_finish_lock:
+            return not self.service._pending_operations
+
     async def _wait_until_idle(self):
         """Wait for everything ES was asked to do to be done.
 
@@ -450,6 +460,10 @@ class TwoPhaseEndToEndTest(
             "the screening operations to reach the executor")
         await self._wait_for(
             lambda: worker.dispatched(), "the first dispatch to the worker")
+        # The enqueues are landed on the loop after they are decided: wait
+        # for all of them before asserting that something is absent.
+        await self._wait_for(
+            self._no_enqueue_pending, "every enqueue to land")
         for codename in PHASE_TWO_CODENAMES:
             self.assertNotIn(fixture.operation(codename), executor, codename)
         self.assertLessEqual(
@@ -707,6 +721,22 @@ class TwoPhaseEndToEndTest(
         for fixture in fixtures:
             self._assert_pending(fixture, SCREENING_CODENAMES, True)
             self._assert_pending(fixture, PHASE_TWO_CODENAMES, False)
+
+    async def test_sweeper_enqueues_the_compilation_of_an_uncompiled_one(
+        self
+    ):
+        # A submission with no result at all, e.g. when its compilation
+        # job group was lost: the sweeper must compile it, and nothing
+        # else is due before that.
+        await self._start_service(contest_id=None)
+        fixture = self._add_fixture()
+
+        found = await self.service._missing_operations()
+
+        self.assertEqual(found, 1)
+        self.assertIn(
+            fixture.compilation_operation(), self.service.get_executor())
+        self._assert_pending(fixture, ALL_CODENAMES, False)
 
     async def test_sweeper_of_a_contest_ignores_the_other_contests(self):
         # Two contests, as in the multi-contest deployments where each ES
