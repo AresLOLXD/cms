@@ -43,7 +43,6 @@ class ServiceLoggingIsolationMixin:
         super().setUp()
         self._logging_isolation_handlers = list(root_logger.handlers)
         self._logging_isolation_filters = list(shell_handler.filters)
-        self._logging_isolation_shell_lock = shell_handler.lock
 
     def tearDown(self):
         for handler in list(root_logger.handlers):
@@ -53,5 +52,4 @@ class ServiceLoggingIsolationMixin:
         for filter_ in list(shell_handler.filters):
             if filter_ not in self._logging_isolation_filters:
                 shell_handler.removeFilter(filter_)
-        shell_handler.lock = self._logging_isolation_shell_lock
         super().tearDown()

@@ -11,9 +11,9 @@ import unittest
 from unittest.mock import patch
 
 from cms.conf import Address
-from cms.io.async_service import AsyncFileHandler, AsyncService
+from cms.io.async_service import AsyncService
 from cms.io.rpc import rpc_method
-from cms.log import root_logger, shell_handler
+from cms.log import FileHandler, root_logger, shell_handler
 from cmstestsuite.unit_tests.servicelogmixin import ServiceLoggingIsolationMixin
 
 
@@ -91,9 +91,8 @@ class TestAsyncServiceLogsToLogService(unittest.IsolatedAsyncioTestCase):
         mock_async_rpc_address.return_value = \
             Address("127.0.0.1", log_service_port)
 
-        # LogService installs a DEBUG FileHandler with a gevent lock on
-        # the root logger; left there, it can deadlock later tests that
-        # log from both a gevent thread and the asyncio thread.
+        # LogService installs a DEBUG FileHandler on the root logger;
+        # remove it afterwards so it doesn't leak into later tests.
         original_handlers = list(root_logger.handlers)
 
         def restore_handlers():
@@ -135,9 +134,9 @@ class TestLoggingHandlersUseThreadingLocks(
 ):
     """Verify AsyncService's log handlers use real threading locks.
 
-    Not the gevent-aware ones the base classes in cms.log use for
-    non-migrated gevent services, since they can be hit both from the
-    event loop thread and from run_in_executor worker threads.
+    They can be hit both from the event loop thread and from
+    run_in_executor worker threads, where a gevent lock could leave a
+    thread waiting forever (see cmstestsuite/unit_tests/log_test.py).
 
     """
 
@@ -157,20 +156,9 @@ class TestLoggingHandlersUseThreadingLocks(
         new_handlers = [handler for handler in root_logger.handlers
                         if handler not in self._logging_isolation_handlers]
         file_handlers = [handler for handler in new_handlers
-                         if isinstance(handler, AsyncFileHandler)]
+                         if isinstance(handler, FileHandler)]
         self.assertEqual(len(file_handlers), 1)
         self.assertIs(type(file_handlers[0].lock), real_lock_type)
-
-    @patch("cms.io.async_service.get_service_address")
-    async def test_shell_handler_lock_restored_after_teardown(
-        self, mock_get_address
-    ):
-        mock_get_address.return_value = Address("127.0.0.1", 0)
-        original_lock = shell_handler.lock
-        EchoingAsyncService(shard=0)
-        self.assertIsNot(shell_handler.lock, original_lock)
-        self.addCleanup(
-            lambda: self.assertIs(shell_handler.lock, original_lock))
 
 
 class TestAddTimeout(unittest.IsolatedAsyncioTestCase):

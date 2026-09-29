@@ -32,7 +32,6 @@ import logging
 import os
 import signal
 import socket
-import threading
 import time
 from typing import Any
 
@@ -97,12 +96,6 @@ class AsyncLogServiceHandler(LogServiceHandler):
         super().__init__(log_service)
         self._service = service
 
-    def createLock(self):
-        """Set self.lock to a new threading RLock.
-
-        """
-        self.lock = threading.RLock()
-
     def _send(self, d: dict):
         """Schedule sending the encoded record on the service's loop.
 
@@ -130,29 +123,6 @@ class AsyncLogServiceHandler(LogServiceHandler):
             await self._log_service.Log(**d)
         except RPCError:
             pass
-
-
-class AsyncFileHandler(FileHandler):
-    """FileHandler variant for an AsyncService.
-
-    Use a real threading RLock (instead of the gevent-aware one created
-    by the base FileHandler, meant for non-migrated gevent services)
-    because this handler can be accessed both from the event loop
-    thread and from real background threads (e.g. worker threads
-    spawned by run_in_executor for synchronous DB access), so it needs
-    to be safe across actual OS threads, not just greenlets.
-
-    """
-    def createLock(self):
-        """Set self.lock to a new threading RLock, the stdlib way.
-
-        Delegating to logging.Handler.createLock (rather than building
-        the threading.RLock() by hand) also registers the lock for
-        reinitialization after fork(), so a forked child never
-        inherits a lock that could be held forever.
-
-        """
-        logging.Handler.createLock(self)
 
 
 class AsyncService:
@@ -229,17 +199,6 @@ class AsyncService:
         """
         filter_ = ServiceFilter(self.name, self.shard)
 
-        # Replace shell_handler's lock with a real threading one: it's
-        # a module-level singleton created with the gevent-aware lock
-        # for non-migrated gevent services, but each CMS process runs
-        # exactly one kind of service (gevent or asyncio, never both),
-        # so if this code is running, this process is purely asyncio
-        # and shell_handler will never be touched by gevent code here.
-        # Delegate to logging.Handler.createLock (rather than building
-        # the threading.RLock() by hand) so the lock is also registered
-        # for reinitialization after fork().
-        logging.Handler.createLock(shell_handler)
-
         # Update shell handler to attach service coords.
         shell_handler.addFilter(filter_)
 
@@ -252,8 +211,8 @@ class AsyncService:
         log_filename = time.strftime("%Y-%m-%d-%H-%M-%S.log")
 
         # Install a file handler.
-        file_handler = AsyncFileHandler(os.path.join(log_dir, log_filename),
-                                        mode='w', encoding='utf-8')
+        file_handler = FileHandler(os.path.join(log_dir, log_filename),
+                                   mode='w', encoding='utf-8')
         if config.global_.file_log_debug:
             file_log_level = logging.DEBUG
         else:
