@@ -149,6 +149,9 @@ class DumpImporter:
     the target of a DumpExport. The process of exporting and
     importing again should be idempotent.
 
+    The one deliberate exception is that contests are imported
+    inactive, unless the database is dropped (a full restore).
+
     """
 
     def __init__(
@@ -267,6 +270,19 @@ class DumpImporter:
                     if not id_.startswith("_"):
                         self.objs[id_] = self.import_object(data)
 
+                # An imported contest must not become visible to the
+                # contestants on its own, so contests arrive inactive.
+                # The exception is a full restore (--drop), which keeps
+                # the flag stored in the dump. All the contests of the
+                # dump are covered, also those that are not in _objects
+                # and are added to the session on cascade.
+                inactive_names = list()
+                if not self.drop:
+                    for obj in self.objs.values():
+                        if isinstance(obj, Contest):
+                            obj.active = False
+                            inactive_names.append(obj.name)
+
                 for k, v in list(self.objs.items()):
 
                     # Skip submissions if requested
@@ -321,6 +337,11 @@ class DumpImporter:
                             skip_generated=self.skip_generated)
 
                 session.commit()
+
+                for name in inactive_names:
+                    logger.warning(
+                        "Contest `%s' imported inactive; activate it in "
+                        "the Admin Web Server (AWS) when it is ready.", name)
             else:
                 contest_id = None
                 contest_files = None
@@ -499,7 +520,9 @@ def main():
     parser = argparse.ArgumentParser(description="Importer of CMS contests.")
     parser.add_argument("-d", "--drop", action="store_true",
                         help="drop everything from the database "
-                        "before importing")
+                        "before importing (a full restore: contests keep "
+                        "their active flag, otherwise they are imported "
+                        "inactive)")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-f", "--files", action="store_true",
                        help="only import files, ignore database structure")

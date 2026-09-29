@@ -65,8 +65,15 @@ Check `./logs.sh` for errors before continuing.
 4. In stack A: `./import.sh`, pick that file, and **do not** wipe the
    database.
 
-Dumps made before this update import fine: their contests arrive inactive and
-without a ranking group.
+Every contest you import arrives **inactive** and without a ranking group,
+whatever its state was in stack B (dumps made before this update work the
+same way). Contestants can't see it, or log in to it, until you switch it on
+in step 5; the importer prints a warning for each contest as a reminder.
+
+The one exception is a full restore, which is meant for bringing back a
+backup and not for this migration: if you answer yes to "Drop database before
+importing?" (`-d`), every contest keeps the **Active** flag stored in the
+dump.
 
 ## 4. Update stack A's `.env`
 
