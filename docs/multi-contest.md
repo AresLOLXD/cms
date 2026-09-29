@@ -137,6 +137,12 @@ Run `cmsSetupDB` (the Docker `db-init` service runs it), then restart AWS,
 ProxyService and RankingWebServer **together**. Do not restart them
 separately.
 
+Deploy before the public first opens the rankings. Older versions of
+RankingWebServer served the ranking page without cache headers. A browser
+that cached it back then may keep showing that copy (a scoreboard with no
+data) after the group is hidden, until the copy expires. A reload fixes it:
+ask the staff to reload the ranking page once after the deploy.
+
 ### Rollback
 
 Roll back ProxyService and RankingWebServer **together**. Rolling back only

@@ -186,11 +186,17 @@ of such responses. The browser's reconnection then gets 403.
 
 **Hidden group, valid staff cookie.** Requests pass through unchanged, so the
 live scoreboard, including `/events`, works as today. The HTML of `GET /` is
-served with a small fixed banner, "Vista staff: este ranking está oculto al
-público", inserted right after `<body>`.
+served with a small banner, "Vista staff: este ranking está oculto al
+público", with a "Salir" (logout) link. It is inserted right after `<body>`
+and fixed to the bottom of the window, and the page's scrolling areas stop
+above it, so it covers no row.
 
-**Visible group.** The guard only answers `PUT /visibility`; every other
-request passes through untouched. A staff cookie is ignored.
+**Visible group.** The guard answers `PUT /visibility` and `GET
+/staff-logout`, which only clears the cookie. The index page (`GET` and
+`HEAD` of `/` and `/Ranking.html`) gets `Cache-Control: no-cache`, so a
+returning browser asks again and gets the notice as soon as the group is
+hidden. Every other request passes through untouched. A staff cookie is
+ignored.
 
 ### 5. Security Considerations
 
@@ -208,6 +214,11 @@ request passes through untouched. A staff cookie is ignored.
 
 - Deploy: run `cmsSetupDB` (Docker `db-init` does it), then restart AWS,
   ProxyService and RWS together.
+- Deploy before the public first opens the rankings. An older RWS served the
+  index page without `Cache-Control`, so a browser that cached it then may
+  keep showing that copy (a scoreboard with no data) after the group is
+  hidden, until the copy expires. A reload fixes it; ask the staff to
+  reload once after the deploy.
 - Before the contest: tick "Hide" and set the staff password on each group
   page. Check the public URL shows the notice and the staff can log in.
 - To reveal: untick "Hide". Staff sessions keep working.
