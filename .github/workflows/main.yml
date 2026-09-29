@@ -4,9 +4,15 @@ on:
   - push
   - pull_request
 
+# The jobs only check the repository out, and the Codecov steps authenticate
+# with CODECOV_TOKEN rather than with the workflow token.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     strategy:
       matrix:
@@ -63,13 +69,23 @@ jobs:
   # The same tests on the maintainer's own server. The job is skipped until
   # the repository variable SELF_HOSTED_RUNNER is set to "true" (Settings >
   # Secrets and variables > Actions > Variables), so that pushes don't queue
-  # up for a runner that isn't registered yet. It runs on pushes only
-  # because this repository is public: the test containers are privileged
-  # (cgroup: host), and a pull request from a fork must never get to start
-  # them on that server. Pull requests are covered by the hosted job above.
+  # up for a runner that isn't registered yet. Pull requests are covered by
+  # the hosted job above.
+  #
+  # The `if` keeps pull requests off this runner, but it is defence in
+  # depth, not a boundary: a pull request runs the workflow file of its own
+  # ref, so a fork can delete the `if` and still target
+  # `runs-on: [self-hosted, linux, cms-ci]`. The test containers are
+  # privileged (cgroup: host), so what really protects the server is:
+  #   - Settings > Actions > General > "Require approval for all outside
+  #     collaborators", so that no workflow from a fork runs unreviewed;
+  #   - never registering the runner on a host that runs contests, because
+  #     the isolate cgroups are shared with the host;
+  #   - preferably an ephemeral runner in a throwaway VM.
   test-self-hosted:
     if: github.event_name == 'push' && vars.SELF_HOSTED_RUNNER == 'true'
     runs-on: [self-hosted, linux, cms-ci]
+    timeout-minutes: 90
 
     strategy:
       matrix:
