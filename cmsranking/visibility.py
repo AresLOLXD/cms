@@ -67,19 +67,29 @@ LOGIN_THREADS = 2
 FREEZE_AT_ENVIRON = "cmsranking.freeze_at"
 
 # What a public request to a frozen group gets, by first path segment.
-# Every route of the namespace app must be listed (a test checks it):
-# "filter" is served as of the freeze time, "forbid" is refused, "pass"
-# carries nothing that changes after the freeze (the static files are
-# the default, "").
+# This is an allow-list: a segment that is not here is refused. Every route
+# of the namespace app and every top-level entry of the static directory
+# must be listed (a test checks it): "filter" is served as of the freeze
+# time, "forbid" is refused, "pass" carries nothing that changes after the
+# freeze.
 FROZEN_ROUTES = {
     "": "pass", "contests": "pass", "tasks": "pass", "teams": "pass",
     "users": "pass", "faces": "pass", "flags": "pass", "logo": "pass",
     "config": "pass", "events": "pass",
     "scores": "filter", "history": "filter", "sublist": "filter",
     "submissions": "forbid", "subchanges": "forbid",
+    # The static files.
+    "Ranking.html": "pass", "Ranking.css": "pass", "Ranking.js": "pass",
+    "Chart.js": "pass", "Config.js": "pass", "DataStore.js": "pass",
+    "HistoryStore.js": "pass", "Overview.js": "pass",
+    "Scoreboard.js": "pass", "TeamSearch.js": "pass",
+    "TimeView.js": "pass", "UserDetail.js": "pass",
+    "img": "pass", "lib": "pass",
 }
 
+HIDDEN_TITLE = "Ranking oculto"
 HIDDEN_MESSAGE = "Este ranking está oculto por ahora."
+FROZEN_LOGIN_TITLE = "Acceso staff"
 FROZEN_LOGIN_MESSAGE = "Acceso del staff al ranking en vivo."
 
 NOTICE_TEMPLATE = """<!DOCTYPE html>
@@ -87,7 +97,7 @@ NOTICE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ranking oculto</title>
+<title>{title}</title>
 <style>
 body {{ font-family: sans-serif; background: #f4f4f4; color: #222;
        display: flex; min-height: 100vh; margin: 0;
@@ -513,12 +523,14 @@ class VisibilityGuard:
             "X-Forwarded-Proto", "").lower() == "https"
 
     def _login(self, request: Request, start_response,
-               message: str = HIDDEN_MESSAGE) -> Response:
+               message: str = HIDDEN_MESSAGE,
+               title: str = HIDDEN_TITLE) -> Response:
         """Check the staff password and start a staff session.
 
         request: the POST to staff-login, with the form field password.
         start_response: the WSGI start_response callable.
         message: the text of the notice shown after a failed attempt.
+        title: the title of that notice.
 
         return: a redirect that sets the staff cookie, or the notice with
             an error after a failed attempt (or a 413 if the body is too
@@ -557,7 +569,8 @@ class VisibilityGuard:
                 valid = False
         if not valid:
             gevent.sleep(self.FAILED_LOGIN_DELAY)
-            return self._notice(error=True, status=401, message=message)
+            return self._notice(error=True, status=401, message=message,
+                                title=title)
         response = Response(status=303, headers=dict(
             NO_STORE, Location="./"))
         # Sign the hash that was checked, not the current one: if the
@@ -660,22 +673,25 @@ class VisibilityGuard:
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
-        if not hidden and path in INDEX_PATHS and \
-                request.method in ("GET", "HEAD"):
+        staff = self._is_staff(request)
+        if not hidden and not (staff and frozen) and \
+                path in INDEX_PATHS and request.method in ("GET", "HEAD"):
             # The index page has a Last-Modified and nothing else (or, by
             # its file name, a max-age of 12 hours), so a browser would
             # keep it without asking, and show the scoreboard instead of
-            # the notice once the group is hidden.
+            # the notice once the group is hidden. (What the staff see of
+            # a hidden or frozen group is private, whatever this says.)
             start_response = _cache_control(start_response, REVALIDATE)
-        if self._is_staff(request):
+        if staff:
             if hidden or frozen:
+                # A cache shared with the public must not keep this, not
+                # even the page that gets a banner.
+                start_response = _cache_control(
+                    start_response, PRIVATE_NO_STORE)
                 if path == "/" and request.method == "GET":
                     return self._with_banner(
                         environ, start_response,
                         STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
-                # A cache shared with the public must not keep this.
-                start_response = _cache_control(
-                    start_response, PRIVATE_NO_STORE)
             return self.app(environ, start_response)
         if not hidden and not frozen:
             return _CutWhenHidden(self.app(environ, start_response),
@@ -714,15 +730,17 @@ class VisibilityGuard:
         if path == "/staff-login":
             if request.method == "POST":
                 return self._login(request, start_response,
-                                   FROZEN_LOGIN_MESSAGE)(
+                                   FROZEN_LOGIN_MESSAGE,
+                                   FROZEN_LOGIN_TITLE)(
                     environ, start_response)
-            return self._notice(message=FROZEN_LOGIN_MESSAGE)(
+            return self._notice(message=FROZEN_LOGIN_MESSAGE,
+                                title=FROZEN_LOGIN_TITLE)(
                 environ, start_response)
         if path == "/" and request.method == "GET":
             return self._with_banner(
                 environ, start_response,
                 public_frozen_banner(self.state.settings.freeze_at))
-        kind = FROZEN_ROUTES.get(path.strip("/").split("/")[0], "pass")
+        kind = FROZEN_ROUTES.get(path.strip("/").split("/")[0], "forbid")
         if kind == "forbid":
             return Response("Este ranking está congelado.", status=403,
                             mimetype="text/plain",
@@ -733,9 +751,10 @@ class VisibilityGuard:
         return self.app(environ, start_response)
 
     def _notice(self, error: bool = False, status: int = 200,
-                message: str = HIDDEN_MESSAGE) -> Response:
+                message: str = HIDDEN_MESSAGE,
+                title: str = HIDDEN_TITLE) -> Response:
         body = NOTICE_TEMPLATE.format(
-            group=self._escaped_group(), message=message,
+            group=self._escaped_group(), message=message, title=title,
             error='<p class="error">Contraseña incorrecta.</p>'
                   if error else "")
         return Response(body, status=status, mimetype="text/html",

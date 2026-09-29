@@ -375,11 +375,12 @@ class ScoreHandler:
         if request.accept_mimetypes.quality("application/json") <= 0:
             raise NotAcceptable()
 
+        result: dict[str, dict[str, float]]
         freeze_at = environ.get(FREEZE_AT_ENVIRON)
         if freeze_at is not None:
             result = self.scoring_store.get_scores_at(freeze_at)
         else:
-            result: dict[str, dict[str, float]] = dict()
+            result = dict()
             for u_id, tasks in self.scoring_store._scores.items():
                 for t_id, score in tasks.items():
                     if score.get_score() > 0.0:

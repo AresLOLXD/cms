@@ -26,6 +26,7 @@ import re
 import shutil
 import tempfile
 import threading
+import time
 import unittest
 from base64 import b64encode
 from importlib.resources import files
@@ -43,7 +44,8 @@ from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
 from cmsranking.visibility import FROZEN_ROUTES, HIDDEN_SINCE_ALWAYS, \
     STAFF_COOKIE, VISIBILITY_FILE, VisibilityGuard, VisibilitySettings, \
-    VisibilityState, parse_settings, staff_cookie_value
+    VisibilityState, parse_settings, public_frozen_banner, \
+    staff_cookie_value
 
 
 USERNAME = "rws"
@@ -182,6 +184,7 @@ class TestHiddenGroup(VisibilityTestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         text = response.get_data(as_text=True)
         self.assertIn("Este ranking está oculto por ahora.", text)
+        self.assertIn("<title>Ranking oculto</title>", text)
         self.assertIn('action="staff-login"', text)
 
     def test_every_data_endpoint_is_forbidden(self):
@@ -362,6 +365,15 @@ class TestStaffLogin(VisibilityTestCase):
                 self.assertEqual(response.headers["Cache-Control"],
                                  "private, no-store")
 
+    def test_staff_index_of_a_hidden_group_is_private(self):
+        headers = self.with_cookie(self.cookie_from(self.login("s3cret")))
+        for path in ("", "Ranking.html"):
+            with self.subTest(path=path):
+                response = self.client.get("/olim/" + path, headers=headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "private, no-store")
+
     def test_visible_group_keeps_the_caching_of_the_app(self):
         self.put_visibility("olim", False)
         cookie = staff_cookie_value(
@@ -464,7 +476,8 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertIn(b"Vista staff", banner)
         self.assertIn(b'href="staff-logout"', banner)
         self.assertEqual(response.headers["Content-Length"], str(len(page)))
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["Cache-Control"],
+                         "private, no-store")
         self.assertNotIn("Last-Modified", response.headers)
 
     def test_wrong_password(self):
@@ -742,7 +755,9 @@ class TestOpenConnections(unittest.TestCase):
         with patch("cmsranking.visibility.time.time",
                    return_value=99) as clock:
             response = Client(guard).get("/events")
-        self.assertEqual(response.get_data(), b"event 1\n")
+            # Read inside the block: after it the real clock is far past
+            # 100, and would cut the stream whatever the app did.
+            self.assertEqual(response.get_data(), b"event 1\n")
 
     def get_write_stream(self, guard_class=VisibilityGuard):
         """Get /events from an app that hides its group mid-stream.
@@ -1044,6 +1059,40 @@ class TestCutBody(unittest.TestCase):
         self.assertTrue(closed)
 
 
+class TestPublicFrozenBanner(unittest.TestCase):
+
+    def set_time_zone(self, value: str):
+        """Make the process live in a time zone, until the test ends.
+
+        value: a POSIX TZ string, e.g. CST6.
+
+        """
+        saved = os.environ.get("TZ")
+
+        def restore():
+            if saved is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = saved
+            time.tzset()
+
+        self.addCleanup(restore)
+        os.environ["TZ"] = value
+        time.tzset()
+
+    def test_text_and_link(self):
+        # 2023-11-14 22:13:20 UTC.
+        for zone, expected in [("CST6", "16:13 (CST)"),
+                               ("EET-2", "00:13 (EET)")]:
+            with self.subTest(zone=zone):
+                self.set_time_zone(zone)
+                banner = public_frozen_banner(1_700_000_000).decode("utf-8")
+                self.assertIn("Ranking congelado desde las %s" % expected,
+                              banner)
+                self.assertIn('<a style="color:#fff" href="staff-login">'
+                              'Acceso staff</a>', banner)
+
+
 class TestVisibilityState(unittest.TestCase):
 
     def test_update_is_persisted_with_a_stable_secret(self):
@@ -1290,6 +1339,31 @@ class TestFrozenPublicView(VisibilityTestCase):
                 self.assertEqual(
                     self.client.get("/olim/" + path).status_code, 403, path)
 
+    def test_unknown_paths_are_forbidden(self):
+        # The filter is an allow-list: what is not classified is refused.
+        with self.at(350):
+            for method, path in [("GET", "visibility"), ("GET", "whatever"),
+                                 ("GET", "whatever/deeper"),
+                                 ("HEAD", "whatever"), ("POST", "whatever"),
+                                 ("GET", "ranking.html"),
+                                 ("GET", "Ranking.html.bak")]:
+                with self.subTest(method=method, path=path):
+                    response = self.client.open("/olim/" + path,
+                                                method=method)
+                    self.assertEqual(response.status_code, 403)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-store")
+
+    def test_static_files_pass(self):
+        names = os.listdir(self.web_dir) + ["img/favicon.ico"]
+        with self.at(350):
+            for name in names:
+                if os.path.isdir(os.path.join(self.web_dir, name)):
+                    continue
+                with self.subTest(name=name):
+                    self.assertEqual(
+                        self.client.get("/olim/" + name).status_code, 200)
+
     def test_other_data_passes(self):
         with self.at(350):
             for path in ("contests/", "tasks/", "users/", "config"):
@@ -1318,6 +1392,10 @@ class TestFrozenPublicView(VisibilityTestCase):
         self.assertIn('href="staff-login"', page)
         self.assertEqual(login.status_code, 200)
         self.assertIn('name="password"', login.get_data(as_text=True))
+        # The tab must not say that the ranking is hidden.
+        self.assertIn("<title>Acceso staff</title>",
+                      login.get_data(as_text=True))
+        self.assertNotIn("Ranking oculto", login.get_data(as_text=True))
 
     def test_staff_login_works_while_frozen(self):
         with self.at(350):
@@ -1337,6 +1415,27 @@ class TestFrozenPublicView(VisibilityTestCase):
         self.assertIn("Vista staff: ranking congelado", page)
         self.assertNotIn("Ranking congelado desde las", page)
 
+    def test_staff_pages_of_a_frozen_group_are_private(self):
+        # A shared cache that ignores cookies must not keep the live view,
+        # nor the page with the staff banner.
+        with self.at(350):
+            for path in ("", "Ranking.html", "config", "scores"):
+                with self.subTest(path=path):
+                    response = self.client.get(
+                        "/olim/" + path, headers=dict(
+                            self.JSON, **self.staff_headers()))
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "private, no-store")
+
+    def test_public_index_of_a_frozen_group_is_revalidated(self):
+        with self.at(350):
+            for path in ("", "Ranking.html"):
+                with self.subTest(path=path):
+                    response = self.client.get("/olim/" + path)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-cache")
+
     def test_wrong_password_while_frozen(self):
         with self.at(350), patch("cmsranking.visibility.gevent.sleep"):
             response = self.client.post("/olim/staff-login",
@@ -1344,17 +1443,25 @@ class TestFrozenPublicView(VisibilityTestCase):
         self.assertEqual(response.status_code, 401)
         text = response.get_data(as_text=True)
         self.assertIn("Acceso del staff al ranking en vivo.", text)
+        self.assertIn("<title>Acceso staff</title>", text)
         self.assertNotIn("Este ranking está oculto", text)
+        self.assertNotIn("Ranking oculto", text)
 
     def test_writes_are_still_authenticated_while_frozen(self):
+        # The proxy keeps feeding a frozen group, also the stores that the
+        # public may not read: the writes are answered before the freeze
+        # is applied.
+        data = json.dumps({
+            "c1": {"submission": "s1", "time": 100, "score": 40.0}})
         with self.at(350):
-            self.assertEqual(self.client.put(
-                "/olim/users/", data=json.dumps({}),
-                content_type="application/json").status_code, 401)
-            self.assertEqual(self.client.put(
-                "/olim/users/", data=json.dumps({}),
-                content_type="application/json",
-                headers=AUTH).status_code, 204)
+            anonymous = self.client.put(
+                "/olim/subchanges/", data=data,
+                content_type="application/json")
+            proxy = self.client.put(
+                "/olim/subchanges/", data=data,
+                content_type="application/json", headers=AUTH)
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(proxy.status_code, 204)
 
     def test_hidden_wins_over_frozen(self):
         self.client.put("/olim/visibility", data=json.dumps({
@@ -1378,7 +1485,10 @@ class TestFrozenPublicView(VisibilityTestCase):
         mounts = {m.strip("/").split("/")[0] for m in dispatcher.mounts}
         routes = {r.rule.strip("/").split("/")[0]
                   for r in dispatcher.app.router.iter_rules()}
-        self.assertLessEqual(mounts | routes, set(FROZEN_ROUTES) | {""})
+        # The static files are served from the top level as well.
+        static = set(os.listdir(self.web_dir))
+        self.assertLessEqual(mounts | routes | static,
+                             set(FROZEN_ROUTES) | {""})
 
 
 if __name__ == "__main__":
