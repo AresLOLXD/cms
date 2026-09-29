@@ -27,9 +27,9 @@
           Hide ranking from the public
         </td>
         <td>
-          <input type="checkbox" name="hidden" {% if ranking_group.hidden %}checked{% endif %}/>
-          <!-- What the checkbox was rendered with: only a change to it counts, so a stale page does not undo somebody else's change. -->
-          <input type="hidden" name="hidden_shown" value="{% if ranking_group.hidden %}1{% else %}0{% endif %}" />
+          <input type="checkbox" autocomplete="off" name="hidden" {% if ranking_group.hidden %}checked{% endif %}/>
+          <!-- What the checkbox was rendered with: only a change to it counts, so a stale page does not undo somebody else's change. autocomplete="off" stops a soft reload from restoring an old checkbox state. -->
+          <input type="hidden" autocomplete="off" name="hidden_shown" value="{% if ranking_group.hidden %}1{% else %}0{% endif %}" />
         </td>
       </tr>
       <tr>

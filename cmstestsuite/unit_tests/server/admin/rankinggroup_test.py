@@ -1,5 +1,6 @@
 """Tests for the AWS ranking group handlers."""
 
+import re
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -397,9 +398,25 @@ class TestRankingGroupTemplates(unittest.TestCase):
 
             self.assertRegex(
                 html,
-                r'<input type="hidden" name="hidden_shown" value="%s"\s*/?>'
-                % expected)
+                r'<input type="hidden"[^>]*name="hidden_shown" '
+                r'value="%s"\s*/?>' % expected)
             self.assertEqual(html.count('name="hidden_shown"'), 1)
+
+    def test_group_page_stops_the_browser_restoring_the_visibility(self):
+        # A soft reload must not bring back an old checkbox state next to
+        # a fresh hidden_shown: it would look like a toggle.
+        group = RankingGroup(name="olim", description="OLIM", hidden=True)
+
+        html = self.render_core(
+            "ranking_group.html", ranking_group=group, group_contests=[])
+
+        for name in ("hidden", "hidden_shown"):
+            (tag,) = re.findall(r'<input[^>]*name="%s"[^>]*>' % name, html)
+            self.assertIn('autocomplete="off"', tag, msg=name)
+        # The password field keeps its own setting.
+        self.assertIn(
+            'type="password" name="staff_password" '
+            'autocomplete="new-password"', html)
 
     def test_add_page_starts_visible_and_without_password(self):
         html = self.render_core("add_ranking_group.html")
