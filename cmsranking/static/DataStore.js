@@ -823,6 +823,7 @@ var DataStore = new function () {
         self.es.addEventListener("open", self.es_open_handler, false);
         self.es.addEventListener("error", self.es_error_handler, false);
         self.es.addEventListener("reload", self.es_reload_handler, false);
+        self.es.addEventListener("reinit", self.es_reload_handler, false);
         self.es.addEventListener("contest", function (event) {
             var timestamp = parseInt(event.lastEventId, 16) / 1000000;
             if (timestamp > self.contest_init_time) {
@@ -905,6 +906,9 @@ var DataStore = new function () {
             console.info("Received a 'reload' event");
             self.es.close();
             self.update_network_status(3);
+            // The public view changed (freeze, unfreeze) or the events
+            // missed are gone: the data on the page cannot be updated.
+            window.location.reload();
         } else {
             console.error("EventSource shouldn't be in state " + self.es.readyState + " during a 'reload' event!");
         }

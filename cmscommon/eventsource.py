@@ -96,6 +96,8 @@ class Publisher:
         # and have the ones at the other end be dropped when the total
         # number exceeds the given limit.
         self._cache = deque(maxlen=size)
+        # When this publisher was created, in the unit of the keys.
+        self._created = int(time.time() * 1_000_000)
         # We use a WeakSet as we want queues to be vanish automatically
         # when no one else is using (i.e. fetching from) them.
         self._sub_queues = WeakSet()
@@ -138,14 +140,17 @@ class Publisher:
         if last_event_id is not None and \
                 re.match("^[0-9A-Fa-f]+$", last_event_id):
             last_event_key = int(last_event_id, 16)
-            if len(self._cache) > 0 and last_event_key >= self._cache[0][0]:
+            # An empty cache means that nothing was published since the
+            # creation: a client up to date as of then missed nothing.
+            oldest = self._cache[0][0] if self._cache else self._created
+            if last_event_key >= oldest:
                 # All missed events are in cache.
                 for key, msg in self._cache:
                     if key > last_event_key:
                         queue.put(msg)
             else:
                 # Some events may be missing. Ask to reinit.
-                queue.put(b"event:reinit\n\n")
+                queue.put(b"event:reinit\ndata:\n\n")
         # Store the queue and return a subscriber bound to it.
         self._sub_queues.add(queue)
         return Subscriber(queue)

@@ -759,6 +759,29 @@ class TestOpenConnections(unittest.TestCase):
             # 100, and would cut the stream whatever the app did.
             self.assertEqual(response.get_data(), b"event 1\n")
 
+    def test_open_frozen_stream_is_cut_when_hidden(self):
+        # A static file that a frozen group passes to the public, being
+        # sent when the group gets hidden.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state_holder = {}
+
+        def streaming_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+
+            def body():
+                yield b"part 1\n"
+                state_holder["guard"].state.update(True, None)
+                yield b"part 2\n"
+            return body()
+
+        guard = VisibilityGuard(streaming_app, tmp, "olim", USERNAME,
+                                PASSWORD, "Scoreboard")
+        state_holder["guard"] = guard
+        guard.state.update_settings(VisibilitySettings(freeze_at=1))
+        response = Client(guard).get("/Ranking.js")
+        self.assertEqual(response.get_data(), b"part 1\n")
+
     def get_write_stream(self, guard_class=VisibilityGuard):
         """Get /events from an app that hides its group mid-stream.
 
@@ -862,7 +885,14 @@ class TestOpenConnections(unittest.TestCase):
 class TestRealEventStream(VisibilityTestCase):
     """The real /events handler, behind a real gevent server."""
 
-    def open_stream(self, cookie: str | None = None) -> socket.socket:
+    def connect(self, request: bytes) -> socket.socket:
+        """Send a request to the app behind a real server.
+
+        request: the whole HTTP request.
+
+        return: the connection, with nothing read from it yet.
+
+        """
         server = WSGIServer(("127.0.0.1", 0), self.client.application,
                             log=None)
         server.start()
@@ -870,11 +900,15 @@ class TestRealEventStream(VisibilityTestCase):
         stream = socket.create_connection(("127.0.0.1", server.server_port),
                                           timeout=3)
         self.addCleanup(stream.close)
+        stream.sendall(request)
+        return stream
+
+    def open_stream(self, cookie: str | None = None) -> socket.socket:
         cookie_line = b"" if cookie is None else \
             b"Cookie: %s=%s\r\n" % (STAFF_COOKIE.encode(), cookie.encode())
-        stream.sendall(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
-                       b"Accept: text/event-stream\r\n" + cookie_line
-                       + b"\r\n")
+        stream = self.connect(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
+                              b"Accept: text/event-stream\r\n" + cookie_line
+                              + b"\r\n")
         self.assertIn(b"200 OK", stream.recv(65536))
         return stream
 
@@ -944,6 +978,131 @@ class TestRealEventStream(VisibilityTestCase):
         received, closed = self.drain(stream)
         self.assertNotIn(b"c2", received)
         self.assertTrue(closed)
+
+
+class TestStreamsAcrossTransitions(TestRealEventStream):
+    """Public event streams across freezes, changes and restarts."""
+
+    def put_freeze(self, freeze_at: int):
+        """Freeze the group olim from freeze_at on, with no end."""
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": None, "show_at": None, "freeze_at": freeze_at,
+            "unfreeze_at": None, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+
+    def put_scored_submission(self):
+        """Send a task, a user and a submission that scores 40 to olim."""
+        for path, data in [
+                ("tasks/", {"t": TestFrozenPublicView.TASK}),
+                ("users/", {"u": {"f_name": "U", "l_name": "U",
+                                  "team": None}}),
+                ("submissions/", {"s": {"user": "u", "task": "t",
+                                        "time": 100}}),
+                ("subchanges/", {"c": {"submission": "s", "time": 100,
+                                       "score": 40.0}})]:
+            self.client.put("/olim/" + path, data=json.dumps(data),
+                            content_type="application/json", headers=AUTH)
+
+    def get_events(self, path: str, last_event_id: str) -> bytes:
+        """Reconnect to an event stream and return what it sends at once.
+
+        path: the path of the event stream.
+        last_event_id: the ID of the last event the client got.
+
+        return: the response, headers included, as read for a second.
+
+        """
+        stream = self.connect(
+            b"GET %s HTTP/1.1\r\nHost: rws\r\nAccept: text/event-stream\r\n"
+            b"Last-Event-ID: %s\r\n\r\n"
+            % (path.encode(), last_event_id.encode()))
+        stream.settimeout(1)
+        return self.drain(stream)[0]
+
+    @staticmethod
+    def drain_for(stream: socket.socket,
+                  seconds: float) -> tuple[bytes, bool]:
+        """Read until the server closes the stream, for at most seconds.
+
+        Unlike drain, it ends even if pings keep coming.
+
+        return: the received bytes and whether the server closed it.
+
+        """
+        received = b""
+        deadline = time.monotonic() + seconds
+        try:
+            while (left := deadline - time.monotonic()) > 0:
+                stream.settimeout(left)
+                chunk = stream.recv(65536)
+                if not chunk:
+                    return received, True
+                received += chunk
+        except socket.timeout:
+            pass
+        return received, False
+
+    def test_frozen_stream_drops_score_events(self):
+        self.put_contest("/olim")
+        # Frozen since the epoch, until far in the future.
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_scored_submission()
+        data, _ = self.drain(stream)
+        self.assertNotIn(b"event:score", data)
+        self.assertIn(b"event:user", data)
+
+    def test_replayed_score_events_are_dropped_while_frozen(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        # The last event the client got came after the freeze started.
+        last_id = "%x" % int(time.time() * 1_000_000)
+        self.put_scored_submission()
+        data = self.get_events("/olim/events", last_id)
+        self.assertNotIn(b"event:reload", data)
+        self.assertNotIn(b"event:score", data)
+        self.assertIn(b"event:user", data)
+
+    def test_reconnect_after_a_change_is_told_to_reload(self):
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_freeze(1)
+        response = self.client.get("/olim/events",
+                                   headers={"Last-Event-ID": old_id})
+        self.assertIn(b"event:reload\ndata:\n\n", response.get_data())
+
+    def test_open_stream_is_cut_when_the_freeze_starts(self):
+        self.put_contest("/olim")
+        start = time.time()
+        self.put_freeze(int(start) + 2)
+        stream = self.open_stream()
+        # The 15 s ping is the first write after freeze_at.
+        _, closed = self.drain_for(stream, 20)
+        self.assertTrue(closed)
+
+    def test_frozen_stream_is_cut_when_hidden(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.put_second_contest()
+        received, closed = self.drain(stream)
+        self.assertNotIn(b"c2", received)
+        self.assertTrue(closed)
+
+    def test_only_clients_older_than_a_restart_are_told_to_reinit(self):
+        # The root ranking has no guard: this is what the event source
+        # itself sends.
+        self.put_contest("")
+        before = "%x" % int(time.time() * 1_000_000)
+        # A restart: the data is read from disk, the event cache is empty.
+        self.client = self.make_client()
+        after = "%x" % int(time.time() * 1_000_000)
+        self.assertIn(b"event:reinit\ndata:\n\n",
+                      self.get_events("/events", before))
+        # A page loaded since the restart missed nothing: told to reinit,
+        # it would reload itself for as long as the cache stays empty.
+        self.assertNotIn(b"reinit", self.get_events("/events", after))
 
 
 class TestLoginBodyLimit(VisibilityTestCase):

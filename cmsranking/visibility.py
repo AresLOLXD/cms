@@ -172,6 +172,23 @@ def public_frozen_banner(freeze_at: int) -> bytes:
 
 
 BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
+SCORE_EVENT = re.compile(rb"^event:score$", re.MULTILINE)
+
+
+def _drop_score_events(data: bytes) -> bytes:
+    """Remove the score events from a chunk of an event stream.
+
+    data: one or more complete Server-Sent Events messages, each ended
+        by a blank line, or a ping comment.
+
+    return: the chunk without score events; a ping comment if nothing
+        is left, since an empty write could end a chunked response.
+
+    """
+    messages = data.split(b"\n\n")
+    kept = [m for m in messages if not SCORE_EVENT.search(m)]
+    result = b"\n\n".join(kept)
+    return result if result.strip() else b":\n"
 
 
 def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
@@ -629,30 +646,39 @@ class VisibilityGuard:
         return [body]
 
     def _guard_writes(self, request: Request, start_response):
-        """Wrap start_response so write() stops once the group is hidden.
+        """Wrap start_response so write() follows the public view.
 
         The /events handler sends its data through the write() callable
         instead of the returned iterable, so _CutWhenHidden never sees
         it. Its error handling ends the stream when write() raises, and
-        closing the connection makes the browser reconnect and get the
-        403.
+        closing the connection makes the browser reconnect: to get the
+        403, or to be told to reload if the view changed meanwhile.
 
         request: the request being served.
         start_response: the WSGI start_response callable.
 
         return: a start_response whose write() callables refuse to send
-            data to a client that may no longer see the ranking.
+            data to a public client once the group is hidden or its view
+            changed since the request came, and drop the score events
+            while it is frozen.
 
         """
         handler = getattr(start_response, "__self__", None)
+        opened_at = time.time()
 
         def guarded_start_response(status, headers, exc_info=None):
             write = start_response(status, headers, exc_info)
 
             def guarded_write(data):
-                if self.state.hidden and not self._is_staff(request):
-                    _close_connection(start_response)
-                    raise ConnectionAbortedError("The ranking is hidden.")
+                if not self._is_staff(request):
+                    now = time.time()
+                    if self.state.settings.hidden(now) \
+                            or self.state.last_change(now) > opened_at:
+                        _close_connection(start_response)
+                        raise ConnectionAbortedError(
+                            "The ranking changed its visibility.")
+                    if self.state.settings.frozen(now):
+                        data = _drop_score_events(data)
                 return write(data)
 
             return guarded_write
@@ -693,6 +719,11 @@ class VisibilityGuard:
                         environ, start_response,
                         STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
             return self.app(environ, start_response)
+        if path == "/events" and request.method == "GET" and not hidden \
+                and self._missed_a_change(request, now):
+            return Response(b"event:reload\ndata:\n\n", status=200,
+                            mimetype="text/event-stream",
+                            headers=NO_STORE)(environ, start_response)
         if not hidden and not frozen:
             return _CutWhenHidden(self.app(environ, start_response),
                                   self.state, start_response)
@@ -748,7 +779,26 @@ class VisibilityGuard:
         if kind == "filter":
             environ[FREEZE_AT_ENVIRON] = self.state.settings.freeze_at
             start_response = _cache_control(start_response, "no-store")
-        return self.app(environ, start_response)
+        return _CutWhenHidden(self.app(environ, start_response),
+                              self.state, start_response)
+
+    def _missed_a_change(self, request: Request, now: float) -> bool:
+        """Tell whether a reconnecting stream predates the last change.
+
+        request: the /events request, with the ID of the last event the
+            client got (the microseconds since the epoch, in hex).
+        now: the current Unix time.
+
+        return: True if that event is older than the last change of the
+            public view, so replaying the events since then would be
+            wrong.
+
+        """
+        last_id = request.headers.get("Last-Event-ID") \
+            or request.args.get("last_event_id")
+        if not last_id or not re.fullmatch(r"[0-9A-Fa-f]+", last_id):
+            return False
+        return int(last_id, 16) < self.state.last_change(now) * 1_000_000
 
     def _notice(self, error: bool = False, status: int = 200,
                 message: str = HIDDEN_MESSAGE,
