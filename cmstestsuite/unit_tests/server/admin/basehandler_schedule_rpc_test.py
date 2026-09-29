@@ -98,7 +98,7 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
     async def test_rpc_exception_is_logged_and_request_succeeds(self):
         self.failure = RuntimeError("boom")
         with self.assertLogs(
-                "cms.server.admin.handlers.base", level="WARNING") as logs:
+                "cms.server.util", level="WARNING") as logs:
             response = await self._fetch()
             await asyncio.wait_for(self.called.wait(), timeout=5)
             # Let the done callback run.
@@ -114,7 +114,7 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_client_failure_names_service_and_method(self):
         with self.assertLogs(
-                "cms.server.admin.handlers.base", level="WARNING") as logs:
+                "cms.server.util", level="WARNING") as logs:
             response = await self._fetch("?real=1")
             for _ in range(250):
                 if logs.records:

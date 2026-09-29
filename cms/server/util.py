@@ -274,8 +274,12 @@ class CommonRequestHandler(RequestHandler):
         return from its authenticate() coroutine aborts the request
         with 403.
 
+        It also stores the running event loop, which schedule_rpc()
+        submits its coroutines to.
+
         """
         super().prepare()
+        self._loop = asyncio.get_running_loop()
         # Local import to avoid a circular import: cms.io.web_service
         # imports Url from this module.
         from cms.io.web_service import resolve_remote_ip
@@ -290,6 +294,46 @@ class CommonRequestHandler(RequestHandler):
         self.url = Url(get_url_root(self.request.path))
         self.static_url_helper = self.service.static_file_hasher.make(self.url)
         self.set_header("Cache-Control", "no-cache, must-revalidate")
+
+    def schedule_rpc(self, remote_method, **kwargs):
+        """Fire-and-forget a remote RPC.
+
+        The remote-service client methods are coroutines, so calling
+        one without awaiting it would never send anything. Submit the
+        coroutine to the event loop instead, without waiting for it.
+        That makes this safe both from a run_in_executor worker thread,
+        which has no event loop of its own, and from the event loop
+        thread itself (a synchronous handler body), since nothing ever
+        blocks on the result. Any exception it raises is logged, not
+        propagated.
+
+        remote_method (callable): a remote-service client method,
+            e.g. self.service.proxy_service.reinitialize.
+        kwargs: the keyword arguments for the RPC.
+
+        """
+        # Local import to avoid a circular import: cms.io imports Url
+        # from this module (via cms.io.web_service).
+        from cms.io.rpc import RPCError
+        name = getattr(remote_method, "__qualname__", None) \
+            or getattr(remote_method, "__name__", None) \
+            or repr(remote_method)
+        future = asyncio.run_coroutine_threadsafe(
+            remote_method(**kwargs), self._loop)
+
+        def log_failure(done):
+            if done.cancelled():
+                return
+            exc = done.exception()
+            if isinstance(exc, RPCError):
+                # The message already names the RPC and the error;
+                # a traceback of the client internals adds nothing.
+                logger.warning("RPC %s failed: %r", name, exc)
+            elif exc is not None:
+                logger.warning("RPC %s failed: %r", name, exc,
+                               exc_info=exc)
+
+        future.add_done_callback(log_failure)
 
     def finish(self, *args, **kwargs):
         """Finish this response, ending the HTTP request.
