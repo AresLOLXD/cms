@@ -1043,6 +1043,7 @@ class EvaluationServiceFailurePathsTest(
         self.assertIsNotNone(errors[0].exc_info)
         self.assertFalse(self._compiled(first))
         self.assertTrue(self._load_result(second).compilation_failed())
+        self.assertEqual(self.notifications.call_count, 1)
 
     async def test_duplicate_evaluation_is_refused_and_not_counted_twice(self):
         # The DB is the last guard against a result written twice (say,
@@ -1074,46 +1075,84 @@ class EvaluationServiceFailurePathsTest(
         self.assertTrue(result.evaluated())
         self.assertEqual(self.notifications.call_count, 1)
 
-    # Known bug, found while writing these tests. The first loop of
-    # _write_results_sync skips the results of a dataset, submission or
-    # user test that is gone (and logs it), but its last loop, which
-    # calls compilation_ended/evaluation_ended for every key of the
-    # batch, gets None from SubmissionResult.get_from_id() for the same
-    # key and crashes with an AttributeError. The rows are already
-    # committed by then, but the keys that follow never get their
-    # notification to ScoringService nor their next operations, until
-    # the sweepers find them. Remove the decorator once it is fixed.
-    @unittest.expectedFailure
     async def test_results_of_objects_that_are_gone_do_not_stop_their_batch(
         self
     ):
-        fixture = self._add_fixture()
+        # The results of a dataset, submission or user test that is gone
+        # (deleted while it was being judged) are skipped and logged; the
+        # healthy results before and after them in the same batch are
+        # still written, and notified to ScoringService once each.
+        first = self._add_fixture()
+        second = self._add_fixture()
         job = CompilationJob(
-            operation=fixture.compilation(), success=True,
+            operation=first.compilation(), success=True,
             compilation_success=False, text=["Compilation failed."],
             plus={})
         no_dataset = ESOperation(
-            ESOperation.COMPILATION, fixture.submission.id, 987654321)
+            ESOperation.COMPILATION, first.submission.id, 987654321)
         no_submission = ESOperation(
-            ESOperation.COMPILATION, 987654321, fixture.dataset.id)
+            ESOperation.COMPILATION, 987654321, first.dataset.id)
         no_user_test = ESOperation(
-            ESOperation.USER_TEST_COMPILATION, 987654321, fixture.dataset.id)
+            ESOperation.USER_TEST_COMPILATION, 987654321, first.dataset.id)
+        no_user_test_evaluation = ESOperation(
+            ESOperation.USER_TEST_EVALUATION, 987654321, first.dataset.id)
 
         with self.assertLogs(
                 "cms.service.EvaluationService", level="ERROR") as logs:
             await self.service.write_results([
+                (first.compilation(), Result(job, True)),
                 (no_dataset, Result(job, True)),
                 (no_submission, Result(job, True)),
                 (no_user_test, Result(job, True)),
-                (fixture.compilation(), Result(job, True))])
+                (no_user_test_evaluation, Result(job, True)),
+                (second.compilation(), Result(job, True))])
+        await self._wait_until_idle()
 
         messages = [record.getMessage() for record in logs.records]
         for missing in ("dataset 987654321", "submission 987654321",
                         "user test 987654321"):
             self.assertIn("Could not find %s in the database." % missing,
                           messages)
-        self.assertTrue(self._load_result(fixture).compilation_failed())
+        for fixture in (first, second):
+            self.assertTrue(self._load_result(fixture).compilation_failed())
+        self.assertEqual(self.notifications.call_count, 2)
+        self.assertCountEqual(
+            self.scoring_stub.new_evaluation_calls,
+            [first.key, second.key])
+
+    async def test_evaluation_on_a_gone_dataset_does_not_stop_its_batch(
+        self
+    ):
+        # A dataset deleted while a contestant's submission was being
+        # evaluated on it: that result is skipped, even though its 0
+        # evaluations match the 0 testcases of a dataset that is gone.
+        # The last evaluation of another contestant's submission, in the
+        # same batch, still completes it: its outcome is committed (read
+        # back with the test's own session) and ScoringService is told
+        # once.
+        sibling = self._add_fixture(testcases=1, compiled=True)
+        other_submission = self._add_submission_of(sibling)
+        on_gone_dataset = ESOperation(
+            ESOperation.EVALUATION, other_submission.id, 987654321, "t0")
+        sibling_operation = sibling.evaluation("t0")
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="ERROR") as logs:
+            await self.service.write_results([
+                (sibling_operation,
+                 Result(self._evaluation_job(sibling_operation), True)),
+                (on_gone_dataset,
+                 Result(self._evaluation_job(on_gone_dataset), True))])
+        await self._wait_until_idle()
+
+        self.assertIn("Could not find dataset 987654321 in the database.",
+                      [record.getMessage() for record in logs.records])
+        result = self._load_result(sibling)
+        self.assertEqual([e.codename for e in result.evaluations], ["t0"])
+        self.assertEqual(result.evaluation_outcome, "ok")
         self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [sibling.key])
 
 
 if __name__ == "__main__":

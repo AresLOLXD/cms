@@ -856,21 +856,28 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                     if num_evaluations == num_testcases_per_dataset[dataset_id]:
                         submission_result = SubmissionResult.get_from_id(
                             (object_id, dataset_id), session)
-                        submission_result.set_evaluation_outcome()
+                        # None if the first loop skipped the key, because
+                        # its dataset or its submission is gone.
+                        if submission_result is not None:
+                            submission_result.set_evaluation_outcome()
 
             logger.info("Committing evaluation outcomes...")
             session.commit()
 
             logger.info("Ending operations for %s objects...",
                         len(by_object_and_type))
+            # As above, a None result is a key the first loop skipped.
             for type_, object_id, dataset_id, archive_sandbox in by_object_and_type.keys():
                 if type_ == ESOperation.COMPILATION:
                     submission_result = SubmissionResult.get_from_id(
                         (object_id, dataset_id), session)
-                    self.compilation_ended(submission_result, archive_sandbox)
+                    if submission_result is not None:
+                        self.compilation_ended(submission_result, archive_sandbox)
                 elif type_ == ESOperation.EVALUATION:
                     submission_result = SubmissionResult.get_from_id(
                         (object_id, dataset_id), session)
+                    if submission_result is None:
+                        continue
                     if submission_result.evaluated():
                         self.evaluation_ended(submission_result, archive_sandbox)
                     elif twophase.enabled():
@@ -881,11 +888,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 elif type_ == ESOperation.USER_TEST_COMPILATION:
                     user_test_result = UserTestResult.get_from_id(
                         (object_id, dataset_id), session)
-                    self.user_test_compilation_ended(user_test_result)
+                    if user_test_result is not None:
+                        self.user_test_compilation_ended(user_test_result)
                 elif type_ == ESOperation.USER_TEST_EVALUATION:
                     user_test_result = UserTestResult.get_from_id(
                         (object_id, dataset_id), session)
-                    self.user_test_evaluation_ended(user_test_result)
+                    if user_test_result is not None:
+                        self.user_test_evaluation_ended(user_test_result)
 
         logger.info("Done")
 
