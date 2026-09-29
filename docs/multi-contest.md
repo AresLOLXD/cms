@@ -7,8 +7,8 @@ olympiads on the same exam day), each with its own public scoreboard.
 
 - `CMS_CONTEST_ID=ALL` in `.env` makes the Contest Web Server serve every
   **active** contest: contestants see the list at `/` and enter a contest at
-  `/<contest_name>/`. Contests that are not active are neither listed nor
-  reachable.
+  `/<contest_name>`, without a trailing slash (`/<contest_name>/` is a 404).
+  Contests that are not active are neither listed nor reachable.
 - A **ranking group** is an independent public scoreboard. The Ranking Web
   Server serves each group at `/<group>/` (for example `/olim/` and
   `/omips/`). Every contest assigned to a group is ranked there; contests of
@@ -69,7 +69,7 @@ group with your reverse proxy; this is configured once, not per exam:
 
 The contestant domains all point at the Contest Web Server; contestants pick
 their contest from the list, or you link them directly to
-`/<contest_name>/`.
+`/<contest_name>`, without a trailing slash.
 
 ## When a scoreboard is wrong: Regenerate
 
@@ -149,15 +149,11 @@ If ProxyService cannot deliver the visibility settings to RankingWebServer
 
 Update RankingWebServer **first**, then the rest:
 
-1. Rebuild and restart only the ranking container, from the repository root:
-
-       bash -c 'source docker/_lib.sh && "${COMPOSE_CMD[@]}" up -d --build --no-deps --wait ranking'
-
-   It takes the project name (`CMS_PROJECT_NAME`) and the database profile from
-   `.env`, like `./up.sh`, and returns once the container is up. Don't use
-   `./up.sh` with **Ranking only** here: it builds only the ranking image but
-   then starts every service, so `cms` is recreated with its old image, before
-   step 2 rebuilds it.
+1. `./up.sh` and choose **Ranking only**. It rebuilds and restarts only the
+   ranking container and returns once it is up; the other services are left
+   alone. That is deliberate: `cms` must not be recreated from its old image
+   before step 2 rebuilds it (see the README, "Upgrading a deployment that was
+   started before the `cms-data` volume moved").
 2. `./up.sh` and choose **CMS only**. This runs `cmsSetupDB` (the `db-init`
    service), which adds the new columns, and restarts AWS and ProxyService.
 3. Check the ProxyService log (`./logs.sh`) for "rejected the visibility".

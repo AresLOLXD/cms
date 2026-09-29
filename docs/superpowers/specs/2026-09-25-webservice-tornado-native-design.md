@@ -39,7 +39,8 @@ spec → plan → implementation cycle:
   ~2300 lines) onto the 2.5a foundation.
 
 `Worker` remains out of scope for the whole modernization effort (established
-in 2.4).
+in 2.4). *(Note 2026-09-29: More precisely, Worker is out of scope for 2.4 and 2.5,
+but is planned for post-October-10 sub-project 2.6c.)*
 
 ## Goals
 
@@ -63,7 +64,8 @@ in 2.4).
   `StaticFileHandler` subclass supporting multiple search locations;
   `FileServerMiddleware` → a direct-streaming helper method on
   `FileHandlerMixin` (no longer needs the header-sniffing middleware
-  workaround — see Architecture); `ProxyFix` → `HTTPServer(xheaders=True)`.
+  workaround — see Architecture); `ProxyFix` → `HTTPServer(xheaders=True)` plus
+  `resolve_remote_ip()` helper in `CommonRequestHandler.prepare()`.
 - `CommonRequestHandler`/`FileHandlerMixin` (`cms/server/util.py`) keep
   working as the base class every concrete handler (2.5b/2.5c) extends,
   updated only where their current implementation assumes the WSGI
@@ -100,7 +102,8 @@ in 2.4).
 - `Worker` stays out of scope (established policy from 2.4).
 - No change to `cms/io/service.py`/`cms/io/rpc.py` (the gevent stack) — it
   remains in place for any process that still imports it, though after 2.5
-  no CMS-shipped service does.
+  no CMS-shipped service does. *(Note 2026-09-29: Worker remains gevent after
+  2.5, as it is deferred to post-October-10 sub-project 2.6c.)*
 - No change to the wire protocol of `/rpc/<service>/<shard>/<method>` or to
   any static/file-serving URL contract — this is an internal
   implementation swap, not an API change for anything that talks to these

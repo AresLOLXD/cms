@@ -59,13 +59,13 @@ native `asyncio`, one layer of the system at a time:
 |-------|--------|---------------|
 | SQLAlchemy 2.0 migration | Done | Move the whole codebase off the legacy `Query` API to SQLAlchemy 2.0's `select()` style |
 | `cms/io/` gevent → asyncio | Done | New `AsyncService`/`AsyncTriggeredService` runtime, RPC client/server ported to native asyncio |
-| Async DB access | Done | Async-safe session/query layer (`AsyncSessionGen`) for code running on the asyncio loop |
-| Service migration | Done | `EvaluationService`, `ScoringService`, `ProxyService`, `Worker`, etc. ported to `AsyncTriggeredService` |
+| Async DB access | Infrastructure only | Async-safe session/query layer (`AsyncSessionGen`) exists and is ready, but no consumers yet |
+| Service migration | Done | `EvaluationService`, `ScoringService`, `ProxyService`, `Checker`, `ResourceService`, `LogService` ported to `AsyncService`/`AsyncTriggeredService`; `Worker` remains gevent (deferred to post-October-10) |
 | `WebService`/Tornado-native | Done | `WebService` and the admin/contest RPC handlers now run on native Tornado instead of gevent-patched WSGI |
 | AdminWebServer handlers | Done | `cms/server/admin/handlers/` run their blocking DB work off the event loop, and admin login/session uses native Tornado secure cookies |
 | ContestWebServer handlers | Planned | Same migration for the contestant-facing server |
 
-Each stage has a written design spec under
+Each stage (except Service migration, which was coordinated per-service) has a written design spec under
 [`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `beta`
 once implemented, reviewed, and its tests pass. `docker/_cms-test-internal.sh`
 also gained a gevent/asyncio-aware test split so both the legacy and
@@ -207,12 +207,11 @@ state). It keeps its name and its contents, so nothing is lost.
 After updating to this version you **must rebuild the CMS image**. For a
 single-contest deployment run `./up.sh` and choose `4) CMS only` (or `2) All
 services`). For a multi-contest deployment follow the two steps of "Deployment"
-in [docs/multi-contest.md](docs/multi-contest.md): first rebuild only the
-ranking container with the command given there, then `./up.sh` and `4) CMS
-only`. (`./up.sh` with `3) Ranking only` is not enough: it builds only the
-ranking image but then starts every service, so `cms` is recreated with the old
-image.) Never start this version with an old image, which is also what `1) No`
-does (the default in `./up.sh`, `./restart.sh` and `./contest.sh`): the old
+in [docs/multi-contest.md](docs/multi-contest.md): `./up.sh` and `3) Ranking
+only` first (it starts only the ranking container, so `cms` is not recreated
+from its old image), then `./up.sh` and `4) CMS only`. Never start this version
+with an old image, which is also what `1) No` does (the default in `./up.sh`,
+`./restart.sh` and `./contest.sh`): the old
 image does not know the new `data_dir`, so submission and user-test copies go to
 the container's own filesystem and are lost the next time it is recreated, and
 the Telegram bot re-sends every question and announcement. Once rebuilt, the

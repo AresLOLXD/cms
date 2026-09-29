@@ -366,3 +366,7 @@ migrates it individually.
   descendant) and replacing `gevent.pywsgi.WSGIServer`/`tornado.wsgi`
   with native async Tornado, together, to avoid ever running both
   concurrency schedulers in the same process.
+
+## Notes
+
+**Resolved (2026-09-29):** The gevent-lock hazard in `cms/log.py` documented above (lines 321-326, 341-345) was resolved by replacing `FileHandler`/`shell_handler` gevent locks with thread-safe `threading.RLock()`. Verified in `cms/log.py` lines 55-61 on beta.

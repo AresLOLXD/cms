@@ -124,16 +124,14 @@ invasive for this sub-project.
 
 ## Testing
 
-- No new unit tests are added for the cookie/`run_in_executor` mechanism
-  itself — it is framework-level plumbing already validated in 2.5a
-  (`FileHandlerMixin.fetch()` already exercises the `run_in_executor`
-  pattern; Tornado's secure-cookie methods are framework primitives, not
-  project code to unit-test).
+- New unit tests for the cookie/`run_in_executor` mechanism itself are added
+  in `cmstestsuite/unit_tests/server/admin/admin_session_test.py`, validating
+  framework-level plumbing already used in 2.5a (`FileHandlerMixin.fetch()`
+  exercises the `run_in_executor` pattern).
 - Existing coverage exercising AWS handlers (login/logout, or any
   `get`/`post` under `cms/server/admin/handlers/`) must keep passing
   unchanged — that is the existing safety net for this migration (same
-  approach 2.5a took: no new framework-level tests, verify existing ones
-  don't break).
+  approach 2.5a took: verify existing ones don't break).
 - Manual smoke check after implementation: run `cmsAdminWebServer` locally,
   log in, visit a `require_permission`-gated page, let (or force, via a
   temporarily lowered `cookie_duration`) the session expire and confirm it

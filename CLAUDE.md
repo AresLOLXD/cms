@@ -79,7 +79,7 @@ cmsDropDB && cmsInitDB      # reset the database
 
 ## Architecture
 
-CMS is a **service-oriented system** where each component is a long-running process communicating via **JSON-RPC over TCP** (gevent-based, defined in `cms/io/rpc.py`). Services discover each other through `cms.conf` (TOML, default location `~/.config/cms/cms.conf` or `config/cms.sample.toml` for reference).
+CMS is a **service-oriented system** where each component is a long-running process communicating via **JSON-RPC over TCP**. On the `beta` branch, most services use asyncio (defined in `cms/io/async_rpc.py`), while `Worker`, `cmsranking`, and some `cmscontrib` tools still use gevent (defined in `cms/io/rpc.py`). Services discover each other through `cms.conf` (TOML, default location `~/.config/cms/cms.conf` or `config/cms.sample.toml` for reference).
 
 ### Core packages
 
@@ -87,7 +87,7 @@ CMS is a **service-oriented system** where each component is a long-running proc
   - `conf.py` — config loading; `config` singleton is imported everywhere
   - `log.py` — logging setup with per-service log files
   - `db/` — SQLAlchemy models (PostgreSQL only). All models inherit from `Base` in `cms/db/base.py`. Sessions are managed via `cms/db/session.py`.
-  - `io/` — gevent-based service runtime: `Service` base class, RPC client/server, priority queue
+  - `io/` — service runtime with both gevent (`Service` base class, `rpc.py`, used by `Worker`) and asyncio (`AsyncService`/`AsyncTriggeredService`, `async_rpc.py`, used by most services); RPC client/server, priority queue
   - `service/` — concrete services: `EvaluationService`, `ScoringService`, `Worker`, `Checker`, etc.
   - `server/` — Tornado-based web servers: `admin/` (AdminWebServer) and `contest/` (ContestWebServer)
   - `grading/` — pluggable evaluation engine:
