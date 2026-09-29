@@ -871,6 +871,16 @@ class TestImportTemplates(unittest.TestCase):
         self.assertRegex(html, r'<progress id="import_bar" value="3" '
                                r'max="10" aria-label="[^"]+"')
 
+    def test_the_result_of_the_import_is_announced_too(self):
+        # "Listo.", what the import cleared and "Error: ..." are written in
+        # this container by the script, so it is a live region as well.
+        job = SimpleNamespace(id="job-1", processed=3, total=10)
+
+        html = self.render_import(job=job)
+
+        self.assertIn('<div id="import_result" aria-live="polite"></div>',
+                      html)
+
     def test_the_form_gives_the_time_of_an_import(self):
         html = self.render_import()
 

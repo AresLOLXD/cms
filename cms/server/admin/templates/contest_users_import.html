@@ -78,7 +78,7 @@ guarda nada.</p>
      data-import-url="{{ url("contest", contest.id, "users", "import") }}">
   <p id="import_text" aria-live="polite">Procesando {{ job.processed }} de {{ job.total }}</p>
   <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" aria-label="Progreso de la importación" style="width: 100%"></progress>
-  <div id="import_result"></div>
+  <div id="import_result" aria-live="polite"></div>
 </div>
 {% else %}
 <form enctype="multipart/form-data" method="POST" id="import_form"
