@@ -20,7 +20,7 @@ import re
 import time
 from collections import deque
 from collections.abc import Generator
-from weakref import WeakSet
+from weakref import WeakKeyDictionary
 
 from gevent import Timeout
 from gevent.pywsgi import WSGIHandler
@@ -96,11 +96,17 @@ class Publisher:
         # and have the ones at the other end be dropped when the total
         # number exceeds the given limit.
         self._cache = deque(maxlen=size)
-        # When this publisher was created, in the unit of the keys.
+        # When this publisher was created, in the unit of the keys: a
+        # client older than that may have missed any message.
         self._created = int(time.time() * 1_000_000)
-        # We use a WeakSet as we want queues to be vanish automatically
-        # when no one else is using (i.e. fetching from) them.
-        self._sub_queues = WeakSet()
+        # The key of the newest message evicted from the cache, by type
+        # of event.
+        self._evicted: dict[str | None, int] = dict()
+        # We use a WeakKeyDictionary as we want queues to vanish
+        # automatically when no one else is using (i.e. fetching from)
+        # them. Each maps to the types of event it must not get.
+        self._sub_queues: WeakKeyDictionary[Queue, frozenset[str]] = \
+            WeakKeyDictionary()
 
     def put(self, event: str | None, data: str | None):
         """Dispatch a new item to all subscribers.
@@ -114,13 +120,23 @@ class Publisher:
         # Number of microseconds since epoch.
         key = int(time.time() * 1_000_000)
         msg = format_event("%x" % key, event, data)
-        # Put into cache.
-        self._cache.append((key, msg))
-        # Send to all subscribers.
-        for queue in self._sub_queues:
-            queue.put(msg)
+        # Put into cache, remembering what the cache no longer has: the
+        # oldest message makes room (or, with no room at all, this one
+        # never gets in).
+        if len(self._cache) == self._cache.maxlen:
+            old_key, old_event, _ = \
+                self._cache[0] if self._cache else (key, event, msg)
+            self._evicted[old_event] = old_key
+        self._cache.append((key, event, msg))
+        # Send to all subscribers that may get it. The others do not even
+        # wake up, so nothing they send tells that it happened.
+        for queue, dropped in self._sub_queues.items():
+            if event not in dropped:
+                queue.put(msg)
 
-    def get_subscriber(self, last_event_id: str | None = None) -> "Subscriber":
+    def get_subscriber(self, last_event_id: str | None = None,
+                       dropped: frozenset[str] = frozenset()
+                       ) -> "Subscriber":
         """Obtain a new subscriber.
 
         The returned subscriber will receive all messages after the one
@@ -130,6 +146,9 @@ class Publisher:
             client did receive, to request the one generated since
             then to be sent again. If not given no past message will
             be sent.
+        dropped: the types of event the client must not get, neither
+            live nor replayed. Whether it is asked to reinit depends on
+            the other types only.
 
         return: a new subscriber instance.
 
@@ -140,19 +159,21 @@ class Publisher:
         if last_event_id is not None and \
                 re.match("^[0-9A-Fa-f]+$", last_event_id):
             last_event_key = int(last_event_id, 16)
-            # An empty cache means that nothing was published since the
-            # creation: a client up to date as of then missed nothing.
-            oldest = self._cache[0][0] if self._cache else self._created
-            if last_event_key >= oldest:
+            # The cache has every message of the types the client gets
+            # that is newer than this.
+            complete_since = max([self._created] + [
+                evicted for event, evicted in self._evicted.items()
+                if event not in dropped])
+            if last_event_key >= complete_since:
                 # All missed events are in cache.
-                for key, msg in self._cache:
-                    if key > last_event_key:
+                for key, event, msg in self._cache:
+                    if key > last_event_key and event not in dropped:
                         queue.put(msg)
             else:
                 # Some events may be missing. Ask to reinit.
                 queue.put(b"event:reinit\ndata:\n\n")
         # Store the queue and return a subscriber bound to it.
-        self._sub_queues.add(queue)
+        self._sub_queues[queue] = dropped
         return Subscriber(queue)
 
 
@@ -236,6 +257,19 @@ class EventSource:
 
         """
         self._pub.put(event, data)
+
+    def dropped_events(self, environ) -> frozenset[str]:
+        """Tell which types of event a request must not get.
+
+        Intended for subclasses; by default a request gets them all.
+
+        environ: the WSGI environ of the request.
+
+        return: the types of event to keep off its stream, both live
+            and when missed events are sent again.
+
+        """
+        return frozenset()
 
     def __call__(self, environ, start_response):
         """Execute this instance as a WSGI application.
@@ -352,7 +386,8 @@ class EventSource:
             last_event_id = request.args.get("last_event_id")
 
         # We subscribe to the publisher to receive events.
-        sub = self._pub.get_subscriber(last_event_id)
+        sub = self._pub.get_subscriber(last_event_id,
+                                       self.dropped_events(environ))
 
         # Send some data down the pipe. We need that to make the user
         # agent announces the connection (see the spec.). Since it's a

@@ -287,6 +287,19 @@ class DataWatcher(EventSource):
     def score_callback(self, user: str, task: str, score: float):
         self.send("score", "%s %s %s" % (user, task, str(score)))
 
+    def dropped_events(self, environ) -> frozenset[str]:
+        """Keep the score events off a stream served as of a freeze.
+
+        environ: the WSGI environ of the request.
+
+        return: the score events if the visibility guard serves the
+            request as of a freeze time, else nothing.
+
+        """
+        if environ.get(FREEZE_AT_ENVIRON) is not None:
+            return frozenset({"score"})
+        return frozenset()
+
 
 class SubListHandler:
 

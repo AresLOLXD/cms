@@ -39,6 +39,7 @@ from gevent.pywsgi import WSGIServer
 from werkzeug.test import Client, create_environ
 
 from cmscommon.crypto import build_password, hash_password
+from cmscommon.eventsource import EventSource, Publisher, Subscriber
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
@@ -983,25 +984,41 @@ class TestRealEventStream(VisibilityTestCase):
 class TestStreamsAcrossTransitions(TestRealEventStream):
     """Public event streams across freezes, changes and restarts."""
 
-    def put_freeze(self, freeze_at: int):
-        """Freeze the group olim from freeze_at on, with no end."""
+    def put_freeze(self, freeze_at: int, unfreeze_at: int | None = None):
+        """Freeze the group olim from freeze_at to unfreeze_at."""
         self.client.put("/olim/visibility", data=json.dumps({
             "hide_at": None, "show_at": None, "freeze_at": freeze_at,
-            "unfreeze_at": None, "staff_password": STAFF_HASH}),
+            "unfreeze_at": unfreeze_at, "staff_password": STAFF_HASH}),
             content_type="application/json", headers=AUTH)
+
+    def put_data(self, path: str, data: dict):
+        """Send data to a store of olim, as the proxy does."""
+        self.client.put("/olim/" + path, data=json.dumps(data),
+                        content_type="application/json", headers=AUTH)
+
+    def put_submission(self):
+        """Send a task, a user and a submission of theirs to olim."""
+        self.put_data("tasks/", {"t": TestFrozenPublicView.TASK})
+        self.put_data("users/", {"u": {"f_name": "U", "l_name": "U",
+                                       "team": None}})
+        self.put_data("submissions/", {"s": {"user": "u", "task": "t",
+                                             "time": 100}})
+
+    def put_score(self, key: str = "c", score: float = 40.0):
+        """Score the submission of put_submission: a score event only."""
+        self.put_data("subchanges/", {key: {"submission": "s", "time": 100,
+                                            "score": score}})
 
     def put_scored_submission(self):
         """Send a task, a user and a submission that scores 40 to olim."""
-        for path, data in [
-                ("tasks/", {"t": TestFrozenPublicView.TASK}),
-                ("users/", {"u": {"f_name": "U", "l_name": "U",
-                                  "team": None}}),
-                ("submissions/", {"s": {"user": "u", "task": "t",
-                                        "time": 100}}),
-                ("subchanges/", {"c": {"submission": "s", "time": 100,
-                                       "score": 40.0}})]:
-            self.client.put("/olim/" + path, data=json.dumps(data),
-                            content_type="application/json", headers=AUTH)
+        self.put_submission()
+        self.put_score()
+
+    def short_pings(self, seconds: float):
+        """Make the event streams ping after seconds of silence."""
+        patcher = patch.object(EventSource, "_PING_TIMEOUT", seconds)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def get_events(self, path: str, last_event_id: str) -> bytes:
         """Reconnect to an event stream and return what it sends at once.
@@ -1009,15 +1026,19 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         path: the path of the event stream.
         last_event_id: the ID of the last event the client got.
 
-        return: the response, headers included, as read for a second.
+        return: the response, headers included, as read until the
+            stream is idle for half a second.
 
         """
         stream = self.connect(
             b"GET %s HTTP/1.1\r\nHost: rws\r\nAccept: text/event-stream\r\n"
             b"Last-Event-ID: %s\r\n\r\n"
             % (path.encode(), last_event_id.encode()))
-        stream.settimeout(1)
-        return self.drain(stream)[0]
+        stream.settimeout(0.5)
+        received = self.drain(stream)[0]
+        # What is asserted absent must not be absent for lack of time.
+        self.assertIn(b"200 OK", received)
+        return received
 
     @staticmethod
     def drain_for(stream: socket.socket,
@@ -1025,6 +1046,9 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         """Read until the server closes the stream, for at most seconds.
 
         Unlike drain, it ends even if pings keep coming.
+
+        stream: the connection to read from.
+        seconds: how long to read for at most.
 
         return: the received bytes and whether the server closed it.
 
@@ -1048,9 +1072,43 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.put_freeze(1)
         stream = self.open_stream()
         self.put_scored_submission()
+        stream.settimeout(0.5)
         data, _ = self.drain(stream)
         self.assertNotIn(b"event:score", data)
         self.assertIn(b"event:user", data)
+
+    def test_a_dropped_score_change_sends_nothing_before_the_ping(self):
+        # Nothing the client gets may tell when a score changed.
+        self.short_pings(1.0)
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        self.put_submission()
+        stream = self.open_stream()
+        opened = time.monotonic()
+        gevent.sleep(0.5)
+        self.put_score()
+        stream.settimeout(2)
+        chunk = stream.recv(65536)
+        elapsed = time.monotonic() - opened
+        self.assertEqual(chunk, b"2\r\n:\n\r\n")
+        # The regular ping, 1 s after the stream opened: not sent at the
+        # score change, nor 1 s after it.
+        self.assertGreaterEqual(elapsed, 0.8)
+        self.assertLess(elapsed, 1.3)
+
+    def test_dropped_score_events_do_not_decide_the_reinit(self):
+        # With room for two events, two score changes push out of the
+        # cache all the events that the client may get.
+        self.config.buffer_size = 2
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        self.put_submission()
+        last_id = "%x" % int(time.time() * 1_000_000)
+        self.put_score("c1", 40.0)
+        self.put_score("c2", 90.0)
+        data = self.get_events("/olim/events", last_id)
+        self.assertNotIn(b"reinit", data)
+        self.assertNotIn(b"event:score", data)
 
     def test_replayed_score_events_are_dropped_while_frozen(self):
         self.put_contest("/olim")
@@ -1072,13 +1130,31 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.assertIn(b"event:reload\ndata:\n\n", response.get_data())
 
     def test_open_stream_is_cut_when_the_freeze_starts(self):
+        self.short_pings(0.5)
         self.put_contest("/olim")
         start = time.time()
         self.put_freeze(int(start) + 2)
         stream = self.open_stream()
-        # The 15 s ping is the first write after freeze_at.
-        _, closed = self.drain_for(stream, 20)
+        # A ping is the first write after freeze_at.
+        _, closed = self.drain_for(stream, 5)
         self.assertTrue(closed)
+
+    def test_open_stream_is_cut_when_the_freeze_ends(self):
+        self.short_pings(0.5)
+        self.put_contest("/olim")
+        self.put_submission()
+        start = time.time()
+        self.put_freeze(1, int(start) + 2)
+        stream = self.open_stream()
+        # A ping is the first write after unfreeze_at.
+        _, closed = self.drain_for(stream, 5)
+        self.assertTrue(closed)
+        # The stream the browser opens then is not filtered.
+        stream = self.open_stream()
+        self.put_score()
+        stream.settimeout(0.5)
+        data, _ = self.drain(stream)
+        self.assertIn(b"event:score", data)
 
     def test_frozen_stream_is_cut_when_hidden(self):
         self.put_contest("/olim")
@@ -1103,6 +1179,93 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         # A page loaded since the restart missed nothing: told to reinit,
         # it would reload itself for as long as the cache stays empty.
         self.assertNotIn(b"reinit", self.get_events("/events", after))
+
+
+class TestDroppedEvents(unittest.TestCase):
+    """The event cache, for subscribers that must not get some events."""
+
+    SCORES = frozenset({"score"})
+
+    @staticmethod
+    def pending(subscriber: Subscriber) -> bytes:
+        """Return what the subscriber has to send now, without waiting."""
+        with gevent.Timeout(0.01, False):
+            return b"".join(subscriber.get())
+        return b""
+
+    @staticmethod
+    def id_now() -> str:
+        """Return an event ID strictly between the events around it."""
+        time.sleep(0.001)
+        now = "%x" % int(time.time() * 1_000_000)
+        time.sleep(0.001)
+        return now
+
+    def test_only_dropped_events_send_nothing(self):
+        publisher = Publisher(10)
+        subscriber = publisher.get_subscriber(dropped=self.SCORES)
+        publisher.put("score", "u t 40.0")
+        publisher.put("score", "u t 90.0")
+        self.assertEqual(self.pending(subscriber), b"")
+
+    def test_dropped_event_between_two_others(self):
+        publisher = Publisher(10)
+        subscriber = publisher.get_subscriber(dropped=self.SCORES)
+        publisher.put("user", "create u1")
+        publisher.put("score", "u1 t 40.0")
+        publisher.put("user", "create u2")
+        data = self.pending(subscriber)
+        self.assertEqual(re.findall(rb"data:(.*)", data),
+                         [b"create u1", b"create u2"])
+
+    def test_data_that_looks_like_a_dropped_event_is_kept(self):
+        publisher = Publisher(10)
+        subscriber = publisher.get_subscriber(dropped=self.SCORES)
+        publisher.put("user", "event:score")
+        self.assertIn(b"data:event:score", self.pending(subscriber))
+
+    def test_replay_skips_dropped_events(self):
+        publisher = Publisher(10)
+        last_id = self.id_now()
+        publisher.put("score", "u t 40.0")
+        publisher.put("user", "create u")
+        data = self.pending(publisher.get_subscriber(last_id, self.SCORES))
+        self.assertEqual(re.findall(rb"data:(.*)", data), [b"create u"])
+
+    def test_evicted_dropped_events_do_not_ask_to_reinit(self):
+        publisher = Publisher(2)
+        publisher.put("user", "create u")
+        last_id = self.id_now()
+        for score in ("40.0", "90.0", "100.0"):
+            publisher.put("score", "u t " + score)
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(last_id, self.SCORES)), b"")
+        # The same client, when it gets the scores, did miss one.
+        self.assertIn(b"event:reinit\ndata:\n\n",
+                      self.pending(publisher.get_subscriber(last_id)))
+
+    def test_a_missed_evicted_event_asks_to_reinit(self):
+        publisher = Publisher(2)
+        before = self.id_now()
+        publisher.put("user", "create u1")
+        between = self.id_now()
+        publisher.put("user", "create u2")
+        publisher.put("user", "create u3")
+        self.assertIn(b"event:reinit\ndata:\n\n",
+                      self.pending(publisher.get_subscriber(before)))
+        # A client that got u1, the one evicted, missed nothing gone.
+        data = self.pending(publisher.get_subscriber(between))
+        self.assertEqual(re.findall(rb"data:(.*)", data),
+                         [b"create u2", b"create u3"])
+
+    def test_a_cache_without_room(self):
+        publisher = Publisher(0)
+        before = self.id_now()
+        publisher.put("user", "create u")
+        self.assertIn(b"event:reinit\ndata:\n\n",
+                      self.pending(publisher.get_subscriber(before)))
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(self.id_now())), b"")
 
 
 class TestLoginBodyLimit(VisibilityTestCase):

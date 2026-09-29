@@ -70,13 +70,14 @@ FREEZE_AT_ENVIRON = "cmsranking.freeze_at"
 # This is an allow-list: a segment that is not here is refused. Every route
 # of the namespace app and every top-level entry of the static directory
 # must be listed (a test checks it): "filter" is served as of the freeze
-# time, "forbid" is refused, "pass" carries nothing that changes after the
-# freeze.
+# time (the event stream without its score events), "forbid" is refused,
+# "pass" carries nothing that changes after the freeze.
 FROZEN_ROUTES = {
     "": "pass", "contests": "pass", "tasks": "pass", "teams": "pass",
     "users": "pass", "faces": "pass", "flags": "pass", "logo": "pass",
-    "config": "pass", "events": "pass",
+    "config": "pass",
     "scores": "filter", "history": "filter", "sublist": "filter",
+    "events": "filter",
     "submissions": "forbid", "subchanges": "forbid",
     # The static files.
     "Ranking.html": "pass", "Ranking.css": "pass", "Ranking.js": "pass",
@@ -172,23 +173,6 @@ def public_frozen_banner(freeze_at: int) -> bytes:
 
 
 BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
-SCORE_EVENT = re.compile(rb"^event:score$", re.MULTILINE)
-
-
-def _drop_score_events(data: bytes) -> bytes:
-    """Remove the score events from a chunk of an event stream.
-
-    data: one or more complete Server-Sent Events messages, each ended
-        by a blank line, or a ping comment.
-
-    return: the chunk without score events; a ping comment if nothing
-        is left, since an empty write could end a chunked response.
-
-    """
-    messages = data.split(b"\n\n")
-    kept = [m for m in messages if not SCORE_EVENT.search(m)]
-    result = b"\n\n".join(kept)
-    return result if result.strip() else b":\n"
 
 
 def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
@@ -645,7 +629,8 @@ class VisibilityGuard:
         start_response(captured["status"], headers)
         return [body]
 
-    def _guard_writes(self, request: Request, start_response):
+    def _guard_writes(self, request: Request, start_response,
+                      opened_at: float):
         """Wrap start_response so write() follows the public view.
 
         The /events handler sends its data through the write() callable
@@ -654,17 +639,22 @@ class VisibilityGuard:
         closing the connection makes the browser reconnect: to get the
         403, or to be told to reload if the view changed meanwhile.
 
+        The public view a request gets is decided when it comes (while
+        frozen, the event stream leaves the score events out from the
+        start): any change of that view cuts the stream at its next
+        write.
+
         request: the request being served.
         start_response: the WSGI start_response callable.
+        opened_at: the Unix time at which the request came, the one its
+            view was decided at.
 
         return: a start_response whose write() callables refuse to send
             data to a public client once the group is hidden or its view
-            changed since the request came, and drop the score events
-            while it is frozen.
+            changed since the request came.
 
         """
         handler = getattr(start_response, "__self__", None)
-        opened_at = time.time()
 
         def guarded_start_response(status, headers, exc_info=None):
             write = start_response(status, headers, exc_info)
@@ -677,8 +667,6 @@ class VisibilityGuard:
                         _close_connection(start_response)
                         raise ConnectionAbortedError(
                             "The ranking changed its visibility.")
-                    if self.state.settings.frozen(now):
-                        data = _drop_score_events(data)
                 return write(data)
 
             return guarded_write
@@ -694,7 +682,7 @@ class VisibilityGuard:
         now = time.time()
         hidden = self.state.settings.hidden(now)
         frozen = self.state.settings.frozen(now)
-        start_response = self._guard_writes(request, start_response)
+        start_response = self._guard_writes(request, start_response, now)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
