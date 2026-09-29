@@ -1098,7 +1098,7 @@ class EvaluationServiceFailurePathsTest(
             ESOperation.USER_TEST_EVALUATION, 987654321, first.dataset.id)
 
         with self.assertLogs(
-                "cms.service.EvaluationService", level="ERROR") as logs:
+                "cms.service.EvaluationService", level="INFO") as logs:
             await self.service.write_results([
                 (first.compilation(), Result(job, True)),
                 (no_dataset, Result(job, True)),
@@ -1108,11 +1108,26 @@ class EvaluationServiceFailurePathsTest(
                 (second.compilation(), Result(job, True))])
         await self._wait_until_idle()
 
-        messages = [record.getMessage() for record in logs.records]
+        messages = [record.getMessage() for record in logs.records
+                    if record.levelname == "ERROR"]
         for missing in ("dataset 987654321", "submission 987654321",
                         "user test 987654321"):
             self.assertIn("Could not find %s in the database." % missing,
                           messages)
+        # The loop that ends the operations says what it skips too.
+        self.assertEqual(
+            [record.getMessage() for record in logs.records
+             if "not found, not ending" in record.getMessage()],
+            ["Result of %s not found, not ending its %s." % skipped
+             for skipped in (
+                 ("submission %d(987654321)" % first.submission.id,
+                  "compilation"),
+                 ("submission 987654321(%d)" % first.dataset.id,
+                  "compilation"),
+                 ("user test 987654321(%d)" % first.dataset.id,
+                  "compilation"),
+                 ("user test 987654321(%d)" % first.dataset.id,
+                  "evaluation"))])
         for fixture in (first, second):
             self.assertTrue(self._load_result(fixture).compilation_failed())
         self.assertEqual(self.notifications.call_count, 2)
