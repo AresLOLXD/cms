@@ -139,7 +139,7 @@ Everything else has a sensible default and can be left as-is on the first try.
 
 The script asks two questions:
 - **Use local database (Docker)?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly.
-- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code, choose `4) CMS only` (`2) All services` is also fine for a single-contest deployment; a multi-contest one follows the two steps in [docs/multi-contest.md](docs/multi-contest.md)).
+- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment follows the two steps in [docs/multi-contest.md](docs/multi-contest.md) instead.
 
 ### Step 4 — Import a contest and set it as active
 
@@ -229,9 +229,10 @@ docker run --rm -v cms-prod_cms-data:/data busybox rm -rf /data/python3.12
 ```
 
 This removes only the stale code copy; `submissions/`, `tests/` and `telegram/`
-in the volume are not touched. Keep the directory if you may roll back to a
-checkout from before this change: its compose file mounts the volume over the
-code again, and without that directory the `cms` container cannot start.
+in the volume are not touched. Do not roll back to a checkout from before this
+change: its compose file mounts the volume over the code again, so the `cms`
+container runs that stale copy instead of the checkout's code, and if the
+directory was deleted it cannot start at all.
 
 ### Troubleshooting
 
