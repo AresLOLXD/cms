@@ -457,6 +457,7 @@ class TestPlanImportLosses(ImportFixtureMixin, unittest.TestCase):
         super().setUp()
         self.afternoon = self.get_group(name="tarde", contest=self.contest)
         self.session.add(self.afternoon)
+        self.add_team(code="CDMX", name="Ciudad de México")
         # Every combination of a current team and a current group, in this
         # contest: ana has neither (main group, no team).
         self.add_participant("carla", team=self.team)
@@ -503,6 +504,25 @@ class TestPlanImportLosses(ImportFixtureMixin, unittest.TestCase):
 
         self.assertEqual((plan.removed_teams, plan.moved_to_main_group),
                          (0, 0))
+
+    def test_a_row_that_changes_the_team_clears_nothing(self):
+        # carla and eva are in JAL and the row gives CDMX: the team is
+        # replaced, not lost. Counting any change of team as a loss would
+        # give 2 here.
+        plan = self.plan([import_row(2, "carla", team="CDMX"),
+                          import_row(3, "eva", team="CDMX", group="tarde")])
+
+        self.assertEqual(plan.removed_teams, 0)
+
+    def test_a_row_that_gives_the_main_group_moves_nothing_to_it(self):
+        # dora and eva are in "tarde" and the row names the main group: an
+        # explicit choice, not the empty cell that this count warns about.
+        # Counting any change of group would give 2 here.
+        main_group = self.contest.main_group.name
+        plan = self.plan([import_row(2, "dora", group=main_group),
+                          import_row(3, "eva", team="JAL", group=main_group)])
+
+        self.assertEqual(plan.moved_to_main_group, 0)
 
     def test_only_the_missing_cell_counts(self):
         plan = self.plan([import_row(2, "eva", team="JAL")])

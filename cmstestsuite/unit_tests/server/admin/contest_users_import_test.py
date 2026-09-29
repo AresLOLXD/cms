@@ -462,6 +462,26 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
             self.assertEqual(NOT_FOUND in html, bool(form))
             self.assertNotIn(NOT_APPLIED, html)
 
+    def test_a_job_of_another_contest_shows_nothing_of_it(self):
+        # The job exists, but it is not of this contest: the page must not
+        # reveal its id, its status URL or its progress.
+        handler = make_handler(form={"job": "job-1", "repetido": "1"})
+        job = SimpleNamespace(id="job-1", contest_id=CONTEST_ID + 1,
+                              processed=2, total=4)
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = job
+            handler._get_sync(str(CONTEST_ID))
+
+        html = self.render_last_page(handler)
+
+        self.assertIn(NOT_FOUND, html)
+        self.assertNotIn("job-1", html)
+        # The script of the page names the attribute, so look for the
+        # element that carries it.
+        self.assertNotIn('id="import_job"', html)
+        self.assertNotIn("<progress", html)
+        self.assertNotIn(REPEATED_NOTICE, html)
+
     def test_the_notice_of_a_running_import(self):
         handler = make_handler(form=import_form("import"))
         with mock.patch(MODULE + ".plan_import",
