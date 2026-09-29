@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
@@ -13,7 +14,8 @@ from cmstestsuite.unit_tests.servicelogmixin import \
 from cms import config
 from cms.conf import Address
 from cms.db import RankingGroup
-from cms.service.ProxyService import ProxyService, encode_id
+from cms.service.ProxyService import ProxyExecutor, ProxyService, \
+    encode_id
 from cmscommon.constants import SCORE_MODE_MAX
 
 
@@ -58,6 +60,22 @@ class TestProxyServiceGroups(
         self.requests_delete = delete_patcher.start()
         self.addCleanup(delete_patcher.stop)
         self.requests_delete.return_value.status_code = 204
+
+        # Count the batches the executor is sending, for _settle().
+        self.executions_in_flight = 0
+        real_execute = ProxyExecutor.execute
+
+        async def counting_execute(executor, entries):
+            self.executions_in_flight += 1
+            try:
+                await real_execute(executor, entries)
+            finally:
+                self.executions_in_flight -= 1
+
+        execute_patcher = patch.object(
+            ProxyExecutor, "execute", counting_execute)
+        execute_patcher.start()
+        self.addCleanup(execute_patcher.stop)
 
         self.olim = RankingGroup(name="olim", description="OLIM")
         self.omips = RankingGroup(name="omips", description="OMIPS")
@@ -151,21 +169,32 @@ class TestProxyServiceGroups(
         # task batch, before this then enqueues already-scored
         # submissions the same way the sweeper's first run would.
         await service._missing_operations()
-        await self._wait_until(
-            lambda: any("submissions/" in u for u in self.put_urls()))
+        await self._settle(service)
         return service
 
-    async def _wait_until(self, predicate, attempts: int = 50) -> None:
-        """Poll predicate() until it is true, or give up.
+    async def _settle(self, service: ProxyService, timeout: float = 10.0):
+        """Wait until the service has sent everything it enqueued.
 
-        predicate: a zero-argument callable to poll.
-        attempts: how many times to poll, sleeping 0.05s between tries.
+        Call it right after awaiting the service method under test.
+        The operations that method enqueues from its worker thread reach
+        the executor in order, all before the method's own result does,
+        but the executor may send them in several batches. So waiting
+        for some request to show up is not enough: a later batch would
+        land after the test cleared the recorded requests, or after it
+        checked them. An empty queue with no batch in flight means the
+        rankings have received everything.
+
+        service: the service whose executor to wait for.
+        timeout: seconds after which to fail the test.
 
         """
-        for _ in range(attempts):
-            if predicate():
-                return
-            await asyncio.sleep(0.05)
+        executor = service.get_executor()
+        deadline = time.monotonic() + timeout
+        while executor.get_status() or self.executions_in_flight:
+            if time.monotonic() > deadline:
+                self.fail("The service did not finish sending its "
+                          "operations in %s seconds." % timeout)
+            await asyncio.sleep(0.005)
 
     def clear_requests(self):
         self.requests_put.reset_mock()
@@ -207,14 +236,14 @@ class TestProxyServiceGroups(
         service = await self.start()
         self.clear_requests()
         await service.submission_scored(self.sub_c.id)
-        await asyncio.sleep(0.1)
+        await self._settle(service)
         self.assertEqual(self.put_urls(), [])
 
     async def test_submission_scored_goes_to_its_group(self):
         service = await self.start()
         self.clear_requests()
         await service.submission_scored(self.sub_b.id)
-        await self._wait_until(lambda: self.put_urls() != [])
+        await self._settle(service)
         self.assertIn(url("omips/submissions/"), self.put_urls())
         self.assertNotIn(url("olim/submissions/"), self.put_urls())
 
@@ -224,8 +253,7 @@ class TestProxyServiceGroups(
         self.contest_a.ranking_group = self.omips
         self.session.commit()
         await service.reinitialize()
-        await self._wait_until(
-            lambda: self.delete_urls() != [] and self.put_urls() != [])
+        await self._settle(service)
         self.assertEqual(self.delete_urls(),
                          [url("olim/contests/"), url("olim/users/")])
         self.assertIn(encode_id(self.contest_a.name),
@@ -246,15 +274,15 @@ class TestProxyServiceGroups(
         self.contest_a.description = "Renamed"
         self.session.commit()
         await service.reinitialize()
-        await self._wait_until(lambda: self.put_urls() != [])
+        await self._settle(service)
+        self.assertNotEqual(self.put_urls(), [])
         self.assertEqual(self.delete_urls(), [])
 
     async def test_regenerate_group_only_touches_its_namespace(self):
         service = await self.start()
         self.clear_requests()
         await service.regenerate_ranking("olim")
-        await self._wait_until(
-            lambda: self.delete_urls() != [] and self.put_urls() != [])
+        await self._settle(service)
         self.assertEqual(self.delete_urls(),
                          [url("olim/contests/"), url("olim/users/")])
         # Already-sent scores are sent again.
@@ -265,7 +293,7 @@ class TestProxyServiceGroups(
         service = await self.start()
         self.clear_requests()
         await service.regenerate_ranking(None)
-        await self._wait_until(lambda: self.delete_urls() != [])
+        await self._settle(service)
         self.assertEqual(self.delete_urls(),
                          [url("contests/"), url("users/")])
         self.assertEqual(self.put_urls(), [])
@@ -295,8 +323,7 @@ class TestProxyServiceGroups(
         self.session.commit()
         self.break_contest(contest_a3)
         await service.reinitialize()
-        await self._wait_until(
-            lambda: self.delete_urls() != [] and self.put_urls() != [])
+        await self._settle(service)
 
         self.assertEqual(self.delete_urls(),
                          [url("olim/contests/"), url("olim/users/")])
@@ -312,14 +339,14 @@ class TestProxyServiceGroups(
         # Live scores of the broken contest are held back too.
         self.clear_requests()
         await service.submission_scored(sub_a3.id)
-        await asyncio.sleep(0.1)
+        await self._settle(service)
         self.assertEqual(self.put_urls(), [])
 
         # Once the task is fixed, the next reinitialize sends the
         # contest and all of its submissions.
         self.broken_datasets.clear()
         await service.reinitialize()
-        await self._wait_until(lambda: self.put_urls() != [])
+        await self._settle(service)
         self.assertEqual(self.delete_urls(), [])
         self.assertIn(encode_id(contest_a3.name),
                       self.put_payload(url("olim/contests/")))
@@ -333,8 +360,7 @@ class TestProxyServiceGroups(
         self.clear_requests()
         self.break_contest(contest_a2)
         await service.regenerate_ranking("olim")
-        await self._wait_until(
-            lambda: self.delete_urls() != [] and self.put_urls() != [])
+        await self._settle(service)
         self.assertEqual(self.delete_urls(),
                          [url("olim/contests/"), url("olim/users/")])
         self.assertEqual(set(self.put_payload(url("olim/contests/"))),
