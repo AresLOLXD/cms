@@ -56,16 +56,23 @@ All items traced to source file `backlog-draft.md` (§ letter). Status marks: �
 
 | Package | Items | Effort | Oct 10 | Status | Notes |
 |---|---|---|---|---|---|
-| **MC-2 minimal** | Visibility design | — | Must | ✓ Done | Spec: 2026-09-29-mc2-ranking-visibility-design.md |
-| **SP1: Ranking Reliability** | B3, B4a, N2-B, B2, B1, N1-B | ~1.5-2d | Must | ◐ In progress | Transport/5xx requeue, 4xx drop+hint, inactive on import, sweeper retry. Needs tests. |
-| **SP2: Real CI (isolate)** | N1-D, D1, D3, D9, D7, C12, N3-D | ~1d + user | Must | ◻ Planned | Actions enable (user click), codecov host fix (both branches), cherry-pick b6f37b07, upstream sync, .venv rebuild. |
-| **SP3: Deployment & Checks** | Server checks, deployment plan, operator docs | ~0.5d | Must | ◻ Planned | MC-2 ops guide in docs/multi-contest.md; cms-test rehearsal plan (2026-10-03 to 2026-10-09). |
-| **SP4: CWS Load Spike** | Measure beta vs main, A13 instrumented | ~0.5d | Should | ◻ Planned | Stress test 2.5c vs main latency. < 1.25x → land 2.5c alone. >= 1.25x → multi-CWS or full A14. Gates A14/instance decision. |
+| **MC-2 minimal** | Visibility design + implementation | — | Must | ✓ Done | Spec: 2026-09-29-mc2-ranking-visibility-design.md. Implemented c55ece2f..a883c74a (DB, AWS, ProxyService, RWS guard, staff login); Chromium E2E passed; final review READY TO MERGE. |
+| **SP1: Ranking Reliability** | B3, B4a, N2-B, B2, B1, N1-B | ~1.5-2d | Must | ✓ Done | Lane B (57f7d539 and earlier) plus fix wave A: per-group backoff 33680f24, unencodable data 919572d6, reinitialize log f2d2e303, ScoringService notify bound c470ee4d, due-group wake 6bd819c7, batching window eca36d05, sweep resends visibility 433ee4ef. |
+| **SP2: Real CI (isolate)** | N1-D, D1, D3, D9, D7, C12, N3-D | ~1d + user | Must | ✓ Done | Workflow + timeouts + permissions (168a21f4 and earlier); local full run on rootful Docker at b85e0520: 1305 unit, 32 docker, 341/341 functional with isolate. Harness/codecov port to `main` still open. |
+| **SP3: Deployment & Checks** | Server checks, deployment plan, operator docs | ~0.5d | Must | ◐ In progress | Operator guide done (docs/multi-contest.md: deploy Ranking first then CMS, safe rollback = CMS only, manual visibility lever). Pending: deployment plan, `CMS_CWS_COUNT=2` + port layout + proxy config, server checks (commands only), cms-test rehearsal 2026-10-03..09. |
+| **SP4: CWS Load Spike** | Measure beta vs main, A13 instrumented | ~0.5d | Should | ✓ Done | Beta = main up to ~50 rps (a 300-contestant contest is ~30-60 rps); saturation ~105 vs ~120 rps; main hits QueuePool exhaustion under overload, beta doesn't. Biggest risk: bcrypt login stampede. Decision: `CMS_CWS_COUNT=2`, contestants log in before the start, login bcrypt off the loop (lane F: 3599257f, e8c194ce). 2.5c not needed for Oct 10. |
 | **SP5: Live-Contest Hardening** | A13 (measure), A14, A15+N2-A+N7-A, V1, N4-A | ~1.5-2d | Should | ◻ Planned | Admission semaphore, log backpressure, RPC fire-and-forget timeouts, WebService shutdown order. A14 gates 2.5c. |
 | **Q1: Code Quick Wins** | B7, B5, B6a+b, B8+B9d+B10b, B9b, B10h, B11, N8-A, A12 | ~1d | Should | ◻ Planned | Static cache, cache_ok, registry fix, auth cleanup, shutdown logs, xsrf error page, service log level, executor cleanup. |
 | **Q2: Test Quick Wins** | C3, C9, C6, C7, C4, N2-C, N5-C, R-M2, R-N1/N2/N3 | ~1d | Should | ◻ Planned | _settle mixin, lock try/finally, handler/renderer tests, template smoke test, CWS error paths, nits. |
 | **Q3: Doc Quick Wins** | E1/N1-A, E2, E4, E5, E6, E7a/b, E8, E9, E10 | ~0.5d | Should | ◻ Planned | README Worker, async "infrastructure only", CLAUDE.md beta architecture, specs 2.2/2.3/2.5a resolved notes, backdoor skip docs. |
 | **Q4: Infra Quick Wins** | N5-D, N8-D, Tornado >= 6.5.8 (N2-D), optional D2 | ~0.5d | Should | ◻ Planned | .dockerignore (.worktrees, .venv, .pytest_cache), OCI image revision label, Tornado security bump. |
+
+**Deferred after the final review (2026-09-29), not blocking Oct 10:**
+- ProxyService: waiting groups' entries kept per group outside the heap (each round is still O(backlog) while a group backs off); batch-size cap (M6); a due failing group that times out (120 s) shares the send thread with healthy groups; partial-failure full resend and concurrent-reinitialize restore (M3); one sweeper session for all contests (M5); no-send rounds log "concluded successfully".
+- RWS: staff at a hidden group's `/Ranking.html` get no banner; `#TeamSearch_bg` may overlap the narrow banner by up to 8 px; unbounded queue in front of the login pool; pre-existing `HEAD /` without Content-Length.
+- CWS: `RegistrationHandler._get_user` still checks bcrypt on the loop; no in-repo Tornado-pipeline test of the async login; the pool size ignores container CPU quotas.
+- Tests: no functional test hides a group (Chromium E2E covered it by hand); the functional harness never asserts data reached RWS; ScoringService_test background-scoring race (flake under heavy load).
+- Bugs found: ES `ZeroDivisionError` with `CMS_WORKER_COUNT=0` (not a production setup); `docker-compose.dev.yml` ranking credentials mismatch.
 
 **Committed in Oct 10 package to date (HEAD 1b5a149d):**
 - ✓ CWS RPC handler schedule_rpc moved to CommonRequestHandler (4d431e28)
