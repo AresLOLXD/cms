@@ -30,6 +30,8 @@
 
 """
 
+import asyncio
+
 from sqlalchemy import select, func, update
 
 from cms.db import Contest, Participation, Submission, Team, Group, User
@@ -41,7 +43,11 @@ from .base import BaseHandler, SimpleContestHandler, SimpleHandler, \
 
 class UserHandler(BaseHandler):
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, user_id):
+    async def get(self, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, user_id)
+
+    def _get_sync(self, user_id):
         user = self.safe_get_item(User, user_id)
 
         self.r_params = self.render_params()
@@ -61,7 +67,11 @@ class UserHandler(BaseHandler):
         self.render("user.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, user_id):
+    async def post(self, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, user_id)
+
+    def _post_sync(self, user_id):
         fallback_page = self.url("user", user_id)
 
         user = self.safe_get_item(User, user_id)
@@ -106,7 +116,11 @@ class UserListHandler(SimpleHandler("users.html")):
     REMOVE = "Remove"
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         user_id: str = self.get_argument("user_id")
         operation: str = self.get_argument("operation")
 
@@ -128,7 +142,11 @@ class TeamListHandler(SimpleHandler("teams.html")):
     REMOVE = "Remove"
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         team_id: str = self.get_argument("team_id")
         operation: str = self.get_argument("operation")
 
@@ -149,7 +167,11 @@ class RemoveUserHandler(BaseHandler):
     """
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, user_id):
+    async def get(self, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, user_id)
+
+    def _get_sync(self, user_id):
         user = self.safe_get_item(User, user_id)
         submission_query = select(Submission)\
             .join(Submission.participation)\
@@ -165,7 +187,11 @@ class RemoveUserHandler(BaseHandler):
         self.render("user_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, user_id):
+    async def delete(self, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, user_id)
+
+    def _delete_sync(self, user_id):
         user = self.safe_get_item(User, user_id)
 
         self.sql_session.delete(user)
@@ -183,7 +209,11 @@ class RemoveTeamHandler(BaseHandler):
     """
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, team_id):
+    async def get(self, team_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, team_id)
+
+    def _get_sync(self, team_id):
         team = self.safe_get_item(Team, team_id)
         participation_query = select(Participation).filter(
             Participation.team == team
@@ -197,7 +227,11 @@ class RemoveTeamHandler(BaseHandler):
         self.render("team_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, team_id):
+    async def delete(self, team_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, team_id)
+
+    def _delete_sync(self, team_id):
         team = self.safe_get_item(Team, team_id)
         try:
 
@@ -228,7 +262,11 @@ class TeamHandler(BaseHandler):
     If referred by POST, this handler will sync the team data with the form's.
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, team_id):
+    async def get(self, team_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, team_id)
+
+    def _get_sync(self, team_id):
         team = self.safe_get_item(Team, team_id)
 
         self.r_params = self.render_params()
@@ -236,7 +274,11 @@ class TeamHandler(BaseHandler):
         self.render("team.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, team_id):
+    async def post(self, team_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, team_id)
+
+    def _post_sync(self, team_id):
         fallback_page = self.url("team", team_id)
 
         team = self.safe_get_item(Team, team_id)
@@ -267,7 +309,11 @@ class TeamHandler(BaseHandler):
 
 class AddTeamHandler(SimpleHandler("add_team.html", permission_all=True)):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         fallback_page = self.url("teams", "add")
 
         try:
@@ -299,7 +345,11 @@ class AddTeamHandler(SimpleHandler("add_team.html", permission_all=True)):
 
 class AddUserHandler(SimpleHandler("add_user.html", permission_all=True)):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         fallback_page = self.url("users", "add")
 
         try:
@@ -338,7 +388,11 @@ class AddUserHandler(SimpleHandler("add_user.html", permission_all=True)):
             self.redirect(fallback_page)
 class AddParticipationHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, user_id):
+    async def post(self, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, user_id)
+
+    def _post_sync(self, user_id):
         fallback_page = self.url("user", user_id)
 
         user = self.safe_get_item(User, user_id)
@@ -376,7 +430,11 @@ class AddParticipationHandler(BaseHandler):
 
 class EditParticipationHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, user_id):
+    async def post(self, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, user_id)
+
+    def _post_sync(self, user_id):
         fallback_page = self.url("user", user_id)
 
         user = self.safe_get_item(User, user_id)
@@ -422,7 +480,11 @@ class GroupListHandler(SimpleContestHandler("groups.html")):
     MAKE_MAIN = "Make main group"
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "groups")
 
         try:
@@ -480,7 +542,11 @@ class AddGroupHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "groups", "add")
 
         try:
@@ -515,7 +581,11 @@ class AddGroupHandler(BaseHandler):
 
 class GroupHandler(BaseHandler):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, contest_id, group_id):
+    async def get(self, contest_id, group_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, group_id)
+
+    def _get_sync(self, contest_id, group_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         self.r_params = self.render_params()
@@ -527,7 +597,11 @@ class GroupHandler(BaseHandler):
         self.render("group.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id, group_id):
+    async def post(self, contest_id, group_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id, group_id)
+
+    def _post_sync(self, contest_id, group_id):
         fallback_page = self.url("contest", contest_id,
                                  "group", group_id, "edit")
 
