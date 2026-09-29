@@ -94,7 +94,11 @@ def test_dockerfile_creates_the_data_dir_as_cmsuser(monkeypatch):
     _set(monkeypatch)
     data_dir = tomllib.loads(gc.generate_cms_toml())["global"]["data_dir"]
     mkdir = re.compile(r"RUN mkdir( -p)? " + re.escape(data_dir))
-    with open(os.path.join(os.path.dirname(__file__), "..", "Dockerfile")) as f:
+    dockerfile = os.path.join(os.path.dirname(__file__), "..", "Dockerfile")
+    if not os.path.isfile(dockerfile):
+        pytest.skip("Dockerfile is not in this tree: .dockerignore keeps it out "
+                    "of the image that runs the tests in CI")
+    with open(dockerfile) as f:
         lines = [line.strip() for line in f]
 
     user = "root"

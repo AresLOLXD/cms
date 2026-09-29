@@ -149,7 +149,15 @@ If ProxyService cannot deliver the visibility settings to RankingWebServer
 
 Update RankingWebServer **first**, then the rest:
 
-1. `./up.sh` and choose **Ranking only**. Wait until it is up.
+1. Rebuild and restart only the ranking container, from the repository root:
+
+       bash -c 'source docker/_lib.sh && "${COMPOSE_CMD[@]}" up -d --build --no-deps --wait ranking'
+
+   It takes the project name (`CMS_PROJECT_NAME`) and the database profile from
+   `.env`, like `./up.sh`, and returns once the container is up. Don't use
+   `./up.sh` with **Ranking only** here: it builds only the ranking image but
+   then starts every service, so `cms` is recreated with its old image, before
+   step 2 rebuilds it.
 2. `./up.sh` and choose **CMS only**. This runs `cmsSetupDB` (the `db-init`
    service), which adds the new columns, and restarts AWS and ProxyService.
 3. Check the ProxyService log (`./logs.sh`) for "rejected the visibility".
