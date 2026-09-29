@@ -26,6 +26,7 @@ the real finish to Tornado's auto-finish on the loop thread.
 
 import asyncio
 import unittest
+from unittest.mock import MagicMock
 
 import tornado.web
 from tornado.httpclient import AsyncHTTPClient
@@ -75,6 +76,9 @@ class TestBaseHandlerExecutorFinish(unittest.IsolatedAsyncioTestCase):
             (r"/finish", _FinishHandler),
             (r"/notfound", _NotFoundHandler),
         ])
+        # As WebService sets it: the handlers need it when created, for
+        # the static file hasher.
+        app.service = MagicMock()
         sockets = bind_sockets(0, "127.0.0.1")
         self.port = sockets[0].getsockname()[1]
         self.server = HTTPServer(app)

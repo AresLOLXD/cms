@@ -155,6 +155,8 @@ class TestScheduleRpcOnContestHandlers(unittest.IsolatedAsyncioTestCase):
             auth_handler=None, num_proxies_used=0, contest_id=1)
         handler.request = MagicMock(
             headers={}, remote_ip="127.0.0.1", path="/")
+        # Set by __init__, which __new__ skips.
+        handler.url = MagicMock()
         handler.contest = MagicMock(allowed_localizations=[])
         handler.choose_contest = AsyncMock()
         handler.setup_locale = MagicMock()

@@ -258,8 +258,12 @@ class CommonRequestHandler(RequestHandler):
         self.sql_session = Session()
         self.r_params = None
         self.contest = None
-        self.url: Url = None
-        self.static_url_helper = None
+        # Set here, not in prepare(): Tornado checks the XSRF token
+        # before calling prepare(), and the error page of that failure
+        # needs them.
+        self.url: Url = Url(get_url_root(self.request.path))
+        self.static_url_helper = self.service.static_file_hasher.make(
+            self.url)
 
     async def prepare(self):
         """This method is executed at the beginning of each request.
@@ -291,8 +295,6 @@ class CommonRequestHandler(RequestHandler):
         if auth_handler is not None:
             if not await auth_handler.authenticate(self):
                 raise HTTPError(403)
-        self.url = Url(get_url_root(self.request.path))
-        self.static_url_helper = self.service.static_file_hasher.make(self.url)
         self.set_header("Cache-Control", "no-cache, must-revalidate")
 
     def schedule_rpc(self, remote_method, **kwargs):

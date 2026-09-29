@@ -27,7 +27,7 @@ without failing the request if the RPC raises.
 import asyncio
 import logging
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import tornado.web
 from tornado.httpclient import AsyncHTTPClient
@@ -78,6 +78,9 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
                 raise self.failure
 
         app = tornado.web.Application([(r"/", _RpcHandler)])
+        # As WebService sets it: the handlers need it when created, for
+        # the static file hasher.
+        app.service = MagicMock()
         app.fake_rpc = fake_rpc
         # A real client that never connects: its calls fail with a plain
         # RPCError. The other one stands for a service that is not
