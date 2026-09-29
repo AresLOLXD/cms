@@ -7,3 +7,9 @@ codecov/
 .git/
 .jj/
 dumps/
+.worktrees/
+**/.venv/
+.venv*/
+.superpowers/
+.agents/
+.pytest_cache/
