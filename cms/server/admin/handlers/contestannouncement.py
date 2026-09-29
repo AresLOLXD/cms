@@ -26,6 +26,7 @@
 
 """
 
+import asyncio
 import collections
 try:
     collections.MutableMapping
@@ -44,8 +45,7 @@ class AddAnnouncementHandler(BaseHandler):
     """Called to actually add an announcement
 
     """
-    @require_permission(BaseHandler.PERMISSION_MESSAGING)
-    def post(self, contest_id: str):
+    def _post_sync(self, contest_id: str):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         subject: str = self.get_argument("subject", "")
@@ -60,6 +60,11 @@ class AddAnnouncementHandler(BaseHandler):
                 make_datetime(), "Subject is mandatory.", "")
         self.redirect(self.url("contest", contest_id, "announcements"))
 
+    @require_permission(BaseHandler.PERMISSION_MESSAGING)
+    async def post(self, contest_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class AnnouncementHandler(BaseHandler):
     """Called to remove an announcement.
@@ -67,8 +72,7 @@ class AnnouncementHandler(BaseHandler):
     """
     # No page to show a single attachment.
 
-    @require_permission(BaseHandler.PERMISSION_MESSAGING)
-    def delete(self, contest_id: str, ann_id: str):
+    def _delete_sync(self, contest_id: str, ann_id: str):
         ann = self.safe_get_item(Announcement, ann_id)
         self.contest = self.safe_get_item(Contest, contest_id)
 
@@ -81,3 +85,8 @@ class AnnouncementHandler(BaseHandler):
 
         # Page to redirect to.
         self.write("announcements")
+
+    @require_permission(BaseHandler.PERMISSION_MESSAGING)
+    async def delete(self, contest_id: str, ann_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, contest_id, ann_id)
