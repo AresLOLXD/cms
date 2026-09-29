@@ -32,6 +32,8 @@ from tornado.httpclient import AsyncHTTPClient
 from tornado.httpserver import HTTPServer
 from tornado.netutil import bind_sockets
 
+from cms import ServiceCoord
+from cms.io.async_rpc import AsyncFakeRemoteServiceClient
 from cms.server.admin.handlers.base import BaseHandler
 
 
@@ -47,7 +49,10 @@ class _RpcHandler(BaseHandler):
         await loop.run_in_executor(None, self._get_sync)
 
     def _get_sync(self):
-        self.schedule_rpc(self.application.fake_rpc, x=1)
+        if self.get_argument("real", None) is not None:
+            self.schedule_rpc(self.application.real_client.reinitialize)
+        else:
+            self.schedule_rpc(self.application.fake_rpc, x=1)
         self.write("ok")
 
 
@@ -66,6 +71,8 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
 
         app = tornado.web.Application([(r"/", _RpcHandler)])
         app.fake_rpc = fake_rpc
+        app.real_client = AsyncFakeRemoteServiceClient(
+            ServiceCoord("ProxyService", 0))
         sockets = bind_sockets(0, "127.0.0.1")
         self.port = sockets[0].getsockname()[1]
         self.server = HTTPServer(app)
@@ -77,9 +84,10 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         self.server.stop()
         await self.server.close_all_connections()
 
-    async def _fetch(self):
+    async def _fetch(self, query=""):
         return await self.client.fetch(
-            "http://127.0.0.1:%d/" % self.port, raise_error=False)
+            "http://127.0.0.1:%d/%s" % (self.port, query),
+            raise_error=False)
 
     async def test_rpc_is_actually_run(self):
         response = await self._fetch()
@@ -101,6 +109,19 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.code, 200)
         self.assertIn("fake_rpc", "\n".join(logs.output))
         self.assertIn("boom", "\n".join(logs.output))
+
+    async def test_real_client_failure_names_service_and_method(self):
+        with self.assertLogs(
+                "cms.server.admin.handlers.base", level="WARNING") as logs:
+            response = await self._fetch("?real=1")
+            for _ in range(250):
+                if logs.records:
+                    break
+                await asyncio.sleep(0.02)
+        self.assertEqual(response.code, 200)
+        message = "\n".join(logs.output)
+        self.assertIn("reinitialize", message)
+        self.assertIn("ProxyService", message)
 
 
 if __name__ == "__main__":

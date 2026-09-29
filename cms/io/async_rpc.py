@@ -494,6 +494,10 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         async def remote_method(**data):
             return await self.execute_rpc(method=method, data=data)
 
+        # Make the closure identify the real RPC (e.g. in logs).
+        remote_method.__name__ = method
+        remote_method.__qualname__ = "%s.%s" % (
+            self.remote_service_coord, method)
         return remote_method
 
 

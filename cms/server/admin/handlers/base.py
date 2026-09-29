@@ -393,7 +393,9 @@ class BaseHandler(CommonRequestHandler):
         kwargs: the keyword arguments for the RPC.
 
         """
-        name = getattr(remote_method, "__name__", repr(remote_method))
+        name = getattr(remote_method, "__qualname__", None) \
+            or getattr(remote_method, "__name__", None) \
+            or repr(remote_method)
         future = asyncio.run_coroutine_threadsafe(
             remote_method(**kwargs), self._loop)
 
