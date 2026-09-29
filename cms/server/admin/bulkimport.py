@@ -26,17 +26,19 @@ never contain a data cell of the column mapped to the password.
 
 """
 
+import concurrent.futures
 import csv
 import dataclasses
 import io
 import itertools
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cms.db import Contest, Group, Participation, Team, User
+from cmscommon.crypto import generate_random_password, hash_password
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ EMPTY_MESSAGES = {"username": "el usuario está vacío",
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_PASSWORD_BYTES = 72
+HASH_THREADS = 4
 
 
 @dataclasses.dataclass(frozen=True)
@@ -274,3 +277,79 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         updated_participations=[u for u in usernames if u in participating],
         teams=teams, groups=groups,
         main_group_id=contest.main_group_id), []
+
+
+def hash_passwords(rows: list[ImportRow], new_users: set[str],
+                   progress: Callable[[], None]
+                   ) -> dict[str, tuple[str, str | None]]:
+    """Hash every password of the import, a few at a time.
+
+    bcrypt costs about 0.2 s per password and releases the GIL, so a
+    small pool divides the wait.
+
+    rows: the rows to import.
+    new_users: the usernames that do not exist yet.
+    progress: called once each time a row is done.
+
+    return: username -> (participation password, account password or
+        None), both as authentication strings.
+
+    """
+    def work(row: ImportRow) -> tuple[str, tuple[str, str | None]]:
+        participation = hash_password(row.password, "bcrypt")
+        account = hash_password(generate_random_password(), "bcrypt") \
+            if row.username in new_users else None
+        return row.username, (participation, account)
+
+    result: dict[str, tuple[str, str | None]] = {}
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=HASH_THREADS,
+            thread_name_prefix="aws-import-hash") as pool:
+        for future in concurrent.futures.as_completed(
+                [pool.submit(work, row) for row in rows]):
+            username, hashes = future.result()
+            result[username] = hashes
+            progress()
+    return result
+
+
+def apply_import(session: Session, contest_id: int, rows: list[ImportRow],
+                 plan: ImportPlan,
+                 hashes: dict[str, tuple[str, str | None]]) -> None:
+    """Write the import into the session; the caller commits.
+
+    session: the session of the transaction.
+    contest_id: the contest of the participations.
+    rows: the rows to import.
+    plan: from plan_import, made in this same process just before.
+    hashes: from hash_passwords.
+
+    """
+    usernames = [row.username for row in rows]
+    users = {u.username: u for u in session.execute(
+        select(User).filter(User.username.in_(usernames))).scalars()}
+    participations = {p.user.username: p for p in session.execute(
+        select(Participation).join(User)
+        .filter(Participation.contest_id == contest_id,
+                User.username.in_(usernames))).scalars()}
+    contest = session.get(Contest, contest_id)
+    for row in rows:
+        participation_hash, account_hash = hashes[row.username]
+        user = users.get(row.username)
+        if user is None:
+            user = User(username=row.username, first_name=row.first_name,
+                        last_name=row.last_name, password=account_hash)
+            session.add(user)
+        else:
+            user.first_name = row.first_name
+            user.last_name = row.last_name
+        team_id = plan.teams[row.team] if row.team is not None else None
+        group_id = plan.groups[row.group] if row.group is not None \
+            else plan.main_group_id
+        participation = participations.get(row.username)
+        if participation is None:
+            participation = Participation(contest=contest, user=user)
+            session.add(participation)
+        participation.password = participation_hash
+        participation.team_id = team_id
+        participation.group_id = group_id

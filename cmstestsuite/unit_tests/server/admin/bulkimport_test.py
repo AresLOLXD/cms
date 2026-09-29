@@ -18,14 +18,16 @@
 
 """Tests for reading and planning the bulk import CSV of AWS."""
 
+import concurrent.futures
 import logging
 import unittest
+from unittest import mock
 
-from sqlalchemy import event, inspect
+from sqlalchemy import event, inspect, select
 
-from cms.db import Participation, User
-from cms.server.admin.bulkimport import MAX_ROWS, ImportRow, plan_import, \
-    read_rows
+from cms.db import Participation, SessionGen, User
+from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, ImportRow, \
+    apply_import, hash_passwords, plan_import, read_rows
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 MAPPING = {"username": "usuario", "first_name": "nombre",
@@ -234,22 +236,27 @@ class TestReadRows(unittest.TestCase):
 
 
 def import_row(line: int, username: str, team: str | None = None,
-               group: str | None = None) -> ImportRow:
+               group: str | None = None, password: str = "pw") -> ImportRow:
     return ImportRow(line=line, username=username, first_name="Nombre",
-                     last_name="Apellido", password="pw", team=team,
+                     last_name="Apellido", password=password, team=team,
                      group=group)
 
 
-class TestPlanImport(DatabaseMixin, unittest.TestCase):
+class ImportFixtureMixin(DatabaseMixin):
+    """A contest with a team, and users ana and beto; only ana takes part."""
 
     def setUp(self):
         super().setUp()
         self.contest = self.add_contest()
-        self.add_team(code="JAL", name="Jalisco")
-        ana = self.add_user(username="ana")
-        self.add_user(username="beto")
-        self.add_participation(user=ana, contest=self.contest)
+        self.team = self.add_team(code="JAL", name="Jalisco")
+        self.ana = self.add_user(username="ana")
+        self.beto = self.add_user(username="beto")
+        self.ana_participation = self.add_participation(
+            user=self.ana, contest=self.contest)
         self.session.flush()
+
+
+class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
 
     def test_plan(self):
         plan, errors = plan_import(self.session, self.contest.id, [
@@ -348,6 +355,175 @@ class TestPlanImport(DatabaseMixin, unittest.TestCase):
             import_row(2, "carla")])
         self.assertEqual(result,
                          (None, ["el concurso no tiene grupo principal"]))
+
+
+class TestHashPasswords(unittest.TestCase):
+
+    def setUp(self):
+        for name, replacement in (
+                ("hash_password", lambda p, method="bcrypt": "fake:" + p),
+                ("generate_random_password", lambda: "RANDOM")):
+            patcher = mock.patch("cms.server.admin.bulkimport." + name,
+                                 replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.rows = [import_row(2, "ana", password="pw-ana"),
+                     import_row(3, "beto", password="pw-beto"),
+                     import_row(4, "carla", password="pw-carla")]
+
+    def test_hashes_and_progress(self):
+        calls = []
+        result = hash_passwords(self.rows, {"carla"},
+                                lambda: calls.append(None))
+        self.assertEqual(result, {
+            "ana": ("fake:pw-ana", None),
+            "beto": ("fake:pw-beto", None),
+            "carla": ("fake:pw-carla", "fake:RANDOM")})
+        self.assertEqual(len(calls), 3)
+
+    def test_pool_size(self):
+        created = []
+
+        class RecordingExecutor(concurrent.futures.ThreadPoolExecutor):
+            def __init__(self, max_workers=None, *args, **kwargs):
+                created.append(max_workers)
+                super().__init__(max_workers, *args, **kwargs)
+
+        with mock.patch("concurrent.futures.ThreadPoolExecutor",
+                        RecordingExecutor):
+            hash_passwords(self.rows, set(), lambda: None)
+        self.assertEqual(created, [HASH_THREADS])
+
+
+class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        # Some of the tests commit, so the data is deleted at the end.
+        self.addCleanup(self.delete_data)
+        self.afternoon = self.get_group(name="tarde", contest=self.contest)
+        self.session.add(self.afternoon)
+        self.ana.password = "account:ana"
+        self.beto.password = "account:beto"
+        self.ana_participation.hidden = True
+        self.session.flush()
+        self.rows = [
+            ImportRow(line=2, username="ana", first_name="Ana",
+                      last_name="López", password="pw-ana", team="JAL",
+                      group="tarde"),
+            ImportRow(line=3, username="beto", first_name="Roberto",
+                      last_name="Pérez", password="pw-beto", team=None,
+                      group=None),
+            ImportRow(line=4, username="carla", first_name="Carla",
+                      last_name="Ruiz", password="pw", team=None,
+                      group=None),
+            ImportRow(line=5, username="dora", first_name="Dora",
+                      last_name="Sanz", password="pw-dora", team=None,
+                      group=None)]
+        self.hashes = {
+            "ana": ("fake:pw-ana", None),
+            "beto": ("fake:pw-beto", None),
+            "carla": ("fake:pw", "fake:RANDOM"),
+            "dora": ("fake:pw-dora", "fake:RANDOM-dora")}
+
+    def plan(self, session):
+        plan, errors = plan_import(session, self.contest.id, self.rows)
+        self.assertEqual(errors, [])
+        return plan
+
+    def snapshot(self):
+        """Read what is committed, in a session of its own."""
+        with SessionGen() as session:
+            users = session.execute(
+                select(User.username, User.first_name, User.last_name,
+                       User.password).order_by(User.username)).all()
+            participations = session.execute(
+                select(User.username, Participation.password,
+                       Participation.team_id, Participation.group_id,
+                       Participation.hidden)
+                .join(Participation.user)
+                .order_by(User.username)).all()
+        return users, participations
+
+    def test_apply(self):
+        apply_import(self.session, self.contest.id, self.rows,
+                     self.plan(self.session), self.hashes)
+        self.session.commit()
+
+        users = {u.username: u for u in self.session.query(User)}
+        participations = {p.user.username: p for p in
+                          self.session.query(Participation)}
+        self.assertEqual(sorted(users), ["ana", "beto", "carla", "dora"])
+        self.assertEqual(sorted(participations),
+                         ["ana", "beto", "carla", "dora"])
+
+        carla = users["carla"]
+        self.assertEqual((carla.first_name, carla.last_name, carla.password),
+                         ("Carla", "Ruiz", "fake:RANDOM"))
+        participation = participations["carla"]
+        self.assertEqual(participation.contest_id, self.contest.id)
+        self.assertEqual(participation.password, "fake:pw")
+        self.assertEqual(participation.group_id, self.contest.main_group_id)
+        self.assertIsNone(participation.team_id)
+
+        ana = users["ana"]
+        self.assertEqual((ana.first_name, ana.last_name), ("Ana", "López"))
+        participation = participations["ana"]
+        self.assertIs(participation, self.ana_participation)
+        self.assertEqual(participation.password, "fake:pw-ana")
+        self.assertEqual(participation.team_id, self.team.id)
+        self.assertEqual(participation.group_id, self.afternoon.id)
+        self.assertTrue(participation.hidden)
+
+        beto = users["beto"]
+        self.assertEqual((beto.first_name, beto.last_name),
+                         ("Roberto", "Pérez"))
+        participation = participations["beto"]
+        self.assertEqual(participation.contest_id, self.contest.id)
+        self.assertEqual(participation.password, "fake:pw-beto")
+        self.assertEqual(participation.group_id, self.contest.main_group_id)
+
+        # The account password of an existing user is left alone.
+        self.assertEqual(ana.password, "account:ana")
+        self.assertEqual(beto.password, "account:beto")
+
+    def test_nothing_is_committed(self):
+        self.session.commit()
+        before = self.snapshot()
+
+        with SessionGen() as session:
+            apply_import(session, self.contest.id, self.rows,
+                         self.plan(session), self.hashes)
+            # What the job does when its caller does not commit: the
+            # block ends and rolls back.
+
+        self.assertEqual(self.snapshot(), before)
+
+    def test_failure_leaves_nothing(self):
+        self.session.commit()
+        before = self.snapshot()
+        original_init = Participation.__init__
+        created = []
+
+        def failing_init(participation, *args, **kwargs):
+            created.append(participation)
+            if len(created) == 2:
+                raise RuntimeError("second new participation")
+            original_init(participation, *args, **kwargs)
+
+        # beto is the first new participation and carla the second, so
+        # ana's update, beto's participation and carla's user have been
+        # added to the session when this fails.
+        with self.assertRaises(RuntimeError):
+            with SessionGen() as session:
+                plan = self.plan(session)
+                with mock.patch.object(Participation, "__init__",
+                                       failing_init):
+                    apply_import(session, self.contest.id, self.rows, plan,
+                                 self.hashes)
+
+        self.assertEqual(len(created), 2)
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":
