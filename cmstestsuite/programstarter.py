@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 # Maximum number of attempts to check if a service becomes healthy.
 _MAX_ATTEMPTS = 20
 
+# Seconds a service has to answer an RPC. Without it, a service that hangs
+# (or dies half way) would block the whole run.
+_RPC_TIMEOUT = 30
+
 
 class RemoteService:
     """Class which implements the RPC protocol used by CMS.
@@ -74,13 +78,17 @@ class RemoteService:
 
         # Send message.
         sock = socket.socket()
+        sock.settimeout(_RPC_TIMEOUT)
         sock.connect((self.address, self.port))
         sock.send(msg)
 
         # Wait for response.
         s = b''
         while len(s) < 2 or s[-2:] != b"\r\n":
-            s += sock.recv(1)
+            chunk = sock.recv(1)
+            if not chunk:
+                raise ConnectionError("Closed before a full reply.")
+            s += chunk
         s = s[:-2]
         sock.close()
 
@@ -311,8 +319,11 @@ class ProgramStarter:
         """
         p = self._programs.pop((service_name, shard, contest))
         p.log_cpu_times()
-        p.stop()
-        p.wait_or_kill()
+        try:
+            p.stop()
+        finally:
+            # Even if it did not answer: it must not be left running.
+            p.wait_or_kill()
 
     def count_unhealthy(self):
         return len([p for p in self._programs.values() if not p.healthy])
@@ -333,6 +344,13 @@ class ProgramStarter:
         for p in self._programs.values():
             p.log_cpu_times()
         for p in self._programs.values():
-            p.stop()
+            try:
+                p.stop()
+            except (OSError, ValueError) as error:
+                # A service that is gone (it never came up, say) or does not
+                # answer must not keep the others from being stopped, nor
+                # the caller from reporting what happened.
+                logger.warning("Cannot ask %s to terminate: %s",
+                               p.coord, error)
         for p in self._programs.values():
             p.wait_or_kill()
