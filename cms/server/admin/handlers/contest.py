@@ -31,6 +31,8 @@
 
 """
 
+import asyncio
+
 from sqlalchemy import select
 
 from cms import ServiceCoord, get_service_shards, get_service_address
@@ -46,8 +48,7 @@ class AddContestHandler(
     """Adds a new contest.
 
     """
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    def _post_sync(self):
         fallback_page = self.url("contests", "add")
 
         try:
@@ -80,10 +81,14 @@ class AddContestHandler(
         else:
             self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
 
 class ContestHandler(SimpleContestHandler("contest.html")):
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id: str):
+    def _post_sync(self, contest_id: str):
         contest = self.safe_get_item(Contest, contest_id)
 
         try:
@@ -152,23 +157,31 @@ class ContestHandler(SimpleContestHandler("contest.html")):
             self.service.proxy_service.reinitialize()
         self.redirect(self.url("contest", contest_id))
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class OverviewHandler(BaseHandler):
     """Home page handler, with queue and workers statuses.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id: str | None = None):
+    def _get_sync(self, contest_id: str | None = None):
         if contest_id is not None:
             self.contest = self.safe_get_item(Contest, contest_id)
 
         self.r_params = self.render_params()
         self.render("overview.html", **self.r_params)
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id: str | None = None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
 
 class ResourcesListHandler(BaseHandler):
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id: str | None = None):
+    def _get_sync(self, contest_id: str | None = None):
         if contest_id is not None:
             self.contest = self.safe_get_item(Contest, contest_id)
 
@@ -180,6 +193,11 @@ class ResourcesListHandler(BaseHandler):
                 ServiceCoord("ResourceService", i)).ip
         self.render("resourceslist.html", **self.r_params)
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id: str | None = None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
 
 class ContestListHandler(SimpleHandler("contests.html")):
     """Get returns the list of all contests, post perform operations on
@@ -189,8 +207,7 @@ class ContestListHandler(SimpleHandler("contests.html")):
 
     REMOVE = "Remove"
 
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    def _post_sync(self):
         contest_id = self.get_argument("contest_id")
         operation = self.get_argument("operation")
 
@@ -203,6 +220,11 @@ class ContestListHandler(SimpleHandler("contests.html")):
                 make_datetime(), "Invalid operation %s" % operation, "")
             self.redirect(self.url("contests"))
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
 
 class RemoveContestHandler(BaseHandler):
     """Get returns a page asking for confirmation, delete actually removes
@@ -210,8 +232,7 @@ class RemoveContestHandler(BaseHandler):
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         contest = self.safe_get_item(Contest, contest_id)
         submission_query = select(Submission)\
             .join(Submission.participation)\
@@ -222,7 +243,11 @@ class RemoveContestHandler(BaseHandler):
         self.render("contest_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, contest_id):
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _delete_sync(self, contest_id):
         contest = self.safe_get_item(Contest, contest_id)
 
         self.sql_session.delete(contest)
@@ -231,3 +256,8 @@ class RemoveContestHandler(BaseHandler):
 
         # Maybe they'll want to do this again (for another contest)
         self.write("../../contests")
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def delete(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, contest_id)
