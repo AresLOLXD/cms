@@ -180,6 +180,14 @@ ask the staff to reload the ranking page once after the deploy.
 older checkout). **Never roll back RankingWebServer while a group is
 hidden.**
 
+**Only roll back to a checkout that already mounts `cms-data` on
+`/home/cmsuser/cms/data`** (see the upgrade note in the README). An older
+checkout mounts the volume over the installed code again, so the `cms`
+container would run the stale copy left in the volume, not that checkout's
+code, or not start at all if that copy was deleted. Before a contest, note
+the commit you deployed and the last known-good one after the move, and
+roll back to that.
+
 - A RankingWebServer without this feature ignores the hidden setting: it
   serves every group's scoreboard to everyone, including all the data
   gathered while the group was hidden. If you must roll it back, first stop
