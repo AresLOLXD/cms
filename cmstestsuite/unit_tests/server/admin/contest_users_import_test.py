@@ -53,7 +53,11 @@ MAPPING = {"username": "usuario", "first_name": "nombre",
            "last_name": "apellido", "password": "contraseña"}
 # What the handler sends back to the page: every field, "" if unassigned.
 POSTED_MAPPING = {**{field: "" for field in FIELDS}, **MAPPING}
-NOT_FOUND = "la importación no existe o ya expiró"
+# Said when a job is unknown: it may have been saved before it expired, so
+# the page must not say that nothing was applied.
+NOT_FOUND = ("No se encontró la importación: no existe o ya expiró. "
+             "Revisa la lista de usuarios para ver si se aplicó.")
+NOT_APPLIED = "No se aplicó nada"
 
 
 def make_plan() -> ImportPlan:
@@ -303,6 +307,7 @@ class TestImportUsersGet(unittest.TestCase):
         self.assertEqual(params["errors"], [])
         self.assertEqual(params["fields"], FIELDS)
         self.assertEqual(params["mapping"], {})
+        self.assertIsNone(params["notice"])
         jobs.get.assert_not_called()
 
     def test_the_page_of_a_job_of_the_admin_shows_its_progress(self):
@@ -315,19 +320,23 @@ class TestImportUsersGet(unittest.TestCase):
         params = rendered_params(handler)
         self.assertIs(params["job"], job)
         self.assertEqual(params["errors"], [])
+        self.assertIsNone(params["notice"])
         jobs.get.assert_called_once_with("job-1", ADMIN_ID)
 
-    def test_an_unknown_job_is_an_error_not_a_silent_form(self):
+    def test_an_unknown_job_is_a_notice_not_a_silent_form_or_an_error(self):
         handler = make_handler(form={"job": "gone"})
         with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
             jobs.get.return_value = None
             handler._get_sync(str(CONTEST_ID))
 
         params = rendered_params(handler)
-        self.assertEqual(params["errors"], [NOT_FOUND])
+        self.assertEqual(params["notice"], NOT_FOUND)
+        # Not in the errors: they say that nothing was applied, which is
+        # not known of a job that expired after it was saved.
+        self.assertEqual(params["errors"], [])
         self.assertIsNone(params["job"])
 
-    def test_a_job_of_another_contest_is_an_error_too(self):
+    def test_a_job_of_another_contest_is_a_notice_too(self):
         handler = make_handler(form={"job": "job-1"})
         job = SimpleNamespace(id="job-1", contest_id=CONTEST_ID + 1)
         with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
@@ -335,7 +344,8 @@ class TestImportUsersGet(unittest.TestCase):
             handler._get_sync(str(CONTEST_ID))
 
         params = rendered_params(handler)
-        self.assertEqual(params["errors"], [NOT_FOUND])
+        self.assertEqual(params["notice"], NOT_FOUND)
+        self.assertEqual(params["errors"], [])
         self.assertIsNone(params["job"])
 
 
@@ -360,6 +370,7 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
             self.assertIn('<input type="file" name="file"', html)
             self.assertEqual(NOT_FOUND in html, bool(form))
+            self.assertNotIn(NOT_APPLIED, html)
 
     def test_the_progress_of_a_job(self):
         handler = make_handler(form={"job": "job-1"})
@@ -383,8 +394,27 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
             self.assertIn("Usuarios nuevos: 1" if plan[0] else
                           "<li>el equipo X no existe</li>", html)
+            self.assertEqual(NOT_APPLIED in html, plan[0] is None)
             # The columns chosen are still selected after either outcome.
             self.assertIn('data-selected="usuario"', html)
+            self.assertNotIn(PASSWORD, html)
+
+    def test_the_header_chosen_for_the_password_is_never_echoed(self):
+        # A file without a header row: its first row is the header the
+        # admin picks from, and it holds a real password.
+        headerless = ("ana,Ana,Pérez,%s\nbob,Bob,Ruiz,pw2\n"
+                      % PASSWORD).encode("utf-8")
+        mapping = {"username": "ana", "first_name": "Ana",
+                   "last_name": "Pérez", "password": PASSWORD}
+        for plan in ((make_plan(), []), (None, ["el equipo X no existe"])):
+            handler = make_handler(data=headerless,
+                                   form=import_form("validate", mapping))
+            with mock.patch(MODULE + ".plan_import", return_value=plan):
+                handler._post_sync(str(CONTEST_ID))
+
+            html = self.render_last_page(handler)
+
+            self.assertIn('data-selected="ana"', html)
             self.assertNotIn(PASSWORD, html)
 
 
@@ -538,6 +568,7 @@ class TestImportTemplates(unittest.TestCase):
         params.setdefault("errors", [])
         params.setdefault("summary", None)
         params.setdefault("job", None)
+        params.setdefault("notice", None)
         return self.render_core("contest_users_import.html", **params)
 
     def test_the_form_uploads_a_file_with_one_select_per_field(self):
@@ -586,9 +617,10 @@ class TestImportTemplates(unittest.TestCase):
         self.assertRegex(
             html, r'<select name="map_username" data-field="username" '
                   r'data-selected="usuario">')
+        # The column of the password is the one thing never echoed.
         self.assertRegex(
             html, r'<select name="map_password" data-field="password" '
-                  r'data-selected="contraseña">')
+                  r'data-selected="">')
         # An optional field left unassigned has nothing to select.
         self.assertRegex(
             html, r'<select name="map_team" data-field="team" '
@@ -652,6 +684,37 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn("<li>&lt;script&gt;x&lt;/script&gt;</li>", html)
         self.assertNotIn("<script>x</script>", html)
         self.assertIn("<form", html)
+
+    def test_a_notice_is_shown_without_saying_that_nothing_was_applied(self):
+        html = self.render_import(notice=NOT_FOUND)
+
+        self.assertIn(NOT_FOUND, html)
+        self.assertNotIn(NOT_APPLIED, html)
+        self.assertNotIn("Corrige estos errores", html)
+        self.assertIn("<form", html)
+
+    def test_the_errors_say_that_nothing_was_applied(self):
+        html = self.render_import(errors=["fila 2: el usuario está vacío"])
+
+        self.assertIn(NOT_APPLIED, html)
+        self.assertNotIn("No se encontró la importación", html)
+
+    def test_no_notice_on_the_first_visit(self):
+        html = self.render_import()
+
+        self.assertNotIn("No se encontró la importación", html)
+        self.assertNotIn(NOT_APPLIED, html)
+
+    def test_the_column_chosen_for_the_password_is_never_echoed(self):
+        # Without a header row that "header" is a contestant's password.
+        html = self.render_import(mapping={
+            "username": "usuario", "password": "s3cret"})
+
+        self.assertNotIn("s3cret", html)
+        self.assertRegex(
+            html, r'<select name="map_password" data-field="password" '
+                  r'data-selected="">')
+        self.assertIn('data-selected="usuario"', html)
 
     def test_the_summary_of_a_validation_is_shown(self):
         html = self.render_import(summary=make_plan().summary())

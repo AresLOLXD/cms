@@ -17,6 +17,12 @@ guarda nada.</p>
 </div>
 {% endif %}
 
+{% if notice %}
+<div class="notification">
+  <p>{{ notice }}</p>
+</div>
+{% endif %}
+
 {% if summary %}
 <div class="notification">
   <p>El archivo es válido. Al importarlo:</p>
@@ -43,11 +49,13 @@ guarda nada.</p>
   <p>Vuelve a elegir el archivo para importarlo; se conservan las columnas asignadas.</p>
   {% endif %}
   <p><input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
+  {# The header chosen for the password is not echoed back: in a file without
+     a header row it would be a contestant's password. #}
   <table{% if mapping %} data-has-mapping="1"{% endif %}>
     {% for field in fields %}
     <tr>
       <td>{{ field }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</td>
-      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{{ (mapping or {}).get(field, "") }}"><option value="">(sin asignar)</option></select></td>
+      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}"><option value="">(sin asignar)</option></select></td>
     </tr>
     {% endfor %}
   </table>
@@ -83,7 +91,7 @@ guarda nada.</p>
                 var first = text.split(/\r?\n/)[0];
                 var sep = (first.split(";").length > first.split(",").length) ? ";" : ",";
                 var headers = first.split(sep).map(function (h) {
-                    return h.trim().replace(/^"|"$/g, "");
+                    return h.trim().replace(/^"|"$/g, "").trim();
                 });
                 // With a previous mapping the admin's choices are kept as they
                 // were, an unassigned field included; the aliases only guess
@@ -92,12 +100,17 @@ guarda nada.</p>
                 document.querySelectorAll("select[data-field]").forEach(function (select) {
                     var field = select.getAttribute("data-field");
                     var chosen = select.getAttribute("data-selected");
+                    // The page never echoes the column chosen for the
+                    // password (in a file without a header row it would
+                    // be a real password), so that select is always guessed.
+                    var keepChoice = hasMapping && field !== "password";
+                    var aliases = ALIASES[field].map(norm);
                     select.length = 1;
                     headers.forEach(function (h) {
                         var option = document.createElement("option");
                         option.value = h;
                         option.textContent = h;
-                        if (hasMapping ? (Boolean(chosen) && h === chosen) : ALIASES[field].indexOf(norm(h)) !== -1) {
+                        if (keepChoice ? (Boolean(chosen) && h === chosen) : aliases.indexOf(norm(h)) !== -1) {
                             option.selected = true;
                         }
                         select.appendChild(option);
@@ -110,6 +123,9 @@ guarda nada.</p>
     var job = document.getElementById("import_job");
     if (job) {
         var url = job.getAttribute("data-status-url");
+        var MAX_FAILURES = 5;
+        var RETRY_MS = 2000;
+        var failures = 0;
         var poll = function () {
             fetch(url, {credentials: "same-origin"}).then(function (r) {
                 if (!r.ok) { throw new Error(r.status); }
@@ -130,7 +146,13 @@ guarda nada.</p>
                 } else {
                     setTimeout(poll, 500);
                 }
+                failures = 0;
             }).catch(function () {
+                failures += 1;
+                if (failures < MAX_FAILURES) {
+                    setTimeout(poll, RETRY_MS);
+                    return;
+                }
                 document.getElementById("import_result").textContent =
                     "No se pudo consultar el progreso; recarga la página.";
             });

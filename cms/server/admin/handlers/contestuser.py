@@ -49,7 +49,7 @@ from sqlalchemy import select
 from cms.db import Contest, Group, Message, Participation, Submission, User, \
     Team
 from cms.server.admin.bulkimport import FIELDS, plan_import, read_rows
-from cms.server.admin.importjobs import IMPORT_JOBS
+from cms.server.admin.importjobs import IMPORT_JOBS, ImportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
 
@@ -349,7 +349,9 @@ class ImportUsersHandler(BaseHandler):
 
     def _render_page(self, mapping: dict[str, str] | None = None,
                      errors: list[str] | None = None,
-                     summary: dict[str, int] | None = None, job=None):
+                     summary: dict[str, int] | None = None,
+                     job: ImportJob | None = None,
+                     notice: str | None = None) -> None:
         """Render the page.
 
         The template gets every one of these parameters, as AWS renders
@@ -360,6 +362,8 @@ class ImportUsersHandler(BaseHandler):
         errors: why nothing was imported, to list them.
         summary: what an import of the file would do, after "validate".
         job: the import job whose progress to show, instead of the form.
+        notice: something to tell the admin that is not an error, as
+            errors say that nothing was applied.
 
         """
         self.r_params = self.render_params()
@@ -369,9 +373,10 @@ class ImportUsersHandler(BaseHandler):
         self.r_params["errors"] = errors or []
         self.r_params["summary"] = summary
         self.r_params["job"] = job
+        self.r_params["notice"] = notice
         self.render("contest_users_import.html", **self.r_params)
 
-    def _get_sync(self, contest_id):
+    def _get_sync(self, contest_id: str) -> None:
         self.contest = self.safe_get_item(Contest, contest_id)
         job_id = self.get_argument("job", None)
         if job_id is None:
@@ -379,16 +384,21 @@ class ImportUsersHandler(BaseHandler):
             return
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
         if job is None or job.contest_id != self.contest.id:
-            self._render_page(errors=["la importación no existe o ya expiró"])
+            # A notice, not an error: the job may have been saved before it
+            # expired or the AWS restarted, so "nothing was applied" would
+            # be false.
+            self._render_page(notice=(
+                "No se encontró la importación: no existe o ya expiró. "
+                "Revisa la lista de usuarios para ver si se aplicó."))
             return
         self._render_page(job=job)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    async def get(self, contest_id):
+    async def get(self, contest_id: str) -> None:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._get_sync, contest_id)
 
-    def _post_sync(self, contest_id):
+    def _post_sync(self, contest_id: str) -> None:
         self.contest = self.safe_get_item(Contest, contest_id)
         mapping = {field: self.get_argument("map_" + field, "")
                    for field in FIELDS}
@@ -409,7 +419,7 @@ class ImportUsersHandler(BaseHandler):
             return
         service = self.service
 
-        def on_done():
+        def on_done() -> None:
             # Called from the job's thread, once the import is saved.
             self.schedule_rpc(service.proxy_service.reinitialize)
 
@@ -423,7 +433,7 @@ class ImportUsersHandler(BaseHandler):
                                "import") + "?job=" + job.id)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    async def post(self, contest_id):
+    async def post(self, contest_id: str) -> None:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._post_sync, contest_id)
 
@@ -432,7 +442,7 @@ class ImportJobStatusHandler(BaseHandler):
     """The progress of an import job, as JSON, for its owner only."""
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    async def get(self, contest_id, job_id):
+    async def get(self, contest_id: str, job_id: str) -> None:
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
         if job is None or str(job.contest_id) != contest_id:
             raise tornado.web.HTTPError(404)
