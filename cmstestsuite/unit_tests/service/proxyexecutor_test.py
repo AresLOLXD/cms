@@ -590,12 +590,18 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.drain(), [])
                 self.assertEqual(self.retry_waits.waits, [])
                 # The operator is told how to fix olim, and only olim.
+                # Not with Regenerate: it would empty the namespace and
+                # send nothing back while the settings are refused.
                 hints = [line for line in logs.output
-                         if "Regenerate" in line]
+                         if "rejected the visibility" in line]
                 self.assertEqual(len(hints), 1)
-                self.assertIn("olim", hints[0])
-                self.assertIn("visibility", hints[0])
+                self.assertIn("of group olim, so its data is held back",
+                              hints[0])
+                self.assertIn("/olim/visibility", hints[0])
+                self.assertIn("save the group again in AWS", hints[0])
                 self.assertNotIn("omips", hints[0])
+                self.assertFalse(
+                    any("Regenerate" in line for line in logs.output))
 
     async def test_last_visibility_of_a_group_wins(self):
         self.outcomes = {("put", url("olim/visibility")):
@@ -631,6 +637,98 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         # Nothing of olim goes after a reset that did not get there.
         self.assertEqual(self.urls(), [url("olim/contests/")])
         self.assertEqual(stamps(await self.drain()), stamps(batch))
+
+    async def test_rejected_visibility_keeps_holding_back_the_group_data(
+        self,
+    ):
+        hidden = {"hidden": True, "staff_password": None}
+        self.outcomes = {("put", url("olim/visibility")): 400}
+
+        with self.assertLogs("cms.service.ProxyService", "DEBUG") as logs:
+            await self.executor.execute(entries(
+                ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                               hidden, "olim")))
+            # The data of olim comes in later batches, as it does when
+            # the service enqueues it from another thread.
+            await self.executor.execute(entries(
+                ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                               {"c": {}}, "olim"),
+                ProxyOperation(ProxyExecutor.USER_TYPE,
+                               {"u": {}}, "olim"),
+                ProxyOperation(ProxyExecutor.CONTEST_TYPE,
+                               {"d": {}}, "omips")))
+            # A reset only deletes: it still goes through.
+            await self.executor.execute(entries(
+                ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
+                ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                               {"1": {}}, "olim")))
+            # The same settings, refused again.
+            await self.executor.execute(entries(
+                ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
+                               hidden, "olim"),
+                ProxyOperation(ProxyExecutor.TASK_TYPE,
+                               {"t": {}}, "olim")))
+
+        self.assertEqual(self.calls, [
+            ("put", url("olim/visibility"), hidden),
+            ("put", url("omips/contests/"), {"d": {}}),
+            ("delete", url("olim/contests/"), None),
+            ("delete", url("olim/users/"), None),
+            ("put", url("olim/visibility"), hidden)])
+        # What is dropped is not kept to be sent again, and nobody waits.
+        self.assertEqual(await self.drain(), [])
+        self.assertEqual(self.retry_waits.waits, [])
+        # One warning when olim got refused, not one for each batch: the
+        # data dropped meanwhile only goes to the debug log.
+        messages = [record.getMessage() for record in logs.records]
+        self.assertEqual(
+            len([m for m in messages if "rejected the visibility" in m]), 1)
+        drops = [record.getMessage().split(":")[0]
+                 for record in logs.records if record.levelname == "DEBUG"
+                 and record.getMessage().startswith("Dropping")]
+        self.assertEqual(drops, [
+            "Dropping 2 operation(s) of group olim",
+            "Dropping 1 operation(s) of group olim",
+            "Dropping 1 operation(s) of group olim"])
+
+    async def test_group_data_flows_again_once_its_visibility_is_sent(self):
+        hidden = {"hidden": True, "staff_password": None}
+        self.outcomes = {("put", url("olim/visibility")): 400}
+        await self.executor.execute(entries(
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, hidden, "olim")))
+
+        # New settings do not get there at first (RWS is restarting): the
+        # data queued with them waits for them, instead of being dropped.
+        self.outcomes = {("put", url("olim/visibility")):
+                         requests.exceptions.ConnectionError("refused")}
+        self.calls.clear()
+        batch = stamped_entries(
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, hidden, "olim"),
+            ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
+        await self.executor.execute(batch)
+        self.assertEqual(self.urls(), [url("olim/visibility")])
+        requeued = await self.drain()
+        self.assertEqual(stamps(requeued), stamps(batch))
+
+        # The ranking takes them: that data goes after them, and so does
+        # the data that comes later.
+        self.outcomes.clear()
+        self.calls.clear()
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            await self.executor.execute(requeued)
+            await self.executor.execute(entries(
+                ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                               {"1": {}}, "olim")))
+        self.assertEqual(self.calls, [
+            ("put", url("olim/visibility"), hidden),
+            ("put", url("olim/contests/"), {"c": {}}),
+            ("put", url("olim/submissions/"), {"1": {}})])
+        # The data dropped meanwhile is not sent again by itself: now
+        # that the settings get there, Regenerate can send it.
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("accepted the visibility of group olim",
+                      logs.output[0])
+        self.assertIn("Regenerate", logs.output[0])
 
 
 if __name__ == "__main__":

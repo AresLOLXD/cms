@@ -295,6 +295,12 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         # How long to wait if the next attempt to push data fails.
         self._retry_wait = self.MIN_RETRY_WAIT
 
+        # The namespaces whose visibility settings the ranking refused
+        # the last time they were sent. Their data is dropped until it
+        # takes new ones, as it could show the data while they should
+        # be hidden. Only _execute_sync uses it, one batch at a time.
+        self._rejected_visibility: set[str | None] = set()
+
     @staticmethod
     def _prefix(group: str | None) -> str:
         """Return the resource path prefix of a ranking namespace."""
@@ -355,8 +361,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         The visibility settings of a namespace go after its reset and
         before its data, so the ranking knows whether to hide the data
         before it gets it. If the ranking refuses the settings, the
-        data of the namespace is dropped as well: the ranking could
-        show it while it should be hidden.
+        data of the namespace is dropped, in this batch and in the
+        following ones, until the ranking takes new settings for it:
+        it could show the data while the namespace should be hidden.
+        Resets still go through, as they only delete.
 
         entries: entries containing the operations to perform.
 
@@ -402,16 +410,23 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
             if group not in stalled:
                 outcome = self._send(
                     group, self.VISIBILITY_TYPE, visibility.item.data)
-                if outcome is SendOutcome.REJECTED:
-                    # Its data could be shown while the group should be
-                    # hidden: drop it too.
-                    pending.pop(group, None)
+                self._track_visibility(group, outcome)
                 if outcome is not SendOutcome.UNSENT:
                     continue
                 stalled.add(group)
             unsent.add(id(visibility))
 
         for group, group_entries in pending.items():
+            # Drop the data of a namespace whose settings were refused.
+            # If it is stalled, the data waits instead: new settings may
+            # be among what is sent again, and the data would follow them.
+            if group in self._rejected_visibility and group not in stalled:
+                logger.debug(
+                    "Dropping %d operation(s) of group %s: ranking %s "
+                    "rejected its visibility.",
+                    sum(len(type_entries) for type_entries in group_entries),
+                    group, self._visible_ranking)
+                continue
             for type_, type_entries in enumerate(group_entries):
                 data: dict = dict()
                 for entry in type_entries:
@@ -427,6 +442,38 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 unsent.update(id(entry) for entry in type_entries)
 
         return [entry for entry in entries if id(entry) in unsent]
+
+    def _track_visibility(
+        self, group: str | None, outcome: SendOutcome
+    ) -> None:
+        """Remember whether the ranking refused the settings of group.
+
+        Tell the operator when that changes. Regenerate is only
+        suggested once the settings get there: before, it would empty
+        the namespace and send nothing back.
+
+        Runs inside loop.run_in_executor.
+
+        group: the namespace whose visibility settings were sent.
+        outcome: what became of them.
+
+        """
+        if outcome is SendOutcome.REJECTED \
+                and group not in self._rejected_visibility:
+            self._rejected_visibility.add(group)
+            logger.warning(
+                "Ranking %s rejected the visibility of group %s, so its "
+                "data is held back. Check that RWS is up to date (it must "
+                "support /%s/visibility), then save the group again in "
+                "AWS.", self._visible_ranking, group, group)
+        elif outcome is SendOutcome.SENT \
+                and group in self._rejected_visibility:
+            self._rejected_visibility.discard(group)
+            logger.warning(
+                "Ranking %s accepted the visibility of group %s: its data "
+                "is sent again, but not the data held back meanwhile. Use "
+                "Regenerate for this group in AWS (Ranking groups) to send "
+                "that too.", self._visible_ranking, group)
 
     def _send(self, group: str | None, type_: int, data: dict) -> SendOutcome:
         """Send the entities of one type to a namespace of the ranking.
@@ -456,7 +503,6 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                     safe_delete_data(
                         self._ranking, "%s%s/" % (prefix, name), operation)
             elif type_ == self.VISIBILITY_TYPE:
-                what = "the visibility settings"
                 operation = "sending visibility to ranking %s%s" % (
                     self._visible_ranking, prefix)
                 logger.debug(operation.capitalize())
@@ -473,12 +519,14 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 safe_put_data(
                     self._ranking, "%s%s/" % (prefix, name), data, operation)
         except RejectedError:
-            # The status has already been logged: say what to do about it.
-            logger.warning(
-                "Ranking %s rejected %s of group %s. It will not be sent "
-                "again: use Regenerate for this group in AWS (Ranking "
-                "groups) to send its data again.", self._visible_ranking,
-                what, group if group is not None else "(root)")
+            # The status has already been logged: say what to do about it
+            # (for the visibility, _track_visibility does).
+            if type_ != self.VISIBILITY_TYPE:
+                logger.warning(
+                    "Ranking %s rejected %s of group %s. It will not be sent "
+                    "again: use Regenerate for this group in AWS (Ranking "
+                    "groups) to send its data again.", self._visible_ranking,
+                    what, group if group is not None else "(root)")
             return SendOutcome.REJECTED
         except CannotSendError:
             # A log message has already been produced.

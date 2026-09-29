@@ -716,7 +716,114 @@ class TestProxyServiceGroups(
             service = await self.start()
             await self._settle(service)
         self.assertNotIn(url("olim/contests/"), self.put_urls())
-        self.assertTrue(any("Regenerate" in line for line in logs.output))
+        self.assertTrue(any("rejected the visibility of group olim" in line
+                            for line in logs.output))
+
+    def refuse_visibility(self, groups: set[str]):
+        """Make the ranking answer 400 to the visibility of groups.
+
+        groups: the groups whose visibility is refused, for as long as
+            they are in the set.
+
+        """
+        def put(target, *args, **kwargs):
+            response = MagicMock()
+            response.status_code = 400 if any(
+                target == url("%s/visibility" % group)
+                for group in groups) else 200
+            return response
+
+        self.requests_put.side_effect = put
+
+    async def test_rejected_visibility_on_reinitialize_holds_back_group_data(
+        self,
+    ):
+        service = await self.start()
+        self.clear_requests()
+        self.refuse_visibility({"olim"})
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            await service.reinitialize()
+            await self._settle(service)
+            # Scores that come later go in batches of their own.
+            for submission in (self.sub_a, self.sub_b):
+                await service.submission_scored(submission.id)
+                await self._settle(service)
+
+        # Nothing of OLIM got there but its refused visibility.
+        self.assertEqual(
+            [u for u in self.put_urls() if u.startswith(url("olim/"))],
+            [url("olim/visibility")])
+        # OMIPS is not affected.
+        for resource in ("visibility", "contests/", "submissions/"):
+            self.assertIn(url("omips/" + resource), self.put_urls())
+        # The operator is told once, not for each batch held back.
+        hints = [line for line in logs.output
+                 if "rejected the visibility of group olim" in line]
+        self.assertEqual(len(hints), 1)
+
+    async def test_group_data_flows_again_once_its_visibility_is_taken(self):
+        service = await self.start()
+        refused = {"olim"}
+        self.refuse_visibility(refused)
+        await service.reinitialize()
+        await self._settle(service)
+
+        # RWS is fixed, and the group is saved again in AWS.
+        refused.clear()
+        self.clear_requests()
+        await service.reinitialize()
+        await self._settle(service)
+        await service.submission_scored(self.sub_a.id)
+        await self._settle(service)
+
+        urls = self.put_urls()
+        self.assertLess(urls.index(url("olim/visibility")),
+                        urls.index(url("olim/contests/")))
+        self.assertIn(url("olim/submissions/"), urls)
+
+    async def test_visibility_is_enqueued_after_the_reset_and_before_data(
+        self,
+    ):
+        # The executor only puts the settings first within one batch: the
+        # service has to enqueue them first, as another thread enqueues
+        # them and batches can split anywhere.
+        # OLIM keeps a contest after losing one: reinitialize resets it
+        # and fills it again.
+        self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        enqueued: list[ProxyOperation] = list()
+        real_enqueue = service._threadsafe_enqueue
+
+        def spy(operation, *args, **kwargs):
+            enqueued.append(operation)
+            real_enqueue(operation, *args, **kwargs)
+
+        service._threadsafe_enqueue = spy
+        names = {ProxyExecutor.RESET_TYPE: "reset",
+                 ProxyExecutor.VISIBILITY_TYPE: "visibility"}
+
+        def check_order(group: str, with_reset: bool):
+            kinds = [names.get(operation.type_, "data")
+                     for operation in enqueued if operation.group == group]
+            head = (["reset"] if with_reset else []) + ["visibility"]
+            self.assertEqual(kinds[:len(head)], head, group)
+            self.assertEqual(set(kinds[len(head):]), {"data"}, group)
+
+        self.contest_a.ranking_group = self.omips
+        self.session.commit()
+        await service.reinitialize()
+        await self._settle(service)
+        check_order("olim", with_reset=True)
+        check_order("omips", with_reset=False)
+
+        enqueued.clear()
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+        check_order("olim", with_reset=True)
+        self.assertFalse(
+            any(operation.group == "omips" for operation in enqueued))
 
 
 if __name__ == "__main__":
