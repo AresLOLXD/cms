@@ -185,21 +185,35 @@ hidden.**
   Create the groups you need before rolling back.
 
 To hide or reveal a group by hand (for example after a rollback), send the
-setting straight to RankingWebServer, with the ranking credentials from
-`.env` (`CMS_RWS_USERNAME`, `CMS_RWS_PASSWORD`):
+setting straight to RankingWebServer. Run this on the server, from the
+repository root: it reads the ranking credentials from `.env` and should
+print `204`.
 
-    curl -u "$CMS_RWS_USERNAME:$CMS_RWS_PASSWORD" -X PUT \
+    RWS_USER=$(grep '^CMS_RWS_USERNAME=' .env | cut -d= -f2-)
+    RWS_PASS=$(grep '^CMS_RWS_PASSWORD=' .env | cut -d= -f2-)
+    RWS_PORT=$(grep '^CMS_RWS_HTTP_PORT=' .env | cut -d= -f2-)
+    curl -s -o /dev/null -w '%{http_code}\n' \
+        -u "$RWS_USER:$RWS_PASS" -X PUT \
         -H 'Content-Type: application/json' \
         -d '{"hidden": true, "staff_password": null}' \
-        http://127.0.0.1:<CMS_RWS_HTTP_PORT>/<group>/visibility
+        "http://127.0.0.1:${RWS_PORT:-8890}/<group>/visibility"
 
-- `"hidden": false` reveals the group.
+- `"hidden": false` reveals the group. A `401` means the credentials are
+  wrong (if a value is quoted in `.env`, drop the quotes).
 - `"staff_password": null` means no staff login. To keep it, put the
   group's stored hash instead, the `staff_password` value of its row in the
-  `ranking_groups` table (it starts with `bcrypt:`).
-- When the new CMS container is back, ProxyService sends the settings stored
-  in AWS again, and they replace the manual ones. Check every group in AWS
-  right away.
+  `ranking_groups` table (it starts with `bcrypt:`). Keep the `-d` body in
+  single quotes: the hash contains `$`.
+- **The manual setting only lasts while the running CMS container is a
+  version without ranking visibility.** A version with it (the current one,
+  or an older one that already has it) sends the setting stored in AWS
+  again at every save and at every sweep, within about 6 minutes, and that
+  replaces the manual one. With such a version, change the setting in AWS;
+  use `curl` only for the immediate effect, together with the same change
+  in AWS.
+- When the current CMS container is back after a rollback, check every
+  group in AWS right away: the settings stored there replace the manual
+  ones.
 
 ### Stale form
 
