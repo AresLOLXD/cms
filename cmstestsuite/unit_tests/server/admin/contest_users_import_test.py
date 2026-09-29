@@ -955,6 +955,27 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn("perdieron su equipo", html)
         self.assertIn("pasaron al grupo principal", html)
 
+    def test_the_job_carries_the_links_to_show_when_it_is_done(self):
+        job = SimpleNamespace(id="job-1", processed=3, total=10)
+
+        html = self.render_import(job=job)
+
+        self.assertIn('data-users-url="/contest/1/users"', html)
+        # "Importar otro archivo" is the page without ?job=.
+        self.assertIn('data-import-url="/contest/1/users/import"', html)
+        self.assertNotIn("import?job", html)
+
+    def test_the_script_shows_the_links_and_a_bold_listo_when_done(self):
+        html = self.render_import()
+
+        self.assertIn('getAttribute("data-users-url")', html)
+        self.assertIn('getAttribute("data-import-url")', html)
+        self.assertIn("Lista de usuarios", html)
+        self.assertIn("Importar otro archivo", html)
+        self.assertIn('createElement("strong")', html)
+        self.assertIn('strong.textContent = "Listo."', html)
+        self.assertIn('createElement("a")', html)
+
     def test_the_users_page_links_to_the_import_for_admins_with_all(self):
         contest = SimpleNamespace(id=CONTEST_ID, participations=[],
                                   groups=[], main_group_id=None)

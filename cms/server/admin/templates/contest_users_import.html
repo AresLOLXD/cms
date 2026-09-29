@@ -47,7 +47,9 @@ guarda nada.</p>
 {% endif %}
 
 {% if job %}
-<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") }}">
+<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") }}"
+     data-users-url="{{ url("contest", contest.id, "users") }}"
+     data-import-url="{{ url("contest", contest.id, "users", "import") }}">
   <p id="import_text">Procesando {{ job.processed }} de {{ job.total }}</p>
   <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" style="width: 100%"></progress>
   <div id="import_result"></div>
@@ -169,6 +171,12 @@ guarda nada.</p>
         line.textContent = text;
         parent.appendChild(line);
     }
+    function makeLink(href, text) {
+        var link = document.createElement("a");
+        link.href = href;
+        link.textContent = text;
+        return link;
+    }
     function countOf(count, one, many) {
         return count === 1 ? "1 " + one : count + " " + many;
     }
@@ -189,10 +197,17 @@ guarda nada.</p>
                     "Procesando " + s.processed + " de " + s.total;
                 var out = document.getElementById("import_result");
                 if (s.status === "done") {
-                    addLine(out, "Listo. Usuarios nuevos: " + s.summary.usuarios_nuevos +
+                    var lead = document.createElement("p");
+                    lead.className = "import-box import-done";
+                    var strong = document.createElement("strong");
+                    strong.textContent = "Listo.";
+                    lead.appendChild(strong);
+                    lead.appendChild(document.createTextNode(
+                        " Usuarios nuevos: " + s.summary.usuarios_nuevos +
                         ", actualizados: " + s.summary.usuarios_actualizados +
                         ". Participaciones nuevas: " + s.summary.participaciones_nuevas +
-                        ", actualizadas: " + s.summary.participaciones_actualizadas + ".");
+                        ", actualizadas: " + s.summary.participaciones_actualizadas + "."));
+                    out.appendChild(lead);
                     // The import is over, so what it cleared is told in the past.
                     var losses = document.createElement("div");
                     losses.className = "import-box import-warning";
@@ -207,6 +222,14 @@ guarda nada.</p>
                             "participaciones pasaron al grupo principal"));
                     }
                     if (losses.firstChild) { out.appendChild(losses); }
+                    // Not a dead end: back to the users, or to another file.
+                    var links = document.createElement("p");
+                    links.appendChild(makeLink(job.getAttribute("data-users-url"),
+                        "Lista de usuarios"));
+                    links.appendChild(document.createTextNode(" | "));
+                    links.appendChild(makeLink(job.getAttribute("data-import-url"),
+                        "Importar otro archivo"));
+                    out.appendChild(links);
                 } else if (s.status === "error") {
                     out.textContent = "Error: " + s.error;
                 } else {
