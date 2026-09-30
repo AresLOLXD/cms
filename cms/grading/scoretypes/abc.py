@@ -413,12 +413,12 @@ class ScoreTypeGroup(ScoreTypeAlone):
 
         filtered_subtasks = []
         for st in score_details:
-            filtered_st = {
-                "idx": st["idx"],
-                "score_fraction": st["score_fraction"],
-                "score": st["score"],
-                "max_score": st["max_score"],
-            }
+            filtered_st = {"idx": st["idx"]}
+            # A subtask with non-public testcases has no score in the public
+            # details (see compute_score).
+            for key in ("score_fraction", "score", "max_score"):
+                if key in st:
+                    filtered_st[key] = st[key]
             if "zeroed_by_dependency" in st:
                 filtered_st["zeroed_by_dependency"] = st["zeroed_by_dependency"]
 
@@ -673,7 +673,12 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 public_score += rounded_score
                 public_subtasks.append(subtasks[-1])
             else:
-                public_subtasks.append({"idx": st_idx, "testcases": public_testcases})
+                # The score of this subtask must not be revealed; the
+                # dependency skip is already visible in the public testcases.
+                public_subtask = {"idx": st_idx, "testcases": public_testcases}
+                if zeroed[st_idx] is not None:
+                    public_subtask["zeroed_by_dependency"] = zeroed[st_idx]
+                public_subtasks.append(public_subtask)
             ranking_details.append("%g" % rounded_score)
 
         # The following line should be unnecessary since subtask scores

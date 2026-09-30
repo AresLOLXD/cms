@@ -163,6 +163,56 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
                       "no points.", html)
         self.assertEqual(html.count("Worth 0 because"), 1)
 
+    def _partially_private_dataset(self):
+        """Return a score type whose subtask 1 (depends on 0) mixes a public
+        and a non-public testcase, and its public testcases.
+
+        """
+        public = {"0": True, "1": True, "2": False, "3": True}
+        st = GroupMin(
+            params((20, 1, {}), (30, 2, {"depends_on": [0]}), (50, 1, {})),
+            public, 2)
+        return st, public
+
+    def test_partially_private_zeroed_subtask_in_public_details(self):
+        st, public = self._partially_private_dataset()
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        _, _, _, public_details, _ = st.compute_score(sr)
+
+        # No score is revealed, but the (already visible) dependency skip is.
+        self.assertEqual(public_details[1]["zeroed_by_dependency"], 0)
+        for key in ("score_fraction", "score", "max_score"):
+            self.assertNotIn(key, public_details[1])
+        json_details = st.get_json_details(public_details)
+        self.assertEqual(json_details[1]["zeroed_by_dependency"], 0)
+        self.assertEqual(set(json_details[1]),
+                         {"idx", "zeroed_by_dependency", "testcases"})
+        # The fully public subtasks are untouched.
+        self.assertNotIn("zeroed_by_dependency", json_details[0])
+        self.assertEqual(json_details[0]["score"], 0.0)
+        self.assertEqual(json_details[2]["score"], 50.0)
+
+        html = st.get_html_details(public_details)
+        self.assertNotIn("temporarily unavailable", html)
+        self.assertIn("Worth 0 because it depends on subtask 0, which scored "
+                      "no points.", html)
+        self.assertEqual(html.count("Worth 0 because"), 1)
+
+    def test_partially_private_subtask_not_zeroed_has_no_note(self):
+        st, public = self._partially_private_dataset()
+        sr = self.get_submission_result(public)
+        _, _, _, public_details, _ = st.compute_score(sr)
+
+        self.assertNotIn("zeroed_by_dependency", public_details[1])
+        for key in ("score_fraction", "score", "max_score"):
+            self.assertNotIn(key, public_details[1])
+        json_details = st.get_json_details(public_details)
+        self.assertEqual(set(json_details[1]), {"idx", "testcases"})
+        html = st.get_html_details(public_details)
+        self.assertNotIn("temporarily unavailable", html)
+        self.assertNotIn("Worth 0 because", html)
+
 
 if __name__ == "__main__":
     unittest.main()
