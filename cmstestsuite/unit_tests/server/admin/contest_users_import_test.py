@@ -1103,6 +1103,23 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn('strong.textContent = "Listo."', html)
         self.assertIn('createElement("a")', html)
 
+    def test_the_script_shows_the_links_after_an_error_too(self):
+        # "Error: ..." must not be a dead end either.
+        html = self.render_import()
+        script = html[html.index("<script>"):]
+        done = script.index('s.status === "done"')
+        error = script.index('s.status === "error"')
+        error_end = script.index("} else {", error)
+
+        self.assertEqual(script.count("function addLinks(parent)"), 1)
+        links = script[script.index("function addLinks(parent)"):]
+        links = links[:links.index("\n    }\n")]
+        self.assertIn('"Lista de usuarios"', links)
+        self.assertIn('"Importar otro archivo"', links)
+        self.assertIn("addLinks(out);", script[done:error])
+        self.assertIn('"Error: " + s.error', script[error:error_end])
+        self.assertIn("addLinks(out);", script[error:error_end])
+
     def test_the_blocks_have_their_own_classes_not_the_toast_ones(self):
         # AWS styles ".notification" only inside its "#notifications"
         # container, so on this page it would render as plain text.

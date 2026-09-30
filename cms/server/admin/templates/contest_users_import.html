@@ -212,6 +212,17 @@ guarda nada.</p>
         return count === 1 ? "1 " + one : count + " " + many;
     }
     var job = document.getElementById("import_job");
+    // Not a dead end, whether the import is done or failed: back to the
+    // users, or to another file.
+    function addLinks(parent) {
+        var links = document.createElement("p");
+        links.appendChild(makeLink(job.getAttribute("data-users-url"),
+            "Lista de usuarios"));
+        links.appendChild(document.createTextNode(" | "));
+        links.appendChild(makeLink(job.getAttribute("data-import-url"),
+            "Importar otro archivo"));
+        parent.appendChild(links);
+    }
     if (job) {
         var url = job.getAttribute("data-status-url");
         var MAX_FAILURES = 5;
@@ -256,16 +267,10 @@ guarda nada.</p>
                             "participaciones pasaron al grupo principal"));
                     }
                     if (losses.firstChild) { out.appendChild(losses); }
-                    // Not a dead end: back to the users, or to another file.
-                    var links = document.createElement("p");
-                    links.appendChild(makeLink(job.getAttribute("data-users-url"),
-                        "Lista de usuarios"));
-                    links.appendChild(document.createTextNode(" | "));
-                    links.appendChild(makeLink(job.getAttribute("data-import-url"),
-                        "Importar otro archivo"));
-                    out.appendChild(links);
+                    addLinks(out);
                 } else if (s.status === "error") {
                     addLine(out, "Error: " + s.error, "import-box import-error");
+                    addLinks(out);
                 } else {
                     setTimeout(poll, 500);
                 }
