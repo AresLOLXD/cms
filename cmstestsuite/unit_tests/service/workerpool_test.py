@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from cms.conf import ServiceCoord
 from cms.io.async_rpc import AsyncFakeRemoteServiceClient
+from cms.service.esoperations import ESOperation
 from cms.service.workerpool import WorkerPool
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
@@ -95,6 +96,46 @@ class TestDispatchToWorker(unittest.IsolatedAsyncioTestCase):
             await pool._dispatch_to_worker(0, {"jobs": []})
 
         service.action_finished.assert_awaited_once_with({"jobs": []}, 0, None)
+
+
+class TestDuplicateOperation(unittest.TestCase):
+    """The same operation assigned to two workers at once."""
+
+    def setUp(self):
+        service = MagicMock()
+        service._loop = None
+        service.contest_id = None
+        # Nothing is dispatched for real: drop the dispatch coroutine.
+        service._spawn.side_effect = lambda coroutine: coroutine.close()
+        service.connect_to.side_effect = \
+            lambda coord, on_connect: MagicMock(connected=True)
+        self.pool = WorkerPool(service)
+        for shard in range(2):
+            self.pool.add_worker(ServiceCoord("Worker", shard))
+
+    @staticmethod
+    def _operation(testcase_codename: str) -> ESOperation:
+        return ESOperation(ESOperation.EVALUATION, 42, 7, testcase_codename)
+
+    def test_releasing_both_workers_forgets_every_operation(self):
+        duplicate = self._operation("001")
+        only_first = self._operation("002")
+        only_second = self._operation("003")
+        first = self.pool.acquire_worker([duplicate, only_first])
+        second = self.pool.acquire_worker([duplicate, only_second])
+        self.assertNotEqual(first, second)
+
+        self.assertIs(self.pool.release_worker(first), False)
+        # The second worker is still running the duplicate.
+        self.assertIn(duplicate, self.pool)
+        self.assertIs(self.pool.release_worker(second), False)
+
+        for shard in (first, second):
+            self.assertIs(self.pool._operations[shard],
+                          WorkerPool.WORKER_INACTIVE)
+        self.assertEqual(self.pool._operations_reverse, {})
+        for operation in (duplicate, only_first, only_second):
+            self.assertNotIn(operation, self.pool)
 
 
 if __name__ == "__main__":
