@@ -213,6 +213,39 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
         self.assertNotIn("temporarily unavailable", html)
         self.assertNotIn("Worth 0 because", html)
 
+    def test_fully_private_zeroed_subtask_reveals_nothing(self):
+        # With no public testcase there is no "Not tested" text to show, so
+        # the note would reveal that a hidden subtask scored no points.
+        cases = {
+            # Hidden subtask 2 depends on hidden subtask 1, which failed.
+            "hidden dependency": (
+                params((20, 1, {}), (30, 1, {}),
+                       (50, 1, {"depends_on": [1]})),
+                {"0": True, "1": False, "2": False}, "1"),
+            # Hidden subtask 1 depends on public subtask 0, which failed.
+            "public dependency": (
+                params((20, 1, {}), (80, 1, {"depends_on": [0]})),
+                {"0": True, "1": False}, "0"),
+        }
+        for name, (parameters, public, failing) in cases.items():
+            with self.subTest(name):
+                st = GroupMin(parameters, public, 2)
+                sr = self.get_submission_result(public)
+                self.set_outcome(sr, failing, 0.0)
+                _, private_details, _, public_details, _ = st.compute_score(sr)
+                # The private details still record the dependency.
+                self.assertEqual(private_details[-1]["zeroed_by_dependency"],
+                                 int(failing))
+
+                hidden = public_details[-1]
+                self.assertEqual(set(hidden), {"idx", "testcases"})
+                self.assertEqual(
+                    set(st.get_json_details(public_details)[-1]),
+                    {"idx", "testcases"})
+                html = st.get_html_details(public_details)
+                self.assertNotIn("temporarily unavailable", html)
+                self.assertNotIn("Worth 0 because it depends on subtask", html)
+
 
 if __name__ == "__main__":
     unittest.main()

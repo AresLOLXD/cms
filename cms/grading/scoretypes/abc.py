@@ -673,10 +673,13 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 public_score += rounded_score
                 public_subtasks.append(subtasks[-1])
             else:
-                # The score of this subtask must not be revealed; the
-                # dependency skip is already visible in the public testcases.
+                # The score of this subtask must not be revealed. Its
+                # dependency skip is already visible in the text of its
+                # public testcases, so the note is only added if it has any.
                 public_subtask = {"idx": st_idx, "testcases": public_testcases}
-                if zeroed[st_idx] is not None:
+                if zeroed[st_idx] is not None and any(
+                    self.public_testcases[tc_idx] for tc_idx in target
+                ):
                     public_subtask["zeroed_by_dependency"] = zeroed[st_idx]
                 public_subtasks.append(public_subtask)
             ranking_details.append("%g" % rounded_score)
