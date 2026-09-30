@@ -25,6 +25,10 @@ services:
       - "../codecov:/home/cmsuser/src/codecov"
     privileged: true
     cgroup: host
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     command: wait-for-it testdb:5432 -- docker/_cms-test-internal.sh
 
   stresstestcms:
@@ -35,4 +39,8 @@ services:
       CMS_CONFIG: /home/cmsuser/cms/etc/cms-testdb.toml
     privileged: true
     cgroup: host
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     command: wait-for-it testdb:5432 -- docker/_cms-stresstest-internal.sh
