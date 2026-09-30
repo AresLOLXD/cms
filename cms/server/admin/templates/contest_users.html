@@ -36,12 +36,12 @@
 <p><a href="{{ url("contest", contest.id, "users", "import") }}">Importar CSV</a></p>
 {% endif %}
 
-<form action="{{ url("contest", contest.id, "users") }}" method="POST">
+<form action="{{ url("contest", contest.id, "users", "remove") }}" method="POST">
   {{ xsrf_form_html|safe }}
-  Edit selected user:
+  <input type="hidden" name="action" value="preview"/>
+  Usuarios seleccionados:
   <input type="submit"
-         name="operation"
-         value="Remove from contest"
+         value="Quitar seleccionados del concurso"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
@@ -49,7 +49,7 @@
   <table class="bordered">
     <thead>
       <tr>
-        <th></th>
+        <th><input type="checkbox" id="select_all_users" title="Seleccionar todo"/></th>
         <th>Username</th>
         <th>First name</th>
         <th>Last name</th>
@@ -60,7 +60,7 @@
       {% for u in contest.participations|sort(attribute="user.username") %}
       <tr>
         <td>
-          <input type="radio" name="user_id" value="{{ u.user.id }}"/>
+          <input type="checkbox" name="user_id" value="{{ u.user.id }}"/>
         </td>
         <td><a href="{{ url("contest", contest.id, "user", u.user.id, "edit") }}">{{ u.user.username }}</a></td>
         <td>{{ u.user.first_name }}</td>
@@ -71,5 +71,31 @@
     </tbody>
   </table>
 </form>
+
+<h2>Quitar por lista</h2>
+<form action="{{ url("contest", contest.id, "users", "remove") }}" method="POST"
+      enctype="multipart/form-data">
+  {{ xsrf_form_html|safe }}
+  <input type="hidden" name="action" value="preview"/>
+  <p>Un username por línea, o un CSV cuya primera columna sea el username.</p>
+  <textarea name="usernames" rows="6" cols="40"></textarea><br>
+  <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain"/><br>
+  <input type="submit"
+         value="Revisar lista"
+{% if not admin.permission_all %}
+         disabled
+{% endif %}
+         />
+</form>
+
+<script>
+document.getElementById("select_all_users").addEventListener(
+    "change", function () {
+        var boxes = document.querySelectorAll('input[name="user_id"]');
+        for (var i = 0; i < boxes.length; i++) {
+            boxes[i].checked = this.checked;
+        }
+    });
+</script>
 
 {% endblock core %}

@@ -405,7 +405,7 @@ class FunctionalTestFramework:
         kwargs["user_id"] = user_id
         r = self.admin_req('contest/%s/users/add' % kwargs["contest_id"],
                            args=kwargs)
-        g = re.search('<input type="radio" name="user_id" value="' +
+        g = re.search('<input type="checkbox" name="user_id" value="' +
                       str(user_id) + '"/>', r.text)
         if g:
             return user_id
