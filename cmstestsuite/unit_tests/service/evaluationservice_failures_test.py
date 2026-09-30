@@ -883,11 +883,15 @@ class EvaluationServiceFailurePathsTest(
         loop = asyncio.get_running_loop()
 
         def new_submission_then_sweep():
-            # Holding the lock keeps the push, which takes it too, from
-            # landing before the sweep: it is still in flight for it.
-            with self.service.post_finish_lock:
+            # Holding the loop keeps the push from landing before the
+            # sweep: it is still in flight for it.
+            release = threading.Event()
+            loop.call_soon_threadsafe(release.wait, 10)
+            try:
                 self.service._new_submission_sync(fixture.submission.id)
                 return self.service._missing_operations_sync()
+            finally:
+                release.set()
 
         found = await asyncio.wait_for(
             loop.run_in_executor(None, new_submission_then_sweep), timeout=10)
@@ -939,6 +943,78 @@ class EvaluationServiceFailurePathsTest(
         self.assertTrue(self._load_result(fixture).compilation_failed())
         self.assertEqual(self.scoring_stub.new_evaluation_calls,
                          [fixture.key])
+
+    # -- what the coroutines queue, and how --------------------------------
+
+    async def test_what_a_coroutine_queues_has_landed_when_it_returns(self):
+        # The loop actions of a _sync method are handed to the loop
+        # before the method returns, and run_in_executor delivers its
+        # result after them: once the await returns, every push and
+        # dequeue it decided has been applied, with no waiting.
+        executor = self.service.get_executor()
+
+        def assert_landed(*operations: ESOperation):
+            self.assertEqual(self.service._pending_operations, {})
+            for operation in operations:
+                self.assertIn(operation, executor)
+
+        queued = self._add_fixture()
+        self.assertTrue(await self.service.enqueue(
+            queued.compilation(), PriorityQueue.PRIORITY_HIGH,
+            queued.submission.timestamp))
+        assert_landed(queued.compilation())
+
+        submitted = self._add_fixture()
+        await self.service.new_submission(submitted.submission.id)
+        assert_landed(submitted.compilation())
+
+        participation = self.add_participation(contest=queued.contest)
+        user_test = self.add_user_test(
+            task=queued.task, participation=participation)
+        self.session.commit()
+        await self.service.new_user_test(user_test.id)
+        assert_landed(ESOperation(
+            ESOperation.USER_TEST_COMPILATION, user_test.id,
+            queued.dataset.id))
+
+        invalidated = self._add_fixture(compiled=True)
+        await self.service.invalidate_submission(
+            submission_id=invalidated.submission.id, level="compilation")
+        assert_landed(invalidated.compilation())
+
+        written = self._add_fixture(testcases=2)
+        job = CompilationJob(
+            operation=written.compilation(), task_type="Batch",
+            task_type_parameters={}, language=None, files={}, managers={},
+            success=True, compilation_success=True,
+            text=["Compiled successfully."], plus={})
+        await self.service.write_results(
+            [(written.compilation(), Result(job, True))])
+        assert_landed(written.evaluation("t0"), written.evaluation("t1"))
+
+        swept = self._add_fixture()
+        with self.assertLogs(
+                "cms.io.async_triggeredservice", level="INFO") as logs:
+            await self.service._sweep()
+        assert_landed(swept.compilation())
+        self.assertIn("Found 1 missed operation(s)", logs.output[-1])
+
+    async def test_a_sweep_sends_what_it_finds_in_one_job_group(self):
+        # The pushes of a section reach the queue together, so the
+        # executor batches them as it always did.
+        fixture = self._add_fixture(testcases=3, compiled=True)
+        worker = ControllableWorker()
+        await self._start_worker(worker)
+
+        await self.service._sweep()
+        await self._wait_until_idle()
+
+        self.assertEqual(len(worker.received_job_groups), 1)
+        self.assertCountEqual(
+            worker.jobs,
+            [("evaluation", fixture.submission.id, "t%d" % index)
+             for index in range(3)])
+        self.assertTrue(self._load_result(fixture).evaluated())
 
     # -- results written from an executor thread -------------------------
 
