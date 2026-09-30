@@ -30,6 +30,7 @@ from cms.conf import Address, ServiceCoord
 from cms.db import Submission
 from cms.grading.Job import EvaluationJob
 from cms.grading.steps import EVALUATION_MESSAGES
+from cms.io import PriorityQueue
 from cms.service.esoperations import ESOperation
 from cms.service.EvaluationService import EvaluationService, Result
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -48,12 +49,14 @@ CODENAMES = ["s0-00-sample", "s0-01-scr-wa", "s1-00-normal", "s2-00-normal"]
 class WriteResultsFixtureMixin:
     """A GroupMin dataset with four testcases and one compiled submission.
 
-    Subclasses set SCORE_TYPE_PARAMETERS. Must come before
-    IsolatedAsyncioTestCase in the bases.
+    Subclasses set SCORE_TYPE_PARAMETERS, and may set TESTCASE_CODENAMES
+    to use other testcases. Must come before IsolatedAsyncioTestCase in
+    the bases.
 
     """
 
     SCORE_TYPE_PARAMETERS: list
+    TESTCASE_CODENAMES: list[str] = CODENAMES
 
     async def asyncSetUp(self):
         # EvaluationService.__init__ (via WorkerPool.__init__, which calls
@@ -87,7 +90,7 @@ class WriteResultsFixtureMixin:
         self.task.active_dataset = self.dataset
         self.testcases = {
             codename: self.add_testcase(self.dataset, codename=codename)
-            for codename in CODENAMES
+            for codename in self.TESTCASE_CODENAMES
         }
         self.submission, self.results = self.add_submission_with_results(
             self.task, self.participation, True)
@@ -365,17 +368,25 @@ class TestFinalizeOnlyCompleteResults(
     async def test_zero_operations_with_missing_evaluations_is_not_finalized(
         self,
     ):
+        # The missing testcases are released without the gates instead.
         service = self._build_service()
         with patch("cms.service.EvaluationService.submission_get_operations",
                    return_value=[]), \
+                patch.object(service, "_enqueue_sync",
+                             return_value=True) as enqueue, \
                 patch.object(service, "evaluation_ended") as ended, \
                 self.assertLogs(
-                    "cms.service.EvaluationService", "ERROR") as logs:
-            service.submission_enqueue_operations(self.submission)
+                    "cms.service.EvaluationService", "WARNING") as logs:
+            new_operations = service.submission_enqueue_operations(
+                self.submission)
         ended.assert_not_called()
         self.assertFalse(self._current_result().evaluated())
-        self.assertIn(f"{self.submission.id}({self.dataset.id})",
-                      logs.records[0].getMessage())
+        self.assertEqual(self._enqueued_evaluation_codenames(enqueue),
+                         set(CODENAMES))
+        self.assertEqual(new_operations, len(CODENAMES))
+        self.assertIn(
+            f"Submission {self.submission.id}, dataset {self.dataset.id}:",
+            logs.records[0].getMessage())
 
     async def test_zero_operations_with_every_evaluation_is_finalized(self):
         for codename, testcase in self.testcases.items():
@@ -388,6 +399,63 @@ class TestFinalizeOnlyCompleteResults(
             service.submission_enqueue_operations(self.submission)
         ended.assert_called_once()
         self.assertTrue(self._current_result().evaluated())
+
+
+# Group s1 breaks the alignment rule of docs/subtask-dependencies.md: its
+# screening testcases are only in subtask 1, which depends on subtask 0,
+# and subtask 0 holds a non-screening testcase of s1. Once the sample
+# passes, two-phase holds s1-03-x until s1's screening is done, and the
+# dependency gate holds that screening until subtask 0 passes.
+SPLIT_GROUP_CODENAMES = [
+    "s1-00-sample", "s1-01-scr-wa", "s1-02-scr-tle", "s1-03-x"]
+SPLIT_GROUP_PARAMETERS = [
+    {"max_score": 40, "testcases": ["s1-00-sample", "s1-03-x"]},
+    {"max_score": 60, "testcases": ["s1-01-scr-wa", "s1-02-scr-tle"],
+     "depends_on": [0]},
+]
+
+GATES_HOLDING_EACH_OTHER = "gates are holding each other"
+
+
+class TestGatesHoldingEachOtherDoNotStall(
+    WriteResultsFixtureMixin, ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
+
+    SCORE_TYPE_PARAMETERS = SPLIT_GROUP_PARAMETERS
+    TESTCASE_CODENAMES = SPLIT_GROUP_CODENAMES
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_held_testcases_are_released_and_the_result_completes(
+        self,
+    ):
+        held = {"s1-01-scr-wa", "s1-02-scr-tle", "s1-03-x"}
+        service = self._build_service()
+        with patch.object(service, "_enqueue_sync",
+                          return_value=True) as enqueue, \
+                self.assertLogs(
+                    "cms.service.EvaluationService", "WARNING") as logs:
+            result = await self._write_with(service, {"s1-00-sample": "1.0"})
+        self.assertFalse(result.evaluated())
+        self.assertEqual(self._enqueued_evaluation_codenames(enqueue), held)
+        # Same priority, timestamp and archiving as the gated operations.
+        for call in enqueue.call_args_list:
+            operation, priority, timestamp = call.args
+            self.assertEqual(priority, PriorityQueue.PRIORITY_MEDIUM)
+            self.assertEqual(timestamp, self.submission.timestamp)
+            self.assertFalse(operation.archive_sandbox)
+        warnings = [record.getMessage() for record in logs.records
+                    if GATES_HOLDING_EACH_OTHER in record.getMessage()]
+        self.assertTrue(warnings)
+        self.assertIn(
+            f"Submission {self.submission.id}, dataset {self.dataset.id}: ",
+            warnings[0])
+        self.assertIn("s1-01-scr-wa, s1-02-scr-tle, s1-03-x", warnings[0])
+
+        result = await self._write_with(service, dict.fromkeys(held, "1.0"))
+        self.assertEqual({e.codename for e in result.evaluations},
+                         set(SPLIT_GROUP_CODENAMES))
+        self.assertTrue(result.evaluated())
 
 
 if __name__ == "__main__":

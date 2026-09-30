@@ -42,7 +42,8 @@ from sqlalchemy.exc import IntegrityError
 
 from cms import ServiceCoord, get_service_shards
 from cms.db.session import Session
-from cms.io.priorityqueue import QueueEntry, QueueEntryDict, QueueItem
+from cms.io.priorityqueue import PriorityQueue, QueueEntry, QueueEntryDict, \
+    QueueItem
 from cmscommon.datetime import make_timestamp
 from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
     SubmissionResult, Testcase, UserTest, UserTestResult, get_submissions, \
@@ -392,10 +393,34 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                     codename for codename, testcase in dataset.testcases.items()
                     if testcase.id not in evaluated_ids)
                 if missing:
-                    logger.error(
-                        "Result %d(%d) has no operations left but no "
-                        "evaluation for testcase(s) %s, not finalizing it.",
+                    # Only reachable with two-phase on and a dataset whose
+                    # codename groups disagree with its subtasks (see the
+                    # alignment rule in docs/subtask-dependencies.md):
+                    # otherwise some testcase is always released or
+                    # skipped. Release the held ones without the gates,
+                    # so that the submission is not stuck.
+                    logger.warning(
+                        "Submission %d, dataset %d: no operations left but "
+                        "no evaluation for testcase(s) %s. The subtask "
+                        "dependency and two-phase screening gates are "
+                        "holding each other (see the alignment rule in "
+                        "docs/subtask-dependencies.md); releasing these "
+                        "testcases without the gates.",
                         submission.id, dataset.id, ", ".join(missing))
+                    # As submission_get_operations() does.
+                    if not dataset.active:
+                        priority = PriorityQueue.PRIORITY_EXTRA_LOW
+                    elif submission_result.evaluation_tries == 0:
+                        priority = PriorityQueue.PRIORITY_MEDIUM
+                    else:
+                        priority = PriorityQueue.PRIORITY_LOW
+                    for codename in missing:
+                        operation = ESOperation(
+                            ESOperation.EVALUATION, submission.id, dataset.id,
+                            codename, archive_sandbox=archive_sandbox)
+                        if self._enqueue_sync(
+                                operation, priority, submission.timestamp):
+                            new_operations += 1
                 else:
                     logger.info("Result %d(%d) has already all evaluations, "
                                 "finalizing it.", submission.id, dataset.id)
