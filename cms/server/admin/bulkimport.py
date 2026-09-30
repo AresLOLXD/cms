@@ -49,7 +49,8 @@ FIELDS: tuple[str, ...] = ("username", "first_name", "last_name",
 REQUIRED: frozenset[str] = frozenset({"username", "first_name",
                                       "last_name", "password"})
 LABELS = {"username": "el usuario", "first_name": "el nombre",
-          "last_name": "el apellido", "password": "la contraseña"}
+          "last_name": "el apellido", "password": "la contraseña",
+          "team": "el equipo", "group": "el grupo"}
 EMPTY_MESSAGES = {"username": "el usuario está vacío",
                   "first_name": "el nombre está vacío",
                   "last_name": "el apellido está vacío",
@@ -186,6 +187,13 @@ def read_rows(data: bytes, mapping: dict[str, str]
         for field in FIELDS:
             if field in REQUIRED and not values[field]:
                 errors.append("fila %d: %s" % (line, EMPTY_MESSAGES[field]))
+            elif field != "password" and "\x00" in values[field]:
+                # The database refuses NUL in a text, so the job would
+                # fail at the commit. The password has a check of its own
+                # below. Spanish contracts "de el" into "del".
+                of_label = ("de " + LABELS[field]).replace("de el ", "del ")
+                errors.append("fila %d: la celda %s tiene caracteres no "
+                              "permitidos" % (line, of_label))
         if len(values["password"].encode("utf-8")) > MAX_PASSWORD_BYTES:
             errors.append("fila %d: la contraseña pasa de %d bytes"
                           % (line, MAX_PASSWORD_BYTES))
@@ -193,7 +201,8 @@ def read_rows(data: bytes, mapping: dict[str, str]
             errors.append("fila %d: la contraseña tiene caracteres no "
                           "permitidos" % line)
         username = values["username"]
-        if username:
+        # A NUL is reported above; the checks below would echo it.
+        if username and "\x00" not in username:
             # The Codename domain of the database. Not \w: it would also
             # accept the accented letters.
             if not re.fullmatch(r"[A-Za-z0-9_-]+", username):

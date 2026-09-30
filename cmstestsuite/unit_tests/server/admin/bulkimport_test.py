@@ -306,6 +306,34 @@ class TestReadRows(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(rows[0].password, "s3c\tr3t")
 
+    def test_a_nul_byte_in_any_cell_is_refused(self):
+        # The database refuses NUL in a text, so the job would fail at the
+        # commit, after all the hashing, on a file that "Solo validar"
+        # found valid. The cell is named, never echoed.
+        header = "usuario,nombre,apellido,contraseña,estado,grupo\n"
+        mapping = dict(MAPPING, group="grupo")
+        good = ["ana", "Ana", "López", "pw", "JAL", "tarde"]
+        for index, name in ((0, "del usuario"), (1, "del nombre"),
+                            (2, "del apellido"), (4, "del equipo"),
+                            (5, "del grupo")):
+            cells = list(good)
+            cells[index] = "Sec\x00reto"
+            with self.subTest(name=name):
+                _, errors = read_rows(
+                    csv_bytes(header + ",".join(cells) + "\n"), mapping)
+                self.assertEqual(
+                    errors,
+                    ["fila 2: la celda %s tiene caracteres no permitidos"
+                     % name])
+                self.assertFalse(any("Sec" in e for e in errors))
+        # The password has a message of its own, and only that one.
+        cells = list(good)
+        cells[3] = "Sec\x00reto"
+        _, errors = read_rows(csv_bytes(header + ",".join(cells) + "\n"),
+                              mapping)
+        self.assertEqual(
+            errors, ["fila 2: la contraseña tiene caracteres no permitidos"])
+
     def test_the_72_bytes_are_counted_after_stripping(self):
         rows, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
