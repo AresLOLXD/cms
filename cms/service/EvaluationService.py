@@ -84,6 +84,13 @@ logger = logging.getLogger(__name__)
 # threading.RLock() is reentrant and safe to hold with no await inside
 # it, exactly like cms/log.py's shared handlers and FlushingDict's own
 # lock elsewhere in this modernization effort.
+#
+# Lock ordering: always take post_finish_lock before opening a DB
+# session (a pooled connection), never the reverse. A thread holding a
+# connection while it waits for the lock can deadlock with the lock
+# holder waiting for a connection once the pool (5 + 10 overflow) is
+# exhausted; every entry point that touches both is decorated with
+# @with_post_finish_lock so that the lock comes first.
 class EvaluationExecutor(AsyncExecutor[ESOperation]):
 
     # Real maximum number of operations to be sent to a worker.
@@ -1346,20 +1353,24 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._new_submission_sync, submission_id)
 
+    @with_post_finish_lock
     def _new_submission_sync(self, submission_id: int):
         """Do the work of new_submission(), synchronously.
 
-        Runs inside loop.run_in_executor. Not decorated with
-        @with_post_finish_lock itself -- submission_enqueue_operations
-        calls _enqueue_sync, which acquires the lock itself for just its
-        own critical section. A brand new submission cannot race
-        action_finished (no operation of it can be in a worker yet), but
-        the sweeper (_missing_operations_sync, on another executor
-        thread) can pick up the same new submission concurrently: that
-        race is harmless because _enqueue_sync's dedup check (queue,
-        pool, result cache and _pending_operations, all checked
-        under post_finish_lock) lets only one of the two enqueue each
-        operation.
+        Runs inside loop.run_in_executor, holding post_finish_lock for
+        the whole call. It has to take the lock before opening the
+        session: submission_enqueue_operations reaches _enqueue_sync,
+        which needs the lock, and taking it only there would mean
+        holding a pooled DB connection while waiting for the lock --
+        the opposite of the order used by _write_results_sync,
+        _missing_operations_sync and _invalidate_submission_sync (lock,
+        then connection). A burst of new submissions could then hold
+        every pooled connection while write_results held the lock
+        waiting for one, stalling ES until the pool timeout. The
+        sweeper (_missing_operations_sync) picking up the same new
+        submission concurrently is now serialized with this method
+        instead of racing it; _enqueue_sync's dedup check would have
+        made that race harmless anyway.
 
         """
         with SessionGen() as session:
@@ -1385,12 +1396,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._new_user_test_sync, user_test_id)
 
+    @with_post_finish_lock
     def _new_user_test_sync(self, user_test_id: int):
         """Do the work of new_user_test(), synchronously.
 
-        Runs inside loop.run_in_executor. Not decorated with
-        @with_post_finish_lock -- see _new_submission_sync's docstring
-        for why.
+        Runs inside loop.run_in_executor, holding post_finish_lock for
+        the whole call, taken before the DB session is opened -- see
+        _new_submission_sync's docstring for why.
 
         """
         with SessionGen() as session:
