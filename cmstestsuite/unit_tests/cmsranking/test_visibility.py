@@ -1240,6 +1240,14 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
             self.assertEqual(self.body(self.get_events("/events", last_id)),
                              self.BETA_REINIT)
 
+    def test_a_future_window_does_not_cut_open_streams(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        # Scheduling tomorrow's freeze changes nothing that the page shows.
+        self.put_freeze(int(time.time()) + 86400)
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
+
     def test_a_group_without_windows_is_as_on_beta_after_a_restart(self):
         self.put_contest("/olim")
         self.put_visibility("olim", False)
@@ -1712,22 +1720,35 @@ class TestVisibilitySettings(unittest.TestCase):
         self.assertEqual(state.last_change(150), 100)
         self.assertEqual(state.last_change(250), 200)
 
-    def test_only_a_new_window_counts_as_a_change_of_the_view(self):
+    def test_only_a_change_of_the_view_now_counts(self):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp)
         state = VisibilityState(tmp)
         state.changed_at = 50
+
+        def update(now: float, **fields) -> float:
+            with patch("cmsranking.visibility.time.time", return_value=now):
+                state.update_settings(VisibilitySettings(
+                    staff_password=STAFF_HASH, **fields))
+            return state.changed_at
+
         # Only the staff password differs: the public sees the same.
-        self.assertTrue(state.update_settings(
-            VisibilitySettings(staff_password=STAFF_HASH)))
-        self.assertEqual(state.changed_at, 50)
-        self.assertFalse(state.update_settings(
-            VisibilitySettings(staff_password=STAFF_HASH)))
-        self.assertEqual(state.changed_at, 50)
-        with patch("cmsranking.visibility.time.time", return_value=80):
-            self.assertTrue(state.update_settings(
-                VisibilitySettings(hide_at=100, staff_password=STAFF_HASH)))
-        self.assertEqual(state.changed_at, 80)
+        self.assertEqual(update(60), 50)
+        self.assertEqual(update(60), 50)
+        # Windows in the future: their times count when they pass.
+        self.assertEqual(update(80, hide_at=100), 50)
+        self.assertEqual(update(80, freeze_at=90, unfreeze_at=200), 50)
+        # Frozen now, as of another time: another snapshot.
+        self.assertEqual(update(120, freeze_at=90, unfreeze_at=200), 50)
+        self.assertEqual(update(130, freeze_at=110, unfreeze_at=200), 130)
+        # Still frozen as of the same time: the same snapshot.
+        self.assertEqual(update(140, freeze_at=110, unfreeze_at=300), 130)
+        # Hidden now.
+        self.assertEqual(update(150, hide_at=150, freeze_at=110), 150)
+        # Still hidden: what the frozen view would be does not matter.
+        self.assertEqual(update(160, hide_at=150, freeze_at=120), 150)
+        # Visible now.
+        self.assertEqual(update(170), 170)
 
 
 class TestScheduledHiding(VisibilityTestCase):

@@ -232,6 +232,21 @@ class VisibilitySettings:
         return not self.hidden(now) and \
             window_is_open(self.freeze_at, self.unfreeze_at, now)
 
+    def public_view(self, now: float) -> tuple:
+        """Return what the public sees at a given time.
+
+        now: the Unix time to check.
+
+        return: ("hidden",), ("frozen", freeze_at) or ("live",). Two
+            settings show the same at now when they return the same.
+
+        """
+        if self.hidden(now):
+            return ("hidden",)
+        if self.frozen(now):
+            return ("frozen", self.freeze_at)
+        return ("live",)
+
     def boundaries(self) -> list[int]:
         """Return the times at which the public view may change.
 
@@ -364,13 +379,15 @@ class VisibilityState:
             os.unlink(tmp_path)
             raise
         changed = settings != self.settings
-        # Only the windows change what the public sees: a new staff
-        # password must not make every public page reload.
-        view_changed = dataclasses.replace(settings, staff_password=None) \
-            != dataclasses.replace(self.settings, staff_password=None)
+        # Only what the public sees now counts: a new staff password, or a
+        # window that opens later (its time counts when it passes), must
+        # not make every public page reload.
+        now = time.time()
+        view_changed = settings.public_view(now) \
+            != self.settings.public_view(now)
         self.settings = settings
         if view_changed:
-            self.changed_at = time.time()
+            self.changed_at = now
         return changed
 
     def update(self, hidden: bool, staff_password: str | None):
