@@ -38,6 +38,10 @@ class TestDeclaresDependencies(unittest.TestCase):
             {"max_score": 20, "testcases": 3},
             {"max_score": 80, "testcases": 3, "depends_on": [0]}]))
 
+    def test_null_depends_on_declares_none(self):
+        self.assertFalse(subtaskdag.declares_dependencies([
+            {"max_score": 20, "testcases": 3, "depends_on": None}]))
+
 
 class TestParseDependencies(unittest.TestCase):
 
@@ -50,9 +54,9 @@ class TestParseDependencies(unittest.TestCase):
             [[], [], [0, 1]])
 
     def test_not_a_list_of_integers(self):
-        for bad in ["0", [0.0], [True], [None], {"0": 1}]:
+        for bad in ["0", [0.0], [False], [None], {"0": 1}]:
             with self.subTest(bad=bad):
-                with self.assertRaisesRegex(ValueError, "Subtask 1"):
+                with self.assertRaisesRegex(ValueError, "must be a list"):
                     subtaskdag.parse_dependencies([
                         [20, 3],
                         {"max_score": 80, "testcases": 3,
@@ -84,6 +88,22 @@ class TestParseDependencies(unittest.TestCase):
                 {"max_score": 50, "testcases": 3, "depends_on": [1]},
                 {"max_score": 50, "testcases": 3, "depends_on": [0]}])
 
+    def test_null_depends_on_raises(self):
+        with self.assertRaisesRegex(ValueError, "must be a list"):
+            subtaskdag.parse_dependencies([
+                {"max_score": 100, "testcases": 3,
+                 "depends_on": None}])
+
+    def test_cycle_with_downstream(self):
+        with self.assertRaisesRegex(ValueError, "2, 3, 4"):
+            subtaskdag.parse_dependencies([
+                {},
+                {"max_score": 10},
+                {"depends_on": [3]},
+                {"depends_on": [2]},
+                {"depends_on": [3]}
+            ])
+
 
 class TestTopologicalOrder(unittest.TestCase):
 
@@ -95,6 +115,16 @@ class TestTopologicalOrder(unittest.TestCase):
     def test_no_dependencies_keeps_order(self):
         self.assertEqual(subtaskdag.topological_order([[], [], []]),
                          [0, 1, 2])
+
+    def test_fifo_with_sort(self):
+        self.assertEqual(
+            subtaskdag.topological_order([[1], [], []]),
+            [1, 0, 2])
+
+    def test_diamond(self):
+        self.assertEqual(
+            subtaskdag.topological_order([[], [0], [0], [1, 2]]),
+            [0, 1, 2, 3])
 
 
 class TestZeroedBy(unittest.TestCase):
@@ -121,8 +151,14 @@ class TestZeroedBy(unittest.TestCase):
 
     def test_lowest_numbered_failed_dependency_is_named(self):
         self.assertEqual(
-            subtaskdag.zeroed_by([1.0, 0.0, 0.0, 1.0], [[], [], [], [2, 1, 0]]),
+            subtaskdag.zeroed_by([1.0, 0.0, 0.0, 1.0],
+                                 [[], [], [], [2, 1, 0]]),
             [None, None, None, 1])
+
+    def test_uses_topological_order(self):
+        self.assertEqual(
+            subtaskdag.zeroed_by([1.0, 1.0, 0.0], [[2], [0], []]),
+            [2, 0, None])
 
 
 if __name__ == "__main__":
