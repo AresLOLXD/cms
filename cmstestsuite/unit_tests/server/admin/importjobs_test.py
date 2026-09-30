@@ -129,6 +129,35 @@ class TestJobRuns(ImportJobsTestCase):
         self.apply_import.assert_called_once_with(
             self.session, CONTEST_ID, self.rows, self.plan, HASHES)
 
+    def test_the_transaction_of_the_plan_ends_before_the_hashing(self):
+        # The hashing takes seconds, minutes for a big file, so no pooled
+        # connection may stay idle in a transaction meanwhile. The plan
+        # holds only plain values, and apply_import reads again what it
+        # writes.
+        events = []
+
+        def plan(*args):
+            events.append("plan")
+            return self.plan, []
+
+        def hash_rows(rows, new_users, stored_passwords, progress):
+            events.append("hash")
+            return HASHES
+        self.plan_import.side_effect = plan
+        self.session.rollback.side_effect = lambda: events.append(
+            "rollback")
+        self.hash_passwords.side_effect = hash_rows
+        self.apply_import.side_effect = lambda *a: events.append("apply")
+        self.session.commit.side_effect = lambda: events.append("commit")
+        store = ImportJobStore()
+
+        job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+        self.wait_for_job(job)
+
+        self.assertEqual(job.status, "done")
+        self.assertEqual(events,
+                         ["plan", "rollback", "hash", "apply", "commit"])
+
     def test_apply_failure_is_an_error_without_row_data_in_the_log(self):
         def failing_apply(*args):
             raise RuntimeError(LEAK_MESSAGE)

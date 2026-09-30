@@ -163,6 +163,10 @@ class ImportJobStore:
                     job.error = "; ".join(errors)
                     job.status = "error"
                     return
+                # The plan holds only plain values and apply_import reads
+                # again what it writes, so no transaction stays open, idle,
+                # during the hashing.
+                session.rollback()
 
                 def progress() -> None:
                     job.processed += 1
