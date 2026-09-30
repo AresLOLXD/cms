@@ -21,15 +21,18 @@
 """
 
 import asyncio
+from datetime import datetime
+
 from sqlalchemy import select, func
 
 from cms.db import Contest, RankingGroup
 from cmscommon.crypto import hash_password
-from cmscommon.datetime import make_datetime
+from cmscommon.datetime import local_tz, make_datetime, utc
 from cmscommon.ranking_groups import RESERVED_GROUP_NAMES, \
-    is_valid_group_name
+    check_window, is_valid_group_name, window_is_open
 
-from .base import BaseHandler, SimpleHandler, require_permission
+from .base import BaseHandler, SimpleHandler, parse_datetime, \
+    require_permission
 
 
 def read_ranking_group_attrs(handler: BaseHandler, attrs: dict):
@@ -57,37 +60,102 @@ def read_ranking_group_attrs(handler: BaseHandler, attrs: dict):
 MAX_STAFF_PASSWORD_BYTES = 72
 
 
-def read_ranking_group_visibility(handler: BaseHandler, attrs: dict):
-    """Read the visibility fields of the form (MC-2) into attrs.
+# The time fields of a ranking group: the column and its label. The pages
+# add "(UTC)" to the label of an input: the times are written in UTC.
+WINDOW_FIELDS = (
+    ("hide_at", "Hide from"),
+    ("show_at", "Show again at"),
+    ("freeze_at", "Freeze at"),
+    ("unfreeze_at", "Unfreeze at"),
+)
+FORM_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def format_utc(value: datetime | None) -> str:
+    """Render a naive UTC datetime as the form shows it.
+
+    value: the time, or None.
+
+    return: the time as YYYY-MM-DD HH:MM:SS, or "" for None.
+
+    """
+    return "" if value is None else value.strftime(FORM_TIME_FORMAT)
+
+
+def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
+                                  now: datetime):
+    """Read the visibility fields of the form into attrs.
+
+    Each window time comes with <name>_shown, the value the page was
+    rendered with; a time only counts when the organizer changed it, so
+    that a stale page does not undo what somebody else scheduled. The
+    add form has no _shown fields, and attrs has no current time there:
+    its times always count. The visibility_action buttons set a time to
+    now. The hidden column is always derived from the windows again,
+    whatever the form says, for rollbacks to MC-2 minimal.
 
     An empty password field keeps attrs["staff_password"] as it is, so
     editing a group without retyping the password keeps it.
 
-    The edit form also carries hidden_shown, the value of hidden that
-    the page was rendered with. The checkbox only counts when it differs
-    from it, i.e. when the organizer toggled it: otherwise a page that
-    went stale would undo a change made by somebody else in the
-    meantime, such as making a hidden group public again. In that case
-    attrs["hidden"], the current value, is kept. Without hidden_shown
-    (the add form, or a page cached before it existed), or without a
-    current value in attrs, the checkbox always counts.
-
     handler: the handler whose request carries the form.
-    attrs: where to store hidden and staff_password.
+    attrs: the group's current attributes, updated in place.
+    now: the current time, naive UTC.
 
-    raise (ValueError): if a new password and its removal are both
-        requested, if the new password is too long, or if hidden_shown
-        is neither "0" nor "1".
+    raise (ValueError): on a malformed time, an invalid window, an
+        action that does not apply, or an invalid staff password.
 
     """
-    ticked: dict = dict()
-    handler.get_bool(ticked, "hidden")
-    shown = handler.get_argument("hidden_shown", None)
-    if shown not in (None, "0", "1"):
-        raise ValueError("Invalid hidden_shown %r: use 0 or 1." % (shown,))
-    if shown is None or "hidden" not in attrs \
-            or ticked["hidden"] != (shown == "1"):
-        attrs["hidden"] = ticked["hidden"]
+    for name, _label in WINDOW_FIELDS:
+        raw = handler.get_argument(name, None)
+        if raw is None:
+            continue
+        raw = raw.strip()
+        shown = handler.get_argument(name + "_shown", None)
+        if shown is not None and raw == shown.strip() and name in attrs:
+            continue
+        attrs[name] = parse_datetime(raw) if raw else None
+
+    action = handler.get_argument("visibility_action", None)
+    if action == "hide_now":
+        attrs["hide_at"] = now
+        if attrs.get("show_at") is not None and attrs["show_at"] <= now:
+            attrs["show_at"] = None
+    elif action == "show_now":
+        if not window_is_open(attrs.get("hide_at"), attrs.get("show_at"),
+                              now):
+            raise ValueError("The ranking is not hidden.")
+        attrs["show_at"] = now
+    elif action == "freeze_now":
+        # The raw window, also while the group is hidden: freezing then
+        # would move freeze_at to now, and publish the scores of the
+        # window that is open as soon as the group is shown.
+        if window_is_open(attrs.get("freeze_at"), attrs.get("unfreeze_at"),
+                          now):
+            raise ValueError("The ranking is already frozen.")
+        attrs["freeze_at"] = now
+        if attrs.get("unfreeze_at") is not None \
+                and attrs["unfreeze_at"] <= now:
+            attrs["unfreeze_at"] = None
+    elif action == "unfreeze_now":
+        if not window_is_open(attrs.get("freeze_at"),
+                              attrs.get("unfreeze_at"), now):
+            raise ValueError("The ranking is not frozen.")
+        attrs["unfreeze_at"] = now
+    elif action is not None:
+        raise ValueError("Unknown action %r." % (action,))
+
+    check_window(attrs.get("hide_at"), attrs.get("show_at"), "hide")
+    check_window(attrs.get("freeze_at"), attrs.get("unfreeze_at"),
+                 "freeze")
+    # The column is rewritten on every save, also when hide_at is
+    # cleared: the migration hides a row with hidden set and no hide_at,
+    # so a stale value would bring the hide back. The group is only there
+    # to reuse hide_pending_at, and is never added to a session.
+    attrs["hidden"] = RankingGroup(
+        name="", description="",
+        **{name: attrs.get(name) for name, _label in WINDOW_FIELDS}
+    ).hide_pending_at(now)
+
     new_password = handler.get_argument("staff_password", "", strip=False)
     remove = handler.get_argument(
         "remove_staff_password", None) is not None
@@ -104,6 +172,44 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict):
         attrs["staff_password"] = hash_password(new_password, "bcrypt")
 
 
+def visibility_view(group: RankingGroup, now: datetime) -> dict:
+    """Prepare what the group page shows about its visibility.
+
+    group: the ranking group.
+    now: the current time, naive UTC.
+
+    return: the fields (name, label, UTC value, local value), whether it
+        is hidden or frozen now, a one-line summary and the next change.
+        Frozen follows the freeze window alone, also while the group is
+        hidden, unlike RankingGroup.is_frozen_at.
+
+    """
+    def local(value: datetime | None) -> str:
+        if value is None:
+            return ""
+        return value.replace(tzinfo=utc).astimezone(local_tz).strftime(
+            "%Y-%m-%d %H:%M %Z")
+
+    fields = [{"name": name, "label": label,
+               "utc": format_utc(getattr(group, name)),
+               "local": local(getattr(group, name))}
+              for name, label in WINDOW_FIELDS]
+    hidden = group.is_hidden_at(now)
+    frozen = window_is_open(group.freeze_at, group.unfreeze_at, now)
+    if hidden:
+        summary = "oculto (congelado)" if frozen else "oculto"
+    else:
+        summary = "congelado" if frozen else "visible"
+    upcoming = sorted((getattr(group, name), label)
+                      for name, label in WINDOW_FIELDS
+                      if getattr(group, name) is not None
+                      and getattr(group, name) > now)
+    next_change = "" if not upcoming else "%s: %s UTC (%s)" % (
+        upcoming[0][1], format_utc(upcoming[0][0]), local(upcoming[0][0]))
+    return {"fields": fields, "hidden_now": hidden, "frozen_now": frozen,
+            "summary": summary, "next_change": next_change}
+
+
 class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
     """Get returns the list of all ranking groups, post perform
     operations on a specific group (removing it).
@@ -111,6 +217,14 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
     """
 
     REMOVE = "Remove"
+
+    def _get_sync(self):
+        self.r_params = self.render_params()
+        now = make_datetime()
+        self.r_params["views"] = {
+            group.id: visibility_view(group, now)
+            for group in self.r_params["ranking_group_list"]}
+        self.render("ranking_groups.html", **self.r_params)
 
     def _post_sync(self):
         group_id: str = self.get_argument("ranking_group_id")
@@ -131,13 +245,18 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
 
 class AddRankingGroupHandler(
         SimpleHandler("add_ranking_group.html", permission_all=True)):
+    def _get_sync(self):
+        self.r_params = self.render_params()
+        self.r_params["window_fields"] = WINDOW_FIELDS
+        self.render("add_ranking_group.html", **self.r_params)
+
     def _post_sync(self):
         fallback_page = self.url("ranking_groups", "add")
 
         try:
             attrs = dict()
             read_ranking_group_attrs(self, attrs)
-            read_ranking_group_visibility(self, attrs)
+            read_ranking_group_visibility(self, attrs, make_datetime())
             self.sql_session.add(RankingGroup(**attrs))
 
         except Exception as error:
@@ -167,6 +286,7 @@ class RankingGroupHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["ranking_group"] = group
+        self.r_params["view"] = visibility_view(group, make_datetime())
         self.r_params["group_contests"] = self.sql_session.execute(
             select(Contest)
             .filter(Contest.ranking_group_id == group.id)
@@ -187,7 +307,7 @@ class RankingGroupHandler(BaseHandler):
         try:
             attrs = group.get_attrs()
             read_ranking_group_attrs(self, attrs)
-            read_ranking_group_visibility(self, attrs)
+            read_ranking_group_visibility(self, attrs, make_datetime())
             group.set_attrs(attrs)
 
         except Exception as error:

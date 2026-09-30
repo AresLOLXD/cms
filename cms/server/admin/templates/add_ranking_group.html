@@ -21,13 +21,15 @@
         <td>Description</td>
         <td><input type="text" name="description"/></td>
       </tr>
+      {% for name, label in window_fields %}
       <tr>
         <td>
-          <span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking."></span>
-          Hide ranking from the public
+          {% if loop.first %}<span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Leave a time empty for none."></span>{% endif %}
+          {{ label }} (UTC)
         </td>
-        <td><input type="checkbox" name="hidden"/></td>
+        <td><input type="text" name="{{ name }}" value="" placeholder="YYYY-MM-DD HH:MM:SS"/></td>
       </tr>
+      {% endfor %}
       <tr>
         <td>
           <span class="info" title="The staff use it to see the ranking while it is hidden. Leave empty for none: a hidden ranking is then visible to nobody."></span>

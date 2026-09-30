@@ -19,6 +19,7 @@
 """Tests for the MC-2 visibility columns of ranking groups."""
 
 import unittest
+from datetime import datetime, timedelta
 
 from cms.db import RankingGroup, custom_psycopg2_connection
 from cmscontrib.updaters.fork_multi_contest import FORK_MULTI_CONTEST_SQL
@@ -69,6 +70,37 @@ class TestRankingGroupVisibilityColumns(DatabaseMixin, unittest.TestCase):
             "ORDER BY column_name;")
         self.assertEqual(defaults, [("hidden", None, "NO"),
                                     ("staff_password", None, "YES")])
+
+    def test_windows(self):
+        now = datetime(2026, 10, 10, 13, 0)
+        group = RankingGroup(name="olim", description="O",
+                             hide_at=now, show_at=now + timedelta(hours=3),
+                             freeze_at=now - timedelta(hours=1))
+        self.assertTrue(group.is_hidden_at(now))
+        self.assertFalse(group.is_frozen_at(now))      # hidden wins
+        self.assertTrue(group.is_frozen_at(now - timedelta(minutes=30)))
+        self.assertTrue(group.hide_pending_at(now - timedelta(hours=1)))
+        self.assertFalse(group.hide_pending_at(now + timedelta(hours=3)))
+
+    def test_fork_sql_migrates_hidden_to_hide_at(self):
+        # Rows written by MC-2 minimal: one hidden, one visible, no windows.
+        run_sql("INSERT INTO ranking_groups (name, description, hidden) "
+                "VALUES ('was_hidden', 'H', true), "
+                "('was_visible', 'V', false);")
+        # Idempotent: applying it twice must not fail or move hide_at.
+        run_sql(FORK_MULTI_CONTEST_SQL)
+        first = run_sql("SELECT hide_at FROM ranking_groups "
+                        "WHERE name = 'was_hidden';")
+        run_sql(FORK_MULTI_CONTEST_SQL)
+        rows = dict(run_sql("SELECT name, hide_at IS NOT NULL "
+                            "FROM ranking_groups "
+                            "WHERE name IN ('was_hidden', 'was_visible');"))
+        self.assertEqual(rows, {"was_hidden": True, "was_visible": False})
+        self.assertEqual(run_sql("SELECT hide_at FROM ranking_groups "
+                                 "WHERE name = 'was_hidden';"), first)
+        late = run_sql("SELECT hide_at > (now() AT TIME ZONE 'UTC') "
+                       "FROM ranking_groups WHERE name = 'was_hidden';")
+        self.assertEqual(late, [(False,)])
 
 
 if __name__ == "__main__":

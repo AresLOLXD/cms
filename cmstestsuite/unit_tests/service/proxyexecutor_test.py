@@ -566,7 +566,8 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
             [e.item for e in await self.drain(failing)], [operation])
 
     async def test_visibility_goes_after_the_reset_and_before_the_data(self):
-        settings = {"hidden": True, "staff_password": "bcrypt:hash"}
+        settings = {"hide_at": None, "show_at": None, "freeze_at": None,
+                    "unfreeze_at": None, "staff_password": "bcrypt:hash"}
         batch = entries(
             ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
             ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"),
@@ -586,8 +587,10 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.drain(), [])
 
     async def test_failed_visibility_holds_back_the_data_of_its_group(self):
-        hidden = {"hidden": True, "staff_password": None}
-        visible = {"hidden": False, "staff_password": None}
+        hidden = {"hide_at": 1791658800, "show_at": None, "freeze_at": None,
+                  "unfreeze_at": None, "staff_password": None}
+        visible = {"hide_at": None, "show_at": None, "freeze_at": None,
+                   "unfreeze_at": None, "staff_password": None}
         for failure in (requests.exceptions.ConnectionError("refused"), 503):
             with self.subTest(failure=failure):
                 self.executor = ProxyExecutor(RANKING)
@@ -628,8 +631,10 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.drain(), [])
 
     async def test_rejected_visibility_drops_the_data_of_its_group(self):
-        hidden = {"hidden": True, "staff_password": None}
-        visible = {"hidden": False, "staff_password": None}
+        hidden = {"hide_at": 1791658800, "show_at": None, "freeze_at": None,
+                  "unfreeze_at": None, "staff_password": None}
+        visible = {"hide_at": None, "show_at": None, "freeze_at": None,
+                   "unfreeze_at": None, "staff_password": None}
         for status in (400, 401, 403, 404):
             with self.subTest(status=status):
                 self.executor = ProxyExecutor(RANKING)
@@ -677,9 +682,12 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
     async def test_last_visibility_of_a_group_wins(self):
         self.outcomes = {("put", url("olim/visibility")):
                          requests.exceptions.ConnectionError("reset")}
-        old = {"hidden": True, "staff_password": "bcrypt:old"}
-        new = {"hidden": False, "staff_password": "bcrypt:new"}
-        other = {"hidden": False, "staff_password": None}
+        old = {"hide_at": None, "show_at": None, "freeze_at": None,
+               "unfreeze_at": None, "staff_password": "bcrypt:old"}
+        new = {"hide_at": None, "show_at": None, "freeze_at": None,
+               "unfreeze_at": None, "staff_password": "bcrypt:new"}
+        other = {"hide_at": None, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None}
         batch = stamped_entries(
             ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, old, "olim"),
             ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, other, "omips"),
@@ -700,7 +708,9 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         batch = stamped_entries(
             ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
             ProxyOperation(ProxyExecutor.VISIBILITY_TYPE,
-                           {"hidden": False, "staff_password": None}, "olim"),
+                           {"hide_at": None, "show_at": None,
+                            "freeze_at": None, "unfreeze_at": None,
+                            "staff_password": None}, "olim"),
             ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}, "olim"))
 
         await self.executor.execute(batch)
@@ -712,7 +722,8 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
     async def test_rejected_visibility_keeps_holding_back_the_group_data(
         self,
     ):
-        hidden = {"hidden": True, "staff_password": None}
+        hidden = {"hide_at": None, "show_at": None, "freeze_at": None,
+                  "unfreeze_at": None, "staff_password": None}
         self.outcomes = {("put", url("olim/visibility")): 400}
 
         with self.assertLogs("cms.service.ProxyService", "DEBUG") as logs:
@@ -763,7 +774,8 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
             "Dropping 1 operation(s) of group olim"])
 
     async def test_group_data_flows_again_once_its_visibility_is_sent(self):
-        hidden = {"hidden": True, "staff_password": None}
+        hidden = {"hide_at": None, "show_at": None, "freeze_at": None,
+                  "unfreeze_at": None, "staff_password": None}
         self.outcomes = {("put", url("olim/visibility")): 400}
         await self.executor.execute(entries(
             ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, hidden, "olim")))

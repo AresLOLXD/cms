@@ -20,8 +20,12 @@
 
 """
 
+from datetime import datetime
+
 from sqlalchemy.schema import Column
-from sqlalchemy.types import Boolean, Integer, Unicode
+from sqlalchemy.types import Boolean, DateTime, Integer, Unicode
+
+from cmscommon.ranking_groups import window_is_open
 
 from . import Base
 
@@ -54,8 +58,10 @@ class RankingGroup(Base):
         Unicode,
         nullable=False)
 
-    # Whether the group's public scoreboard is hidden (MC-2): RWS then
-    # shows a notice to the public and the live ranking only to staff.
+    # Derived: AWS writes hide_pending_at() here, i.e. whether the group
+    # is hidden now or has a hide scheduled. It is kept only so that a CMS
+    # rolled back to MC-2 minimal, which reads it, does not publish the
+    # group; the current code never reads it.
     hidden: bool = Column(
         Boolean,
         nullable=False,
@@ -66,3 +72,30 @@ class RankingGroup(Base):
     staff_password: str | None = Column(
         Unicode,
         nullable=True)
+
+    # MC-2 phase 2: the public scoreboard is hidden during
+    # [hide_at, show_at) and frozen during [freeze_at, unfreeze_at);
+    # hidden wins. Naive UTC; None means the end is open.
+    hide_at: datetime | None = Column(DateTime, nullable=True)
+    show_at: datetime | None = Column(DateTime, nullable=True)
+    freeze_at: datetime | None = Column(DateTime, nullable=True)
+    unfreeze_at: datetime | None = Column(DateTime, nullable=True)
+
+    def is_hidden_at(self, now: datetime) -> bool:
+        """Tell whether the group is hidden at now (naive UTC)."""
+        return window_is_open(self.hide_at, self.show_at, now)
+
+    def is_frozen_at(self, now: datetime) -> bool:
+        """Tell whether the group is frozen, and not hidden, at now."""
+        return not self.is_hidden_at(now) and \
+            window_is_open(self.freeze_at, self.unfreeze_at, now)
+
+    def hide_pending_at(self, now: datetime) -> bool:
+        """Tell whether the group is hidden or will be, as of now.
+
+        This is what the hidden column keeps, so that a CMS rolled back
+        to MC-2 minimal does not publish it.
+
+        """
+        return self.hide_at is not None and \
+            (self.show_at is None or self.show_at > now)

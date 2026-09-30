@@ -58,7 +58,7 @@ from cmsranking.Submission import Submission
 from cmsranking.Task import Task
 from cmsranking.Team import Team
 from cmsranking.User import User
-from cmsranking.visibility import VisibilityGuard
+from cmsranking.visibility import FREEZE_AT_ENVIRON, VisibilityGuard
 
 
 logger = logging.getLogger(__name__)
@@ -287,6 +287,19 @@ class DataWatcher(EventSource):
     def score_callback(self, user: str, task: str, score: float):
         self.send("score", "%s %s %s" % (user, task, str(score)))
 
+    def dropped_events(self, environ) -> frozenset[str]:
+        """Keep the score events off a stream served as of a freeze.
+
+        environ: the WSGI environ of the request.
+
+        return: the score events if the visibility guard serves the
+            request as of a freeze time, else nothing.
+
+        """
+        if environ.get(FREEZE_AT_ENVIRON) is not None:
+            return frozenset({"score"})
+        return frozenset()
+
 
 class SubListHandler:
 
@@ -316,12 +329,15 @@ class SubListHandler:
             raise NotAcceptable()
 
         result: list[Submission] = list()
+        freeze_at = environ.get(FREEZE_AT_ENVIRON)
         for task_id in self.task_store._store.keys():
-            result.extend(
-                self.scoring_store.get_submissions(
-                    args["user_id"], task_id
-                ).values()
-            )
+            if freeze_at is None:
+                subs = self.scoring_store.get_submissions(
+                    args["user_id"], task_id)
+            else:
+                subs = self.scoring_store.get_submissions_at(
+                    args["user_id"], task_id, freeze_at)
+            result.extend(subs.values())
         result.sort(key=lambda x: (x.task, x.time))
         result = list(a.__dict__ for a in result)
 
@@ -347,7 +363,8 @@ class HistoryHandler:
         if request.accept_mimetypes.quality("application/json") <= 0:
             raise NotAcceptable()
 
-        result = list(self.scoring_store.get_global_history())
+        result = list(self.scoring_store.get_global_history(
+            until=environ.get(FREEZE_AT_ENVIRON)))
 
         response = Response()
         response.status_code = 200
@@ -371,11 +388,17 @@ class ScoreHandler:
         if request.accept_mimetypes.quality("application/json") <= 0:
             raise NotAcceptable()
 
-        result: dict[str, dict[str, float]] = dict()
-        for u_id, tasks in self.scoring_store._scores.items():
-            for t_id, score in tasks.items():
-                if score.get_score() > 0.0:
-                    result.setdefault(u_id, dict())[t_id] = score.get_score()
+        result: dict[str, dict[str, float]]
+        freeze_at = environ.get(FREEZE_AT_ENVIRON)
+        if freeze_at is not None:
+            result = self.scoring_store.get_scores_at(freeze_at)
+        else:
+            result = dict()
+            for u_id, tasks in self.scoring_store._scores.items():
+                for t_id, score in tasks.items():
+                    if score.get_score() > 0.0:
+                        result.setdefault(u_id, dict())[t_id] = \
+                            score.get_score()
 
         response = Response()
         response.status_code = 200

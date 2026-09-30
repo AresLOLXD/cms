@@ -66,6 +66,15 @@ NOTICE_MARKER = 'action="staff-login"'
 # In the page RWS shows to the staff of a hidden group: the banner.
 STAFF_BANNER_MARKER = "Vista staff"
 
+# In the page RWS shows to the public of a frozen group: the banner.
+FROZEN_BANNER_MARKER = "Ranking congelado desde las"
+
+# In the page RWS shows to the staff of a frozen group: the banner.
+STAFF_FROZEN_BANNER_MARKER = "Vista staff: ranking congelado para el público"
+
+# In the staff login page of a frozen group: its password field.
+PASSWORD_FIELD_MARKER = 'type="password"'
+
 
 def wait_until(description: str, unmet: Callable[[], str | None],
                timeout: float = RANKING_TIMEOUT, interval: float = 0.25,
@@ -616,12 +625,12 @@ class TestRunner:
                     len(submissions), time.monotonic() - started)
 
     def check_ranking_visibility(self):
-        """Check that an admin can hide a ranking group, and reveal it.
+        """Check that an admin can hide a ranking group, and freeze it.
 
         It goes through AWS, ProxyService and RWS, as the admins do. A
         group with a contest of its own is created (not the contest of
         the tests, which may be an existing one), hidden with a staff
-        password, and revealed again.
+        password and revealed again, then frozen and unfrozen.
 
         ProxyService serves either one contest, to the root ranking, or
         all the ones that have a ranking group, to the groups. So the
@@ -661,12 +670,26 @@ class TestRunner:
                 return "the group's page is not the notice"
             return None
 
-        def save(hidden: bool, staff_password: str | None = None):
-            # Save the group's page in AWS, as it does when it is opened
-            # with the group in the opposite state.
+        def banner_unmet(frozen: bool) -> str | None:
+            response = page(public)
+            if response.status_code != 200:
+                return "the group's page answered HTTP %d" % \
+                    response.status_code
+            if NOTICE_MARKER in response.text:
+                return "the group's page is the notice of a hidden group"
+            if (FROZEN_BANNER_MARKER in response.text) != frozen:
+                return "the group's page %s the freeze banner" % (
+                    "lacks" if frozen else "still has")
+            return None
+
+        def save(action: str | None = None,
+                 staff_password: str | None = None):
+            # Press a visibility action's button on the group's page in
+            # AWS, or Update: saving the page as it is changes nothing,
+            # but makes AWS send the group to RWS again.
             fw.edit_ranking_group(
-                group_id, group, description, hidden=hidden,
-                was_hidden=not hidden, staff_password=staff_password)
+                group_id, group, description, action=action,
+                staff_password=staff_password)
 
         # The group is created visible, with a contest, before ProxyService
         # for all the contests starts: it sends them by itself when it
@@ -690,12 +713,9 @@ class TestRunner:
             raise TestFailure("A visible group shows the notice.")
 
         # Hide it.
-        def hide():
-            save(True, STAFF_PASSWORD)
-
-        hide()
+        save("hide_now", STAFF_PASSWORD)
         wait_until("the notice of the hidden group %s" % group, notice_unmet,
-                   retry=hide)
+                   retry=save)
         # RWS applies it at once: no further waiting for these.
         for path in ("/contests/", "/scores", "/events"):
             expect_status("The public on the hidden group's %s" % path,
@@ -722,19 +742,55 @@ class TestRunner:
                       "a staff login", status(public, "/contests/"), 403)
 
         # Reveal it, keeping the staff password.
-        def reveal():
-            save(False)
-
-        reveal()
+        save("show_now")
         wait_until(
             "the ranking of the revealed group %s" % group,
             lambda: self._unmet_ranking_data(public, group_path, expected),
-            retry=reveal)
+            retry=save)
         if NOTICE_MARKER in page(public).text:
             raise TestFailure("A revealed group still shows the notice.")
         expect_status("The staff on the revealed group's /contests/",
                       status(staff, "/contests/"), 200)
 
+        # Freeze it.
+        save("freeze_now")
+        wait_until("the banner of the frozen group %s" % group,
+                   lambda: banner_unmet(True), retry=save)
+        # RWS applies it at once: no further waiting for these.
+        expect_status("The public on the frozen group's /submissions/",
+                      status(public, "/submissions/"), 403)
+        response = fw.rws_request(public, "GET", group_path + "/scores")
+        expect_status("The public on the frozen group's /scores",
+                      response.status_code, 200)
+        if "no-store" not in response.headers.get("Cache-Control", ""):
+            raise TestFailure(
+                "The frozen group's /scores may be stored: Cache-Control "
+                "is %r." % response.headers.get("Cache-Control"))
+        response = fw.rws_request(public, "GET", group_path + "/staff-login")
+        expect_status("The public on the frozen group's /staff-login",
+                      response.status_code, 200)
+        if PASSWORD_FIELD_MARKER not in response.text:
+            raise TestFailure("The staff login page of the frozen group has "
+                              "no password field.")
+        # A new visitor: the staff one got its cookie while hidden.
+        frozen_staff = requests.Session()
+        response = fw.rws_request(
+            frozen_staff, "POST", group_path + "/staff-login",
+            data={"password": STAFF_PASSWORD})
+        expect_status("A staff login on the frozen group",
+                      response.status_code, 303)
+        if "rws_staff" not in frozen_staff.cookies:
+            raise TestFailure("A staff login on the frozen group did not "
+                              "set the staff cookie.")
+        if STAFF_FROZEN_BANNER_MARKER not in page(frozen_staff).text:
+            raise TestFailure("The staff page of the frozen group has no "
+                              "banner.")
+
+        # Unfreeze it.
+        save("unfreeze_now")
+        wait_until("the unfrozen group %s to drop the banner" % group,
+                   lambda: banner_unmet(False), retry=save)
+
         self.check_proxy_service_log()
-        logger.info("Ranking group %s was hidden and revealed (%.1fs).",
-                    group, time.monotonic() - started)
+        logger.info("Ranking group %s was hidden, revealed, frozen and "
+                    "unfrozen (%.1fs).", group, time.monotonic() - started)

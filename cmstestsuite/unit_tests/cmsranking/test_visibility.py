@@ -26,6 +26,7 @@ import re
 import shutil
 import tempfile
 import threading
+import time
 import unittest
 from base64 import b64encode
 from importlib.resources import files
@@ -38,11 +39,14 @@ from gevent.pywsgi import WSGIServer
 from werkzeug.test import Client, create_environ
 
 from cmscommon.crypto import build_password, hash_password
+from cmscommon.eventsource import EventSource, Publisher, Subscriber
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
-from cmsranking.visibility import STAFF_COOKIE, VISIBILITY_FILE, \
-    VisibilityGuard, VisibilityState, staff_cookie_value
+from cmsranking.visibility import FROZEN_ROUTES, HIDDEN_SINCE_ALWAYS, \
+    STAFF_COOKIE, VISIBILITY_FILE, VisibilityGuard, VisibilitySettings, \
+    VisibilityState, parse_settings, public_frozen_banner, \
+    staff_cookie_value
 
 
 USERNAME = "rws"
@@ -181,7 +185,25 @@ class TestHiddenGroup(VisibilityTestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         text = response.get_data(as_text=True)
         self.assertIn("Este ranking está oculto por ahora.", text)
+        self.assertIn("<title>Ranking oculto</title>", text)
         self.assertIn('action="staff-login"', text)
+
+    def test_notice_comes_back_by_itself(self):
+        text = self.client.get("/olim/").get_data(as_text=True)
+        self.assertIn('fetch("config", {cache: "no-store"})', text)
+        self.assertIn("location.reload()", text)
+        # What it polls answers 403 while hidden, and 200 once shown.
+        self.assertEqual(self.client.get("/olim/config").status_code, 403)
+        self.put_visibility("olim", False)
+        self.assertEqual(self.client.get("/olim/config").status_code, 200)
+
+    def test_failed_login_page_does_not_poll(self):
+        # Reloading the answer to a POST would send the form again.
+        with patch("cmsranking.visibility.gevent.sleep"):
+            response = self.client.post("/olim/staff-login",
+                                        data={"password": "wrong"})
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("fetch(", response.get_data(as_text=True))
 
     def test_every_data_endpoint_is_forbidden(self):
         for path in DATA_PATHS:
@@ -361,6 +383,15 @@ class TestStaffLogin(VisibilityTestCase):
                 self.assertEqual(response.headers["Cache-Control"],
                                  "private, no-store")
 
+    def test_staff_index_of_a_hidden_group_is_private(self):
+        headers = self.with_cookie(self.cookie_from(self.login("s3cret")))
+        for path in ("", "Ranking.html"):
+            with self.subTest(path=path):
+                response = self.client.get("/olim/" + path, headers=headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "private, no-store")
+
     def test_visible_group_keeps_the_caching_of_the_app(self):
         self.put_visibility("olim", False)
         cookie = staff_cookie_value(
@@ -463,7 +494,8 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertIn(b"Vista staff", banner)
         self.assertIn(b'href="staff-logout"', banner)
         self.assertEqual(response.headers["Content-Length"], str(len(page)))
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["Cache-Control"],
+                         "private, no-store")
         self.assertNotIn("Last-Modified", response.headers)
 
     def test_wrong_password(self):
@@ -721,6 +753,53 @@ class TestOpenConnections(unittest.TestCase):
         response = Client(guard).get("/events")
         self.assertEqual(response.get_data(), b"event 1\n")
 
+    def test_open_stream_is_cut_by_the_clock_alone(self):
+        # The group gets hidden by its schedule, with no PUT involved.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+
+        def streaming_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+
+            def body():
+                yield b"event 1\n"
+                clock.return_value = 100
+                yield b"event 2\n"
+            return body()
+
+        guard = VisibilityGuard(streaming_app, tmp, "olim", USERNAME,
+                                PASSWORD, "Scoreboard")
+        guard.state.update_settings(VisibilitySettings(hide_at=100))
+        with patch("cmsranking.visibility.time.time",
+                   return_value=99) as clock:
+            response = Client(guard).get("/events")
+            # Read inside the block: after it the real clock is far past
+            # 100, and would cut the stream whatever the app did.
+            self.assertEqual(response.get_data(), b"event 1\n")
+
+    def test_open_frozen_stream_is_cut_when_hidden(self):
+        # A static file that a frozen group passes to the public, being
+        # sent when the group gets hidden.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state_holder = {}
+
+        def streaming_app(environ, start_response):
+            start_response("200 OK", [("Content-Type", "text/plain")])
+
+            def body():
+                yield b"part 1\n"
+                state_holder["guard"].state.update(True, None)
+                yield b"part 2\n"
+            return body()
+
+        guard = VisibilityGuard(streaming_app, tmp, "olim", USERNAME,
+                                PASSWORD, "Scoreboard")
+        state_holder["guard"] = guard
+        guard.state.update_settings(VisibilitySettings(freeze_at=1))
+        response = Client(guard).get("/Ranking.js")
+        self.assertEqual(response.get_data(), b"part 1\n")
+
     def get_write_stream(self, guard_class=VisibilityGuard):
         """Get /events from an app that hides its group mid-stream.
 
@@ -824,7 +903,14 @@ class TestOpenConnections(unittest.TestCase):
 class TestRealEventStream(VisibilityTestCase):
     """The real /events handler, behind a real gevent server."""
 
-    def open_stream(self, cookie: str | None = None) -> socket.socket:
+    def connect(self, request: bytes) -> socket.socket:
+        """Send a request to the app behind a real server.
+
+        request: the whole HTTP request.
+
+        return: the connection, with nothing read from it yet.
+
+        """
         server = WSGIServer(("127.0.0.1", 0), self.client.application,
                             log=None)
         server.start()
@@ -832,11 +918,15 @@ class TestRealEventStream(VisibilityTestCase):
         stream = socket.create_connection(("127.0.0.1", server.server_port),
                                           timeout=3)
         self.addCleanup(stream.close)
+        stream.sendall(request)
+        return stream
+
+    def open_stream(self, cookie: str | None = None) -> socket.socket:
         cookie_line = b"" if cookie is None else \
             b"Cookie: %s=%s\r\n" % (STAFF_COOKIE.encode(), cookie.encode())
-        stream.sendall(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
-                       b"Accept: text/event-stream\r\n" + cookie_line
-                       + b"\r\n")
+        stream = self.connect(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
+                              b"Accept: text/event-stream\r\n" + cookie_line
+                              + b"\r\n")
         self.assertIn(b"200 OK", stream.recv(65536))
         return stream
 
@@ -906,6 +996,490 @@ class TestRealEventStream(VisibilityTestCase):
         received, closed = self.drain(stream)
         self.assertNotIn(b"c2", received)
         self.assertTrue(closed)
+
+
+class TestStreamsAcrossTransitions(TestRealEventStream):
+    """Public event streams across freezes, changes and restarts."""
+
+    # A reload event and a ping, as the chunks of an event stream.
+    RELOAD = b"14\r\nevent:reload\ndata:\n\n\r\n"
+    PING = b"2\r\n:\n\r\n"
+    # What beta sends to a reconnection that its cache cannot serve: the
+    # first ping, then a reinit that browsers do not dispatch.
+    BETA_REINIT = b"2\r\n:\n\r\ne\r\nevent:reinit\n\n\r\n"
+
+    def put_freeze(self, freeze_at: int, unfreeze_at: int | None = None,
+                   staff_password: str | None = STAFF_HASH):
+        """Freeze the group olim from freeze_at to unfreeze_at."""
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": None, "show_at": None, "freeze_at": freeze_at,
+            "unfreeze_at": unfreeze_at, "staff_password": staff_password}),
+            content_type="application/json", headers=AUTH)
+
+    def put_data(self, path: str, data: dict):
+        """Send data to a store of olim, as the proxy does."""
+        self.client.put("/olim/" + path, data=json.dumps(data),
+                        content_type="application/json", headers=AUTH)
+
+    def put_submission(self):
+        """Send a task, a user and a submission of theirs to olim."""
+        self.put_data("tasks/", {"t": TestFrozenPublicView.TASK})
+        self.put_data("users/", {"u": {"f_name": "U", "l_name": "U",
+                                       "team": None}})
+        self.put_data("submissions/", {"s": {"user": "u", "task": "t",
+                                             "time": 100}})
+
+    def put_score(self, key: str = "c", score: float = 40.0):
+        """Score the submission of put_submission: a score event only."""
+        self.put_data("subchanges/", {key: {"submission": "s", "time": 100,
+                                            "score": score}})
+
+    def put_scored_submission(self):
+        """Send a task, a user and a submission that scores 40 to olim."""
+        self.put_submission()
+        self.put_score()
+
+    def short_pings(self, seconds: float):
+        """Make the event streams ping after seconds of silence."""
+        patcher = patch.object(EventSource, "_PING_TIMEOUT", seconds)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def get_events(self, path: str, last_event_id: str) -> bytes:
+        """Reconnect to an event stream and return what it sends at once.
+
+        path: the path of the event stream.
+        last_event_id: the ID of the last event the client got.
+
+        return: the response, headers included, as read until the
+            stream is idle for half a second.
+
+        """
+        stream = self.connect(
+            b"GET %s HTTP/1.1\r\nHost: rws\r\nAccept: text/event-stream\r\n"
+            b"Last-Event-ID: %s\r\n\r\n"
+            % (path.encode(), last_event_id.encode()))
+        stream.settimeout(0.5)
+        received = self.drain(stream)[0]
+        # What is asserted absent must not be absent for lack of time.
+        self.assertIn(b"200 OK", received)
+        return received
+
+    @staticmethod
+    def drain_for(stream: socket.socket,
+                  seconds: float) -> tuple[bytes, bool]:
+        """Read until the server closes the stream, for at most seconds.
+
+        Unlike drain, it ends even if pings keep coming.
+
+        stream: the connection to read from.
+        seconds: how long to read for at most.
+
+        return: the received bytes and whether the server closed it.
+
+        """
+        received = b""
+        deadline = time.monotonic() + seconds
+        try:
+            while (left := deadline - time.monotonic()) > 0:
+                stream.settimeout(left)
+                chunk = stream.recv(65536)
+                if not chunk:
+                    return received, True
+                received += chunk
+        except socket.timeout:
+            pass
+        return received, False
+
+    def test_frozen_stream_drops_score_events(self):
+        self.put_contest("/olim")
+        # Frozen since the epoch, until far in the future.
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_scored_submission()
+        stream.settimeout(0.5)
+        data, _ = self.drain(stream)
+        self.assertNotIn(b"event:score", data)
+        self.assertIn(b"event:user", data)
+
+    def test_a_dropped_score_change_sends_nothing_before_the_ping(self):
+        # Nothing the client gets may tell when a score changed.
+        self.short_pings(2.0)
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        self.put_submission()
+        stream = self.open_stream()
+        opened = time.monotonic()
+        gevent.sleep(1.0)
+        self.put_score()
+        stream.settimeout(4)
+        chunk = stream.recv(65536)
+        elapsed = time.monotonic() - opened
+        self.assertEqual(chunk, b"2\r\n:\n\r\n")
+        # The regular ping, 2 s after the stream opened: not sent at the
+        # score change (1 s), nor 2 s after it (3 s).
+        self.assertGreaterEqual(elapsed, 1.5)
+        self.assertLess(elapsed, 2.9)
+
+    def assert_revoked_staff_stream_is_cut(self, staff_password: str | None):
+        """Revoke the staff access of an open stream of a frozen group.
+
+        staff_password: the new staff password; the windows stay.
+
+        """
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        self.put_submission()
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_freeze(1, staff_password=staff_password)
+        self.put_score()
+        stream.settimeout(0.5)
+        received, closed = self.drain(stream)
+        # The page reloads into the public view.
+        self.assertEqual(received, self.RELOAD)
+        self.assertTrue(closed)
+
+    def test_frozen_staff_stream_is_cut_when_the_password_changes(self):
+        self.assert_revoked_staff_stream_is_cut(
+            build_password("new", "plaintext"))
+
+    def test_frozen_staff_stream_is_cut_when_the_password_is_removed(self):
+        self.assert_revoked_staff_stream_is_cut(None)
+
+    def test_dropped_score_events_do_not_decide_the_reinit(self):
+        # With room for two events, two score changes push out of the
+        # cache all the events that the client may get.
+        self.config.buffer_size = 2
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        self.put_submission()
+        last_id = "%x" % int(time.time() * 1_000_000)
+        self.put_score("c1", 40.0)
+        self.put_score("c2", 90.0)
+        data = self.get_events("/olim/events", last_id)
+        self.assertNotIn(b"reinit", data)
+        self.assertNotIn(b"event:score", data)
+
+    def test_replayed_score_events_are_dropped_while_frozen(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        # The last event the client got came after the freeze started.
+        last_id = "%x" % int(time.time() * 1_000_000)
+        self.put_scored_submission()
+        data = self.get_events("/olim/events", last_id)
+        self.assertNotIn(b"event:reload", data)
+        self.assertNotIn(b"event:score", data)
+        self.assertIn(b"event:user", data)
+
+    def test_reconnect_after_a_change_is_told_to_reload(self):
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_freeze(1)
+        response = self.client.get("/olim/events",
+                                   headers={"Last-Event-ID": old_id})
+        self.assertIn(b"event:reload\ndata:\n\n", response.get_data())
+
+    def test_a_first_connection_older_than_a_change_is_told_to_reload(self):
+        # The page's first connection sends the ID in the query, and only
+        # the browser's reconnections send it in a header.
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_freeze(1)
+        response = self.client.get("/olim/events?last_event_id=" + old_id)
+        self.assertEqual(response.get_data(), b"event:reload\ndata:\n\n")
+
+    def test_open_stream_is_cut_when_the_freeze_starts(self):
+        self.short_pings(0.5)
+        self.put_contest("/olim")
+        start = time.time()
+        self.put_freeze(int(start) + 2)
+        stream = self.open_stream()
+        # A ping is the first write after freeze_at.
+        received, closed = self.drain_for(stream, 5)
+        self.assertEqual(received.replace(self.PING, b""), self.RELOAD)
+        self.assertTrue(closed)
+
+    def test_open_stream_is_cut_when_the_freeze_ends(self):
+        self.short_pings(0.5)
+        self.put_contest("/olim")
+        self.put_submission()
+        start = time.time()
+        self.put_freeze(1, int(start) + 2)
+        stream = self.open_stream()
+        # A ping is the first write after unfreeze_at.
+        received, closed = self.drain_for(stream, 5)
+        self.assertEqual(received.replace(self.PING, b""), self.RELOAD)
+        self.assertTrue(closed)
+        # The stream the browser opens then is not filtered.
+        stream = self.open_stream()
+        self.put_score()
+        stream.settimeout(0.5)
+        data, _ = self.drain(stream)
+        self.assertIn(b"event:score", data)
+
+    def test_frozen_stream_is_cut_when_hidden(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.put_second_contest()
+        received, closed = self.drain(stream)
+        self.assertEqual(received, self.RELOAD)
+        self.assertTrue(closed)
+
+    def test_open_page_is_told_to_reload_when_hidden(self):
+        # A browser does not retry a stream that got a 403: without the
+        # reload, the page would keep showing the scoreboard.
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.put_second_contest()
+        received, closed = self.drain(stream)
+        self.assertEqual(received, self.RELOAD)
+        self.assertTrue(closed)
+
+    def test_open_page_is_told_to_reload_when_frozen(self):
+        self.put_contest("/olim")
+        self.put_submission()
+        stream = self.open_stream()
+        self.put_freeze(1)
+        # The next write: a score change made after the freeze.
+        self.put_score()
+        received, closed = self.drain(stream)
+        self.assertEqual(received, self.RELOAD)
+        self.assertTrue(closed)
+
+    @staticmethod
+    def body(response: bytes) -> bytes:
+        """Return the body of a raw HTTP response, still chunked."""
+        return response.split(b"\r\n\r\n", 1)[1]
+
+    def test_the_root_ranking_is_as_on_beta_after_a_restart(self):
+        # The root ranking has no guard: this is what the event source
+        # itself sends, a reinit that browsers do not dispatch.
+        self.put_contest("")
+        before = "%x" % int(time.time() * 1_000_000)
+        # A restart: the data is read from disk, the event cache is empty.
+        self.client = self.make_client()
+        after = "%x" % int(time.time() * 1_000_000)
+        for last_id in (before, after):
+            self.assertEqual(self.body(self.get_events("/events", last_id)),
+                             self.BETA_REINIT)
+
+    def test_a_future_window_does_not_cut_open_streams(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        # Scheduling tomorrow's freeze changes nothing that the page shows.
+        self.put_freeze(int(time.time()) + 86400)
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
+
+    def test_a_group_without_windows_is_as_on_beta_after_a_restart(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        before = "%x" % int(time.time() * 1_000_000)
+        self.client = self.make_client()
+        # No reload: the reinit of an empty cache, as on beta.
+        self.assertEqual(self.body(self.get_events("/olim/events", before)),
+                         self.BETA_REINIT)
+
+    def test_a_live_group_with_past_windows_is_as_on_beta_after_a_restart(
+            self):
+        # Hidden once and shown again: the group keeps both times.
+        self.put_contest("/olim")
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": 1, "show_at": 2, "freeze_at": None,
+            "unfreeze_at": None, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+        before = "%x" % int(time.time() * 1_000_000)
+        self.client = self.make_client()
+        self.assertEqual(self.body(self.get_events("/olim/events", before)),
+                         self.BETA_REINIT)
+
+    def test_a_frozen_group_still_reloads_after_a_restart(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        before = "%x" % int(time.time() * 1_000_000)
+        self.client = self.make_client()
+        response = self.client.get("/olim/events",
+                                   headers={"Last-Event-ID": before})
+        self.assertEqual(response.get_data(), b"event:reload\ndata:\n\n")
+
+    def test_staff_stream_of_a_group_without_windows_is_as_on_beta(self):
+        # Beta cut a staff stream whose access was revoked only while the
+        # group was hidden: on a visible group it shows what the public
+        # sees anyway.
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_visibility("olim", False,
+                            staff_password=build_password("new", "plaintext"))
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
+
+    def test_a_group_without_windows_is_as_on_beta_after_an_overflow(self):
+        self.config.buffer_size = 2
+        self.put_contest("/olim")
+        last_id = "%x" % int(time.time() * 1_000_000)
+        for user in ("u1", "u2", "u3"):
+            self.put_data("users/", {user: {"f_name": "U", "l_name": "U",
+                                            "team": None}})
+        self.assertEqual(self.body(self.get_events("/olim/events", last_id)),
+                         self.BETA_REINIT)
+
+    def test_score_traffic_does_not_change_a_frozen_reinit(self):
+        # The public client of a frozen group asks, with the ID of an
+        # event it got, whether it missed something: the answer must not
+        # tell how many scores changed since.
+        self.config.buffer_size = 2
+        self.put_contest("/olim")
+        self.put_submission()
+        self.put_freeze(1)
+        stream = self.open_stream()
+        for user in ("u1", "u2"):
+            self.put_data("users/", {user: {"f_name": "U", "l_name": "U",
+                                            "team": None}})
+        stream.settimeout(0.5)
+        received, _ = self.drain(stream)
+        marker = re.findall(rb"id:(\w+)", received)[0].decode()
+        before = self.get_events("/olim/events", marker)
+        self.put_score("c1", 40.0)
+        self.put_score("c2", 90.0)
+        after = self.get_events("/olim/events", marker)
+        self.assertEqual(b"reinit" in after, b"reinit" in before)
+        self.assertNotIn(b"reinit", after)
+
+
+class TestDroppedEvents(unittest.TestCase):
+    """The event cache, for subscribers that must not get some events."""
+
+    SCORES = frozenset({"score"})
+    # The reinit that a frozen page dispatches, and beta's, that no page
+    # dispatches.
+    REINIT = b"event:reinit\ndata:\n\n"
+    BETA_REINIT = b"event:reinit\n\n"
+
+    @staticmethod
+    def pending(subscriber: Subscriber) -> bytes:
+        """Return what the subscriber has to send now, without waiting."""
+        with gevent.Timeout(0.01, False):
+            return b"".join(subscriber.get())
+        return b""
+
+    @staticmethod
+    def id_now() -> str:
+        """Return an event ID strictly between the events around it."""
+        time.sleep(0.001)
+        now = "%x" % int(time.time() * 1_000_000)
+        time.sleep(0.001)
+        return now
+
+    def test_only_dropped_events_send_nothing(self):
+        publisher = Publisher(10)
+        subscriber = publisher.get_subscriber(dropped=self.SCORES)
+        publisher.put("score", "u t 40.0")
+        publisher.put("score", "u t 90.0")
+        self.assertEqual(self.pending(subscriber), b"")
+
+    def test_dropped_event_between_two_others(self):
+        publisher = Publisher(10)
+        subscriber = publisher.get_subscriber(dropped=self.SCORES)
+        publisher.put("user", "create u1")
+        publisher.put("score", "u1 t 40.0")
+        publisher.put("user", "create u2")
+        data = self.pending(subscriber)
+        self.assertEqual(re.findall(rb"data:(.*)", data),
+                         [b"create u1", b"create u2"])
+
+    def test_data_that_looks_like_a_dropped_event_is_kept(self):
+        publisher = Publisher(10)
+        subscriber = publisher.get_subscriber(dropped=self.SCORES)
+        publisher.put("user", "event:score")
+        self.assertIn(b"data:event:score", self.pending(subscriber))
+
+    def test_replay_skips_dropped_events(self):
+        publisher = Publisher(10)
+        last_id = self.id_now()
+        publisher.put("score", "u t 40.0")
+        publisher.put("user", "create u")
+        data = self.pending(publisher.get_subscriber(last_id, self.SCORES))
+        self.assertEqual(re.findall(rb"data:(.*)", data), [b"create u"])
+
+    def test_evicted_dropped_events_do_not_ask_to_reinit(self):
+        publisher = Publisher(2)
+        publisher.put("user", "create u")
+        last_id = self.id_now()
+        for score in ("40.0", "90.0", "100.0"):
+            publisher.put("score", "u t " + score)
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(last_id, self.SCORES)), b"")
+        # The same client, when it gets the scores, did miss one.
+        self.assertEqual(self.pending(publisher.get_subscriber(last_id)),
+                         self.BETA_REINIT)
+
+    def test_score_traffic_does_not_move_the_reinit(self):
+        # Markers: the IDs of events that a frozen client got. Whether it
+        # is asked to reinit with each must not count the score changes.
+        publisher = Publisher(3)
+        live = publisher.get_subscriber(dropped=self.SCORES)
+        for user in range(5):
+            publisher.put("user", "update u%d" % user)
+        markers = [m.decode() for m in
+                   re.findall(rb"id:(\w+)", self.pending(live))]
+
+        def reinits() -> list[bool]:
+            return [self.pending(publisher.get_subscriber(
+                marker, self.SCORES)) == self.REINIT for marker in markers]
+
+        before = reinits()
+        for score in range(4):
+            publisher.put("score", "u0 t %d" % score)
+        self.assertEqual(reinits(), before)
+        # u0 was evicted, the others are still in the cache.
+        self.assertEqual(before, [True, False, False, False, False])
+
+    def test_a_missed_evicted_event_asks_to_reinit(self):
+        publisher = Publisher(2)
+        before = self.id_now()
+        publisher.put("user", "create u1")
+        between = self.id_now()
+        publisher.put("user", "create u2")
+        publisher.put("user", "create u3")
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(before, self.SCORES)),
+            self.REINIT)
+        # A client that got u1, the one evicted, missed nothing gone.
+        data = self.pending(publisher.get_subscriber(between, self.SCORES))
+        self.assertEqual(re.findall(rb"data:(.*)", data),
+                         [b"create u2", b"create u3"])
+
+    def test_a_cache_without_room(self):
+        publisher = Publisher(0)
+        before = self.id_now()
+        publisher.put("user", "create u")
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(before, self.SCORES)),
+            self.REINIT)
+        self.assertEqual(self.pending(
+            publisher.get_subscriber(self.id_now(), self.SCORES)), b"")
+
+    def test_other_subscribers_are_answered_as_on_beta(self):
+        # Beta replays if the ID is not older than the oldest event in the
+        # cache, and sends its reinit otherwise, even from an empty cache.
+        publisher = Publisher(2)
+        live = publisher.get_subscriber()
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(self.id_now())),
+            self.BETA_REINIT)
+        publisher.put("user", "create u1")
+        between = self.id_now()
+        publisher.put("user", "create u2")
+        publisher.put("user", "create u3")
+        u2 = re.findall(rb"id:(\w+)", self.pending(live))[1].decode()
+        self.assertEqual(self.pending(publisher.get_subscriber(between)),
+                         self.BETA_REINIT)
+        data = self.pending(publisher.get_subscriber(u2))
+        self.assertEqual(re.findall(rb"data:(.*)", data), [b"create u3"])
 
 
 class TestLoginBodyLimit(VisibilityTestCase):
@@ -1021,6 +1595,40 @@ class TestCutBody(unittest.TestCase):
         self.assertTrue(closed)
 
 
+class TestPublicFrozenBanner(unittest.TestCase):
+
+    def set_time_zone(self, value: str):
+        """Make the process live in a time zone, until the test ends.
+
+        value: a POSIX TZ string, e.g. CST6.
+
+        """
+        saved = os.environ.get("TZ")
+
+        def restore():
+            if saved is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = saved
+            time.tzset()
+
+        self.addCleanup(restore)
+        os.environ["TZ"] = value
+        time.tzset()
+
+    def test_text_and_link(self):
+        # 2023-11-14 22:13:20 UTC.
+        for zone, expected in [("CST6", "16:13 (CST)"),
+                               ("EET-2", "00:13 (EET)")]:
+            with self.subTest(zone=zone):
+                self.set_time_zone(zone)
+                banner = public_frozen_banner(1_700_000_000).decode("utf-8")
+                self.assertIn("Ranking congelado desde las %s" % expected,
+                              banner)
+                self.assertIn('<a style="color:#fff" href="staff-login">'
+                              'Acceso staff</a>', banner)
+
+
 class TestVisibilityState(unittest.TestCase):
 
     def test_update_is_persisted_with_a_stable_secret(self):
@@ -1079,6 +1687,386 @@ class TestUnreadableState(unittest.TestCase):
                        "secret": "00"}, f)
         os.chmod(self.tmp, 0)
         self.assert_fails_closed()
+
+    def test_json_that_is_not_an_object(self):
+        # A number or a string has no secret to pop.
+        for content in ["3", '"hidden"']:
+            with self.subTest(content=content):
+                with open(self.path, "w") as f:
+                    f.write(content)
+                self.assert_fails_closed()
+
+    def test_new_format_with_bad_times(self):
+        times = {"hide_at": None, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None,
+                 "secret": "00"}
+        for bad in [{"hide_at": True}, {"hide_at": 20, "show_at": 20}]:
+            with self.subTest(bad=bad):
+                with open(self.path, "w") as f:
+                    json.dump(dict(times, **bad), f)
+                self.assert_fails_closed()
+
+
+class TestVisibilitySettings(unittest.TestCase):
+
+    def test_new_format(self):
+        s = parse_settings({"hide_at": 10, "show_at": 20, "freeze_at": None,
+                            "unfreeze_at": None, "staff_password": STAFF_HASH})
+        self.assertEqual((s.hide_at, s.show_at, s.staff_password),
+                         (10, 20, STAFF_HASH))
+        self.assertTrue(s.hidden(10))
+        self.assertFalse(s.hidden(20))
+
+    def test_old_format(self):
+        self.assertEqual(
+            parse_settings({"hidden": True, "staff_password": None}),
+            HIDDEN_SINCE_ALWAYS)
+        self.assertEqual(
+            parse_settings({"hidden": False, "staff_password": None}),
+            VisibilitySettings())
+
+    def test_hidden_wins_over_frozen(self):
+        s = VisibilitySettings(hide_at=10, freeze_at=5)
+        self.assertTrue(s.frozen(7))
+        self.assertFalse(s.frozen(12))
+        self.assertTrue(s.hidden(12))
+
+    def test_rejects(self):
+        for body in [
+                {"hide_at": True, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None},
+                {"hide_at": 1.5, "show_at": None, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None},
+                {"hide_at": 20, "show_at": 20, "freeze_at": None,
+                 "unfreeze_at": None, "staff_password": None},
+                {"hide_at": None, "show_at": None, "freeze_at": 30,
+                 "unfreeze_at": 10, "staff_password": None},
+                {"hidden": True, "hide_at": 3, "staff_password": None},
+                {"hide_at": None, "staff_password": None},
+                []]:
+            with self.assertRaises(ValueError, msg=body):
+                parse_settings(body)
+
+    def test_last_change(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state = VisibilityState(tmp)
+        state.update_settings(VisibilitySettings(freeze_at=100,
+                                                 unfreeze_at=200))
+        state.changed_at = 50
+        self.assertEqual(state.last_change(99), 50)
+        self.assertEqual(state.last_change(150), 100)
+        self.assertEqual(state.last_change(250), 200)
+
+    def test_only_a_change_of_the_view_now_counts(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        state = VisibilityState(tmp)
+        state.changed_at = 50
+
+        def update(now: float, **fields) -> float:
+            with patch("cmsranking.visibility.time.time", return_value=now):
+                state.update_settings(VisibilitySettings(
+                    staff_password=STAFF_HASH, **fields))
+            return state.changed_at
+
+        # Only the staff password differs: the public sees the same.
+        self.assertEqual(update(60), 50)
+        self.assertEqual(update(60), 50)
+        # Windows in the future: their times count when they pass.
+        self.assertEqual(update(80, hide_at=100), 50)
+        self.assertEqual(update(80, freeze_at=90, unfreeze_at=200), 50)
+        # Frozen now, as of another time: another snapshot.
+        self.assertEqual(update(120, freeze_at=90, unfreeze_at=200), 50)
+        self.assertEqual(update(130, freeze_at=110, unfreeze_at=200), 130)
+        # Still frozen as of the same time: the same snapshot.
+        self.assertEqual(update(140, freeze_at=110, unfreeze_at=300), 130)
+        # Hidden now.
+        self.assertEqual(update(150, hide_at=150, freeze_at=110), 150)
+        # Still hidden: what the frozen view would be does not matter.
+        self.assertEqual(update(160, hide_at=150, freeze_at=120), 150)
+        # Visible now.
+        self.assertEqual(update(170), 170)
+
+
+class TestScheduledHiding(VisibilityTestCase):
+
+    def put_settings(self, group: str, **times):
+        body = {"hide_at": None, "show_at": None, "freeze_at": None,
+                "unfreeze_at": None, "staff_password": STAFF_HASH}
+        body.update(times)
+        return self.client.put("/%s/visibility" % group,
+                               data=json.dumps(body),
+                               content_type="application/json", headers=AUTH)
+
+    def test_hidden_only_inside_the_window(self):
+        self.put_contest("/olim")
+        self.assertEqual(self.put_settings("olim", hide_at=100,
+                                           show_at=200).status_code, 204)
+        with patch("cmsranking.visibility.time.time", return_value=99):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 200)
+        with patch("cmsranking.visibility.time.time", return_value=100):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 403)
+        with patch("cmsranking.visibility.time.time", return_value=200):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 200)
+
+    def test_settings_survive_a_restart(self):
+        self.put_contest("/olim")
+        self.put_settings("olim", hide_at=100, show_at=200)
+        self.client = self.make_client()
+        with patch("cmsranking.visibility.time.time", return_value=150):
+            self.assertEqual(
+                self.client.get("/olim/contests/").status_code, 403)
+
+    def test_old_file_is_read(self):
+        group_dir = os.path.join(self.lib_dir, "groups", "olim")
+        os.makedirs(group_dir)
+        with open(os.path.join(group_dir, VISIBILITY_FILE), "w") as f:
+            json.dump({"hidden": True, "staff_password": None,
+                       "secret": "ab" * 32}, f)
+        state = VisibilityState(group_dir)
+        self.assertEqual(state.settings, HIDDEN_SINCE_ALWAYS)
+        # The staff cookies signed with the secret survive the upgrade.
+        self.assertEqual(state.secret, "ab" * 32)
+
+
+class TestFrozenPublicView(VisibilityTestCase):
+
+    TASK = {"name": "T", "short_name": "t", "contest": "c1", "order": 0,
+            "max_score": 100.0, "extra_headers": [], "score_precision": 0,
+            "score_mode": "max"}
+    LIVE = {"early": {"t": 40.0}, "late": {"t": 90.0}}
+    # The handlers of the scores, the history and the submissions refuse a
+    # client that does not accept JSON, as the scoreboard's ajax calls do.
+    JSON = {"Accept": "application/json"}
+
+    def setUp(self):
+        super().setUp()
+        self.put_contest("/olim")
+        for path, data in [
+                ("tasks/", {"t": self.TASK}),
+                ("users/", {
+                    "early": {"f_name": "E", "l_name": "E", "team": None},
+                    "late": {"f_name": "L", "l_name": "L", "team": None}}),
+                ("submissions/", {
+                    "s1": {"user": "early", "task": "t", "time": 100},
+                    "s2": {"user": "late", "task": "t", "time": 300}}),
+                ("subchanges/", {
+                    "c1": {"submission": "s1", "time": 100, "score": 40.0},
+                    "c2": {"submission": "s2", "time": 300, "score": 90.0}})]:
+            self.assertEqual(self.client.put(
+                "/olim/" + path, data=json.dumps(data),
+                content_type="application/json",
+                headers=AUTH).status_code, 204)
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": None, "show_at": None, "freeze_at": 200,
+            "unfreeze_at": 400, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+
+    def at(self, now):
+        return patch("cmsranking.visibility.time.time", return_value=now)
+
+    def test_public_scores_are_the_snapshot(self):
+        with self.at(350):
+            response = self.client.get("/olim/scores", headers=self.JSON)
+        self.assertEqual(response.json, {"early": {"t": 40.0}})
+        self.assertIn("no-store", response.headers["Cache-Control"])
+
+    def test_public_history_and_sublist_are_cut(self):
+        with self.at(350):
+            history = self.client.get("/olim/history", headers=self.JSON)
+            self.assertEqual([h[2] for h in history.json], [100])
+            sublist = self.client.get("/olim/sublist/late", headers=self.JSON)
+            self.assertEqual(sublist.json, [])
+
+    def test_raw_stores_are_forbidden(self):
+        with self.at(350):
+            for path in ("submissions/", "subchanges/", "submissions/s2"):
+                self.assertEqual(
+                    self.client.get("/olim/" + path).status_code, 403, path)
+
+    def test_unknown_paths_are_forbidden(self):
+        # The filter is an allow-list: what is not classified is refused.
+        with self.at(350):
+            for method, path in [("GET", "visibility"), ("GET", "whatever"),
+                                 ("GET", "whatever/deeper"),
+                                 ("HEAD", "whatever"), ("POST", "whatever"),
+                                 ("GET", "ranking.html"),
+                                 ("GET", "Ranking.html.bak")]:
+                with self.subTest(method=method, path=path):
+                    response = self.client.open("/olim/" + path,
+                                                method=method)
+                    self.assertEqual(response.status_code, 403)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-store")
+
+    def test_static_files_pass(self):
+        names = os.listdir(self.web_dir) + ["img/favicon.ico"]
+        with self.at(350):
+            for name in names:
+                if os.path.isdir(os.path.join(self.web_dir, name)):
+                    continue
+                with self.subTest(name=name):
+                    self.assertEqual(
+                        self.client.get("/olim/" + name).status_code, 200)
+
+    def test_other_data_passes(self):
+        with self.at(350):
+            for path in ("contests/", "tasks/", "users/", "config"):
+                self.assertEqual(
+                    self.client.get("/olim/" + path).status_code, 200, path)
+
+    def test_staff_see_it_live(self):
+        secret = self.client.application.apps["olim"].state.secret
+        cookie = staff_cookie_value(secret, "olim", STAFF_HASH)
+        with self.at(350):
+            response = self.client.get("/olim/scores", headers=dict(
+                self.JSON, Cookie="%s=%s" % (STAFF_COOKIE, cookie)))
+        self.assertEqual(response.json, self.LIVE)
+
+    def test_unfrozen_at_the_exact_end(self):
+        with self.at(400):
+            self.assertEqual(
+                self.client.get("/olim/scores", headers=self.JSON).json,
+                self.LIVE)
+
+    def test_banners_and_staff_login_page(self):
+        with self.at(350):
+            page = self.client.get("/olim/").get_data(as_text=True)
+            login = self.client.get("/olim/staff-login")
+        self.assertIn("Ranking congelado desde las", page)
+        self.assertIn('href="staff-login"', page)
+        self.assertEqual(login.status_code, 200)
+        self.assertIn('name="password"', login.get_data(as_text=True))
+        # The tab must not say that the ranking is hidden.
+        self.assertIn("<title>Acceso staff</title>",
+                      login.get_data(as_text=True))
+        self.assertNotIn("Ranking oculto", login.get_data(as_text=True))
+
+    def test_a_conditional_get_still_gets_the_banner(self):
+        # A browser that kept the page from when the group was live asks
+        # whether it changed: a 304 would show it without the bar.
+        live = self.client.get("/olim/Ranking.html")
+        for header, value in [
+                ("If-None-Match", live.headers["ETag"]),
+                ("If-Modified-Since", live.headers["Last-Modified"])]:
+            with self.subTest(header=header), self.at(350):
+                response = self.client.get("/olim/Ranking.html",
+                                           headers={header: value})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("Ranking congelado desde las",
+                              response.get_data(as_text=True))
+
+    def test_every_index_path_gets_the_banner(self):
+        with self.at(350):
+            for path in ("", "Ranking.html"):
+                with self.subTest(path=path):
+                    page = self.client.get("/olim/" + path)
+                    self.assertIn("Ranking congelado desde las",
+                                  page.get_data(as_text=True))
+
+    def test_staff_login_page_does_not_poll(self):
+        # config answers 200 while frozen: a poll would reload the page
+        # every 15 s, and wipe the password being typed.
+        with self.at(350):
+            page = self.client.get("/olim/staff-login")
+        self.assertNotIn("fetch(", page.get_data(as_text=True))
+
+    def test_staff_login_works_while_frozen(self):
+        with self.at(350):
+            response = self.client.post("/olim/staff-login",
+                                        data={"password": "s3cret"})
+        self.assertEqual(response.status_code, 303)
+
+    def staff_headers(self) -> dict[str, str]:
+        secret = self.client.application.apps["olim"].state.secret
+        cookie = staff_cookie_value(secret, "olim", STAFF_HASH)
+        return {"Cookie": "%s=%s" % (STAFF_COOKIE, cookie)}
+
+    def test_staff_get_the_frozen_banner(self):
+        with self.at(350):
+            page = self.client.get(
+                "/olim/", headers=self.staff_headers()).get_data(as_text=True)
+        self.assertIn("Vista staff: ranking congelado", page)
+        self.assertNotIn("Ranking congelado desde las", page)
+
+    def test_staff_pages_of_a_frozen_group_are_private(self):
+        # A shared cache that ignores cookies must not keep the live view,
+        # nor the page with the staff banner.
+        with self.at(350):
+            for path in ("", "Ranking.html", "config", "scores"):
+                with self.subTest(path=path):
+                    response = self.client.get(
+                        "/olim/" + path, headers=dict(
+                            self.JSON, **self.staff_headers()))
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "private, no-store")
+
+    def test_public_index_of_a_frozen_group_is_revalidated(self):
+        with self.at(350):
+            for path in ("", "Ranking.html"):
+                with self.subTest(path=path):
+                    response = self.client.get("/olim/" + path)
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-cache")
+
+    def test_wrong_password_while_frozen(self):
+        with self.at(350), patch("cmsranking.visibility.gevent.sleep"):
+            response = self.client.post("/olim/staff-login",
+                                        data={"password": "wrong"})
+        self.assertEqual(response.status_code, 401)
+        text = response.get_data(as_text=True)
+        self.assertIn("Acceso del staff al ranking en vivo.", text)
+        self.assertIn("<title>Acceso staff</title>", text)
+        self.assertNotIn("Este ranking está oculto", text)
+        self.assertNotIn("Ranking oculto", text)
+
+    def test_writes_are_still_authenticated_while_frozen(self):
+        # The proxy keeps feeding a frozen group, also the stores that the
+        # public may not read: the writes are answered before the freeze
+        # is applied.
+        data = json.dumps({
+            "c1": {"submission": "s1", "time": 100, "score": 40.0}})
+        with self.at(350):
+            anonymous = self.client.put(
+                "/olim/subchanges/", data=data,
+                content_type="application/json")
+            proxy = self.client.put(
+                "/olim/subchanges/", data=data,
+                content_type="application/json", headers=AUTH)
+        self.assertEqual(anonymous.status_code, 401)
+        self.assertEqual(proxy.status_code, 204)
+
+    def test_hidden_wins_over_frozen(self):
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": 300, "show_at": None, "freeze_at": 200,
+            "unfreeze_at": 400, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+        with self.at(350):
+            self.assertEqual(
+                self.client.get("/olim/scores",
+                                headers=self.JSON).status_code, 403)
+            page = self.client.get("/olim/").get_data(as_text=True)
+        self.assertIn("Este ranking está oculto por ahora.", page)
+        self.assertNotIn("congelado", page)
+
+    def test_every_route_is_classified(self):
+        # A new data endpoint must be classified before it can leak.
+        app = build_ranking_app(
+            self.config, os.path.join(self.tmp, "x"), self.web_dir)
+        # SharedDataMiddleware -> DispatcherMiddleware
+        dispatcher = app.app
+        mounts = {m.strip("/").split("/")[0] for m in dispatcher.mounts}
+        routes = {r.rule.strip("/").split("/")[0]
+                  for r in dispatcher.app.router.iter_rules()}
+        # The static files are served from the top level as well.
+        static = set(os.listdir(self.web_dir))
+        self.assertLessEqual(mounts | routes | static,
+                             set(FROZEN_ROUTES) | {""})
 
 
 if __name__ == "__main__":

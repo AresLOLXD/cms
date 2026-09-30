@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
@@ -23,6 +24,7 @@ from cms.db import Dataset, RankingGroup
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
     ProxyService, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
+from cmscommon.datetime import make_timestamp
 
 
 RANKING = config.proxy_service.rankings[0]
@@ -721,19 +723,86 @@ class TestProxyServiceGroups(
         self.assertLess(urls.index(visibility),
                         urls.index(url("olim/contests/")))
         self.assertEqual(self.put_payload(visibility),
-                         {"hidden": False, "staff_password": None})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": None})
+
+    async def test_visibility_windows_are_sent(self):
+        self.olim.freeze_at = datetime(2026, 10, 10, 19, 0)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        expected_freeze_at = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        payload = self.put_payload(url("olim/visibility"))
+        self.assertEqual(payload,
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": expected_freeze_at, "unfreeze_at": None,
+                          "staff_password": None})
+        self.assertIsInstance(payload["freeze_at"], int)
+
+    async def test_freeze_and_unfreeze_in_the_same_second_stay_ordered(self):
+        # The "freeze now" and "unfreeze now" buttons store microsecond
+        # times: a double click makes both fall in the same second, and
+        # the ranking answers 400 to an end that is not after its start.
+        self.olim.freeze_at = datetime(2026, 10, 10, 19, 0, 0, 300000)
+        self.olim.unfreeze_at = datetime(2026, 10, 10, 19, 0, 0, 800000)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        second = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        payload = self.put_payload(url("olim/visibility"))
+        self.assertEqual(payload["freeze_at"], second)
+        self.assertEqual(payload["unfreeze_at"], second + 1)
+        self.assertGreater(payload["unfreeze_at"], payload["freeze_at"])
+        self.assertIsInstance(payload["freeze_at"], int)
+        self.assertIsInstance(payload["unfreeze_at"], int)
+
+    async def test_hide_and_show_in_the_same_second_stay_ordered(self):
+        self.olim.hide_at = datetime(2026, 10, 10, 19, 0, 0, 300000)
+        self.olim.show_at = datetime(2026, 10, 10, 19, 0, 0, 800000)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        second = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        payload = self.put_payload(url("olim/visibility"))
+        self.assertEqual(payload["hide_at"], second)
+        self.assertEqual(payload["show_at"], second + 1)
+        self.assertGreater(payload["show_at"], payload["hide_at"])
+        self.assertIsInstance(payload["hide_at"], int)
+        self.assertIsInstance(payload["show_at"], int)
+
+    async def test_ends_on_a_whole_second_are_not_widened(self):
+        # Only a fractional end is rounded up: one that is already on a
+        # whole second stays that second, whatever its start is.
+        self.olim.hide_at = datetime(2026, 10, 10, 19, 0, 0, 500000)
+        self.olim.show_at = datetime(2026, 10, 10, 19, 0, 1)
+        self.olim.freeze_at = datetime(2026, 10, 10, 20, 0)
+        self.olim.unfreeze_at = datetime(2026, 10, 10, 20, 0, 2)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        hide = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        freeze = int(make_timestamp(datetime(2026, 10, 10, 20, 0)))
+        self.assertEqual(self.put_payload(url("olim/visibility")),
+                         {"hide_at": hide, "show_at": hide + 1,
+                          "freeze_at": freeze, "unfreeze_at": freeze + 2,
+                          "staff_password": None})
 
     async def test_reinitialize_sends_new_visibility(self):
         service = await self.start()
         await self._settle(service)
         self.requests_put.reset_mock()
         self.olim.hidden = True
+        self.olim.hide_at = datetime(2026, 1, 1)
         self.olim.staff_password = "plaintext:pw"
         self.session.commit()
         await service.reinitialize()
         await self._settle(service)
+        expected_hide_at = int(make_timestamp(datetime(2026, 1, 1)))
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hidden": True, "staff_password": "plaintext:pw"})
+                         {"hide_at": expected_hide_at, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": "plaintext:pw"})
 
     async def test_regenerate_sends_visibility(self):
         service = await self.start()
@@ -875,6 +944,7 @@ class TestProxyServiceGroups(
         # Changed in the database, and no reinitialize tells ProxyService
         # (lost while it restarted, say).
         self.omips.hidden = True
+        self.omips.hide_at = datetime(2026, 1, 1)
         self.omips.staff_password = "plaintext:pw"
         self.session.commit()
 
@@ -882,9 +952,14 @@ class TestProxyServiceGroups(
         await self._settle(service)
 
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hidden": False, "staff_password": None})
+                         {"hide_at": None, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": None})
+        expected_hide_at = int(make_timestamp(datetime(2026, 1, 1)))
         self.assertEqual(self.put_payload(url("omips/visibility")),
-                         {"hidden": True, "staff_password": "plaintext:pw"})
+                         {"hide_at": expected_hide_at, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": "plaintext:pw"})
 
     async def test_sweep_in_legacy_mode_sends_no_visibility(self):
         service = await self.start(contest_id=self.contest_a.id)
@@ -940,6 +1015,7 @@ class TestProxyServiceGroups(
         # OLIM is hidden in AWS and a score of it was missed: only the
         # sweep tells the rankings.
         self.olim.hidden = True
+        self.olim.hide_at = datetime(2026, 1, 1)
         self.session.commit()
         service.scores_sent_to_rankings.discard(self.sub_a.id)
 
@@ -961,8 +1037,11 @@ class TestProxyServiceGroups(
         urls = self.put_urls()
         self.assertLess(urls.index(url("olim/visibility")),
                         urls.index(url("olim/submissions/")))
+        expected_hide_at = int(make_timestamp(datetime(2026, 1, 1)))
         self.assertEqual(self.put_payload(url("olim/visibility")),
-                         {"hidden": True, "staff_password": None})
+                         {"hide_at": expected_hide_at, "show_at": None,
+                          "freeze_at": None, "unfreeze_at": None,
+                          "staff_password": None})
 
 
     # -- what each transition sends to which namespace -------------------

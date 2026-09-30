@@ -823,6 +823,7 @@ var DataStore = new function () {
         self.es.addEventListener("open", self.es_open_handler, false);
         self.es.addEventListener("error", self.es_error_handler, false);
         self.es.addEventListener("reload", self.es_reload_handler, false);
+        self.es.addEventListener("reinit", self.es_reload_handler, false);
         self.es.addEventListener("contest", function (event) {
             var timestamp = parseInt(event.lastEventId, 16) / 1000000;
             if (timestamp > self.contest_init_time) {
@@ -905,9 +906,41 @@ var DataStore = new function () {
             console.info("Received a 'reload' event");
             self.es.close();
             self.update_network_status(3);
+            // The view changed (hidden, frozen, unfrozen, staff access
+            // revoked) or the events missed are gone: the data on the
+            // page cannot be updated.
+            self.reload_page();
         } else {
             console.error("EventSource shouldn't be in state " + self.es.readyState + " during a 'reload' event!");
         }
+    };
+
+    // Automatic reloads are at least this far apart (in ms), so that a
+    // page told to reload again and again does not hammer the server.
+    self.RELOAD_INTERVAL = 10000;
+    self.RELOAD_KEY = "rws_last_reload";
+
+    self.reload_page = function () {
+        var last = NaN;
+        try {
+            last = parseInt(window.sessionStorage.getItem(self.RELOAD_KEY), 10);
+        } catch (e) {
+            // No sessionStorage (disabled or blocked): reload at once.
+        }
+        var wait = 0;
+        if (!isNaN(last)) {
+            // At most one interval, even if the clock went back.
+            wait = Math.min(Math.max(last + self.RELOAD_INTERVAL - Date.now(), 0),
+                            self.RELOAD_INTERVAL);
+        }
+        window.setTimeout(function () {
+            try {
+                window.sessionStorage.setItem(self.RELOAD_KEY, String(Date.now()));
+            } catch (e) {
+                // The next reload is not limited, as without sessionStorage.
+            }
+            window.location.reload();
+        }, wait);
     };
 
     $(document).ready(function () {

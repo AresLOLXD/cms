@@ -22,7 +22,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import json
 import logging
 import os
 import re
@@ -60,6 +59,13 @@ class FunctionalTestFramework:
     # Seconds a single request to RWS may take. A failed staff login alone
     # takes over a second by design.
     RWS_REQUEST_TIMEOUT = 10
+
+    # For each visibility action of a ranking group's page in AWS, the
+    # button that the page offers instead once the action is applied.
+    OPPOSITE_VISIBILITY_ACTION = {
+        "hide_now": "show_now", "show_now": "hide_now",
+        "freeze_now": "unfreeze_now", "unfreeze_now": "freeze_now",
+    }
 
     # Regexes for submission statuses.
     WAITING_STATUSES = re.compile(
@@ -265,7 +271,7 @@ class FunctionalTestFramework:
         else:
             raise TestException("Unable to create contest.")
 
-    def add_ranking_group(self, name, description, hidden=False,
+    def add_ranking_group(self, name, description,
                           staff_password=None) -> int:
         """Create a ranking group.
 
@@ -273,8 +279,6 @@ class FunctionalTestFramework:
 
         """
         add_args = {"name": name, "description": description}
-        if hidden:
-            add_args["hidden"] = "checked"
         if staff_password is not None:
             add_args["staff_password"] = staff_password
         r = self.admin_req('ranking_groups/add', args=add_args)
@@ -285,27 +289,35 @@ class FunctionalTestFramework:
             raise TestException("Unable to create ranking group.")
         return int(match.group(1))
 
-    def edit_ranking_group(self, group_id, name, description, hidden,
-                           was_hidden, staff_password=None):
+    def edit_ranking_group(self, group_id, name, description, action=None,
+                           staff_password=None):
         """Save the page of a ranking group, as its form does.
 
-        hidden: whether to hide the group from the public.
-        was_hidden: whether the page was rendered with the group hidden.
-            The form sends it back (hidden_shown), and AWS only applies
-            the checkbox when it differs from it.
+        The page is read first: each time of the visibility windows is
+        sent back as it is rendered, along with the <field>_shown the
+        page carries for it, and AWS keeps the times that did not change.
+
+        action: the visibility_action button to press (hide_now,
+            show_now, freeze_now or unfreeze_now), or None to press
+            Update.
         staff_password: a new staff password, or None to keep the current
             one.
 
-        raise (TestException): if AWS did not apply the change.
+        raise (TestException): if the page has no window times, or AWS
+            did not apply the change.
 
         """
-        edit_args = {
-            "name": name,
-            "description": description,
-            "hidden_shown": "1" if was_hidden else "0",
-        }
-        if hidden:
-            edit_args["hidden"] = "checked"
+        page = self.admin_req('ranking_group/%s' % group_id).text
+        # Needs the template's name-then-value order; else it raises below.
+        shown = re.findall(r'name="(\w+)_shown" value="([^"]*)"', page)
+        if not shown:
+            raise TestException("Unable to read ranking group.")
+        edit_args = {"name": name, "description": description}
+        for field, value in shown:
+            edit_args[field] = value
+            edit_args[field + "_shown"] = value
+        if action is not None:
+            edit_args["visibility_action"] = action
         if staff_password is not None:
             edit_args["staff_password"] = staff_password
         self.admin_req('ranking_group/%s' % group_id, args=edit_args)
@@ -313,8 +325,9 @@ class FunctionalTestFramework:
         # AWS answers an invalid form with a redirect and a notification,
         # so read the page back to know what was saved.
         page = self.admin_req('ranking_group/%s' % group_id).text
-        shown = re.search(r'name="hidden_shown" value="([01])"', page)
-        if shown is None or (shown.group(1) == "1") != hidden or \
+        if (action is not None and
+                'name="visibility_action" value="%s"'
+                % self.OPPOSITE_VISIBILITY_ACTION[action] not in page) or \
                 (staff_password is not None and "(set)" not in page):
             raise TestException("Unable to update ranking group.")
 

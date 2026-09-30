@@ -21,6 +21,7 @@ password-protected live view for the staff (MC-2).
 
 """
 
+import dataclasses
 import functools
 import hashlib
 import hmac
@@ -30,6 +31,8 @@ import os
 import re
 import secrets
 import tempfile
+import time
+from datetime import datetime
 
 import gevent
 from gevent.pywsgi import WSGIHandler
@@ -38,6 +41,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.wrappers import Request, Response
 
 from cmscommon.crypto import parse_authentication, validate_password
+from cmscommon.ranking_groups import check_window, window_is_open
 
 
 logger = logging.getLogger(__name__)
@@ -58,12 +62,43 @@ MAX_LOGIN_BODY = 4096
 # shares with everything else.
 LOGIN_THREADS = 2
 
+# The environ key through which the guard tells the handlers to serve a
+# frozen group's data as it was at this Unix time.
+FREEZE_AT_ENVIRON = "cmsranking.freeze_at"
+
+# What a public request to a frozen group gets, by first path segment.
+# This is an allow-list: a segment that is not here is refused. Every route
+# of the namespace app and every top-level entry of the static directory
+# must be listed (a test checks it): "filter" is served as of the freeze
+# time (the event stream without its score events), "forbid" is refused,
+# "pass" carries nothing that changes after the freeze.
+FROZEN_ROUTES = {
+    "": "pass", "contests": "pass", "tasks": "pass", "teams": "pass",
+    "users": "pass", "faces": "pass", "flags": "pass", "logo": "pass",
+    "config": "pass",
+    "scores": "filter", "history": "filter", "sublist": "filter",
+    "events": "filter",
+    "submissions": "forbid", "subchanges": "forbid",
+    # The static files.
+    "Ranking.html": "pass", "Ranking.css": "pass", "Ranking.js": "pass",
+    "Chart.js": "pass", "Config.js": "pass", "DataStore.js": "pass",
+    "HistoryStore.js": "pass", "Overview.js": "pass",
+    "Scoreboard.js": "pass", "TeamSearch.js": "pass",
+    "TimeView.js": "pass", "UserDetail.js": "pass",
+    "img": "pass", "lib": "pass",
+}
+
+HIDDEN_TITLE = "Ranking oculto"
+HIDDEN_MESSAGE = "Este ranking está oculto por ahora."
+FROZEN_LOGIN_TITLE = "Acceso staff"
+FROZEN_LOGIN_MESSAGE = "Acceso del staff al ranking en vivo."
+
 NOTICE_TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ranking oculto</title>
+<title>{title}</title>
 <style>
 body {{ font-family: sans-serif; background: #f4f4f4; color: #222;
        display: flex; min-height: 100vh; margin: 0;
@@ -76,7 +111,7 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 <body>
 <main>
 <h1>{group}</h1>
-<p>Este ranking está oculto por ahora.</p>
+<p>{message}</p>
 <form method="post" action="staff-login">
 <label>Contraseña del staff
 <input type="password" name="password"
@@ -86,8 +121,25 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 </form>
 {error}
 </main>
-</body>
+{script}</body>
 </html>
+"""
+
+# Brings the hidden notice back by itself: config answers 403 while the
+# group is hidden, and 200 once it is shown again or frozen. Only on the
+# notice served to a GET: reloading the answer to a failed login would
+# post the form again, and on the frozen group's login page config always
+# answers 200, so the page would reload every 15 s under a password being
+# typed.
+NOTICE_POLL = """<script>
+setInterval(function () {
+    fetch("config", {cache: "no-store"}).then(function (r) {
+        if (r.ok) {
+            location.reload();
+        }
+    }).catch(function () {});
+}, 15000);
+</script>
 """
 
 # A bar of its own at the bottom, above everything (the scoreboard goes up
@@ -99,21 +151,47 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 # is under it). The height of the bar and that room are one property:
 # 2.25rem is a line of 1.25rem and a padding of 0.5rem above and below,
 # and 3.5rem holds the two lines that the text takes on a narrow screen.
-STAFF_BANNER = (
-    '<style>'
-    ':root{--rws-banner:2.25rem}'
-    '@media(max-width:30em){:root{--rws-banner:3.5rem}}'
-    '#InnerFrame,#UserDetail_bg{bottom:var(--rws-banner)}'
-    '#SidePanel{bottom:calc(30px + var(--rws-banner))}'
-    '</style>'
-    '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
-    'box-sizing:border-box;height:var(--rws-banner);overflow:hidden;'
-    'padding:0.5rem;font:0.85rem/1.25rem sans-serif;'
-    'background:#b00020;color:#fff;text-align:center;">Vista staff: este '
-    'ranking está oculto al público &middot; '
-    '<a style="color:#fff" href="staff-logout">Salir</a></div>'
-).encode("utf-8")
+def _banner(text_html: str) -> bytes:
+    """Build a bottom bar with the given text (see STAFF_BANNER's CSS)."""
+    return (
+        '<style>'
+        ':root{--rws-banner:2.25rem}'
+        '@media(max-width:30em){:root{--rws-banner:3.5rem}}'
+        '#InnerFrame,#UserDetail_bg{bottom:var(--rws-banner)}'
+        '#SidePanel{bottom:calc(30px + var(--rws-banner))}'
+        '</style>'
+        '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
+        'box-sizing:border-box;height:var(--rws-banner);overflow:hidden;'
+        'padding:0.5rem;font:0.85rem/1.25rem sans-serif;'
+        'background:#b00020;color:#fff;text-align:center;">'
+        + text_html + '</div>').encode("utf-8")
+
+
+LINK = '<a style="color:#fff" href="%s">%s</a>'
+STAFF_BANNER = _banner("Vista staff: este ranking está oculto al público "
+                       "&middot; " + LINK % ("staff-logout", "Salir"))
+STAFF_FROZEN_BANNER = _banner(
+    "Vista staff: ranking congelado para el público &middot; "
+    + LINK % ("staff-logout", "Salir"))
+
+
+def public_frozen_banner(freeze_at: int) -> bytes:
+    """Build the public bar of a frozen group.
+
+    freeze_at: the freeze time, in Unix seconds.
+
+    return: the bar, with the time in the server's local time zone.
+
+    """
+    when = datetime.fromtimestamp(freeze_at).astimezone()
+    return _banner("Ranking congelado desde las %s (%s) &middot; %s" % (
+        when.strftime("%H:%M"), when.strftime("%Z"),
+        LINK % ("staff-login", "Acceso staff")))
+
+
 BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
+# Makes the ranking page reload itself, into whatever it may see now.
+RELOAD_EVENT = b"event:reload\ndata:\n\n"
 
 
 def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
@@ -131,6 +209,129 @@ def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
                     hashlib.sha256).hexdigest()
 
 
+TIME_FIELDS = ("hide_at", "show_at", "freeze_at", "unfreeze_at")
+
+
+@dataclasses.dataclass(frozen=True)
+class VisibilitySettings:
+    """The visibility windows of a group and its staff password.
+
+    The times are Unix seconds, or None: the group is hidden during
+    [hide_at, show_at) and frozen during [freeze_at, unfreeze_at), and
+    hidden wins over frozen.
+
+    """
+    hide_at: int | None = None
+    show_at: int | None = None
+    freeze_at: int | None = None
+    unfreeze_at: int | None = None
+    staff_password: str | None = None
+
+    def hidden(self, now: float) -> bool:
+        """Tell whether the group is hidden at a given time.
+
+        now: the Unix time to check.
+
+        return: True if now falls in [hide_at, show_at).
+
+        """
+        return window_is_open(self.hide_at, self.show_at, now)
+
+    def frozen(self, now: float) -> bool:
+        """Tell whether the group is frozen at a given time.
+
+        now: the Unix time to check.
+
+        return: True if now falls in [freeze_at, unfreeze_at) and the
+            group is not hidden then.
+
+        """
+        return not self.hidden(now) and \
+            window_is_open(self.freeze_at, self.unfreeze_at, now)
+
+    def public_view(self, now: float) -> tuple:
+        """Return what the public sees at a given time.
+
+        now: the Unix time to check.
+
+        return: ("hidden",), ("frozen", freeze_at) or ("live",). Two
+            settings show the same at now when they return the same.
+
+        """
+        if self.hidden(now):
+            return ("hidden",)
+        if self.frozen(now):
+            return ("frozen", self.freeze_at)
+        return ("live",)
+
+    def boundaries(self) -> list[int]:
+        """Return the times at which the public view may change.
+
+        return: the times that are not None.
+
+        """
+        return [t for t in (self.hide_at, self.show_at, self.freeze_at,
+                            self.unfreeze_at) if t is not None]
+
+    def to_json(self) -> dict:
+        """Return the settings in the wire format.
+
+        return: the four times and staff_password.
+
+        """
+        return dataclasses.asdict(self)
+
+
+# What an unreadable state file and an old {"hidden": true} both mean.
+HIDDEN_SINCE_ALWAYS = VisibilitySettings(hide_at=0)
+
+
+def parse_settings(data: object) -> VisibilitySettings:
+    """Validate the settings sent by ProxyService, in either format.
+
+    data: the decoded JSON: the new format (the four times and
+        staff_password) or MC-2 minimal's (hidden and staff_password).
+
+    return: the settings.
+
+    raise (ValueError): if data is neither format, a time is not an
+        integer, a window ends before it starts, or the password is not
+        a valid authentication string.
+
+    """
+    if not isinstance(data, dict):
+        raise ValueError("The settings must be an object.")
+    staff_password = data.get("staff_password", ())
+    if staff_password == ():
+        raise ValueError("staff_password is missing.")
+    if staff_password is not None:
+        if not isinstance(staff_password, str):
+            raise ValueError("staff_password must be a string or null.")
+        parse_authentication(staff_password)
+    old = "hidden" in data
+    new = any(field in data for field in TIME_FIELDS)
+    if old == new:
+        raise ValueError("Send either hidden or the four times.")
+    if old:
+        if not isinstance(data["hidden"], bool):
+            raise ValueError("hidden must be a boolean.")
+        base = HIDDEN_SINCE_ALWAYS if data["hidden"] else VisibilitySettings()
+        return dataclasses.replace(base, staff_password=staff_password)
+    times = dict()
+    for field in TIME_FIELDS:
+        if field not in data:
+            raise ValueError("%s is missing." % field)
+        value = data[field]
+        # bool is a subclass of int, and True must not mean 1970.
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, int)):
+            raise ValueError("%s must be an integer or null." % field)
+        times[field] = value
+    check_window(times["hide_at"], times["show_at"], "hide")
+    check_window(times["freeze_at"], times["unfreeze_at"], "freeze")
+    return VisibilitySettings(staff_password=staff_password, **times)
+
+
 class VisibilityState:
     """The visibility settings of one group, stored in its directory.
 
@@ -138,49 +339,56 @@ class VisibilityState:
 
     def __init__(self, group_dir: str):
         self.path = os.path.join(group_dir, VISIBILITY_FILE)
-        self.hidden = False
-        self.staff_password: str | None = None
+        self.settings = VisibilitySettings()
         self.secret = secrets.token_hex(32)
         self._load()
+        # A restart counts as a change for a group that is hidden or
+        # frozen: streams opened before it reload. A live one is left as
+        # on beta, whatever times it keeps from earlier windows.
+        now = time.time()
+        self.changed_at = \
+            now if self.settings.public_view(now) != ("live",) else 0.0
+
+    @property
+    def hidden(self) -> bool:
+        return self.settings.hidden(time.time())
+
+    @property
+    def staff_password(self) -> str | None:
+        return self.settings.staff_password
 
     def _load(self):
         try:
             with open(self.path, encoding="utf-8") as f:
                 data = json.load(f)
-            hidden = data["hidden"]
-            staff_password = data["staff_password"]
-            secret = data["secret"]
-            if not isinstance(hidden, bool) \
-                    or not isinstance(secret, str) or secret == "" \
-                    or not (staff_password is None
-                            or isinstance(staff_password, str)):
-                raise ValueError("Wrong types.")
+            secret = data.pop("secret")
+            if not isinstance(secret, str) or secret == "":
+                raise ValueError("Wrong secret.")
             bytes.fromhex(secret)
+            settings = parse_settings(data)
         except FileNotFoundError:
             # A group that was never configured is visible. Any other
             # failure to read the file must not make it public: checking
             # for the file first would take an unreadable one for none.
             return
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             logger.error("Cannot read %s: hiding the ranking until its "
                          "visibility is sent again.", self.path,
                          exc_info=True)
-            self.hidden = True
-            self.staff_password = None
+            self.settings = HIDDEN_SINCE_ALWAYS
             return
-        self.hidden = hidden
-        self.staff_password = staff_password
+        self.settings = settings
         self.secret = secret
 
-    def update(self, hidden: bool, staff_password: str | None):
+    def update_settings(self, settings: VisibilitySettings) -> bool:
         """Replace the settings, storing them atomically first.
 
-        hidden: whether the public scoreboard is hidden.
-        staff_password: the staff authentication string, or None.
+        settings: the new settings.
+
+        return: whether they differ from the previous ones.
 
         """
-        data = {"hidden": hidden, "staff_password": staff_password,
-                "secret": self.secret}
+        data = dict(settings.to_json(), secret=self.secret)
         directory = os.path.dirname(self.path)
         fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".vis-")
         try:
@@ -190,8 +398,39 @@ class VisibilityState:
         except BaseException:
             os.unlink(tmp_path)
             raise
-        self.hidden = hidden
-        self.staff_password = staff_password
+        changed = settings != self.settings
+        # Only what the public sees now counts: a new staff password, or a
+        # window that opens later (its time counts when it passes), must
+        # not make every public page reload.
+        now = time.time()
+        view_changed = settings.public_view(now) \
+            != self.settings.public_view(now)
+        self.settings = settings
+        if view_changed:
+            self.changed_at = now
+        return changed
+
+    def update(self, hidden: bool, staff_password: str | None):
+        """Replace the settings from MC-2 minimal's format.
+
+        hidden: whether the public scoreboard is hidden.
+        staff_password: the staff authentication string, or None.
+
+        """
+        self.update_settings(parse_settings(
+            {"hidden": hidden, "staff_password": staff_password}))
+
+    def last_change(self, now: float) -> float:
+        """Return when the public view last changed, as of now.
+
+        now: the current Unix time.
+
+        return: the latest of the last settings change and the scheduled
+            times already passed.
+
+        """
+        passed = [t for t in self.settings.boundaries() if t <= now]
+        return max([self.changed_at] + passed)
 
 
 @functools.cache
@@ -324,11 +563,15 @@ class VisibilityGuard:
         return request.scheme == "https" or request.headers.get(
             "X-Forwarded-Proto", "").lower() == "https"
 
-    def _login(self, request: Request, start_response) -> Response:
+    def _login(self, request: Request, start_response,
+               message: str = HIDDEN_MESSAGE,
+               title: str = HIDDEN_TITLE) -> Response:
         """Check the staff password and start a staff session.
 
         request: the POST to staff-login, with the form field password.
         start_response: the WSGI start_response callable.
+        message: the text of the notice shown after a failed attempt.
+        title: the title of that notice.
 
         return: a redirect that sets the staff cookie, or the notice with
             an error after a failed attempt (or a 413 if the body is too
@@ -367,7 +610,8 @@ class VisibilityGuard:
                 valid = False
         if not valid:
             gevent.sleep(self.FAILED_LOGIN_DELAY)
-            return self._notice(error=True, status=401)
+            return self._notice(error=True, status=401, message=message,
+                                title=title)
         response = Response(status=303, headers=dict(
             NO_STORE, Location="./"))
         # Sign the hash that was checked, not the current one: if the
@@ -390,11 +634,13 @@ class VisibilityGuard:
         response.delete_cookie(STAFF_COOKIE, path=None)
         return response
 
-    def _with_banner(self, environ, start_response):
-        """Serve the app's page with the staff banner after <body>.
+    def _with_banner(self, environ, start_response,
+                     banner: bytes = STAFF_BANNER):
+        """Serve the app's page with a banner after <body>.
 
         environ: the WSGI environ.
         start_response: the WSGI start_response callable.
+        banner: the bar to insert.
 
         return: the body of the response.
 
@@ -406,6 +652,10 @@ class VisibilityGuard:
             captured["headers"] = headers
             return lambda data: None
 
+        # Always the whole page, never a 304: the copy that a browser kept
+        # from another view has no banner, or another one.
+        environ.pop("HTTP_IF_NONE_MATCH", None)
+        environ.pop("HTTP_IF_MODIFIED_SINCE", None)
         body_iter = self.app(environ, capture)
         try:
             body = b"".join(body_iter)
@@ -413,8 +663,7 @@ class VisibilityGuard:
             close = getattr(body_iter, "close", None)
             if close is not None:
                 close()
-        body = BODY_TAG.sub(lambda m: m.group(0) + STAFF_BANNER, body,
-                            count=1)
+        body = BODY_TAG.sub(lambda m: m.group(0) + banner, body, count=1)
         dropped = {"content-length", "last-modified", "etag",
                    "cache-control"}
         headers = [(k, v) for k, v in captured["headers"]
@@ -424,31 +673,60 @@ class VisibilityGuard:
         start_response(captured["status"], headers)
         return [body]
 
-    def _guard_writes(self, request: Request, start_response):
-        """Wrap start_response so write() stops once the group is hidden.
+    def _guard_writes(self, request: Request, start_response,
+                      opened_at: float, served_as_staff: bool):
+        """Wrap start_response so write() follows the public view.
 
         The /events handler sends its data through the write() callable
         instead of the returned iterable, so _CutWhenHidden never sees
-        it. Its error handling ends the stream when write() raises, and
-        closing the connection makes the browser reconnect and get the
-        403.
+        it. Its error handling ends the stream when write() raises. An
+        event stream is told to reload first: a browser does not retry a
+        stream that got a 403, so a page that only reconnected would keep
+        showing the scoreboard of a hidden group.
+
+        The public view a request gets is decided when it comes (while
+        frozen, the event stream leaves the score events out from the
+        start): any change of that view cuts the stream at its next
+        write.
 
         request: the request being served.
         start_response: the WSGI start_response callable.
+        opened_at: the Unix time at which the request came, the one its
+            view was decided at.
+        served_as_staff: whether the request got the staff's live view,
+            which a client that is no longer staff must not keep getting
+            while the group is frozen (the password changing does not
+            change the public view).
 
         return: a start_response whose write() callables refuse to send
-            data to a client that may no longer see the ranking.
+            data to a public client once the group is hidden or its view
+            changed since the request came, or once a staff client lost
+            its access to a frozen group.
 
         """
         handler = getattr(start_response, "__self__", None)
 
         def guarded_start_response(status, headers, exc_info=None):
             write = start_response(status, headers, exc_info)
+            event_stream = any(
+                key.lower() == "content-type"
+                and value.startswith("text/event-stream")
+                for key, value in headers)
 
             def guarded_write(data):
-                if self.state.hidden and not self._is_staff(request):
-                    _close_connection(start_response)
-                    raise ConnectionAbortedError("The ranking is hidden.")
+                if not self._is_staff(request):
+                    now = time.time()
+                    settings = self.state.settings
+                    if settings.hidden(now) \
+                            or (served_as_staff and settings.frozen(now)) \
+                            or self.state.last_change(now) > opened_at:
+                        _close_connection(start_response)
+                        if event_stream:
+                            # Instead of the data, which the client may
+                            # no longer get.
+                            write(RELOAD_EVENT)
+                        raise ConnectionAbortedError(
+                            "The ranking changed its visibility.")
                 return write(data)
 
             return guarded_write
@@ -461,27 +739,41 @@ class VisibilityGuard:
     def __call__(self, environ, start_response):
         request = Request(environ)
         path = request.path
-        start_response = self._guard_writes(request, start_response)
+        now = time.time()
+        hidden = self.state.settings.hidden(now)
+        frozen = self.state.settings.frozen(now)
+        staff = self._is_staff(request)
+        start_response = self._guard_writes(request, start_response, now,
+                                            staff)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
-        if not self.state.hidden and path in INDEX_PATHS and \
-                request.method in ("GET", "HEAD"):
+        if not hidden and not (staff and frozen) and \
+                path in INDEX_PATHS and request.method in ("GET", "HEAD"):
             # The index page has a Last-Modified and nothing else (or, by
             # its file name, a max-age of 12 hours), so a browser would
             # keep it without asking, and show the scoreboard instead of
-            # the notice once the group is hidden.
+            # the notice once the group is hidden. (What the staff see of
+            # a hidden or frozen group is private, whatever this says.)
             start_response = _cache_control(start_response, REVALIDATE)
-        if self._is_staff(request):
-            if self.state.hidden:
-                if path == "/" and request.method == "GET":
-                    return self._with_banner(environ, start_response)
-                # A cache shared with the public must not keep this.
+        if staff:
+            if hidden or frozen:
+                # A cache shared with the public must not keep this, not
+                # even the page that gets a banner.
                 start_response = _cache_control(
                     start_response, PRIVATE_NO_STORE)
+                if path == "/" and request.method == "GET":
+                    return self._with_banner(
+                        environ, start_response,
+                        STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
             return self.app(environ, start_response)
-        if not self.state.hidden:
+        if path == "/events" and request.method == "GET" and not hidden \
+                and self._missed_a_change(request, now):
+            return Response(RELOAD_EVENT, status=200,
+                            mimetype="text/event-stream",
+                            headers=NO_STORE)(environ, start_response)
+        if not hidden and not frozen:
             return _CutWhenHidden(self.app(environ, start_response),
                                   self.state, start_response)
         if request.method in ("PUT", "DELETE"):
@@ -493,8 +785,10 @@ class VisibilityGuard:
                                extra={"location": request.url})
                 return self._unauthorized()(environ, start_response)
             return self.app(environ, start_response)
+        if frozen:
+            return self._frozen(request, environ, start_response)
         if path == "/" and request.method in ("GET", "HEAD"):
-            return self._notice()(environ, start_response)
+            return self._notice(poll=True)(environ, start_response)
         if path == "/staff-login" and request.method == "POST":
             return self._login(request, start_response)(
                 environ, start_response)
@@ -502,11 +796,67 @@ class VisibilityGuard:
                         mimetype="text/plain",
                         headers=NO_STORE)(environ, start_response)
 
-    def _notice(self, error: bool = False, status: int = 200) -> Response:
+    def _frozen(self, request: Request, environ, start_response):
+        """Serve a public request to a frozen group.
+
+        request: the request being served.
+        environ: the WSGI environ.
+        start_response: the WSGI start_response callable.
+
+        return: the body of the response.
+
+        """
+        path = request.path
+        if path == "/staff-login":
+            if request.method == "POST":
+                return self._login(request, start_response,
+                                   FROZEN_LOGIN_MESSAGE,
+                                   FROZEN_LOGIN_TITLE)(
+                    environ, start_response)
+            return self._notice(message=FROZEN_LOGIN_MESSAGE,
+                                title=FROZEN_LOGIN_TITLE)(
+                environ, start_response)
+        if path in INDEX_PATHS and request.method == "GET":
+            return self._with_banner(
+                environ, start_response,
+                public_frozen_banner(self.state.settings.freeze_at))
+        kind = FROZEN_ROUTES.get(path.strip("/").split("/")[0], "forbid")
+        if kind == "forbid":
+            return Response("Este ranking está congelado.", status=403,
+                            mimetype="text/plain",
+                            headers=NO_STORE)(environ, start_response)
+        if kind == "filter":
+            environ[FREEZE_AT_ENVIRON] = self.state.settings.freeze_at
+            start_response = _cache_control(start_response, "no-store")
+        return _CutWhenHidden(self.app(environ, start_response),
+                              self.state, start_response)
+
+    def _missed_a_change(self, request: Request, now: float) -> bool:
+        """Tell whether a reconnecting stream predates the last change.
+
+        request: the /events request, with the ID of the last event the
+            client got (the microseconds since the epoch, in hex).
+        now: the current Unix time.
+
+        return: True if that event is older than the last change of the
+            public view, so replaying the events since then would be
+            wrong.
+
+        """
+        last_id = request.headers.get("Last-Event-ID") \
+            or request.args.get("last_event_id")
+        if not last_id or not re.fullmatch(r"[0-9A-Fa-f]+", last_id):
+            return False
+        return int(last_id, 16) < self.state.last_change(now) * 1_000_000
+
+    def _notice(self, error: bool = False, status: int = 200,
+                message: str = HIDDEN_MESSAGE,
+                title: str = HIDDEN_TITLE, poll: bool = False) -> Response:
         body = NOTICE_TEMPLATE.format(
-            group=self._escaped_group(),
+            group=self._escaped_group(), message=message, title=title,
             error='<p class="error">Contraseña incorrecta.</p>'
-                  if error else "")
+                  if error else "",
+            script=NOTICE_POLL if poll else "")
         return Response(body, status=status, mimetype="text/html",
                         headers=NO_STORE)
 
@@ -530,24 +880,16 @@ class VisibilityGuard:
                            extra={"location": request.url})
             return self._unauthorized()
         try:
-            data = json.loads(request.get_data(as_text=True))
-            hidden = data["hidden"]
-            staff_password = data["staff_password"]
-            if not isinstance(hidden, bool):
-                raise ValueError("hidden must be a boolean.")
-            if staff_password is not None:
-                if not isinstance(staff_password, str):
-                    raise ValueError("staff_password must be a string.")
-                parse_authentication(staff_password)
-        except (ValueError, KeyError, TypeError) as error:
+            settings = parse_settings(
+                json.loads(request.get_data(as_text=True)))
+        except (ValueError, TypeError) as error:
             logger.warning("Bad visibility update: %s.", error)
             return Response(str(error), status=400, mimetype="text/plain")
         # ProxyService sends the settings again at each sweep: only a
         # change is worth an INFO line.
-        changed = (hidden, staff_password) \
-            != (self.state.hidden, self.state.staff_password)
-        self.state.update(hidden, staff_password)
+        changed = self.state.update_settings(settings)
         logger.log(logging.INFO if changed else logging.DEBUG,
-                   "Ranking group %s is now %s.", self.group,
-                   "hidden" if hidden else "visible")
+                   "Ranking group %s visibility is now %s.", self.group,
+                   json.dumps({k: v for k, v in settings.to_json().items()
+                               if k != "staff_password"}))
         return Response(status=204)

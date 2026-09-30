@@ -23,7 +23,7 @@
         <th>Name</th>
         <th>Description</th>
         <th>Contests</th>
-        <th>Hidden</th>
+        <th>State</th>
         <th>Staff password</th>
       </tr>
     </thead>
@@ -36,7 +36,7 @@
         <td><a href="{{ url("ranking_group", g.id) }}">{{ g.name }}</a></td>
         <td>{{ g.description }}</td>
         <td>{% for c in contest_list if c.ranking_group_id == g.id %}{{ c.name }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-        <td>{% if g.hidden %}yes{% if not g.staff_password %} (nobody can see it: no staff password){% endif %}{% else %}no{% endif %}</td>
+        <td>{{ views[g.id].summary }}{% if views[g.id].hidden_now and not g.staff_password %} (nobody can see it: no staff password){% endif %}{% if views[g.id].next_change %} &middot; next: {{ views[g.id].next_change }}{% endif %}</td>
         <td>{% if g.staff_password %}set{% else %}not set{% endif %}</td>
       </tr>
       {% endfor %}

@@ -37,9 +37,8 @@ The database schema is updated automatically when the stack starts (the
 columns).
 Existing contests start as **inactive** and without a ranking group;
 nothing changes for contestants until you switch to `CMS_CONTEST_ID=ALL`.
-Ranking groups also have **Hide ranking from the public** and
-**Staff password** settings, configured on the group page (see
-[multi-contest.md](multi-contest.md)).
+Ranking groups also have hide and freeze windows and a **Staff password**,
+configured on the group page (see [multi-contest.md](multi-contest.md)).
 If stack A **already** runs with `CMS_CONTEST_ID=ALL`, its contest list is
 empty right after the update: tick **Active** on its contests in the Admin
 Web Server straight away.
