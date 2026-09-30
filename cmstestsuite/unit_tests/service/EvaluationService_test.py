@@ -3,6 +3,7 @@
 """Tests for cms.service.EvaluationService."""
 
 import asyncio
+import contextlib
 import threading
 import time
 import unittest
@@ -268,10 +269,8 @@ class EvaluationServiceTest(
 
         await self.service.new_submission(submission.id)
 
-        # _push_to_queue's enqueue is dispatched via call_soon_threadsafe,
-        # so the operation may not be visible until the next loop
-        # iteration after new_submission()'s await returns.
-        await self._wait_until(lambda: operation in self.service.get_executor())
+        # The push is handed to the loop before new_submission()'s body
+        # returns, so it has landed once the await returns.
         self.assertIn(operation, self.service.get_executor())
 
     async def test_new_submission_unknown_id_does_not_crash(self):
@@ -604,6 +603,25 @@ class EvaluationServiceTest(
             ESOperation.COMPILATION, submission.id, dataset.id)
         return submission, operation
 
+    @staticmethod
+    @contextlib.contextmanager
+    def _loop_held(loop: asyncio.AbstractEventLoop):
+        """Keep the event loop from running anything new, from a thread.
+
+        Everything handed to the loop while inside (loop actions
+        included) waits behind the gate, in order, until the block is
+        left. Only for use on an executor thread.
+
+        loop: the event loop to hold.
+
+        """
+        release = threading.Event()
+        loop.call_soon_threadsafe(release.wait, 10)
+        try:
+            yield
+        finally:
+            release.set()
+
     def _invalidate_compilation_sync(self, submission_id: int):
         """Run invalidate_submission's body for one submission, synchronously.
 
@@ -625,12 +643,11 @@ class EvaluationServiceTest(
         executor = self.service.get_executor()
         loop = asyncio.get_running_loop()
 
-        # Holding post_finish_lock on the executor thread for the whole
-        # sequence keeps every scheduled callback (each one takes that
-        # lock) from running before the sequence is complete; they then
-        # run in the order they were scheduled.
+        # Holding the loop for the whole sequence keeps every loop action
+        # handed over meanwhile from running before the sequence is
+        # complete; they then run in the order they were recorded.
         def push_then_invalidate():
-            with self.service.post_finish_lock:
+            with self._loop_held(loop):
                 self.service._new_submission_sync(submission.id)
                 self.assertNotIn(operation, executor._operation_queue)
                 self._invalidate_compilation_sync(submission.id)
@@ -661,15 +678,23 @@ class EvaluationServiceTest(
         self.assertIn(operation, executor._operation_queue)
 
         # See test_enqueue_pending_when_dequeue_scheduled_right_after
-        # for why post_finish_lock is held across both invalidations.
+        # for why the loop is held across both invalidations.
         def invalidate_twice():
-            with self.service.post_finish_lock:
+            with self._loop_held(loop):
                 self._invalidate_compilation_sync(submission.id)
+                after_first = self.service._pending_operations.get(operation)
                 self._invalidate_compilation_sync(submission.id)
+                after_second = self.service._pending_operations.get(
+                    operation)
+            return after_first, after_second
 
-        await asyncio.wait_for(
+        after_first, after_second = await asyncio.wait_for(
             loop.run_in_executor(None, invalidate_twice), timeout=10)
 
+        # Each invalidation recorded a dequeue and then a push; none of
+        # them was applied while the loop was held.
+        self.assertEqual(after_first, ("push", 2))
+        self.assertEqual(after_second, ("push", 4))
         self.assertIn(operation, executor._operation_queue)
         self.assertEqual(self.service._pending_operations, {})
 

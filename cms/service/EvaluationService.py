@@ -34,6 +34,7 @@ import asyncio
 import logging
 import threading
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -85,11 +86,28 @@ logger = logging.getLogger(__name__)
 # it, exactly like cms/log.py's shared handlers and FlushingDict's own
 # lock elsewhere in this modernization effort.
 #
-# Lock ordering: always take post_finish_lock before opening a DB
-# session (a pooled connection), never the reverse. A thread holding a
-# connection while it waits for the lock can deadlock with the lock
-# holder waiting for a connection once the pool (5 + 10 overflow) is
-# exhausted; every entry point that touches both is decorated with
+# The event loop never takes post_finish_lock: while a _sync method
+# holds it, the loop keeps serving RPCs. The queue (the executor's
+# AsyncPriorityQueue, queue_status_cumulative, _currently_executing)
+# is mutated only on the loop, so a _sync method never pushes or
+# dequeues by itself: it records the action in _pending_operations and
+# hands a "loop action" to _schedule_loop_action. The loop actions of
+# a section (the outermost @with_post_finish_lock call) are buffered
+# and handed to the loop with one call_soon_threadsafe when the section
+# ends, normally or with an exception, still under the lock: the loop
+# applies them in the order they were recorded, and before the
+# coroutine awaiting the section resumes. Dequeues are handed over
+# right away, pushes only at the end of the section, after its commits.
+#
+# Lock order: post_finish_lock first; then a DB connection,
+# `_operation_lock`, `d_lock` or `_pending_lock`.
+# `_current_execution_lock` before `_operation_lock`. `_pending_lock`
+# is a leaf. Never take `d_lock` while holding `_pending_lock`. Never
+# take `post_finish_lock` (except reentrantly) while holding a DB
+# connection or another lock. A thread holding a pooled connection
+# while it waits for post_finish_lock can deadlock with the lock holder
+# waiting for a connection once the pool (5 + 10 overflow) is
+# exhausted: every entry point that touches both is decorated with
 # @with_post_finish_lock so that the lock comes first.
 class EvaluationExecutor(AsyncExecutor[ESOperation]):
 
@@ -244,13 +262,23 @@ def with_post_finish_lock(func):
     """Decorator for locking on self.post_finish_lock.
 
     Ensures that no more than one decorated function is executing at
-    the same time.
+    the same time. The outermost decorated call is a "section": when it
+    ends (normally or with an exception), the loop actions it scheduled
+    are handed to the event loop, still under the lock. Nested calls
+    leave them to the outermost one.
 
     """
     @wraps(func)
     def wrapped(self, *args, **kwargs):
         with self.post_finish_lock:
-            return func(self, *args, **kwargs)
+            self._post_finish_depth += 1
+            try:
+                return func(self, *args, **kwargs)
+            finally:
+                self._post_finish_depth -= 1
+                if self._post_finish_depth == 0:
+                    self._dequeued_in_section.clear()
+                    self._flush_loop_actions()
     return wrapped
 
 
@@ -263,6 +291,10 @@ class Result:
     def __init__(self, job: Job, job_success: bool):
         self.job = job
         self.job_success = job_success
+        # Set by an invalidation that purged this result from the cache
+        # (see EvaluationService._discard_cached_results): it must not
+        # be written, even by a flush that had already taken it.
+        self.discarded = False
 
 
 class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
@@ -326,10 +358,30 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # operations in state 4.
         self.post_finish_lock = threading.RLock()
 
-        # For each operation with push/dequeue callbacks scheduled on the
-        # event loop but not run yet: the last scheduled action ("push"
-        # or "dequeue") and how many of those callbacks are still
-        # pending. Guarded by post_finish_lock.
+        # The loop actions (pushes and dequeues to apply on the event
+        # loop) scheduled by the current section and not handed to the
+        # loop yet, and how many decorated calls are running on the
+        # thread holding the lock (0 outside of a section). Both guarded
+        # by post_finish_lock; see with_post_finish_lock.
+        self._loop_actions: list[Callable[[], None]] = []
+        self._post_finish_depth = 0
+
+        # The operations the current section has dequeued. Their
+        # dequeue is handed to the loop right away, so it may have been
+        # applied (and its pending entry cleared) before the section
+        # re-enqueues them, while a worker still holds them, ignored:
+        # _enqueue_sync must not take that for a live copy. Guarded by
+        # post_finish_lock; emptied when the section ends.
+        self._dequeued_in_section: set[ESOperation] = set()
+
+        # Guards _pending_operations. A leaf lock: nothing is acquired
+        # while holding it.
+        self._pending_lock = threading.Lock()
+
+        # For each operation with push/dequeue loop actions recorded but
+        # not applied yet: the last recorded action ("push" or
+        # "dequeue") and how many of those actions are still to apply.
+        # Only post_finish_lock holders add to it; the loop removes.
         self._pending_operations: dict[ESOperation, tuple[str, int]] = {}
 
         self.scoring_service = self.connect_to(
@@ -581,15 +633,32 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         holding post_finish_lock on the same background thread -- see
         submission_enqueue_operations/user_test_enqueue_operations/
         write_results_sync/etc, which all call this directly rather than
-        the async enqueue()).
+        the async enqueue()). The push itself is a loop action, applied
+        once the current section ends.
+
+        operation: the operation to push.
+        priority: the priority of the operation.
+        timestamp: the time of the submission.
+
+        return: True if pushed, False if not.
 
         """
-        pending_action, _ = self._pending_operations.get(operation, (None, 0))
+        # Read the pending action first and let go of _pending_lock
+        # before the membership checks: `in self.result_cache` takes
+        # d_lock, never to be taken while holding _pending_lock.
+        with self._pending_lock:
+            pending_action, _ = self._pending_operations.get(
+                operation, (None, 0))
         if pending_action == "push":
             return False
-        if pending_action != "dequeue" and (
-                operation in self.get_executor()
-                or operation in self.result_cache):
+        dequeued = pending_action == "dequeue" \
+            or operation in self._dequeued_in_section
+        if not dequeued and operation in self.get_executor():
+            return False
+        # Even for a dequeued operation: an invalidation purges the
+        # results it makes stale before queueing again, so a result
+        # still cached is a live one.
+        if operation in self.result_cache:
             return False
         self._record_pending(operation, "push")
         self._push_to_queue(operation, priority, timestamp)
@@ -601,13 +670,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         Tracks a (last_action, pending_count) pair per operation so that
         _enqueue_sync()'s synchronous membership check can predict the
         *eventual* state correctly even when multiple push/dequeue
-        callbacks are in flight for the same operation at once (e.g. a
-        push already scheduled when an invalidation's dequeue comes in
+        loop actions are in flight for the same operation at once (e.g.
+        a push already scheduled when an invalidation's dequeue comes in
         right after, or two invalidations of the same operation
-        back-to-back). The callbacks in _push_to_queue and
+        back-to-back). The loop actions of _push_to_queue and
         _threadsafe_dequeue_and_ignore each call _clear_pending_one()
         once their real action has run, in the same FIFO order they
-        were scheduled in, so the last scheduled action is the one that
+        were recorded in, so the last recorded action is the one that
         determines the final state. Must be called while holding
         post_finish_lock.
 
@@ -615,60 +684,118 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         action: "push" or "dequeue".
 
         """
-        _, count = self._pending_operations.get(operation, (None, 0))
-        self._pending_operations[operation] = (action, count + 1)
+        with self._pending_lock:
+            _, count = self._pending_operations.get(operation, (None, 0))
+            self._pending_operations[operation] = (action, count + 1)
 
     def _clear_pending_one(self, operation: ESOperation):
-        """Record that one scheduled callback for operation has run.
+        """Record that one loop action for operation has been applied.
 
         Decrements the pending count; once it reaches zero, removes the
-        entry entirely (no callbacks left in flight, so _enqueue_sync()'s
-        real membership check alone is accurate again). Must be called
-        while holding post_finish_lock.
+        entry entirely (no action left in flight, so _enqueue_sync()'s
+        real membership check alone is accurate again). Called on the
+        event loop (or inline, when there is no loop yet).
 
-        operation: the operation whose callback has just run.
+        operation: the operation whose action has just been applied.
 
         """
-        action, count = self._pending_operations.get(operation, (None, 0))
-        if count <= 1:
-            self._pending_operations.pop(operation, None)
-        else:
-            self._pending_operations[operation] = (action, count - 1)
+        with self._pending_lock:
+            action, count = self._pending_operations.get(
+                operation, (None, 0))
+            if count <= 1:
+                self._pending_operations.pop(operation, None)
+            else:
+                self._pending_operations[operation] = (action, count - 1)
+
+    def _schedule_loop_action(
+        self, action: Callable[[], None], flush_now: bool = False
+    ):
+        """Have action applied on the event loop.
+
+        The action waits in a buffer until the current section ends
+        (see with_post_finish_lock), or until now if flush_now. At
+        __init__ time (self._loop is still None) nothing can race with
+        the caller, so the action runs right away instead. Must be
+        called while holding post_finish_lock.
+
+        action: the loop action; it must not take post_finish_lock.
+        flush_now: whether to hand the buffer to the loop right away.
+
+        """
+        if self._loop is None:
+            action()
+            return
+        self._loop_actions.append(action)
+        if flush_now:
+            self._flush_loop_actions()
+
+    def _flush_loop_actions(self):
+        """Hand the buffered loop actions to the event loop, in order.
+
+        One call_soon_threadsafe for the whole buffer. Must be called
+        while holding post_finish_lock.
+
+        """
+        if not self._loop_actions:
+            return
+        actions, self._loop_actions = self._loop_actions, []
+        try:
+            self._loop.call_soon_threadsafe(self._run_loop_actions, actions)
+        except RuntimeError:
+            # The loop is closed: ES is shutting down, and the queue is
+            # gone with it. Don't hide the section's own outcome.
+            logger.warning("Event loop closed, dropping %d queue action(s).",
+                           len(actions))
+
+    def _run_loop_actions(self, actions: list[Callable[[], None]]):
+        """Apply loop actions in order, on the event loop.
+
+        An action that raises is logged and does not stop the next ones.
+
+        actions: the loop actions to apply.
+
+        """
+        for action in actions:
+            try:
+                action()
+            except Exception:
+                logger.error("Unexpected error in a queue action.",
+                             exc_info=True)
 
     def _push_to_queue(
         self, operation: ESOperation, priority: int, timestamp: datetime
     ):
-        """Actually push into the executor's queue, safely from any thread.
+        """Push into the executor's queue at the end of the section.
 
         AsyncTriggeredService.enqueue ultimately touches an asyncio.Event
         (inside AsyncPriorityQueue.push()), unsafe to call directly from
-        a thread other than the event loop's. Route through
-        call_soon_threadsafe when a loop is running; at __init__ time
-        (self._loop is still None) a direct call is safe, mirroring the
-        same dual-mode dispatch already established in ProxyService's
-        _threadsafe_enqueue.
+        a thread other than the event loop's: the push is a loop action
+        (see _schedule_loop_action). Once it has been applied, it also
+        clears one pending action from the operation's
+        _pending_operations entry (recorded by _enqueue_sync). Must be
+        called while holding post_finish_lock.
 
-        Once the push has landed, also clear one pending callback from
-        the operation's _pending_operations entry (recorded by
-        _enqueue_sync), under post_finish_lock so it stays consistent
-        with _enqueue_sync's check. Taking that real lock on the event loop thread is safe
-        because nothing awaits while holding it.
+        operation: the operation to push.
+        priority: the priority of the operation.
+        timestamp: the time of the submission.
 
         """
         def _do():
-            with self.post_finish_lock:
-                try:
-                    AsyncTriggeredService.enqueue(
-                        self, operation, priority, timestamp)
-                finally:
-                    # Always clear the pending marker, even if enqueue()
-                    # raised -- otherwise a stuck "push" entry would
-                    # block every future re-enqueue of this operation.
-                    self._clear_pending_one(operation)
-        if self._loop is None:
-            _do()
-        else:
-            self._loop.call_soon_threadsafe(_do)
+            try:
+                AsyncTriggeredService.enqueue(
+                    self, operation, priority, timestamp)
+            finally:
+                # Ordering rule: the pending mark is cleared only
+                # after the push has landed, because _enqueue_sync on
+                # another thread must keep treating the operation as
+                # "push pending" until it is really in the queue.
+                # Clearing it first would let a concurrent
+                # _enqueue_sync push a duplicate or skip a needed push.
+                # Also cleared if enqueue() raised -- otherwise a
+                # stuck "push" entry would block every future
+                # re-enqueue of this operation.
+                self._clear_pending_one(operation)
+        self._schedule_loop_action(_do)
 
     def _threadsafe_dequeue_and_ignore(self, operation: ESOperation):
         """Dequeue and ignore an operation, safely from any thread.
@@ -676,42 +803,75 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         Records "dequeue" as the operation's last scheduled action in
         _pending_operations immediately (this method is only ever
         called while post_finish_lock is already held by the caller --
-        _invalidate_submission_sync -- so this is itself
-        lock-protected) so a later _enqueue_sync() for the same
-        operation neither trusts its stale "still in the queue"
+        _invalidate_submission_sync) so a later _enqueue_sync() for the
+        same operation neither trusts its stale "still in the queue"
         membership nor an earlier still-pending push, and schedules a
-        new push after this dequeue. The actual dequeue is still
-        deferred to the event loop (dequeue() eventually touches
-        AsyncPriorityQueue.remove(), unsafe off the event loop thread);
-        once it has run, the callback clears one pending callback from
-        the operation's entry.
+        new push after this dequeue. The actual dequeue is a loop action
+        (dequeue() eventually touches AsyncPriorityQueue.remove(),
+        unsafe off the event loop thread), handed to the loop right
+        away; once it has run, it clears one pending action from the
+        operation's entry.
+
+        The operation is also ignored in the worker pool right here, on
+        the calling thread, after the loop action is scheduled: a
+        worker's answer that takes post_finish_lock before the loop has
+        run the action must already find it ignored. The loop action
+        ignores it again, for an operation the executor hands to a
+        worker in between; a duplicate in the ignore list is harmless.
 
         operation: the operation to dequeue and ignore.
 
         """
         self._record_pending(operation, "dequeue")
+        self._dequeued_in_section.add(operation)
 
         def _do():
-            with self.post_finish_lock:
+            try:
                 try:
-                    try:
-                        self.dequeue(operation)
-                    except KeyError:
-                        pass  # Ok, the operation wasn't in the queue.
-                    try:
-                        self.get_executor().pool.ignore_operation(operation)
-                    except LookupError:
-                        pass  # Ok, the operation wasn't in the pool.
-                finally:
-                    # Always clear the pending marker, even on an
-                    # unexpected exception -- otherwise a stuck
-                    # "dequeue" entry would block every future
-                    # re-enqueue of this operation.
-                    self._clear_pending_one(operation)
-        if self._loop is None:
-            _do()
-        else:
-            self._loop.call_soon_threadsafe(_do)
+                    self.dequeue(operation)
+                except KeyError:
+                    pass  # Ok, the operation wasn't in the queue.
+                try:
+                    self.get_executor().pool.ignore_operation(operation)
+                except LookupError:
+                    pass  # Ok, the operation wasn't in the pool.
+            finally:
+                # Always clear the pending marker, even on an
+                # unexpected exception -- otherwise a stuck
+                # "dequeue" entry would block every future
+                # re-enqueue of this operation.
+                self._clear_pending_one(operation)
+        self._schedule_loop_action(_do, flush_now=True)
+        try:
+            self.get_executor().pool.ignore_operation(operation)
+        except LookupError:
+            pass  # Ok, the operation wasn't in the pool.
+
+    def _discard_cached_results(self, operations: list[ESOperation]):
+        """Drop the cached worker results of operations, for good.
+
+        Removes them from the result cache, both the ones waiting for a
+        flush and the ones a flush has already taken, and marks every
+        removed Result as discarded so that _write_results_sync skips
+        it. Results match by type, object, dataset and testcase, whatever
+        their archive_sandbox. Must be called while holding
+        post_finish_lock, which _write_results_sync and
+        _action_finished_sync also hold.
+
+        operations: the operations whose results are stale.
+
+        """
+        keys = {(operation.type_, operation.object_id,
+                 operation.dataset_id, operation.testcase_codename)
+                for operation in operations}
+        discarded = self.result_cache.discard(
+            lambda cached: (cached.type_, cached.object_id,
+                            cached.dataset_id,
+                            cached.testcase_codename) in keys)
+        for result in discarded:
+            result.discarded = True
+        logger.info("Discarded %d cached result(s) of invalidated "
+                    "operations.", len(discarded))
 
     def _threadsafe_notify_scoring_service(self, submission_id: int, dataset_id: int):
         """Tell ScoringService about a new evaluation, safely from any thread.
@@ -841,6 +1001,14 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         threading.RLock, never held across an await).
 
         """
+        # Results purged by an invalidation after a flush took them.
+        for operation, result in items:
+            if result.discarded:
+                logger.info("Not writing the result of `%s': its "
+                            "operation was invalidated.", operation)
+        items = [(operation, result) for operation, result in items
+                 if not result.discarded]
+
         logger.info("Starting commit process...")
 
         # Reorganize the results by submission/usertest result and
@@ -1521,6 +1689,19 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 level, submissions, dataset_id)
             for operation in operations:
                 self._threadsafe_dequeue_and_ignore(operation)
+                # Its twin, queued by an invalidation that asked to
+                # archive the sandbox: not equal to it (archive_sandbox
+                # is part of ESOperation.__eq__), stale all the same.
+                self._threadsafe_dequeue_and_ignore(ESOperation(
+                    operation.type_, operation.object_id,
+                    operation.dataset_id, operation.testcase_codename,
+                    archive_sandbox=True))
+
+            # Then we drop their results that a worker has already sent
+            # but that are not written yet. If this invalidation fails
+            # before committing, those results are lost, and the sweeper
+            # computes them again.
+            self._discard_cached_results(operations)
 
             # Then we find all existing results in the database, and
             # we remove them.

@@ -62,8 +62,12 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         # flushed.
         self.d: dict[KeyT, ValueT] = dict()
 
-        # This contains all the key-values that are currently being flushed
-        self.fd: dict[KeyT, ValueT] = dict()
+        # The batches of key-values currently being flushed, in the
+        # order the flushes took them. A list, since two flushes can
+        # overlap (e.g. an explicit flush() while the background one is
+        # still writing): each one must stay visible to __contains__,
+        # fd and discard() until its own callback returns.
+        self._flushing: list[dict[KeyT, ValueT]] = []
 
         # The task that checks if the dict should be flushed or not
         # TODO: do something if the FlushingDict is deleted
@@ -97,20 +101,66 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
     async def flush(self):
         logger.debug("Flushing items")
         with self.d_lock:
-            self.fd = self.d
+            batch = self.d
             self.d = dict()
+            self._flushing.append(batch)
+            items = list(batch.items())
         try:
-            await self.callback(list(self.fd.items()))
+            await self.callback(items)
         except Exception:
             # Otherwise the background flush task would die silently,
-            # leaving self.fd populated forever.
+            # leaving the batch in self._flushing forever.
             logger.error("Unexpected error while flushing.", exc_info=True)
         finally:
-            self.fd = dict()
+            with self.d_lock:
+                # By identity: two batches may compare equal (e.g. both
+                # emptied by discard()).
+                self._flushing = [
+                    flushing for flushing in self._flushing
+                    if flushing is not batch]
+
+    @property
+    def fd(self) -> dict[KeyT, ValueT]:
+        """Return the key-values currently being flushed.
+
+        A merged copy of every batch in flight, for callers that only
+        look at it (e.g. tests checking that nothing is left in flight).
+
+        return: the key-values of every flush in progress.
+
+        """
+        with self.d_lock:
+            merged: dict[KeyT, ValueT] = {}
+            for batch in self._flushing:
+                merged.update(batch)
+            return merged
+
+    def discard(self, predicate: Callable[[KeyT], bool]) -> list[ValueT]:
+        """Remove the key-values whose key matches a predicate.
+
+        Both the key-values not flushed yet and the ones in a batch
+        being flushed are removed. The values removed from a batch
+        being flushed were already handed to the callback (its list of
+        items is built when the flush starts), so the callback may
+        still process them: the caller must neutralize them, e.g. by
+        marking them so that the callback skips them.
+
+        predicate: called with each key; True means remove it.
+
+        return: the values removed, pending ones first.
+
+        """
+        removed: list[ValueT] = []
+        with self.d_lock:
+            for mapping in [self.d, *self._flushing]:
+                for key in [key for key in mapping if predicate(key)]:
+                    removed.append(mapping.pop(key))
+        return removed
 
     def __contains__(self, key):
         with self.d_lock:
-            return key in self.d or key in self.fd
+            return key in self.d or any(
+                key in batch for batch in self._flushing)
 
     async def _check_flush(self):
         while True:

@@ -36,6 +36,11 @@ thread that does not already own post_finish_lock acquires it while
 holding at least one connection. Each ES path that touches both the
 database and the lock is then exercised sequentially.
 
+The same checking lock also pins the rule that the event loop never
+takes post_finish_lock (it would freeze every RPC while a _sync method
+works), and a checking _pending_lock pins that FlushingDict.d_lock is
+never taken while _pending_lock is held.
+
 """
 
 import asyncio
@@ -49,11 +54,15 @@ from sqlalchemy import event
 import cms.db
 from cms.conf import Address, ServiceCoord
 from cms.grading.Job import CompilationJob
+from cms.io.async_rpc import AsyncRemoteServiceClient
 from cms.service.esoperations import ESOperation
 from cms.service.EvaluationService import EvaluationService, Result
+from cms.service.workerpool import WorkerPool
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
+from cmstestsuite.unit_tests.service.EvaluationService_test import \
+    FakeScoringService, FakeWorker, _start_server
 
 
 class LockOrderCheckingRLock:
@@ -66,13 +75,21 @@ class LockOrderCheckingRLock:
 
     """
 
-    def __init__(self, connections_held: threading.local):
+    def __init__(
+        self, connections_held: threading.local, loop_thread_id: int
+    ):
         self._lock = threading.RLock()
         self._connections_held = connections_held
+        self._loop_thread_id = loop_thread_id
         self.violations: list[list[str]] = []
         self.acquisitions = 0
+        # The stack of every acquisition made on the event loop thread.
+        self.loop_acquisitions: list[list[str]] = []
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        if threading.get_ident() == self._loop_thread_id:
+            self.loop_acquisitions.append(
+                [frame.name for frame in traceback.extract_stack()])
         if not self._lock._is_owned():
             self.acquisitions += 1
             if getattr(self._connections_held, "count", 0) > 0:
@@ -89,6 +106,49 @@ class LockOrderCheckingRLock:
 
     def __exit__(self, *exc_info):
         self.release()
+
+
+class PendingLockTracker:
+    """A stand-in for _pending_lock that knows which thread holds it."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._holder: int | None = None
+
+    def held_by_current_thread(self) -> bool:
+        return self._holder == threading.get_ident()
+
+    def __enter__(self) -> bool:
+        self._lock.acquire()
+        self._holder = threading.get_ident()
+        return True
+
+    def __exit__(self, *exc_info):
+        self._holder = None
+        self._lock.release()
+
+
+class DLockUnderPendingLockDetector:
+    """A stand-in for FlushingDict.d_lock recording forbidden acquisitions.
+
+    Taking d_lock while holding _pending_lock is a violation: d_lock
+    may be held while post_finish_lock holders wait for _pending_lock.
+
+    """
+
+    def __init__(self, pending_lock: PendingLockTracker):
+        self._lock = threading.RLock()
+        self._pending_lock = pending_lock
+        self.violations: list[list[str]] = []
+
+    def __enter__(self) -> bool:
+        if self._pending_lock.held_by_current_thread():
+            self.violations.append(
+                [frame.name for frame in traceback.extract_stack()])
+        return self._lock.acquire()
+
+    def __exit__(self, *exc_info):
+        self._lock.release()
 
 
 class TestPostFinishLockOrder(
@@ -168,7 +228,7 @@ class TestPostFinishLockOrder(
         # write_results_creates_result_test.py).
         service.get_executor().pool.add_worker(ServiceCoord("Worker", 0))
         service.post_finish_lock = LockOrderCheckingRLock(
-            self.connections_held)
+            self.connections_held, threading.get_ident())
         return service
 
     def _make_compilation_result(self, operation: ESOperation) -> Result:
@@ -187,13 +247,18 @@ class TestPostFinishLockOrder(
             })
         return Result(job, True)
 
-    async def test_lock_is_taken_before_a_connection(self):
-        service = self._build_service()
-        lock = service.post_finish_lock
+    def _paths(self, service: EvaluationService) -> dict:
+        """Return every ES path that takes post_finish_lock, by name.
+
+        service: the service to call.
+
+        return: a dict from the name of each path to a zero-argument
+            callable returning the coroutine that runs it.
+
+        """
         compilation = ESOperation(
             ESOperation.COMPILATION, self.old_submission_id, self.dataset_id)
-
-        paths = {
+        return {
             "new_submission": lambda: service.new_submission(
                 self.new_submission_id),
             "new_user_test": lambda: service.new_user_test(
@@ -209,14 +274,16 @@ class TestPostFinishLockOrder(
                 1, self.new_submission_timestamp),
         }
 
+    async def test_lock_is_taken_before_a_connection(self):
+        service = self._build_service()
+        lock = service.post_finish_lock
+
         violations_by_path = {}
-        for name, start in paths.items():
+        for name, start in self._paths(service).items():
             acquisitions_before = lock.acquisitions
             violations_before = len(lock.violations)
+            # The loop actions of the path have run once this returns.
             await start()
-            # Let the callbacks scheduled on the loop (which take the
-            # lock themselves) run before looking at the counters.
-            await asyncio.sleep(0.05)
             self.assertGreater(
                 lock.acquisitions, acquisitions_before,
                 "%s never acquired post_finish_lock" % name)
@@ -225,6 +292,118 @@ class TestPostFinishLockOrder(
         # Only paths that inverted the order have a non-empty entry.
         self.assertEqual(
             {name: v for name, v in violations_by_path.items() if v}, {})
+
+    async def _connect_peer(
+        self, service: EvaluationService, coord: ServiceCoord,
+        local_service: object,
+    ) -> AsyncRemoteServiceClient:
+        """Wire a real, connected peer for coord.
+
+        service: the service to register the peer in.
+        coord: the coord to register the peer under.
+        local_service: object exposing the RPC methods to serve.
+
+        return: the connected client.
+
+        """
+        server, port = await _start_server(local_service)
+        self.addAsyncCleanup(server.wait_closed)
+        self.addCleanup(server.close)
+        client = AsyncRemoteServiceClient(coord)
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        client.initialize_streams(reader, writer, plus=None)
+        run_task = asyncio.create_task(client.run())
+        self.addCleanup(run_task.cancel)
+        self.addCleanup(client.disconnect)
+        service.remote_services[coord] = client
+        return client
+
+    async def _wait_for(self, predicate, what: str, timeout: float = 15.0):
+        """Poll predicate() until it is true, failing the test on timeout.
+
+        predicate: a zero-argument callable to poll.
+        what: what is being waited for, for the failure message.
+        timeout: how long to wait, in seconds.
+
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while not predicate():
+            if loop.time() > deadline:
+                self.fail("Timed out after %gs waiting for %s." %
+                          (timeout, what))
+            await asyncio.sleep(0.02)
+
+    def _build_instrumented_service(
+        self,
+    ) -> tuple[EvaluationService, DLockUnderPendingLockDetector]:
+        """Build a service whose three locks record forbidden acquisitions.
+
+        return: the service (its post_finish_lock is a
+            LockOrderCheckingRLock) and the detector standing in for its
+            result cache's d_lock.
+
+        """
+        service = self._build_service()
+        self.addCleanup(
+            lambda: [task.cancel() for task in service._background_tasks])
+        pending_lock = PendingLockTracker()
+        service._pending_lock = pending_lock
+        d_lock = DLockUnderPendingLockDetector(pending_lock)
+        service.result_cache.d_lock = d_lock
+        return service, d_lock
+
+    async def test_loop_never_takes_post_finish_lock(self):
+        # Every path of the other test, on a service of its own: the
+        # fixture's dataset has no task type, so a worker could not
+        # compile what they queue.
+        paths_service, paths_d_lock = self._build_instrumented_service()
+        for start in self._paths(paths_service).values():
+            await start()
+
+        # A full round trip on another service, with a real worker and
+        # ScoringService: new_submission, the dispatch, the answer, the
+        # write and the notification. Then an invalidation of the same
+        # submission, and its own round trip.
+        service, d_lock = self._build_instrumented_service()
+        worker = FakeWorker(compilation_success=False)
+        pool: WorkerPool = service.get_executor().pool
+        pool._worker[0] = await self._connect_peer(
+            service, ServiceCoord("Worker", 0), worker)
+        scoring = FakeScoringService()
+        service.scoring_service = await self._connect_peer(
+            service, ServiceCoord("ScoringService", 0), scoring)
+        # The fixture's objects are detached by now: build new ones.
+        contest = self.add_contest()
+        participation = self.add_participation(contest=contest)
+        task = self.add_task(contest=contest)
+        dataset = self.add_dataset(
+            task=task, task_type="Batch",
+            task_type_parameters=["alone", ["", ""], "diff"])
+        task.active_dataset = dataset
+        submission = self.add_submission(task, participation)
+        self.session.commit()
+        key = (submission.id, dataset.id)
+        compilation = ESOperation(ESOperation.COMPILATION, *key)
+        self.session.close()
+
+        await service.new_submission(key[0])
+        await self._wait_for(lambda: compilation in service.result_cache,
+                             "the first result to reach the cache")
+        await service.result_cache.flush()
+        await service.invalidate_submission(
+            submission_id=key[0], level="compilation")
+        await self._wait_for(lambda: compilation in service.result_cache,
+                             "the second result to reach the cache")
+        await service.result_cache.flush()
+        await self._wait_for(lambda: len(scoring.new_evaluation_calls) == 2,
+                             "the two notifications")
+
+        self.assertEqual(len(worker.received_job_groups), 2)
+        for checked in (paths_service, service):
+            self.assertEqual(checked.post_finish_lock.loop_acquisitions, [])
+        self.assertEqual(paths_d_lock.violations, [])
+        self.assertEqual(d_lock.violations, [])
 
 
 if __name__ == "__main__":
