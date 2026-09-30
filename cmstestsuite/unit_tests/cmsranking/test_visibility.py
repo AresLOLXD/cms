@@ -1179,6 +1179,15 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
                                    headers={"Last-Event-ID": old_id})
         self.assertIn(b"event:reload\ndata:\n\n", response.get_data())
 
+    def test_a_first_connection_older_than_a_change_is_told_to_reload(self):
+        # The page's first connection sends the ID in the query, and only
+        # the browser's reconnections send it in a header.
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_freeze(1)
+        response = self.client.get("/olim/events?last_event_id=" + old_id)
+        self.assertEqual(response.get_data(), b"event:reload\ndata:\n\n")
+
     def test_open_stream_is_cut_when_the_freeze_starts(self):
         self.short_pings(0.5)
         self.put_contest("/olim")
