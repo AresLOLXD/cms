@@ -83,8 +83,9 @@ Rejected alternatives:
 - The first row is the header.
 - The delimiter is `,` or `;`, detected from the header line (Excel in
   Spanish saves with `;`).
-- Cells are stripped of surrounding whitespace, except `password`, which
-  is used as typed, as AWS does for the staff password.
+- Cells are stripped of surrounding whitespace, `password` included,
+  because CWS strips what the contestant types (changed on 2026-09-29 by
+  the user's decision, after the final review).
 
 **Validation**, done for the whole file before anything is written. Every
 error is listed as "fila N: …", with N counting the header as row 1, and
