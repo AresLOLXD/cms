@@ -27,7 +27,9 @@
 """
 
 import asyncio
+import io
 import logging
+import os
 from functools import wraps
 from urllib.parse import quote, urlencode, urlsplit
 
@@ -134,9 +136,18 @@ class FileHandlerMixin(RequestHandler):
         lookup is a blocking call (see sub-project 2.3's design spec:
         FileCacher/DBBackend stay sync-only).
 
+        The size comes from the opened file, not from
+        FileCacher.get_size, which always asks the backend (for the DB
+        one, two connections per call) even for an already cached file.
+
         """
         fobj = file_cacher.get_file(digest)
-        size = file_cacher.get_size(digest)
+        try:
+            size = os.fstat(fobj.fileno()).st_size
+        except OSError:
+            # Not backed by a real file (e.g. an in-memory buffer).
+            size = fobj.seek(0, io.SEEK_END)
+            fobj.seek(0)
         return fobj, size
 
 

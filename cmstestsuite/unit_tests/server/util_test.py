@@ -226,6 +226,34 @@ class FetchStreamsFileTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"503", response)
 
 
+class OpenFileAndSizeTest(unittest.TestCase):
+
+    def test_size_of_a_cached_file_does_not_query_the_backend(self):
+        # FileCacher.get_size always asks the backend (for the DB one,
+        # a pooled session plus a large-object connection per call),
+        # even for a file the cache already has.
+        import shutil
+        import tempfile
+        from unittest.mock import patch
+        from cms.db.filecacher import FileCacher
+        from cms.server.util import FileHandlerMixin
+
+        storage_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, storage_dir)
+        file_cacher = FileCacher(path=storage_dir)
+        content = b"statement" * 1000
+        digest = file_cacher.put_file_content(content)
+
+        with patch.object(FileCacher, "get_size") as get_size:
+            fobj, size = FileHandlerMixin._open_file_and_size(
+                file_cacher, digest)
+        self.addCleanup(fobj.close)
+
+        get_size.assert_not_called()
+        self.assertEqual(size, len(content))
+        self.assertEqual(fobj.read(), content)
+
+
 class MultiContestDecoratorReturnsFetchResultTest(unittest.IsolatedAsyncioTestCase):
     """Regression test for a Critical bug: multi_contest used to not
     `return` the wrapped function's result, so when the wrapped `get()` is
