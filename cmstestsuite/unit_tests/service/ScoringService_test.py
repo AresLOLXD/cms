@@ -463,11 +463,12 @@ class ScoringVsInvalidationRaceTest(DatabaseMixin, unittest.TestCase):
             time.sleep(0.02)
         self.fail("ScoringService never blocked on the invalidation.")
 
-    def test_score_is_not_written_onto_an_invalidated_result(self):
-        # EvaluationService's invalidate_evaluation NULLs the outcome
-        # and flushes, but commits only later; ScoringService must not
-        # write the score computed from the old evaluations on top of
-        # the invalidated row once that commit lands.
+    def _build_evaluated_result(self):
+        """Build an evaluated, not yet scored submission result.
+
+        return: the created submission, dataset, and submission result.
+
+        """
         contest = self.add_contest()
         task = self.add_task(contest=contest, score_precision=0)
         dataset = self.add_dataset(
@@ -484,8 +485,17 @@ class ScoringVsInvalidationRaceTest(DatabaseMixin, unittest.TestCase):
                             testcase=testcase, outcome="1.0")
         submission_result.set_evaluation_outcome()
         self.session.commit()
-        result_id = (submission.id, dataset.id)
         self.assertTrue(submission_result.needs_scoring())
+        return submission, dataset, submission_result
+
+    def test_score_is_not_written_onto_an_invalidated_result(self):
+        # EvaluationService's invalidate_evaluation NULLs the outcome
+        # and flushes, but commits only later; ScoringService must not
+        # write the score computed from the old evaluations on top of
+        # the invalidated row once that commit lands.
+        submission, dataset, submission_result = \
+            self._build_evaluated_result()
+        result_id = (submission.id, dataset.id)
 
         # EvaluationService's side: invalidate and flush, not commit.
         es_session = Session()
@@ -515,6 +525,38 @@ class ScoringVsInvalidationRaceTest(DatabaseMixin, unittest.TestCase):
         # The scorer saw the invalidated result: nothing to score yet.
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], ValueError)
+        self.session.expire_all()
+        self.assertIsNone(submission_result.evaluation_outcome)
+        self.assertFalse(submission_result.scored())
+        self.assertIsNone(submission_result.score)
+
+        # Once re-evaluated, the result needs scoring again.
+        submission_result.set_evaluation_outcome()
+        self.assertTrue(submission_result.needs_scoring())
+
+    def test_invalidation_clears_a_score_committed_after_it_loaded(self):
+        # EvaluationService loads the result (unscored) without a lock,
+        # ScoringService scores and commits it, then EvaluationService
+        # invalidates its stale copy, whose score is already None: the
+        # invalidation must still write NULL over the new score.
+        submission, dataset, submission_result = \
+            self._build_evaluated_result()
+
+        es_session = Session()
+        self.addCleanup(es_session.close)
+        es_result = SubmissionResult.get_from_id(
+            (submission.id, dataset.id), es_session)
+        self.assertIsNone(es_result.score)
+
+        ScoringExecutor(proxy_service=None)._execute_sync(
+            ScoringOperation(submission.id, dataset.id))
+        self.session.expire_all()
+        self.assertTrue(submission_result.scored())
+
+        es_result.invalidate_evaluation()
+        es_session.flush()
+        es_session.commit()
+
         self.session.expire_all()
         self.assertIsNone(submission_result.evaluation_outcome)
         self.assertFalse(submission_result.scored())

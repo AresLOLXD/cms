@@ -31,6 +31,7 @@ import random
 from sqlalchemy import Boolean, select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm.collections import attribute_mapped_collection
 from sqlalchemy.schema import Column, ForeignKey, ForeignKeyConstraint, \
     UniqueConstraint
@@ -625,6 +626,12 @@ class SubmissionResult(Base):
         self.public_score = None
         self.public_score_details = None
         self.ranking_score_details = None
+        # Write the NULLs even if our copy already had them: the row
+        # may have been scored since we loaded it.
+        for attribute in ["score", "score_details",
+                          "public_score", "public_score_details",
+                          "ranking_score_details"]:
+            flag_modified(self, attribute)
 
     def set_compilation_outcome(self, success: bool):
         """Set the compilation outcome based on the success.
