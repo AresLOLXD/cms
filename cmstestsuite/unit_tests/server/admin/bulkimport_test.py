@@ -22,6 +22,7 @@ import concurrent.futures
 import dataclasses
 import ipaddress
 import logging
+import os
 import threading
 import time
 import unittest
@@ -737,6 +738,36 @@ class TestHashPasswords(unittest.TestCase):
                         RecordingExecutor):
             hash_passwords(self.rows, set(), {}, lambda: None)
         self.assertEqual(created, [HASH_THREADS])
+
+    def test_the_hash_threads_lower_their_own_priority(self):
+        # The hashing keeps a few cores busy on a host that may run the
+        # Workers and CWS too.
+        calls = []
+
+        def record(which, who, priority):
+            calls.append((which, who, priority, threading.get_native_id(),
+                          threading.current_thread().name))
+
+        with mock.patch("os.setpriority", record):
+            hash_passwords(self.rows, set(), {}, lambda: None)
+
+        self.assertTrue(calls)
+        for which, who, priority, native_id, thread_name in calls:
+            self.assertEqual((which, priority), (os.PRIO_PROCESS, 10))
+            # Each thread renices itself, not the whole process.
+            self.assertEqual(who, native_id)
+            self.assertTrue(thread_name.startswith("aws-import-hash"),
+                            msg=thread_name)
+
+    def test_a_priority_that_cannot_be_lowered_is_left_alone(self):
+        # Best effort: a refused call, or no setpriority at all outside
+        # Linux, must not break the pool.
+        for error in (OSError(1, "Operation not permitted"),
+                      AttributeError("setpriority")):
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch("os.setpriority", side_effect=error):
+                result = hash_passwords(self.rows, set(), {}, lambda: None)
+                self.assertEqual(set(result), {"ana", "beto", "carla"})
 
     def test_error_stops_the_queued_rows(self):
         rows = [import_row(line, "user%d" % line) for line in range(2, 12)]

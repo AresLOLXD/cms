@@ -32,7 +32,9 @@ import dataclasses
 import io
 import itertools
 import logging
+import os
 import re
+import threading
 from collections.abc import Callable, Iterator
 
 from sqlalchemy import select
@@ -348,6 +350,21 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         stored_passwords=stored_passwords), []
 
 
+def _lower_thread_priority() -> None:
+    """Lower the priority of the calling hash thread, if it can be done.
+
+    The hashing keeps HASH_THREADS cores busy for a while, on a host that
+    may also run the Workers and CWS. Best effort and Linux only, where a
+    thread id is a process id for setpriority: otherwise, or if it is
+    refused, the thread keeps its priority.
+
+    """
+    try:
+        os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
+    except (AttributeError, OSError):
+        pass
+
+
 def hash_passwords(rows: list[ImportRow], new_users: set[str],
                    stored_passwords: dict[str, str],
                    progress: Callable[[], None]
@@ -387,7 +404,8 @@ def hash_passwords(rows: list[ImportRow], new_users: set[str],
     result: dict[str, tuple[str, str | None]] = {}
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=HASH_THREADS,
-            thread_name_prefix="aws-import-hash") as pool:
+            thread_name_prefix="aws-import-hash",
+            initializer=_lower_thread_priority) as pool:
         try:
             for future in concurrent.futures.as_completed(
                     [pool.submit(work, row) for row in rows]):
