@@ -84,6 +84,10 @@ Open the task page and go to **Datasets**. In the block of the dataset, under
 **Update** at the bottom of the page. The score type must be one of the group
 score types above.
 
+**Press Update after creating, cloning or importing a dataset too**, even if
+you did not change anything. Only Update checks the dependencies (see "Errors
+when saving").
+
 ### In `task.yaml`
 
 The `italy_yaml` loader only reads the score type from `task.yaml` when the file
@@ -91,6 +95,11 @@ declares `score_type`, `score_type_parameters` **and** `n_input` (the number of
 testcases). Otherwise it ignores them (with a warning if only some of the three
 are there) and detects the subtasks from `gen/GEN`, which cannot carry
 dependencies.
+
+This is an excerpt of a `task.yaml`, with the three keys. `n_input` must equal
+the sum of the `testcases` counts (16 = 3 + 5 + 8), and nothing checks it. The
+loader names the testcases `000`, `001`, …: see "Two-phase screening" if you
+need other codenames.
 
 ```yaml
 score_type: GroupMin
@@ -118,11 +127,19 @@ its own score.
 
 ## Errors when saving
 
-AWS checks the dependencies when you save the dataset. A wrong value is
-rejected like any other invalid score type parameter: a notification titled
-**"Invalid score type parameters"** shows one of the messages below, and the
-dataset is not saved. If the text is not valid JSON, AWS says "Score type
-parameters are invalid JSON." instead.
+AWS checks the score type parameters only when you press **Update** on the task
+page, and it checks every dataset of the task. **Creating** a dataset,
+**cloning** one and **importing** one (with a task loader) do not check them, so
+a wrong `depends_on` can get in without any message. After creating, cloning or
+importing a dataset, open the task page and press **Update**.
+
+A wrong `depends_on` is rejected like any other invalid score type parameter: a
+notification titled **"Invalid score type parameters"** shows one of the
+messages below. Nothing you changed on the task page is saved, not only the
+dataset.
+
+If the text is not valid JSON, the notification is titled **"Invalid field(s)"**
+and reads `ValueError('Score type parameters are invalid JSON.')`.
 
 | Message | What to do |
 |---------|------------|
@@ -137,8 +154,12 @@ your own parameters. The cycle check runs last, so fix the other errors first.
 
 ## What the contestant sees
 
-A subtask worth 0 because of the rule shows 0 in CWS. When several of its
-dependencies failed, the messages name the lowest-numbered one.
+A subtask worth 0 because of the rule shows 0 in CWS.
+
+The texts follow the language of the contestant in CWS: contestants see the
+Spanish texts below only when their CWS language is Spanish. AWS shows status
+texts untranslated, so an admin sees the English text, for example "Not tested:
+this subtask depends on subtask 0, which scored no points."
 
 **Testcases that were not graded** show this text in their details:
 
@@ -147,28 +168,38 @@ dependencies failed, the messages name the lowest-numbered one.
 - Spanish: "No se probó: esta subtarea depende de la subtarea %s, que no obtuvo
   puntos."
 
-The `%s` is replaced by the number of the dependency, counted from 0.
+The `%s` is replaced by the number of the dependency, counted from 0. When
+several dependencies had failed, the text names the lowest-numbered one that had
+failed when the row was written.
 
-**A subtask whose testcases were graded but that is worth 0 by the rule** shows
-its real testcase results, and a note in the subtask:
+**Every subtask worth 0 by the rule** also shows a note in the subtask, whether
+its testcases were "Not tested" or were graded. A subtask whose testcases were
+graded shows its real testcase results next to the note.
 
 - English: "Worth 0 because it depends on subtask %(index)s, which scored no
   points."
 - Spanish: "Vale 0 porque depende de la subtarea %(index)s, que no obtuvo
   puntos."
 
-Here `%(index)s` is the number of the dependency.
+Here `%(index)s` is the number of the dependency: the lowest-numbered one that
+failed when the submission was scored. It can differ from the number in the
+"Not tested" rows, which name the dependency that had failed when they were
+written.
 
 The ranking receives the subtask scores with the rule applied.
 
 ### Public and private testcases
 
-The contestant sees a subtask as 0, with "No se probó…" in its testcases, when
-one of its dependencies failed. So if a subtask has only public testcases but
-depends on a subtask with **private** testcases, the contestant can learn that
-the hidden dependency failed. This comes with the rule and cannot be avoided.
+The contestant sees a subtask as 0, with the "Not tested: …" text (in Spanish,
+"No se probó…") in its testcases, when one of its dependencies failed. So if a
+subtask has only public testcases but depends on a subtask with **private**
+testcases, the contestant can learn that the hidden dependency failed: the
+subtask shows 0 and the public score drops. This comes with the rule and cannot
+be avoided.
 
-If it matters, keep a subtask and the subtasks it depends on equally public.
+If it matters, give the dependent subtask at least one private testcase, or do
+not make a subtask with only public testcases depend on one with private
+testcases.
 
 ## Two-phase screening
 
@@ -185,16 +216,22 @@ group of a testcase is the part of its codename before the first `-`.
 score type decides the score and the dependencies. The codenames decide the
 screening. If a group holds other testcases than its subtask, screening and
 dependencies can disagree, for example screening one subtask with the
-testcases of another. Check it with the codename lint of the rehearsal.
+testcases of another.
 
-For example, with the groups `s1`, `s2` and `s3` (subtasks 0, 1 and 2), the
-score type can select the testcases by regular expression:
+With codename groups numbered from 1 (`s1`, `s2`, …), every testcase whose
+codename starts with `sN-` must be exactly the testcases of subtask N-1 (`s1-`
+is subtask 0). The regex form guarantees it. For the groups `s1`, `s2` and `s3`
+(subtasks 0, 1 and 2), the score type selects the testcases by regular
+expression:
 
 ```json
 [{"max_score": 20, "testcases": "^s1-"},
  {"max_score": 30, "testcases": "^s2-"},
  {"max_score": 50, "testcases": "^s3-", "depends_on": [0, 1]}]
 ```
+
+The `italy_yaml` loader names the testcases `000`, `001`, …, so with it this
+example needs the testcases renamed to the `sN-nn-…` codenames after the import.
 
 ## Latency
 
@@ -208,18 +245,35 @@ that depend on it.
 
 ## Changing the dependencies after there are submissions
 
-- Scores follow the new rule when the task is rescored.
-- Testcases already marked "No se probó…" stay that way until they are
-  graded again. After you change the dependencies of a task with submissions,
-  **re-evaluate the task from AWS**: open the dataset (its "Submissions" list) and
-  use the buttons next to "Reevaluate all N submissions for this dataset". **E**
-  (Evaluation) grades the submissions again, and **S** (Score) only scores them
-  again.
-- Re-evaluate the whole submission or the whole task. The "Rerun and archive"
-  button of one testcase (in the submission page) does not clear the "No se
-  probó…" rows. If you rerun a failed root testcase and it now passes, its
-  dependents stay at 0 until the whole submission is evaluated again. The same
-  is true for the testcases skipped by two-phase screening.
+- **Update does not rescore.** It only tells the ranking that the dataset
+  changed. Submissions scored before keep the rule they were scored with, and
+  new submissions get the new rule, until you press **S** or **E** (below).
+- Testcases already marked "Not tested: …" (shown as "No se probó…" to
+  Spanish-language contestants) stay that way until they are graded again.
+- **Dependencies added or tightened:** **S** (Score) is enough. The rule applies
+  to testcases that were already graded, so the scores follow the new rule.
+- **Dependencies removed or loosened:** press **E** (Evaluation). The testcases
+  marked "Not tested" must be graded now, and only a new evaluation does that.
+- Where: open the dataset with its **[View results]** link (in the block of the
+  dataset under **Datasets** on the task page, and on the **[Make Live ...]**
+  page). Use the buttons next to "Reevaluate all N submissions for this
+  dataset". On a submission page, the dataset selector opens the same page for
+  another dataset.
+- Always re-evaluate the whole submission or the whole task. The "Rerun and
+  archive" button of one testcase (in the submission page) does not clear the
+  "Not tested: …" rows. If you rerun a failed root testcase and it now passes,
+  its dependents stay at 0 until the whole submission is evaluated again. The
+  same is true for the testcases skipped by two-phase screening.
+
+> **Warning: do not press E on a live task during a contest.** **E** on the
+> whole dataset blanks every score and grades every submission again, so scores
+> are missing until each one is graded again, and the workers are busy with
+> them. Change the dependencies before the contest starts. For a live task,
+> use a clone instead: **[Clone]** the dataset (leave "clone results" unticked),
+> write the new dependencies in the clone and press **Update**, press
+> **[Enable background judging]** on the clone, and press **E** on the clone's
+> results page. The clone is graded at the lowest priority. When it is done,
+> use **[Make Live ...]** on the clone.
 
 ## When the dependencies cannot be used
 
@@ -230,13 +284,27 @@ is fine, for example a `GroupThreshold` subtask in dict form without
 
 The Evaluation Service then ignores the dependencies of that dataset: it grades
 every testcase as if none were declared, and writes this warning to its log,
-once per dataset each time it starts:
+once per dataset each time it starts, followed by a traceback:
 
 ```
 Dataset 7 declares subtask dependencies that cannot be used; grading it without them.
 ```
 
 The number is the id of the dataset. Fix the parameters of the dataset.
+
+The same happens with a wrong `depends_on` that got in through a new dataset, a
+clone or an import (see "Errors when saving").
+
+> **Warning: unusable parameters stop the scoring.** "Grading without the
+> dependencies" is about the grading only. Parameters that the score type cannot
+> read, such as a `GroupThreshold` subtask without `"threshold"`, also make
+> scoring fail: the score cannot be computed, and the submissions stay unscored.
+> The Scoring Service logs "Unexpected error when executing operation" and tries
+> again every 347 seconds, until the parameters are corrected. Then the
+> submissions are scored by that periodic sweep, or at once with the **S**
+> button of the dataset (see "Changing the dependencies after there are
+> submissions"). A wrong `depends_on` that got in through a new dataset, a clone
+> or an import ends the same way.
 
 ## Custom score types
 
@@ -259,4 +327,9 @@ subtask that would have scored.
 ## Parity
 
 A dataset with no `depends_on` (or only empty ones) is graded exactly as before,
-in scoring and in scheduling. None of the code for dependencies runs.
+in scoring and in scheduling: the results are identical. Only two cheap things
+run. Every group score type validates `depends_on` when it is built, and a check
+of the parameters looks for dependencies. In a contest where some dataset
+declares dependencies, the Evaluation Service's periodic sweep for missing
+operations also takes the dependency-aware path for the datasets of all its
+tasks, with the same results.
