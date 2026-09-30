@@ -58,6 +58,10 @@ MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_PASSWORD_BYTES = 72
 HASH_THREADS = 4
+# Control characters (tab, line feed and carriage return aside) that a
+# password cannot have: Tornado turns most of them into spaces when CWS
+# reads the login form, so such a password could never match.
+PASSWORD_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -174,18 +178,20 @@ def read_rows(data: bytes, mapping: dict[str, str]
             index = columns.get(field)
             if index is None or index >= len(cells):
                 return ""
-            value = cells[index]
-            return value if field == "password" else value.strip()
+            # The password too: CWS strips what the contestant types
+            # (Tornado's get_argument), with this same str.strip().
+            return cells[index].strip()
 
         values = {field: cell(field) for field in FIELDS}
         for field in FIELDS:
-            # A password of only whitespace is empty; any other password
-            # is used as typed.
-            if field in REQUIRED and not values[field].strip():
+            if field in REQUIRED and not values[field]:
                 errors.append("fila %d: %s" % (line, EMPTY_MESSAGES[field]))
         if len(values["password"].encode("utf-8")) > MAX_PASSWORD_BYTES:
             errors.append("fila %d: la contraseña pasa de %d bytes"
                           % (line, MAX_PASSWORD_BYTES))
+        if PASSWORD_CONTROL_CHARACTERS.search(values["password"]):
+            errors.append("fila %d: la contraseña tiene caracteres no "
+                          "permitidos" % line)
         username = values["username"]
         if username:
             # The Codename domain of the database. Not \w: it would also

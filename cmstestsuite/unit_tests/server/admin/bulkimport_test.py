@@ -59,8 +59,9 @@ class TestReadRows(unittest.TestCase):
         self.assertEqual((row.line, row.username, row.first_name,
                           row.last_name, row.team, row.group),
                          (2, "ana", "Ana", "López", "JAL", None))
-        # The password is kept as typed.
-        self.assertEqual(row.password, " s3cr3t ")
+        # The password is stripped like the other cells: CWS strips what
+        # the contestant types, so " s3cr3t " could never log in.
+        self.assertEqual(row.password, "s3cr3t")
 
     def test_comma_and_quotes(self):
         rows, errors = read_rows(csv_bytes(
@@ -272,6 +273,49 @@ class TestReadRows(unittest.TestCase):
             "usuario,nombre,apellido,contraseña,estado\n"
             "ana,Ana,López,   ,\n"), MAPPING)
         self.assertEqual(errors, ["fila 2: la contraseña está vacía"])
+
+    def test_the_password_is_stripped_as_cws_does(self):
+        # The same str.strip() as Tornado's get_argument, which CWS uses
+        # for the login: a tab or a no-break space from a pasted cell is
+        # removed too, and the spaces inside are kept.
+        for cell in ('" abc 12 "', '"\tabc 12"', '"abc 12 "'):
+            with self.subTest(cell=cell):
+                rows, errors = read_rows(csv_bytes(
+                    "usuario,nombre,apellido,contraseña,estado\n"
+                    "ana,Ana,López,%s,\n" % cell), MAPPING)
+                self.assertEqual(errors, [])
+                self.assertEqual(rows[0].password, "abc 12")
+
+    def test_a_password_with_control_characters_is_refused(self):
+        # Tornado turns most of them into spaces on the login, so such a
+        # password could never match; a tab inside is kept by both.
+        for character in ("\x00", "\x01", "\x08", "\x0b", "\x0c", "\x0e",
+                          "\x1b", "\x1f", "\x7f"):
+            secret = "s3c%sr3t" % character
+            with self.subTest(character=repr(character)):
+                rows, errors = read_rows(csv_bytes(
+                    "usuario,nombre,apellido,contraseña,estado\n"
+                    "ana,Ana,López,%s,\n" % secret), MAPPING)
+                self.assertEqual(
+                    errors,
+                    ["fila 2: la contraseña tiene caracteres no permitidos"])
+                self.assertFalse(any("s3c" in e for e in errors))
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,s3c\tr3t,\n"), MAPPING)
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0].password, "s3c\tr3t")
+
+    def test_the_72_bytes_are_counted_after_stripping(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,  %s  ,\n" % ("ñ" * 36)), MAPPING)
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0].password, "ñ" * 36)
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,  %sx  ,\n" % ("ñ" * 36)), MAPPING)
+        self.assertEqual(errors, ["fila 2: la contraseña pasa de 72 bytes"])
 
     def test_blank_and_separator_only_rows_are_skipped(self):
         rows, errors = read_rows(csv_bytes(
