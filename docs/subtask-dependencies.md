@@ -269,6 +269,18 @@ testcase marked "Not tested" because of a dependency does not count as a failed
 screening, so a subtask that does not depend on the failed one is still graded.
 Fix the codenames or the subtasks of the dataset so that it follows the rule.
 
+Until it is fixed, **do not trust the scores of that dataset**: the released
+testcases all run at once, so whether a failed screening skips a testcase
+already at a worker depends on which result arrives first, and the same
+submission can get different scores. Fix the dataset, then reevaluate its
+submissions (see "Changing the dependencies after there are submissions",
+including its warning about a live task).
+
+The warning can also appear on a dataset that follows the rule: when a testcase
+is in no subtask, or after a "Rerun" of a single testcase or a change of
+`depends_on` without **E** left an old "Not tested" evaluation behind. Grading
+still completes with the right scores.
+
 ## Latency
 
 A correct submission gets its full score later. A dependent subtask starts only
