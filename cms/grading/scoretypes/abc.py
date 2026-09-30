@@ -41,6 +41,7 @@ from cms import (
     FEEDBACK_LEVEL_OI_RESTRICTED,
 )
 from cms.db import SubmissionResult
+from cms.grading import subtaskdag
 from cms.grading.steps import EVALUATION_MESSAGES
 from cms.locale import Translation, DEFAULT_TRANSLATION
 from cms.server.jinja2_toolbox import GLOBAL_ENVIRONMENT
@@ -229,6 +230,7 @@ class ScoreTypeGroupParametersDict(TypedDict):
     testcases: int | str | list[str]
     threshold: NotRequired[float]
     always_show_testcases: NotRequired[bool]
+    depends_on: NotRequired[list[int]]
 
 
 # the format of parameters is impossible to type-hint correctly, it seems...
@@ -260,8 +262,26 @@ class ScoreTypeGroup(ScoreTypeAlone):
 
     parameters: list[ScoreTypeGroupParameters]
 
+    def __init__(
+        self,
+        parameters: object,
+        public_testcases: dict[str, bool],
+        score_precision: int,
+    ):
+        """Initializer; see ScoreType.
+
+        raise (ValueError): also if a subtask's "depends_on" is invalid
+            (see cms.grading.subtaskdag), so that AWS reports it like any
+            other invalid parameter.
+
+        """
+        super().__init__(parameters, public_testcases, score_precision)
+        self.dependencies: list[list[int]] = \
+            subtaskdag.parse_dependencies(self.parameters)
+
     # Mark strings for localization.
     N_("Subtask %(index)s")
+    N_("Worth 0 because it depends on subtask %(index)s, which scored no points.")
     N_("#")
     N_("Outcome")
     N_("Details")
@@ -299,6 +319,11 @@ class ScoreTypeGroup(ScoreTypeAlone):
     {% endif %}
     </div>
     <div class="subtask-body">
+    {% if "zeroed_by_dependency" in st %}
+        <p class="subtask-dependency">
+            {% trans index=st["zeroed_by_dependency"] %}Worth 0 because it depends on subtask {{ index }}, which scored no points.{% endtrans %}
+        </p>
+    {% endif %}
         <table class="testcase-list">
             <thead>
                 <tr>
@@ -394,6 +419,8 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 "score": st["score"],
                 "max_score": st["max_score"],
             }
+            if "zeroed_by_dependency" in st:
+                filtered_st["zeroed_by_dependency"] = st["zeroed_by_dependency"]
 
             filtered_testcases = []
             for tc in st.get("testcases", []):
@@ -548,6 +575,17 @@ class ScoreTypeGroup(ScoreTypeAlone):
 
         score_precision = submission_result.submission.task.score_precision
 
+        # A subtask whose dependency failed is worth 0 (see
+        # cms.grading.subtaskdag); computed up front from each subtask's
+        # own fraction so that the rule is transitive.
+        zeroed = [None] * len(self.parameters)
+        if any(self.dependencies):
+            zeroed = subtaskdag.zeroed_by(
+                [self.reduce([float(evaluations[tc_idx].outcome)
+                              for tc_idx in target], parameter)
+                 for target, parameter in zip(targets, self.parameters)],
+                self.dependencies)
+
         for st_idx, parameter in enumerate(self.parameters):
             target = targets[st_idx]
 
@@ -595,15 +633,17 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 else:
                     public_testcases.append({"idx": tc_idx})
 
-            st_score_fraction = self.reduce(
-                [float(evaluations[tc_idx].outcome) for tc_idx in target], parameter
-            )
+            own_fraction = self.reduce(
+                [float(evaluations[tc_idx].outcome) for tc_idx in target],
+                parameter)
+            st_score_fraction = 0.0 if zeroed[st_idx] is not None \
+                else own_fraction
             st_score = st_score_fraction * self.get_max_score(parameter)
             rounded_score = round(st_score, score_precision)
 
             if (
                 tc_first_lowest_idx is not None
-                and st_score_fraction < 1.0
+                and own_fraction < 1.0
                 and not self.get_always_show_testcases(parameter)
             ):
                 for tc in testcases:
@@ -615,19 +655,20 @@ class ScoreTypeGroup(ScoreTypeAlone):
                     )
 
             score += rounded_score
-            subtasks.append(
-                {
-                    "idx": st_idx,
-                    # We store the fraction so that an "example" testcase
-                    # with a max score of zero is still properly rendered as
-                    # correct or incorrect.
-                    "score_fraction": st_score_fraction,
-                    # But we also want the properly rounded score for display.
-                    "score": rounded_score,
-                    "max_score": self.get_max_score(parameter),
-                    "testcases": testcases,
-                }
-            )
+            subtask = {
+                "idx": st_idx,
+                # We store the fraction so that an "example" testcase
+                # with a max score of zero is still properly rendered as
+                # correct or incorrect.
+                "score_fraction": st_score_fraction,
+                # But we also want the properly rounded score for display.
+                "score": rounded_score,
+                "max_score": self.get_max_score(parameter),
+                "testcases": testcases,
+            }
+            if zeroed[st_idx] is not None:
+                subtask["zeroed_by_dependency"] = zeroed[st_idx]
+            subtasks.append(subtask)
             if all(self.public_testcases[tc_idx] for tc_idx in target):
                 public_score += rounded_score
                 public_subtasks.append(subtasks[-1])
