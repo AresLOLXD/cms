@@ -3,14 +3,19 @@
 """Tests for cms.service.ScoringService."""
 
 import asyncio
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
+from sqlalchemy import text
+
 import cms.service.ScoringService as ScoringServiceModule
 from cms.conf import Address, ServiceCoord
+from cms.db import Session, SubmissionResult
 from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.rpc import rpc_method
-from cms.service.ScoringService import ScoringService
+from cms.service.ScoringService import ScoringExecutor, ScoringService
 from cms.service.scoringoperations import ScoringOperation
 from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -428,6 +433,96 @@ class ScoringServiceTest(
             await asyncio.sleep(0.05)
         self.assertTrue(submission_result.scored())
         self.assertIsNotNone(submission_result.score)
+
+
+class ScoringVsInvalidationRaceTest(DatabaseMixin, unittest.TestCase):
+    """Scoring a result while EvaluationService invalidates it."""
+
+    def tearDown(self):
+        # The test commits from other sessions: leave an empty DB.
+        self.session.rollback()
+        self.delete_data()
+        super().tearDown()
+
+    def _wait_until_blocked_by(self, blocker_pid: int, timeout: float = 10.0):
+        """Wait until some backend is waiting on a lock of blocker_pid.
+
+        blocker_pid: the PostgreSQL backend pid holding the lock.
+        timeout: seconds to wait before failing the test.
+
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with Session() as probe:
+                blocked = probe.execute(
+                    text("SELECT count(*) FROM pg_stat_activity "
+                         "WHERE :pid = ANY(pg_blocking_pids(pid))"),
+                    {"pid": blocker_pid}).scalar_one()
+            if blocked > 0:
+                return
+            time.sleep(0.02)
+        self.fail("ScoringService never blocked on the invalidation.")
+
+    def test_score_is_not_written_onto_an_invalidated_result(self):
+        # EvaluationService's invalidate_evaluation NULLs the outcome
+        # and flushes, but commits only later; ScoringService must not
+        # write the score computed from the old evaluations on top of
+        # the invalidated row once that commit lands.
+        contest = self.add_contest()
+        task = self.add_task(contest=contest, score_precision=0)
+        dataset = self.add_dataset(
+            task=task, score_type="Sum", score_type_parameters=1)
+        task.active_dataset = dataset
+        testcase = self.add_testcase(dataset=dataset, public=True)
+        participation = self.add_participation(contest=contest)
+        submission = self.add_submission(
+            task=task, participation=participation)
+        submission_result = self.add_submission_result(
+            submission=submission, dataset=dataset)
+        submission_result.set_compilation_outcome(True)
+        self.add_evaluation(submission_result=submission_result,
+                            testcase=testcase, outcome="1.0")
+        submission_result.set_evaluation_outcome()
+        self.session.commit()
+        result_id = (submission.id, dataset.id)
+        self.assertTrue(submission_result.needs_scoring())
+
+        # EvaluationService's side: invalidate and flush, not commit.
+        es_session = Session()
+        self.addCleanup(es_session.close)
+        es_pid = es_session.execute(
+            text("SELECT pg_backend_pid()")).scalar_one()
+        SubmissionResult.get_from_id(result_id, es_session) \
+            .invalidate_evaluation()
+        es_session.flush()
+
+        errors: list[Exception] = []
+
+        def score():
+            try:
+                ScoringExecutor(proxy_service=None)._execute_sync(
+                    ScoringOperation(submission.id, dataset.id))
+            except Exception as error:
+                errors.append(error)
+
+        scorer = threading.Thread(target=score, daemon=True)
+        scorer.start()
+        self._wait_until_blocked_by(es_pid)
+        es_session.commit()
+        scorer.join(10)
+        self.assertFalse(scorer.is_alive())
+
+        # The scorer saw the invalidated result: nothing to score yet.
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], ValueError)
+        self.session.expire_all()
+        self.assertIsNone(submission_result.evaluation_outcome)
+        self.assertFalse(submission_result.scored())
+        self.assertIsNone(submission_result.score)
+
+        # Once re-evaluated, the result needs scoring again.
+        submission_result.set_evaluation_outcome()
+        self.assertTrue(submission_result.needs_scoring())
 
 
 if __name__ == "__main__":
