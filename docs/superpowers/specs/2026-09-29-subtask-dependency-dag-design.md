@@ -78,14 +78,19 @@ Rejected alternatives:
 ### 1. Format and validation
 
 **Format.** Every subtask in the dict form of `score_type_parameters` may
-carry `depends_on`, a list of the subtask numbers the contestant sees
-("Subtask 1", "Subtask 2", …), which start at 1:
+carry `depends_on`, a list of subtask numbers. The numbers are the ones CMS
+already shows to contestants in CWS and in the ranking: "Subtask 0",
+"Subtask 1", …, which is the subtask's position in the list, **starting at
+0** (user decision, 2026-09-29):
 
 ```json
 [{"max_score": 20, "testcases": 3},
  {"max_score": 30, "testcases": 5},
- {"max_score": 50, "testcases": 8, "depends_on": [1, 2]}]
+ {"max_score": 50, "testcases": 8, "depends_on": [0, 1]}]
 ```
+
+Exporters convert their own ids. For example, COMIGuide's subtask ids start
+at 1, so its id 1 becomes 0.
 
 - `depends_on` is optional. A subtask without it has no dependencies.
 - The list form (`[[20, 3], ...]`) is unchanged and cannot carry
@@ -99,7 +104,7 @@ like the rest of its parameters. An invalid value raises `ValueError`, and
 the dataset is reported as invalid, as any invalid parameter is today. The
 errors are:
 - `depends_on` is not a list of integers;
-- a number is out of range (below 1, or above the number of subtasks);
+- a number is out of range (below 0, or at least the number of subtasks);
 - a subtask depends on itself;
 - a number is repeated in the same list;
 - the dependencies form a cycle.
@@ -235,7 +240,8 @@ subtask skips all of its dependents.
   types.
 - One README line that links to it.
 
-**Issues**, filed once this spec is approved.
+**Issues**, filed on 2026-09-29: COMI-Guide/OMI-Box#28 and
+COMI-Guide/COMIGuide#46.
 - **OMI-Box (now).**
   1. Capture the dependencies of each subtask in the editor.
   2. Export `score_type_parameters` in dict form with `depends_on` in
@@ -247,9 +253,12 @@ subtask skips all of its dependents.
      issue proposes renaming them after the import, as COMIGuide's
      `exporta_cms.py` does.
 - **COMIGuide (after 2026-10-10).**
-  1. Add `depende` to each subtask of the problem metadata.
+  1. Problem metadata already declares `depende_de: [ids]` on each
+     subtask (5 problems use it today), but no tool validates or exports
+     it. Validate it in `verifica.py`.
   2. Export it as `depends_on` in dict-form `score_type_parameters` from
-     `exporta_cms.py`.
+     `exporta_cms.py`. Convert each id to its CMS subtask number, which is
+     its position in id order starting at 0, so id 1 becomes 0.
 
 ### 5. Testing
 
