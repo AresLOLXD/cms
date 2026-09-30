@@ -18,8 +18,10 @@
 """Tests for cms.grading.subtaskdag."""
 
 import unittest
+from unittest.mock import Mock, PropertyMock
 
 from cms.grading import subtaskdag
+from cms.grading.scoretypes.GroupMin import GroupMin
 
 
 class TestDeclaresDependencies(unittest.TestCase):
@@ -161,6 +163,124 @@ class TestZeroedBy(unittest.TestCase):
         self.assertEqual(
             subtaskdag.zeroed_by([1.0, 1.0, 0.0], [[1], [2], []]),
             [1, 2, None])
+
+
+def _gate(parameters, codenames):
+    public = {codename: True for codename in codenames}
+    return subtaskdag.SubtaskGate(GroupMin(parameters, public, 2))
+
+
+class TestSubtaskGate(unittest.TestCase):
+
+    def setUp(self):
+        # Count-based: subtask 0 = a0, a1; subtask 1 = b0 (depends on 0);
+        # subtask 2 = c0.
+        self.gate = _gate(
+            [{"max_score": 20, "testcases": 2},
+             {"max_score": 30, "testcases": 1, "depends_on": [0]},
+             {"max_score": 50, "testcases": 1}],
+            ["a0", "a1", "b0", "c0"])
+
+    def test_nothing_evaluated(self):
+        status, blocked_by = self.gate.statuses({})
+        self.assertEqual(status, ["pending", "pending", "pending"])
+        self.assertEqual(blocked_by, [None, None, None])
+        self.assertTrue(self.gate.releasable("a0", status))
+        self.assertFalse(self.gate.releasable("b0", status))
+        self.assertTrue(self.gate.releasable("c0", status))
+
+    def test_dependency_passed_releases_dependent(self):
+        status, _ = self.gate.statuses({"a0": "1.0", "a1": "1.0"})
+        self.assertEqual(status[0], "passed")
+        self.assertTrue(self.gate.releasable("b0", status))
+
+    def test_statuses_use_existing_outcomes(self):
+        status, blocked_by = self.gate.statuses(
+            {"a0": "0.0", "b0": "1.0", "c0": "1.0"})
+        self.assertEqual(status, ["failed", "failed", "passed"])
+        self.assertEqual(blocked_by, [None, 0, None])
+
+    def test_failure_is_known_before_all_testcases_run(self):
+        status, blocked_by = self.gate.statuses({"a0": "0.0"})
+        self.assertEqual(status[:2], ["failed", "failed"])
+        self.assertEqual(blocked_by[1], 0)
+        self.assertEqual(
+            self.gate.skippable(["a1", "b0", "c0"], status, blocked_by),
+            {"b0": 0})
+
+    def test_partial_score_passes(self):
+        status, _ = self.gate.statuses({"a0": "0.5", "a1": "1.0"})
+        self.assertEqual(status[0], "passed")
+
+    def test_zero_point_subtask_passes(self):
+        gate = _gate([{"max_score": 0, "testcases": 1},
+                      {"max_score": 100, "testcases": 1, "depends_on": [0]}],
+                     ["a0", "b0"])
+        status, _ = gate.statuses({"a0": "1.0"})
+        self.assertEqual(status[0], "passed")
+
+    def test_transitive_skip(self):
+        gate = _gate([{"max_score": 20, "testcases": 1},
+                      {"max_score": 30, "testcases": 1, "depends_on": [0]},
+                      {"max_score": 50, "testcases": 1, "depends_on": [1]}],
+                     ["a0", "b0", "c0"])
+        status, blocked_by = gate.statuses({"a0": "0.0"})
+        self.assertEqual(blocked_by, [None, 0, 1])
+        self.assertEqual(gate.skippable(["b0", "c0"], status, blocked_by),
+                         {"b0": 0, "c0": 1})
+
+    def test_shared_testcase_released_if_any_subtask_needs_it(self):
+        # Regex params: "x" is in subtask 0 and in subtask 1.
+        gate = _gate([{"max_score": 50, "testcases": "^(a|x)"},
+                      {"max_score": 50, "testcases": "^(b|x)",
+                       "depends_on": [0]}],
+                     ["a", "b", "x"])
+        status, blocked_by = gate.statuses({"a": "0.0"})
+        self.assertTrue(gate.releasable("x", status))
+        self.assertEqual(gate.skippable(["b", "x"], status, blocked_by),
+                         {"b": 0})
+
+    def test_testcase_in_no_subtask_is_never_held(self):
+        gate = _gate([{"max_score": 50, "testcases": "^a"},
+                      {"max_score": 50, "testcases": "^b",
+                       "depends_on": [0]}],
+                     ["a", "b", "z"])
+        status, blocked_by = gate.statuses({"a": "0.0"})
+        self.assertTrue(gate.releasable("z", status))
+        self.assertNotIn("z", gate.skippable(["b", "z"], status, blocked_by))
+
+
+class TestGateForDataset(unittest.TestCase):
+
+    def test_no_dependencies_builds_nothing(self):
+        dataset = Mock()
+        dataset.score_type_parameters = [[20, 1], [80, 1]]
+        type(dataset).score_type_object = PropertyMock(
+            side_effect=AssertionError("must not be built"))
+        self.assertIsNone(subtaskdag.gate_for_dataset(dataset))
+
+    def test_dependencies_build_a_gate(self):
+        dataset = Mock()
+        dataset.score_type_parameters = [
+            {"max_score": 20, "testcases": 1},
+            {"max_score": 80, "testcases": 1, "depends_on": [0]}]
+        dataset.score_type_object = GroupMin(
+            dataset.score_type_parameters, {"a": True, "b": True}, 2)
+        gate = subtaskdag.gate_for_dataset(dataset)
+        self.assertIsInstance(gate, subtaskdag.SubtaskGate)
+
+    def test_gate_for_invalid_dataset_is_none_and_warns_once(self):
+        dataset = Mock()
+        dataset.id = 424242
+        dataset.score_type_parameters = [
+            {"max_score": 50, "testcases": 1, "depends_on": [1]},
+            {"max_score": 50, "testcases": 1, "depends_on": [0]}]
+        type(dataset).score_type_object = PropertyMock(
+            side_effect=ValueError("cycle"))
+        with self.assertLogs("cms.grading.subtaskdag", "WARNING") as logs:
+            self.assertIsNone(subtaskdag.gate_for_dataset(dataset))
+            self.assertIsNone(subtaskdag.gate_for_dataset(dataset))
+        self.assertEqual(len(logs.records), 1)
 
 
 if __name__ == "__main__":

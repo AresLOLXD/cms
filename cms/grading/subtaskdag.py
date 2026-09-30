@@ -161,3 +161,155 @@ def zeroed_by(
             result[index] = min(failed)
             effective[index] = 0.0
     return result
+
+
+def _outcome(value: str | None) -> float:
+    """Read an evaluation outcome; a missing or bad one counts as 0."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class SubtaskGate:
+    """What a submission may run next, and what it may skip, on a dataset.
+
+    Built from a group score type whose parameters declare dependencies.
+    A subtask is "failed" as soon as the testcases evaluated so far make
+    its score 0 (this relies on reduce() never going back up as more
+    outcomes arrive, true for min, product and threshold), or when one of
+    its dependencies failed; "passed" when all its testcases are evaluated,
+    its score is above 0 and all its dependencies passed; "pending"
+    otherwise.
+
+    """
+
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+
+    def __init__(self, score_type) -> None:
+        """Initializer.
+
+        score_type: a ScoreTypeGroup (needs dependencies, parameters,
+            reduce() and retrieve_target_testcases()).
+
+        """
+        self._score_type = score_type
+        self.targets: list[list[str]] = \
+            score_type.retrieve_target_testcases()
+        self.dependencies: list[list[int]] = score_type.dependencies
+        self._order = topological_order(self.dependencies)
+        self._subtasks_of: dict[str, list[int]] = {}
+        for index, target in enumerate(self.targets):
+            for codename in target:
+                self._subtasks_of.setdefault(codename, []).append(index)
+
+    def statuses(
+        self, outcome_by_codename: dict[str, str | None]
+    ) -> tuple[list[str], list[int | None]]:
+        """Compute each subtask's status from the evaluations so far.
+
+        outcome_by_codename: the outcome of each testcase already
+            evaluated.
+
+        return: for each subtask, its status, and the lowest-numbered
+            dependency that failed (None if none did).
+
+        """
+        status = [self.PENDING] * len(self.targets)
+        blocked_by: list[int | None] = [None] * len(self.targets)
+        for index in self._order:
+            deps = self.dependencies[index]
+            failed = [number for number in deps
+                      if status[number] == self.FAILED]
+            if failed:
+                status[index] = self.FAILED
+                blocked_by[index] = min(failed)
+                continue
+            target = self.targets[index]
+            done = [_outcome(outcome_by_codename[codename])
+                    for codename in target
+                    if codename in outcome_by_codename]
+            parameter = self._score_type.parameters[index]
+            if done and self._score_type.reduce(done, parameter) <= 0.0:
+                status[index] = self.FAILED
+            elif len(done) == len(target) and all(
+                    status[number] == self.PASSED for number in deps):
+                status[index] = self.PASSED
+        return status, blocked_by
+
+    def releasable(self, codename: str, status: list[str]) -> bool:
+        """Tell whether a testcase may be evaluated now.
+
+        A testcase in no subtask is never held. Otherwise it is released
+        when at least one subtask containing it has all its dependencies
+        passed.
+
+        codename: the testcase.
+        status: from statuses().
+
+        """
+        subtasks = self._subtasks_of.get(codename)
+        if not subtasks:
+            return True
+        return any(
+            all(status[number] == self.PASSED
+                for number in self.dependencies[index])
+            for index in subtasks)
+
+    def skippable(
+        self,
+        codenames_left: list[str],
+        status: list[str],
+        blocked_by: list[int | None],
+    ) -> dict[str, int]:
+        """Find the testcases that no subtask still needs.
+
+        A testcase is skipped when every subtask containing it failed
+        because of a dependency.
+
+        codenames_left: the testcases not evaluated yet.
+        status: from statuses() (kept for symmetry with releasable()).
+        blocked_by: from statuses().
+
+        return: codename -> the dependency to name in its message (that
+            of the lowest-numbered subtask containing it).
+
+        """
+        skip: dict[str, int] = {}
+        for codename in codenames_left:
+            subtasks = self._subtasks_of.get(codename)
+            if subtasks and all(blocked_by[index] is not None
+                                for index in subtasks):
+                skip[codename] = blocked_by[min(subtasks)]
+        return skip
+
+
+_warned_datasets: set[object] = set()
+
+
+def gate_for_dataset(dataset) -> SubtaskGate | None:
+    """Return the dependency gate of a dataset, or None if it has none.
+
+    Returns None without building anything when the dataset declares no
+    dependency: such datasets are graded exactly as before. Also returns
+    None, logging a warning once per dataset, when the dependencies can't
+    be used (invalid parameters, or not a group score type), so that a bad
+    dataset is graded without them instead of being left stuck.
+
+    dataset: the dataset (needs score_type_parameters, score_type_object
+        and id).
+
+    """
+    if not declares_dependencies(dataset.score_type_parameters):
+        return None
+    try:
+        return SubtaskGate(dataset.score_type_object)
+    except Exception:
+        if dataset.id not in _warned_datasets:
+            _warned_datasets.add(dataset.id)
+            logger.warning(
+                "Dataset %s declares subtask dependencies that cannot be "
+                "used; grading it without them.", dataset.id, exc_info=True)
+        return None
