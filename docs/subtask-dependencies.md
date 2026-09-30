@@ -18,7 +18,9 @@ without dependencies is graded exactly as before (see "Parity" below).
 - A subtask **passes** when its score fraction is above 0. A partial score
   passes. A subtask worth 0 points (for example one with only the examples)
   passes when its testcases pass, because it is the fraction that counts, not
-  the points.
+  the points. So a dependency passes even if its displayed score rounds to 0
+  points, which is only possible with partial outcomes (a checker that gives
+  part of the points).
 - A subtask that depends on several subtasks needs **all** of them to pass.
 - The rule is **transitive**. If subtask 3 depends on 1 and subtask 4 depends
   on 3, and 1 fails, then 3 is worth 0, and so is 4.
@@ -29,6 +31,16 @@ without dependencies is graded exactly as before (see "Parity" below).
 - The rule applies even if the testcases of the subtask were graded (for
   example after you changed the dependencies). The results are kept as they
   are, and only the subtask score is 0.
+
+The rule applies within each submission. This matters with the score mode
+that sums the best result of each subtask across all submissions (IOI 2017-),
+so put it in the contest rules, for example:
+
+> A subtask that depends on other subtasks scores only in a submission that
+> also passes those subtasks. Your best score in each subtask is taken over
+> your submissions with this rule applied to each one: you cannot combine a
+> subtask passed in one submission with a subtask that depends on it solved in
+> another.
 
 It also changes the order of grading:
 
@@ -219,6 +231,10 @@ screening. If a group holds other testcases than its subtask, screening and
 dependencies can disagree, for example screening one subtask with the
 testcases of another.
 
+The exact condition is the **alignment rule**: for every codename group G that
+has screening testcases, every subtask that contains a non-screening testcase
+of G also contains all of G's screening testcases. The layout below follows it.
+
 With codename groups numbered from 1 (`s1`, `s2`, …), every testcase whose
 codename starts with `sN-` must be exactly the testcases of subtask N-1 (`s1-`
 is subtask 0). The regex form guarantees it. For the groups `s1`, `s2` and `s3`
@@ -233,6 +249,25 @@ expression:
 
 The `italy_yaml` loader names the testcases `000`, `001`, …, so with it this
 example needs the testcases renamed to the `sN-nn-…` codenames after the import.
+
+### When a dataset breaks the alignment rule
+
+Grading still completes, but the two gates can hold each other: two-phase holds
+the other testcases of a group until its screening is done, and the
+dependencies hold that screening. The Evaluation Service then releases the held
+testcases of the submission without the gates, so some testcases run that could
+have been skipped. It writes this warning to its log, here for submission 42 on
+dataset 7:
+
+```
+Submission 42, dataset 7: no operations left but no evaluation for testcase(s) s1-01-scr-wa, s1-02-scr-tle, s1-03-x. The subtask dependency and two-phase screening gates are holding each other (see the alignment rule in docs/subtask-dependencies.md); releasing these testcases without the gates.
+```
+
+Search the log for "gates are holding each other". The warning can repeat for
+the same submission until the released testcases are graded. A screening
+testcase marked "Not tested" because of a dependency does not count as a failed
+screening, so a subtask that does not depend on the failed one is still graded.
+Fix the codenames or the subtasks of the dataset so that it follows the rule.
 
 ## Latency
 
@@ -311,6 +346,22 @@ clone or an import (see "Errors when saving").
 > button of the dataset (see "Changing the dependencies after there are
 > submissions"). A wrong `depends_on` that got in through a new dataset, a clone
 > or an import ends the same way.
+
+## Before the contest
+
+For every task that uses `depends_on`:
+
+1. After importing it, open the task page and press **Update** (see "Errors
+   when saving").
+2. Check that its datasets follow the alignment rule (see "Two-phase
+   screening").
+3. With `CMS_TWO_PHASE_EVALUATION` set as it will be during the contest,
+   submit one correct solution and one that fails a subtask with no
+   dependencies. Both must finish grading: the first with the full score, the
+   second with the subtasks that depend on the failed one at 0.
+4. Search the Evaluation Service log for "cannot be used" (see "When the
+   dependencies cannot be used") and for "gates are holding each other" (see
+   "When a dataset breaks the alignment rule"). Neither should appear.
 
 ## Custom score types
 
