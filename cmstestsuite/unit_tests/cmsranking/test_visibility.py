@@ -987,6 +987,9 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
     # A reload event and a ping, as the chunks of an event stream.
     RELOAD = b"14\r\nevent:reload\ndata:\n\n\r\n"
     PING = b"2\r\n:\n\r\n"
+    # What beta sends to a reconnection that its cache cannot serve: the
+    # first ping, then a reinit that browsers do not dispatch.
+    BETA_REINIT = b"2\r\n:\n\r\ne\r\nevent:reinit\n\n\r\n"
 
     def put_freeze(self, freeze_at: int, unfreeze_at: int | None = None,
                    staff_password: str | None = STAFF_HASH):
@@ -1220,25 +1223,64 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.assertEqual(received, self.RELOAD)
         self.assertTrue(closed)
 
-    def test_only_clients_older_than_a_restart_are_told_to_reinit(self):
+    @staticmethod
+    def body(response: bytes) -> bytes:
+        """Return the body of a raw HTTP response, still chunked."""
+        return response.split(b"\r\n\r\n", 1)[1]
+
+    def test_the_root_ranking_is_as_on_beta_after_a_restart(self):
         # The root ranking has no guard: this is what the event source
-        # itself sends.
+        # itself sends, a reinit that browsers do not dispatch.
         self.put_contest("")
         before = "%x" % int(time.time() * 1_000_000)
         # A restart: the data is read from disk, the event cache is empty.
         self.client = self.make_client()
         after = "%x" % int(time.time() * 1_000_000)
-        self.assertIn(b"event:reinit\ndata:\n\n",
-                      self.get_events("/events", before))
-        # A page loaded since the restart missed nothing: told to reinit,
-        # it would reload itself for as long as the cache stays empty.
-        self.assertNotIn(b"reinit", self.get_events("/events", after))
+        for last_id in (before, after):
+            self.assertEqual(self.body(self.get_events("/events", last_id)),
+                             self.BETA_REINIT)
+
+    def test_a_group_without_windows_is_as_on_beta_after_an_overflow(self):
+        self.config.buffer_size = 2
+        self.put_contest("/olim")
+        last_id = "%x" % int(time.time() * 1_000_000)
+        for user in ("u1", "u2", "u3"):
+            self.put_data("users/", {user: {"f_name": "U", "l_name": "U",
+                                            "team": None}})
+        self.assertEqual(self.body(self.get_events("/olim/events", last_id)),
+                         self.BETA_REINIT)
+
+    def test_score_traffic_does_not_change_a_frozen_reinit(self):
+        # The public client of a frozen group asks, with the ID of an
+        # event it got, whether it missed something: the answer must not
+        # tell how many scores changed since.
+        self.config.buffer_size = 2
+        self.put_contest("/olim")
+        self.put_submission()
+        self.put_freeze(1)
+        stream = self.open_stream()
+        for user in ("u1", "u2"):
+            self.put_data("users/", {user: {"f_name": "U", "l_name": "U",
+                                            "team": None}})
+        stream.settimeout(0.5)
+        received, _ = self.drain(stream)
+        marker = re.findall(rb"id:(\w+)", received)[0].decode()
+        before = self.get_events("/olim/events", marker)
+        self.put_score("c1", 40.0)
+        self.put_score("c2", 90.0)
+        after = self.get_events("/olim/events", marker)
+        self.assertEqual(b"reinit" in after, b"reinit" in before)
+        self.assertNotIn(b"reinit", after)
 
 
 class TestDroppedEvents(unittest.TestCase):
     """The event cache, for subscribers that must not get some events."""
 
     SCORES = frozenset({"score"})
+    # The reinit that a frozen page dispatches, and beta's, that no page
+    # dispatches.
+    REINIT = b"event:reinit\ndata:\n\n"
+    BETA_REINIT = b"event:reinit\n\n"
 
     @staticmethod
     def pending(subscriber: Subscriber) -> bytes:
@@ -1295,8 +1337,29 @@ class TestDroppedEvents(unittest.TestCase):
         self.assertEqual(
             self.pending(publisher.get_subscriber(last_id, self.SCORES)), b"")
         # The same client, when it gets the scores, did miss one.
-        self.assertIn(b"event:reinit\ndata:\n\n",
-                      self.pending(publisher.get_subscriber(last_id)))
+        self.assertEqual(self.pending(publisher.get_subscriber(last_id)),
+                         self.BETA_REINIT)
+
+    def test_score_traffic_does_not_move_the_reinit(self):
+        # Markers: the IDs of events that a frozen client got. Whether it
+        # is asked to reinit with each must not count the score changes.
+        publisher = Publisher(3)
+        live = publisher.get_subscriber(dropped=self.SCORES)
+        for user in range(5):
+            publisher.put("user", "update u%d" % user)
+        markers = [m.decode() for m in
+                   re.findall(rb"id:(\w+)", self.pending(live))]
+
+        def reinits() -> list[bool]:
+            return [self.pending(publisher.get_subscriber(
+                marker, self.SCORES)) == self.REINIT for marker in markers]
+
+        before = reinits()
+        for score in range(4):
+            publisher.put("score", "u0 t %d" % score)
+        self.assertEqual(reinits(), before)
+        # u0 was evicted, the others are still in the cache.
+        self.assertEqual(before, [True, False, False, False, False])
 
     def test_a_missed_evicted_event_asks_to_reinit(self):
         publisher = Publisher(2)
@@ -1305,10 +1368,11 @@ class TestDroppedEvents(unittest.TestCase):
         between = self.id_now()
         publisher.put("user", "create u2")
         publisher.put("user", "create u3")
-        self.assertIn(b"event:reinit\ndata:\n\n",
-                      self.pending(publisher.get_subscriber(before)))
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(before, self.SCORES)),
+            self.REINIT)
         # A client that got u1, the one evicted, missed nothing gone.
-        data = self.pending(publisher.get_subscriber(between))
+        data = self.pending(publisher.get_subscriber(between, self.SCORES))
         self.assertEqual(re.findall(rb"data:(.*)", data),
                          [b"create u2", b"create u3"])
 
@@ -1316,10 +1380,29 @@ class TestDroppedEvents(unittest.TestCase):
         publisher = Publisher(0)
         before = self.id_now()
         publisher.put("user", "create u")
-        self.assertIn(b"event:reinit\ndata:\n\n",
-                      self.pending(publisher.get_subscriber(before)))
         self.assertEqual(
-            self.pending(publisher.get_subscriber(self.id_now())), b"")
+            self.pending(publisher.get_subscriber(before, self.SCORES)),
+            self.REINIT)
+        self.assertEqual(self.pending(
+            publisher.get_subscriber(self.id_now(), self.SCORES)), b"")
+
+    def test_other_subscribers_are_answered_as_on_beta(self):
+        # Beta replays if the ID is not older than the oldest event in the
+        # cache, and sends its reinit otherwise, even from an empty cache.
+        publisher = Publisher(2)
+        live = publisher.get_subscriber()
+        self.assertEqual(
+            self.pending(publisher.get_subscriber(self.id_now())),
+            self.BETA_REINIT)
+        publisher.put("user", "create u1")
+        between = self.id_now()
+        publisher.put("user", "create u2")
+        publisher.put("user", "create u3")
+        u2 = re.findall(rb"id:(\w+)", self.pending(live))[1].decode()
+        self.assertEqual(self.pending(publisher.get_subscriber(between)),
+                         self.BETA_REINIT)
+        data = self.pending(publisher.get_subscriber(u2))
+        self.assertEqual(re.findall(rb"data:(.*)", data), [b"create u3"])
 
 
 class TestLoginBodyLimit(VisibilityTestCase):

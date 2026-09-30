@@ -16,10 +16,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import heapq
 import re
 import time
 from collections import deque
 from collections.abc import Generator
+from operator import itemgetter
 from weakref import WeakKeyDictionary
 
 from gevent import Timeout
@@ -96,12 +98,17 @@ class Publisher:
         # and have the ones at the other end be dropped when the total
         # number exceeds the given limit.
         self._cache = deque(maxlen=size)
+        # The subscribers that must not get some types of event replay
+        # from a cache per type instead, so that whether they miss
+        # something depends only on the types they get: in the shared
+        # cache, the events they do not get would push the others out.
+        self._size = size
+        self._cache_by_event: dict[str | None, deque] = dict()
+        # The key of the newest message evicted from each of those.
+        self._evicted: dict[str | None, int] = dict()
         # When this publisher was created, in the unit of the keys: a
         # client older than that may have missed any message.
         self._created = int(time.time() * 1_000_000)
-        # The key of the newest message evicted from the cache, by type
-        # of event.
-        self._evicted: dict[str | None, int] = dict()
         # We use a WeakKeyDictionary as we want queues to vanish
         # automatically when no one else is using (i.e. fetching from)
         # them. Each maps to the types of event it must not get.
@@ -120,14 +127,16 @@ class Publisher:
         # Number of microseconds since epoch.
         key = int(time.time() * 1_000_000)
         msg = format_event("%x" % key, event, data)
-        # Put into cache, remembering what the cache no longer has: the
-        # oldest message makes room (or, with no room at all, this one
-        # never gets in).
-        if len(self._cache) == self._cache.maxlen:
-            old_key, old_event, _ = \
-                self._cache[0] if self._cache else (key, event, msg)
-            self._evicted[old_event] = old_key
-        self._cache.append((key, event, msg))
+        # Put into cache.
+        self._cache.append((key, msg))
+        # And into the cache of its type, remembering what that one no
+        # longer has: the oldest message makes room (or, with no room at
+        # all, this one never gets in).
+        cache = self._cache_by_event.setdefault(event,
+                                                deque(maxlen=self._size))
+        if len(cache) == cache.maxlen:
+            self._evicted[event] = cache[0][0] if cache else key
+        cache.append((key, msg))
         # Send to all subscribers that may get it. The others do not even
         # wake up, so nothing they send tells that it happened.
         for queue, dropped in self._sub_queues.items():
@@ -147,8 +156,8 @@ class Publisher:
             then to be sent again. If not given no past message will
             be sent.
         dropped: the types of event the client must not get, neither
-            live nor replayed. Whether it is asked to reinit depends on
-            the other types only.
+            live nor replayed. Whether it is asked to reinit then depends
+            on the other types only.
 
         return: a new subscriber instance.
 
@@ -159,22 +168,47 @@ class Publisher:
         if last_event_id is not None and \
                 re.match("^[0-9A-Fa-f]+$", last_event_id):
             last_event_key = int(last_event_id, 16)
-            # The cache has every message of the types the client gets
-            # that is newer than this.
-            complete_since = max([self._created] + [
-                evicted for event, evicted in self._evicted.items()
-                if event not in dropped])
-            if last_event_key >= complete_since:
+            if dropped:
+                self._replay_some(queue, last_event_key, dropped)
+            elif len(self._cache) > 0 and \
+                    last_event_key >= self._cache[0][0]:
                 # All missed events are in cache.
-                for key, event, msg in self._cache:
-                    if key > last_event_key and event not in dropped:
+                for key, msg in self._cache:
+                    if key > last_event_key:
                         queue.put(msg)
             else:
-                # Some events may be missing. Ask to reinit.
-                queue.put(b"event:reinit\ndata:\n\n")
+                # Some events may be missing. Ask to reinit (without a
+                # data line, browsers do not dispatch it).
+                queue.put(b"event:reinit\n\n")
         # Store the queue and return a subscriber bound to it.
         self._sub_queues[queue] = dropped
         return Subscriber(queue)
+
+    def _replay_some(self, queue: Queue, last_event_key: int,
+                     dropped: frozenset[str]):
+        """Replay the missed events of the types a client gets.
+
+        queue: the queue of the client's subscriber.
+        last_event_key: the key of the last message the client got.
+        dropped: the types of event the client must not get.
+
+        """
+        kept = [event for event in self._cache_by_event
+                if event not in dropped]
+        # The caches of those types have every message newer than this.
+        complete_since = max([self._created] + [
+            self._evicted[event] for event in kept
+            if event in self._evicted])
+        if last_event_key >= complete_since:
+            for key, msg in heapq.merge(
+                    *(self._cache_by_event[event] for event in kept),
+                    key=itemgetter(0)):
+                if key > last_event_key:
+                    queue.put(msg)
+        else:
+            # Some events may be missing. Ask to reinit, with a data line
+            # so that browsers dispatch it.
+            queue.put(b"event:reinit\ndata:\n\n")
 
 
 class Subscriber:
