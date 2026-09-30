@@ -23,6 +23,7 @@ from unittest.mock import patch
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms import config
+from cms.grading import twophase
 from cms.grading.steps import EVALUATION_MESSAGES
 from cms.service.esoperations import ESOperation, \
     any_dataset_declares_dependencies, submission_get_operations
@@ -184,6 +185,76 @@ class TestSharedAndOrphanTestcases(DatabaseMixin, unittest.TestCase):
                 results[0], submission, dataset)
             if op.type_ == ESOperation.EVALUATION)
         self.assertEqual(released, {"a", "x", "z"})
+
+
+class TestDependencySkipsAreNotScreeningOutcomes(
+    DatabaseMixin, unittest.TestCase,
+):
+    """Two-phase screening does not count the dependency skips.
+
+    Group s1's only screening testcase is in subtask 1, which depends on
+    subtask 0; its other testcase is in subtask 2, which depends on
+    nothing.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+        contest = self.add_contest()
+        participation = self.add_participation(contest=contest)
+        task = self.add_task(contest=contest)
+        self.dataset = self.add_dataset(
+            task=task, autojudge=True, score_type="GroupMin",
+            score_type_parameters=[
+                {"max_score": 10, "testcases": ["s2-00-sample"]},
+                {"max_score": 40, "testcases": ["s1-00-sample"],
+                 "depends_on": [0]},
+                {"max_score": 50, "testcases": ["s1-03-y"]}])
+        task.active_dataset = self.dataset
+        self.testcases = {
+            codename: self.add_testcase(self.dataset, codename=codename)
+            for codename in ["s1-00-sample", "s1-03-y", "s2-00-sample"]}
+        self.submission, results = self.add_submission_with_results(
+            task, participation, True)
+        self.result = results[0]
+        self.session.flush()
+
+    def _screened_outcomes(self):
+        """Return the outcomes submission_get_operations screens with."""
+        with patch.object(twophase, "group_screening_status",
+                          wraps=twophase.group_screening_status) as screen:
+            list(submission_get_operations(
+                self.result, self.submission, self.dataset))
+        screen.assert_called_once()
+        return screen.call_args.args[1]
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    def test_dependency_skip_is_left_out(self):
+        self.add_evaluation(
+            self.result, self.testcases["s2-00-sample"], outcome="0.0",
+            text=["Output isn't correct"])
+        self.add_evaluation(
+            self.result, self.testcases["s1-00-sample"], outcome="0.0",
+            text=[EVALUATION_MESSAGES.get("skipped_dependency").message, "0"])
+        self.session.flush()
+        self.assertEqual(self._screened_outcomes(), {"s2-00-sample": "0.0"})
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    def test_other_evaluations_still_count(self):
+        # Parity: without dependency skips, every evaluation counts, the
+        # two-phase skips included.
+        self.add_evaluation(
+            self.result, self.testcases["s2-00-sample"], outcome="0.0",
+            text=["Output isn't correct"])
+        self.add_evaluation(
+            self.result, self.testcases["s1-00-sample"], outcome="1.0",
+            text=[])
+        self.add_evaluation(
+            self.result, self.testcases["s1-03-y"], outcome="0.0",
+            text=[EVALUATION_MESSAGES.get("skipped").message])
+        self.session.flush()
+        self.assertEqual(self._screened_outcomes(), {
+            "s2-00-sample": "0.0", "s1-00-sample": "1.0", "s1-03-y": "0.0"})
 
 
 class TestAnyDatasetDeclaresDependencies(DatabaseMixin, unittest.TestCase):

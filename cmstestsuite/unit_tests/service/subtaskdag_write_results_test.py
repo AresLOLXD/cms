@@ -414,6 +414,15 @@ SPLIT_GROUP_PARAMETERS = [
      "depends_on": [0]},
 ]
 
+# Group s1's only screening testcase is in subtask 1, which depends on
+# subtask 0; its other testcase is in subtask 2, which depends on nothing.
+MISALIGNED_CODENAMES = ["s1-00-sample", "s1-03-y", "s2-00-sample"]
+MISALIGNED_PARAMETERS = [
+    {"max_score": 10, "testcases": ["s2-00-sample"]},
+    {"max_score": 40, "testcases": ["s1-00-sample"], "depends_on": [0]},
+    {"max_score": 50, "testcases": ["s1-03-y"]},
+]
+
 GATES_HOLDING_EACH_OTHER = "gates are holding each other"
 
 
@@ -455,6 +464,36 @@ class TestGatesHoldingEachOtherDoNotStall(
         result = await self._write_with(service, dict.fromkeys(held, "1.0"))
         self.assertEqual({e.codename for e in result.evaluations},
                          set(SPLIT_GROUP_CODENAMES))
+        self.assertTrue(result.evaluated())
+
+
+class TestDependencySkipIsNotAScreeningFailure(
+    WriteResultsFixtureMixin, ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
+
+    SCORE_TYPE_PARAMETERS = MISALIGNED_PARAMETERS
+    TESTCASE_CODENAMES = MISALIGNED_CODENAMES
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_independent_subtask_is_graded(self):
+        service = self._build_service()
+        with patch.object(service, "_enqueue_sync",
+                          return_value=True) as enqueue:
+            result = await self._write_with(service, {"s2-00-sample": "0.0"})
+        texts = {e.codename: e.text for e in result.evaluations}
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        self.assertEqual(texts["s1-00-sample"], [message, "0"])
+        # No two-phase skip for the testcase of subtask 2: it is run.
+        self.assertNotIn("s1-03-y", texts)
+        self.assertEqual(self._enqueued_evaluation_codenames(enqueue),
+                         {"s1-03-y"})
+
+        result = await self._write_with(service, {"s1-03-y": "1.0"})
+        evaluation = next(
+            e for e in result.evaluations if e.codename == "s1-03-y")
+        self.assertEqual(evaluation.outcome, "1.0")
+        self.assertEqual(evaluation.text, ["Output is correct"])
         self.assertTrue(result.evaluated())
 
 

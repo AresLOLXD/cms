@@ -36,6 +36,7 @@ from cms.db import Dataset, Evaluation, Submission, SubmissionResult, \
     Task, Testcase, UserTest, UserTestResult
 from cms.db.session import Session
 from cms.grading import subtaskdag, twophase
+from cms.grading.steps import EVALUATION_MESSAGES
 from cms.io import PriorityQueue, QueueItem
 
 
@@ -154,6 +155,30 @@ def user_test_to_evaluate(user_test_result: UserTestResult | None) -> bool:
         r.evaluation_tries < MAX_USER_TEST_EVALUATION_TRIES
 
 
+def outcomes_for_screening(
+    evaluations: list[Evaluation],
+) -> dict[str, str | None]:
+    """Map each evaluated testcase to its outcome, for two-phase screening.
+
+    Leave out the evaluations synthesized by the subtask dependency gate
+    (see EvaluationService._advance_dependencies): such a skip says
+    nothing about the testcase, and counting its outcome 0 as a failed
+    screening would skip the group's testcases in subtasks whose
+    dependencies did not fail. Without subtask dependencies no
+    evaluation carries that text, so every evaluation counts.
+
+    evaluations: the evaluations of a submission result.
+
+    return: the outcome of each evaluated testcase to count.
+
+    """
+    skipped_dependency = EVALUATION_MESSAGES.get("skipped_dependency").message
+    return {
+        evaluation.codename: evaluation.outcome
+        for evaluation in evaluations
+        if not evaluation.text or evaluation.text[0] != skipped_dependency}
+
+
 def submission_get_operations(
     submission_result: SubmissionResult | None,
     submission: Submission,
@@ -205,9 +230,8 @@ def submission_get_operations(
         # until that group's screening testcases have all been evaluated
         # and passed. See cms/grading/twophase.py.
         if twophase.enabled():
-            outcome_by_codename = {
-                evaluation.codename: evaluation.outcome
-                for evaluation in submission_result.evaluations}
+            outcome_by_codename = outcomes_for_screening(
+                submission_result.evaluations)
             screening_status = twophase.group_screening_status(
                 dataset, outcome_by_codename)
         else:

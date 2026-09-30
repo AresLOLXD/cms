@@ -58,8 +58,8 @@ from .esoperations import ESOperation, get_relevant_operations, \
     any_dataset_declares_dependencies, \
     get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
-    submission_get_operations, submission_to_evaluate, \
-    user_test_get_operations
+    outcomes_for_screening, submission_get_operations, \
+    submission_to_evaluate, user_test_get_operations
 from .flushingdict import FlushingDict
 from .workerpool import WorkerPool
 
@@ -1036,8 +1036,8 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
         """
         dataset = submission_result.dataset
-        outcome_by_codename = {
-            e.codename: e.outcome for e in submission_result.evaluations}
+        outcome_by_codename = outcomes_for_screening(
+            submission_result.evaluations)
         status = twophase.group_screening_status(dataset, outcome_by_codename)
         evaluated_ids = {
             e.testcase_id for e in submission_result.evaluations}
