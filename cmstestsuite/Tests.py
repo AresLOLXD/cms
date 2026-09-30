@@ -21,6 +21,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import cmstestsuite.tasks.batch_and_output as batch_and_output
+import cmstestsuite.tasks.batch_dag as batch_dag
 import cmstestsuite.tasks.batch_fileio as batch_fileio
 import cmstestsuite.tasks.batch_fileio_managed as batch_fileio_managed
 import cmstestsuite.tasks.batch_stdio as batch_stdio
@@ -208,6 +209,23 @@ ALL_TESTS = [
     Test('incorrect-fileio-with-stdio',
          task=batch_fileio, filenames=['incorrect-fileio-with-stdio.%l'],
          languages=ALL_LANGUAGES,
+         checks=[CheckOverallScore(0, 100)]),
+
+    # Subtask dependencies (GroupMin with depends_on).
+
+    Test('correct-dag',
+         task=batch_dag, filenames=['correct-stdio.%l'],
+         languages=(LANG_PYTHON3,),
+         checks=[CheckOverallScore(100, 100)]),
+
+    Test('half-correct-dag',
+         task=batch_dag, filenames=['half-correct-stdio.%l'],
+         languages=(LANG_PYTHON3,),
+         checks=[CheckOverallScore(50, 100)]),
+
+    Test('incorrect-dag',
+         task=batch_dag, filenames=['incorrect-stdio.%l'],
+         languages=(LANG_PYTHON3,),
          checks=[CheckOverallScore(0, 100)]),
 
     # OutputOnly tasks
