@@ -799,6 +799,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         away; once it has run, it clears one pending action from the
         operation's entry.
 
+        The operation is also ignored in the worker pool right here, on
+        the calling thread, after the loop action is scheduled: a
+        worker's answer that takes post_finish_lock before the loop has
+        run the action must already find it ignored. The loop action
+        ignores it again, for an operation the executor hands to a
+        worker in between; a duplicate in the ignore list is harmless.
+
         operation: the operation to dequeue and ignore.
 
         """
@@ -822,6 +829,10 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 # re-enqueue of this operation.
                 self._clear_pending_one(operation)
         self._schedule_loop_action(_do, flush_now=True)
+        try:
+            self.get_executor().pool.ignore_operation(operation)
+        except LookupError:
+            pass  # Ok, the operation wasn't in the pool.
 
     def _threadsafe_notify_scoring_service(self, submission_id: int, dataset_id: int):
         """Tell ScoringService about a new evaluation, safely from any thread.
@@ -1631,6 +1642,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 level, submissions, dataset_id)
             for operation in operations:
                 self._threadsafe_dequeue_and_ignore(operation)
+                # Its twin, queued by an invalidation that asked to
+                # archive the sandbox: not equal to it (archive_sandbox
+                # is part of ESOperation.__eq__), stale all the same.
+                self._threadsafe_dequeue_and_ignore(ESOperation(
+                    operation.type_, operation.object_id,
+                    operation.dataset_id, operation.testcase_codename,
+                    archive_sandbox=True))
 
             # Then we find all existing results in the database, and
             # we remove them.

@@ -45,6 +45,7 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
+import cms.service.EvaluationService as EvaluationServiceModule
 from cms.conf import Address, ServiceCoord
 from cms.db import Submission, UserTest
 from cms.grading import twophase
@@ -123,6 +124,29 @@ class ControllableWorker(FakeWorker):
                 }
             if self.fail_jobs:
                 job["success"] = False
+        return answer
+
+
+class RunLabellingWorker(ControllableWorker):
+    """A ControllableWorker whose answers tell which run produced them.
+
+    Every job of the n-th job group it answers (counting from 1) gets
+    the text ["run n"]: it ends up as the compilation text or the
+    evaluation text in the DB, so a test can tell a stale result from a
+    fresh one.
+
+    """
+
+    def __init__(self, compilation_success: bool = False):
+        super().__init__(compilation_success)
+        self.answered = 0
+
+    @rpc_method
+    async def execute_job_group(self, job_group_dict: dict) -> dict:
+        answer = await super().execute_job_group(job_group_dict)
+        self.answered += 1
+        for job in answer["jobs"]:
+            job["text"] = ["run %d" % self.answered]
         return answer
 
 
@@ -767,6 +791,160 @@ class EvaluationServiceFailurePathsTest(
         self.assertEqual(self.notifications.call_count, 1)
         self.assertEqual(self.scoring_stub.new_evaluation_calls,
                          [fixture.key])
+
+    def _ignored_lines(self, logs) -> list[str]:
+        """Return the log lines of the results dropped as requested."""
+        return [line for line in logs.output
+                if "result ignored as requested" in line]
+
+    async def test_answer_arriving_during_the_invalidation_is_ignored(self):
+        # The worker answers while the invalidation holds the lock, and
+        # the loop runs the invalidation's dequeue (and its ignore) only
+        # after that answer was handled: the ignore the invalidation does
+        # on its own thread is what drops the stale answer.
+        fixture = self._add_fixture()
+        worker = RunLabellingWorker()
+        worker.answers_released.clear()
+        await self._start_worker(worker)
+        await self.service.new_submission(fixture.submission.id)
+        await self._wait_for(lambda: len(worker.jobs) == 1,
+                             "the job to reach the worker")
+        loop = asyncio.get_running_loop()
+        cached: list[tuple[ESOperation, list[str]]] = []
+        real_add = self.service.result_cache.add
+
+        def recording_add(operation, result):
+            cached.append((operation, result.job.text))
+            real_add(operation, result)
+
+        self.service.result_cache.add = recording_add
+
+        # The answer reaches ES once the invalidation holds the lock.
+        answer_arrived = threading.Event()
+        self._gates.append(answer_arrived)
+        real_action_finished = self.service.action_finished
+
+        async def signalling_action_finished(data, shard, error=None):
+            answer_arrived.set()
+            await real_action_finished(data, shard, error)
+
+        self.service.action_finished = signalling_action_finished
+        real_get_relevant_operations = \
+            EvaluationServiceModule.get_relevant_operations
+
+        def answering_get_relevant_operations(*args, **kwargs):
+            loop.call_soon_threadsafe(worker.answers_released.set)
+            answer_arrived.wait(timeout=10)
+            return real_get_relevant_operations(*args, **kwargs)
+
+        # The loop applies the dequeue only once the answer was handled.
+        answer_handled = threading.Event()
+        self._gates.append(answer_handled)
+        real_action_finished_sync = self.service._action_finished_sync
+
+        def signalling_action_finished_sync(*args, **kwargs):
+            try:
+                return real_action_finished_sync(*args, **kwargs)
+            finally:
+                answer_handled.set()
+
+        self.service._action_finished_sync = signalling_action_finished_sync
+        real_dequeue = self.service.dequeue
+
+        def late_dequeue(operation):
+            answer_handled.wait(timeout=10)
+            return real_dequeue(operation)
+
+        self.service.dequeue = late_dequeue
+
+        with patch.object(EvaluationServiceModule, "get_relevant_operations",
+                          answering_get_relevant_operations), \
+                self.assertLogs("cms.service.EvaluationService",
+                                level="INFO") as logs:
+            await self.service.invalidate_submission(
+                submission_id=fixture.submission.id, level="compilation")
+            await self._wait_until_idle()
+
+        self.assertEqual(len(self._ignored_lines(logs)), 1)
+        self.assertEqual(cached, [(fixture.compilation(), ["run 2"])])
+        self.assertEqual(len(worker.jobs), 2)
+        result = self._load_result(fixture)
+        self.assertTrue(result.compilation_failed())
+        self.assertEqual(result.compilation_text, ["run 2"])
+        self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [fixture.key])
+
+    async def test_operation_held_for_a_worker_is_not_sent_after_invalidation(
+        self
+    ):
+        # The executor has popped the operation and waits for a worker
+        # when the invalidation comes: the dequeue takes it out of
+        # _currently_executing, so only the copy queued again is sent.
+        busy = self._add_fixture()
+        waiting = self._add_submission_of(busy)
+        waiting_operation = ESOperation(
+            ESOperation.COMPILATION, waiting.id, busy.dataset.id)
+        worker = RunLabellingWorker()
+        worker.answers_released.clear()
+        await self._start_worker(worker)
+        executor = self.service.get_executor()
+        self.assertTrue(await self.service.enqueue(
+            busy.compilation(), PriorityQueue.PRIORITY_HIGH,
+            busy.submission.timestamp))
+        await self._wait_for(lambda: len(worker.jobs) == 1,
+                             "the first job to reach the worker")
+        self.assertTrue(await self.service.enqueue(
+            waiting_operation, PriorityQueue.PRIORITY_HIGH,
+            waiting.timestamp))
+        await self._wait_for(
+            lambda: executor._currently_executing == [waiting_operation],
+            "the operation to wait for a worker")
+
+        await self.service.invalidate_submission(
+            submission_id=waiting.id, level="compilation")
+
+        self.assertEqual(executor._currently_executing, [])
+        self.assertIn(waiting_operation, executor._operation_queue)
+        self.assertEqual(self.service._pending_operations, {})
+        worker.answers_released.set()
+        await self._wait_until_idle()
+        self.assertCountEqual(
+            [job[1] for job in worker.jobs],
+            [busy.submission.id, waiting.id])
+        self.assertEqual(self.notifications.call_count, 2)
+
+    async def test_invalidation_also_drops_the_archiving_twin(self):
+        # An invalidation asking to archive the sandbox queues operations
+        # with archive_sandbox=True, which are not equal to the ones
+        # get_relevant_operations() builds. A later invalidation must
+        # drop them all the same.
+        fixture = self._add_fixture()
+        twin = ESOperation(
+            ESOperation.COMPILATION, fixture.submission.id,
+            fixture.dataset.id, archive_sandbox=True)
+        worker = RunLabellingWorker()
+        worker.answers_released.clear()
+        await self._start_worker(worker)
+        await self.service.invalidate_submission(
+            submission_id=fixture.submission.id, level="compilation",
+            archive_sandbox=True)
+        await self._wait_for(lambda: twin in self.pool,
+                             "the twin to reach the worker")
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service.invalidate_submission(
+                submission_id=fixture.submission.id, level="compilation")
+            self.assertIn(twin, self.pool._operations_to_ignore[0])
+            worker.answers_released.set()
+            await self._wait_until_idle()
+
+        self.assertEqual(len(self._ignored_lines(logs)), 1)
+        self.assertEqual(len(worker.jobs), 2)
+        self.assertEqual(self._load_result(fixture).compilation_text,
+                         ["run 2"])
+        self.assertEqual(self.notifications.call_count, 1)
 
     # -- the sweeper, driven through _sweep() ----------------------------
 
