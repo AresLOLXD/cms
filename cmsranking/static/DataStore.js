@@ -906,8 +906,9 @@ var DataStore = new function () {
             console.info("Received a 'reload' event");
             self.es.close();
             self.update_network_status(3);
-            // The public view changed (freeze, unfreeze) or the events
-            // missed are gone: the data on the page cannot be updated.
+            // The view changed (hidden, frozen, unfrozen, staff access
+            // revoked) or the events missed are gone: the data on the
+            // page cannot be updated.
             window.location.reload();
         } else {
             console.error("EventSource shouldn't be in state " + self.es.readyState + " during a 'reload' event!");

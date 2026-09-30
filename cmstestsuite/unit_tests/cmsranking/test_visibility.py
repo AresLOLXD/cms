@@ -984,6 +984,10 @@ class TestRealEventStream(VisibilityTestCase):
 class TestStreamsAcrossTransitions(TestRealEventStream):
     """Public event streams across freezes, changes and restarts."""
 
+    # A reload event and a ping, as the chunks of an event stream.
+    RELOAD = b"14\r\nevent:reload\ndata:\n\n\r\n"
+    PING = b"2\r\n:\n\r\n"
+
     def put_freeze(self, freeze_at: int, unfreeze_at: int | None = None,
                    staff_password: str | None = STAFF_HASH):
         """Freeze the group olim from freeze_at to unfreeze_at."""
@@ -1111,7 +1115,8 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.put_score()
         stream.settimeout(0.5)
         received, closed = self.drain(stream)
-        self.assertNotIn(b"event:score", received)
+        # The page reloads into the public view.
+        self.assertEqual(received, self.RELOAD)
         self.assertTrue(closed)
 
     def test_frozen_staff_stream_is_cut_when_the_password_changes(self):
@@ -1161,7 +1166,8 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.put_freeze(int(start) + 2)
         stream = self.open_stream()
         # A ping is the first write after freeze_at.
-        _, closed = self.drain_for(stream, 5)
+        received, closed = self.drain_for(stream, 5)
+        self.assertEqual(received.replace(self.PING, b""), self.RELOAD)
         self.assertTrue(closed)
 
     def test_open_stream_is_cut_when_the_freeze_ends(self):
@@ -1172,7 +1178,8 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.put_freeze(1, int(start) + 2)
         stream = self.open_stream()
         # A ping is the first write after unfreeze_at.
-        _, closed = self.drain_for(stream, 5)
+        received, closed = self.drain_for(stream, 5)
+        self.assertEqual(received.replace(self.PING, b""), self.RELOAD)
         self.assertTrue(closed)
         # The stream the browser opens then is not filtered.
         stream = self.open_stream()
@@ -1188,7 +1195,29 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.put_visibility("olim", True)
         self.put_second_contest()
         received, closed = self.drain(stream)
-        self.assertNotIn(b"c2", received)
+        self.assertEqual(received, self.RELOAD)
+        self.assertTrue(closed)
+
+    def test_open_page_is_told_to_reload_when_hidden(self):
+        # A browser does not retry a stream that got a 403: without the
+        # reload, the page would keep showing the scoreboard.
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.put_second_contest()
+        received, closed = self.drain(stream)
+        self.assertEqual(received, self.RELOAD)
+        self.assertTrue(closed)
+
+    def test_open_page_is_told_to_reload_when_frozen(self):
+        self.put_contest("/olim")
+        self.put_submission()
+        stream = self.open_stream()
+        self.put_freeze(1)
+        # The next write: a score change made after the freeze.
+        self.put_score()
+        received, closed = self.drain(stream)
+        self.assertEqual(received, self.RELOAD)
         self.assertTrue(closed)
 
     def test_only_clients_older_than_a_restart_are_told_to_reinit(self):

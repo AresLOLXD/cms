@@ -173,6 +173,8 @@ def public_frozen_banner(freeze_at: int) -> bytes:
 
 
 BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
+# Makes the ranking page reload itself, into whatever it may see now.
+RELOAD_EVENT = b"event:reload\ndata:\n\n"
 
 
 def staff_cookie_value(secret: str, group: str, staff_password: str) -> str:
@@ -635,9 +637,10 @@ class VisibilityGuard:
 
         The /events handler sends its data through the write() callable
         instead of the returned iterable, so _CutWhenHidden never sees
-        it. Its error handling ends the stream when write() raises, and
-        closing the connection makes the browser reconnect: to get the
-        403, or to be told to reload if the view changed meanwhile.
+        it. Its error handling ends the stream when write() raises. An
+        event stream is told to reload first: a browser does not retry a
+        stream that got a 403, so a page that only reconnected would keep
+        showing the scoreboard of a hidden group.
 
         The public view a request gets is decided when it comes (while
         frozen, the event stream leaves the score events out from the
@@ -662,6 +665,10 @@ class VisibilityGuard:
 
         def guarded_start_response(status, headers, exc_info=None):
             write = start_response(status, headers, exc_info)
+            event_stream = any(
+                key.lower() == "content-type"
+                and value.startswith("text/event-stream")
+                for key, value in headers)
 
             def guarded_write(data):
                 if not self._is_staff(request):
@@ -669,6 +676,10 @@ class VisibilityGuard:
                     if served_as_staff or self.state.settings.hidden(now) \
                             or self.state.last_change(now) > opened_at:
                         _close_connection(start_response)
+                        if event_stream:
+                            # Instead of the data, which the client may
+                            # no longer get.
+                            write(RELOAD_EVENT)
                         raise ConnectionAbortedError(
                             "The ranking changed its visibility.")
                 return write(data)
@@ -714,7 +725,7 @@ class VisibilityGuard:
             return self.app(environ, start_response)
         if path == "/events" and request.method == "GET" and not hidden \
                 and self._missed_a_change(request, now):
-            return Response(b"event:reload\ndata:\n\n", status=200,
+            return Response(RELOAD_EVENT, status=200,
                             mimetype="text/event-stream",
                             headers=NO_STORE)(environ, start_response)
         if not hidden and not frozen:
