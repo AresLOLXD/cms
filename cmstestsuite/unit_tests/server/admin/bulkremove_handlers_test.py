@@ -72,7 +72,7 @@ def make_handler(handler_class=BulkRemoveUsersHandler, *, form=None,
     handler.application = mock.MagicMock()
     handler.request = SimpleNamespace(
         files={} if file is None else {"file": [{"body": file}]})
-    handler._current_user = SimpleNamespace(id=1,
+    handler._current_user = SimpleNamespace(id=1, name="root",
                                             permission_all=permission_all)
     handler.contest = None
     handler.sql_session = mock.MagicMock()
@@ -210,9 +210,48 @@ class TestConfirm(unittest.TestCase):
             handler.sql_session, CONTEST_ID, [7])
         users.assert_not_called()
         handler.schedule_rpc.assert_called_once()
-        self.assertIn(("Se quitaron 1 participaciones", ""),
+        self.assertIn(("Se quitó 1 participación", ""),
                       notifications(handler))
         handler.redirect.assert_called_once_with("/contest/4/users")
+
+    def test_one_user_is_notified_in_the_singular(self):
+        handler, _, _ = self.confirm(
+            BulkRemoveUsersHandler, make_plan(entry(7, "ana")),
+            user_ids=["7"], expected_count="1")
+
+        self.assertIn(("Se borró 1 usuario", ""), notifications(handler))
+
+    def test_several_participations_are_notified_in_the_plural(self):
+        handler, _, _ = self.confirm(
+            BulkRemoveParticipationsHandler,
+            make_plan(entry(7, "ana"), entry(9, "beto")),
+            user_ids=["7", "9"], expected_count="2", contest_id=CONTEST_ID)
+
+        self.assertIn(("Se quitaron 2 participaciones", ""),
+                      notifications(handler))
+
+    def test_a_platform_removal_is_logged(self):
+        plan = make_plan(entry(7, "ana"), entry(9, "beto"))
+        with self.assertLogs(MODULE, level="INFO") as logged:
+            self.confirm(BulkRemoveUsersHandler, plan, user_ids=["7", "9"],
+                         expected_count="2")
+
+        (record,) = logged.records
+        message = record.getMessage()
+        for part in ("root", "2", "platform", "ana", "beto"):
+            self.assertIn(part, message)
+
+    def test_a_contest_removal_is_logged_with_the_contest(self):
+        plan = make_plan(entry(7, "ana"))
+        with self.assertLogs(MODULE, level="INFO") as logged:
+            self.confirm(BulkRemoveParticipationsHandler, plan,
+                         user_ids=["7"], expected_count="1",
+                         contest_id=CONTEST_ID)
+
+        (record,) = logged.records
+        message = record.getMessage()
+        for part in ("root", "1", "dia1", str(CONTEST_ID), "ana"):
+            self.assertIn(part, message)
 
     def test_a_wrong_count_removes_nothing(self):
         for typed in ("3", "", "dos"):
@@ -252,6 +291,16 @@ class TestConfirm(unittest.TestCase):
         handler.schedule_rpc.assert_not_called()
         handler.redirect.assert_called_once_with("/users")
 
+    def test_a_failed_commit_logs_nothing(self):
+        form = {"action": "confirm", "expected_count": "1"}
+        handler = make_handler(form=form, user_ids=["7"])
+        handler.try_commit.return_value = False
+        with mock.patch(MODULE + ".plan_removal",
+                        return_value=make_plan(entry(7, "ana"))), \
+                mock.patch(MODULE + ".remove_users", return_value=1), \
+                self.assertNoLogs(MODULE, level="INFO"):
+            handler._post_sync()
+
     def test_a_failed_removal_rolls_back(self):
         form = {"action": "confirm", "expected_count": "1"}
         handler = make_handler(form=form, user_ids=["7"])
@@ -266,6 +315,39 @@ class TestConfirm(unittest.TestCase):
         handler.schedule_rpc.assert_not_called()
         self.assertEqual(notifications(handler), [
             ("No se borró nada", repr(RuntimeError("boom")))])
+
+    def failed_removal_text(self, error):
+        form = {"action": "confirm", "expected_count": "1"}
+        handler = make_handler(form=form, user_ids=["7"])
+        with mock.patch(MODULE + ".plan_removal",
+                        return_value=make_plan(entry(7, "ana"))), \
+                mock.patch(MODULE + ".remove_users", side_effect=error):
+            handler._post_sync()
+        ((subject, text),) = notifications(handler)
+        self.assertEqual(subject, "No se borró nada")
+        return text
+
+    def test_a_long_database_error_is_shortened(self):
+        error = RuntimeError("wrapper with the whole SQL")
+        error.orig = "x" * 1000
+        text = self.failed_removal_text(error)
+
+        self.assertEqual(len(text), 300)
+        self.assertTrue(text.startswith("x" * 300))
+
+    def test_a_short_database_error_shows_only_the_driver_message(self):
+        error = RuntimeError("wrapper with the whole SQL")
+        error.orig = ValueError("violates foreign key")
+
+        self.assertEqual(self.failed_removal_text(error),
+                         "violates foreign key")
+
+    def test_an_error_without_orig_uses_repr_cut_to_300(self):
+        error = RuntimeError("y" * 1000)
+        text = self.failed_removal_text(error)
+
+        self.assertEqual(text, repr(error)[:300])
+        self.assertEqual(len(text), 300)
 
     def test_confirm_without_users_redirects_back(self):
         form = {"action": "confirm", "expected_count": "0"}

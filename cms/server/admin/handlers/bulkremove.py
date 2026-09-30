@@ -21,6 +21,7 @@
 """
 
 import asyncio
+import logging
 
 from cms.db import Contest
 from cms.server.admin.bulkremove import RemovalPlan, parse_usernames, \
@@ -33,6 +34,9 @@ WRONG_COUNT = ("El número escrito no coincide con el número de usuarios. "
                "No se borró nada.")
 PLAN_CHANGED = ("La selección cambió desde la vista previa: revisa la "
                 "lista y confirma otra vez. No se borró nada.")
+MAX_ERROR_LENGTH = 300
+
+logger = logging.getLogger(__name__)
 
 
 class _BulkRemoveHandler(BaseHandler):
@@ -117,13 +121,28 @@ class _BulkRemoveHandler(BaseHandler):
                     self.sql_session, self.contest.id, plan.user_ids)
         except Exception as error:
             self.sql_session.rollback()
-            self._notify("No se borró nada", repr(error))
+            # A failed DELETE repr() holds the SQL with one placeholder
+            # per id, so show only the database driver's message.
+            orig = getattr(error, "orig", None)
+            text = repr(error) if orig is None else str(orig)
+            self._notify("No se borró nada", text[:MAX_ERROR_LENGTH])
             self.redirect(self._back_url)
             return
         if self.try_commit():
             self.schedule_rpc(self.service.proxy_service.reinitialize)
-            self._notify(("Se borraron %d usuarios" if self.contest is None
-                          else "Se quitaron %d participaciones") % count, "")
+            if self.contest is None:
+                scope = "the platform"
+                subject = "Se borró 1 usuario" if count == 1 \
+                    else "Se borraron %d usuarios" % count
+            else:
+                scope = "contest %s (id %s)" % (self.contest.name,
+                                                self.contest.id)
+                subject = "Se quitó 1 participación" if count == 1 \
+                    else "Se quitaron %d participaciones" % count
+            logger.info("Admin %s removed %d user(s) from %s: %s.",
+                        self.current_user.name, count, scope,
+                        ", ".join(entry.username for entry in plan.users))
+            self._notify(subject, "")
         self.redirect(self._back_url)
 
     def _render_plan(self, plan: RemovalPlan, error: str | None) -> None:
