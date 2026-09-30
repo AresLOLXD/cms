@@ -361,6 +361,24 @@ class TestGateForDataset(unittest.TestCase):
         self.assertEqual(len(logs.records), 1)
         self.assertIn("424242", logs.records[0].getMessage())
 
+    def test_gate_whose_reduce_raises_is_none_and_warns(self):
+        # A GroupThreshold in dict form with dependencies but no
+        # "threshold": it builds, but reduce() raises KeyError as soon as a
+        # testcase is evaluated. The probe in the gate's constructor turns
+        # that into "no gate", instead of an exception in every batch.
+        dataset = Mock()
+        dataset.id = 424243
+        dataset.score_type_parameters = [
+            {"max_score": 50, "testcases": 1},
+            {"max_score": 50, "testcases": 1, "depends_on": [0]}]
+        dataset.score_type_object = GroupThreshold(
+            dataset.score_type_parameters, {"a": True, "b": True}, 2)
+        self.addCleanup(subtaskdag._warned_datasets.discard, 424243)
+        with self.assertLogs("cms.grading.subtaskdag", "WARNING") as logs:
+            self.assertIsNone(subtaskdag.gate_for_dataset(dataset))
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("424243", logs.records[0].getMessage())
+
 
 if __name__ == "__main__":
     unittest.main()
