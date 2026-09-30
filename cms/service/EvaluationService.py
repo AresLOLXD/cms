@@ -381,14 +381,27 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
             # If we got 0 operations, but the submission result is to
             # evaluate, it means that we just need to finalize the
-            # evaluation.
+            # evaluation, provided that every testcase has an evaluation:
+            # finalizing a result with some missing would make scoring
+            # raise.
             if number_of_operations == 0 and submission_to_evaluate(
                     submission_result):
-                logger.info("Result %d(%d) has already all evaluations, "
-                            "finalizing it.", submission.id, dataset.id)
-                submission_result.set_evaluation_outcome()
-                submission_result.sa_session.commit()
-                self.evaluation_ended(submission_result)
+                evaluated_ids = {
+                    e.testcase_id for e in submission_result.evaluations}
+                missing = sorted(
+                    codename for codename, testcase in dataset.testcases.items()
+                    if testcase.id not in evaluated_ids)
+                if missing:
+                    logger.error(
+                        "Result %d(%d) has no operations left but no "
+                        "evaluation for testcase(s) %s, not finalizing it.",
+                        submission.id, dataset.id, ", ".join(missing))
+                else:
+                    logger.info("Result %d(%d) has already all evaluations, "
+                                "finalizing it.", submission.id, dataset.id)
+                    submission_result.set_evaluation_outcome()
+                    submission_result.sa_session.commit()
+                    self.evaluation_ended(submission_result)
 
         return new_operations
 
@@ -846,7 +859,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             # certain, two-phase first (a failed screening can make a
             # dependency fail). See cms/grading/twophase.py and
             # cms/grading/subtaskdag.py.
-            gated_datasets = set()
+            gated_datasets: set[int] = set()
             for type_, _, dataset_id, _ in by_object_and_type.keys():
                 if type_ == ESOperation.EVALUATION \
                         and dataset_id not in gated_datasets:
@@ -917,8 +930,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                         continue
                     if submission_result.evaluated():
                         self.evaluation_ended(submission_result, archive_sandbox)
-                    elif twophase.enabled() or subtaskdag.gate_for_dataset(
-                            submission_result.dataset) is not None:
+                    elif twophase.enabled() or dataset_id in gated_datasets:
                         # Two-phase: some group's screening just passed;
                         # subtask dependencies: some subtask's
                         # dependencies just passed. Either way, push the

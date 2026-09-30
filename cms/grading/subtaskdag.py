@@ -196,6 +196,13 @@ class SubtaskGate:
 
         """
         self._score_type = score_type
+        # statuses() calls reduce() for every evaluated testcase, so a
+        # parameter that reduce() cannot read (for example a GroupThreshold
+        # in dict form without "threshold") would raise in every batch that
+        # touches the dataset. Probe it here, so that gate_for_dataset()
+        # turns it into "no gate" instead.
+        for parameter in score_type.parameters:
+            score_type.reduce([1.0], parameter)
         self.targets: list[list[str]] = \
             score_type.retrieve_target_testcases()
         self.dependencies: list[list[int]] = score_type.dependencies
