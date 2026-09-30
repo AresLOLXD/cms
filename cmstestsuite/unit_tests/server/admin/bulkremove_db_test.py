@@ -214,9 +214,12 @@ class TestRemove(BulkRemoveDatabaseTestCase):
         ana, ana_p = self.add_participant("ana")
         ana_other_p = self.add_participation(user=ana,
                                              contest=self.other_contest)
+        beto, beto_p = self.add_participant("beto")
         self.add_full_history(ana_p)
+        self.add_full_history(beto_p)
         self.session.commit()
         ana_id, ana_p_id, other_id = ana.id, ana_p.id, ana_other_p.id
+        beto_id, beto_p_id = beto.id, beto_p.id
 
         removed = remove_participations(self.session, self.contest.id,
                                         [ana_id])
@@ -229,8 +232,18 @@ class TestRemove(BulkRemoveDatabaseTestCase):
                                     Participation.id == ana_p_id), 0)
         self.assertEqual(self.count(Participation,
                                     Participation.id == other_id), 1)
-        self.assertEqual(self.count(Submission), 0)
-        self.assertEqual(self.count(Question), 0)
+        for model in (Submission, UserTest, Question, Message):
+            self.assertEqual(self.count(
+                model, model.participation_id == ana_p_id), 0,
+                model.__name__)
+            # Only beto's is left.
+            self.assertEqual(self.count(model), 1, model.__name__)
+            self.assertEqual(self.count(
+                model, model.participation_id == beto_p_id), 1,
+                model.__name__)
+        self.assertEqual(self.count(User, User.id == beto_id), 1)
+        self.assertEqual(self.count(Participation,
+                                    Participation.id == beto_p_id), 1)
 
     def test_nothing_to_remove(self):
         self.assertEqual(remove_users(self.session, []), 0)

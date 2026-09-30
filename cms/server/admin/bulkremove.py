@@ -180,6 +180,7 @@ def plan_removal(session: Session, *, contest_id: int | None,
     participating = {p.user_id for p in participations}
 
     ignored: list[tuple[str, str]] = []
+    ignored_seen: set[tuple[str, str]] = set()
     for value, user in chosen:
         if user is None:
             entry = (value, NOT_FOUND)
@@ -188,7 +189,8 @@ def plan_removal(session: Session, *, contest_id: int | None,
             found.pop(user.id, None)
         else:
             continue
-        if entry not in ignored:
+        if entry not in ignored_seen:
+            ignored_seen.add(entry)
             ignored.append(entry)
 
     participation_ids = [p.id for p in participations]
