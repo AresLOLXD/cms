@@ -6,12 +6,12 @@
   <h1>Users list</h1>
 </div>
 
-<form action="{{ url("users") }}" method="POST">
+<form action="{{ url("users", "remove") }}" method="POST">
   {{ xsrf_form_html|safe }}
-  Edit selected user:
-   <input type="submit"
-         name="operation"
-         value="Remove"
+  <input type="hidden" name="action" value="preview"/>
+  Usuarios seleccionados:
+  <input type="submit"
+         value="Borrar seleccionados"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
@@ -19,7 +19,7 @@
   <table class="bordered">
     <thead>
       <tr>
-        <th></th>
+        <th><input type="checkbox" id="select_all_users" title="Seleccionar todo"/></th>
         <th>Username</th>
         <th>First name</th>
         <th>Last name</th>
@@ -29,7 +29,7 @@
       {% for u in user_list|sort(attribute="username") %}
       <tr>
         <td>
-          <input type="radio" name="user_id" value="{{ u.id }}"/>
+          <input type="checkbox" name="user_id" value="{{ u.id }}"/>
         </td>
         <td><a href="{{ url("user", u.id) }}">{{ u.username }}</a></td>
         <td>{{ u.first_name }}</td>
@@ -39,5 +39,31 @@
     </tbody>
   </table>
 </form>
+
+<h2>Borrar por lista</h2>
+<form action="{{ url("users", "remove") }}" method="POST"
+      enctype="multipart/form-data">
+  {{ xsrf_form_html|safe }}
+  <input type="hidden" name="action" value="preview"/>
+  <p>Un username por línea, o un CSV cuya primera columna sea el username.</p>
+  <textarea name="usernames" rows="6" cols="40"></textarea><br>
+  <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain"/><br>
+  <input type="submit"
+         value="Revisar lista"
+{% if not admin.permission_all %}
+         disabled
+{% endif %}
+         />
+</form>
+
+<script>
+document.getElementById("select_all_users").addEventListener(
+    "change", function () {
+        var boxes = document.querySelectorAll('input[name="user_id"]');
+        for (var i = 0; i < boxes.length; i++) {
+            boxes[i].checked = this.checked;
+        }
+    });
+</script>
 
 {% endblock core %}
