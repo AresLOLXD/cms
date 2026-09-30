@@ -95,7 +95,7 @@ class TestParseDependencies(unittest.TestCase):
                  "depends_on": None}])
 
     def test_cycle_with_downstream(self):
-        with self.assertRaisesRegex(ValueError, "2, 3, 4"):
+        with self.assertRaisesRegex(ValueError, r": 2, 3, 4\."):
             subtaskdag.parse_dependencies([
                 {},
                 {"max_score": 10},
@@ -156,9 +156,11 @@ class TestZeroedBy(unittest.TestCase):
             [None, None, None, 1])
 
     def test_uses_topological_order(self):
+        # A chain numbered backwards: 0 depends on 1, which depends on 2.
+        # Visiting subtasks by index would zero 1 but miss 0.
         self.assertEqual(
-            subtaskdag.zeroed_by([1.0, 1.0, 0.0], [[2], [0], []]),
-            [2, 0, None])
+            subtaskdag.zeroed_by([1.0, 1.0, 0.0], [[1], [2], []]),
+            [1, 2, None])
 
 
 if __name__ == "__main__":
