@@ -45,6 +45,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select, func
 from sqlalchemy.orm.exc import NoResultFound
 
 from cms import config
@@ -53,7 +54,7 @@ from cms.grading.languagemanager import get_language
 from cms.grading.steps import COMPILATION_MESSAGES, EVALUATION_MESSAGES
 from cms.server import multi_contest
 from cms.server.util import normalize_login_next_page
-from cms.server.contest.authentication import validate_login
+from cms.server.contest.authentication import validate_login_async
 from cms.server.contest.communication import get_communications
 from cmscommon.crypto import hash_password, validate_password
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -104,10 +105,11 @@ class RegistrationHandler(ContestHandler):
 
             # Check if the participation exists
             contest = self.contest
-            tot_participants = self.sql_session.query(Participation)\
-                                   .filter(Participation.user == user)\
-                                   .filter(Participation.contest == contest)\
-                                   .count()
+            tot_participants = self.sql_session.execute(
+                select(func.count()).select_from(Participation)
+                .filter(Participation.user == user)
+                .filter(Participation.contest == contest)
+            ).scalar_one()
             if tot_participants > 0:
                 raise tornado.web.HTTPError(409)
 
@@ -129,8 +131,9 @@ class RegistrationHandler(ContestHandler):
 
         self.r_params["MAX_INPUT_LENGTH"] = self.MAX_INPUT_LENGTH
         self.r_params["MIN_PASSWORD_LENGTH"] = self.MIN_PASSWORD_LENGTH
-        self.r_params["teams"] = self.sql_session.query(Team)\
-                                     .order_by(Team.name).all()
+        self.r_params["teams"] = self.sql_session.execute(
+            select(Team).order_by(Team.name)
+        ).scalars().all()
 
         self.render("register.html", **self.r_params)
 
@@ -162,8 +165,10 @@ class RegistrationHandler(ContestHandler):
         password = hash_password(password)
 
         # Check if the username is available
-        tot_users = self.sql_session.query(User)\
-                        .filter(User.username == username).count()
+        tot_users = self.sql_session.execute(
+            select(func.count()).select_from(User)
+            .filter(User.username == username)
+        ).scalar_one()
         if tot_users != 0:
             # HTTP 409: Conflict
             raise tornado.web.HTTPError(409)
@@ -180,8 +185,9 @@ class RegistrationHandler(ContestHandler):
 
         # Find user if it exists
         user: User | None = (
-            self.sql_session.query(User).filter(
-                User.username == username).first()
+            self.sql_session.execute(
+                select(User).filter(User.username == username)
+            ).scalars().first()
         )
         if user is None:
             raise tornado.web.HTTPError(404)
@@ -194,12 +200,15 @@ class RegistrationHandler(ContestHandler):
 
     def _get_team(self) -> Team | None:
         # If we have teams, we assume that the 'team' field is mandatory
-        if self.sql_session.query(Team).count() > 0:
+        if self.sql_session.execute(
+                select(func.count()).select_from(Team)
+        ).scalar_one() > 0:
             try:
                 team_code: str = self.get_argument("team")
                 team: Team | None = (
-                    self.sql_session.query(Team).filter(
-                        Team.code == team_code).one()
+                    self.sql_session.execute(
+                        select(Team).filter(Team.code == team_code)
+                    ).scalar_one()
                 )
             except (tornado.web.MissingArgumentError, NoResultFound):
                 raise tornado.web.HTTPError(400)
@@ -214,7 +223,7 @@ class LoginHandler(ContestHandler):
 
     """
     @multi_contest
-    def post(self):
+    async def post(self):
         error_args = {"login_error": "true"}
         next_page: str | None = self.get_argument("next", None)
         if next_page is not None:
@@ -232,11 +241,14 @@ class LoginHandler(ContestHandler):
                            self.request.remote_ip)
             return None
 
-        participation, cookie = validate_login(
+        # Read it now: validate_login_async ends the session's transaction,
+        # which expires the contest.
+        cookie_name = self.contest.name + "_login"
+
+        participation, cookie = await validate_login_async(
             self.sql_session, self.contest, self.timestamp, username, password,
             ip_address)
 
-        cookie_name = self.contest.name + "_login"
         if cookie is None:
             self.clear_cookie(cookie_name)
         else:

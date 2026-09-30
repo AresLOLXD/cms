@@ -36,6 +36,7 @@ from abc import ABCMeta, abstractmethod
 import typing
 
 import gevent
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from cms import config, mkdir, rmtree
@@ -432,7 +433,7 @@ class DBBackend(FileCacherBackend):
 
             """
             return list((x.digest, x.description)
-                        for x in session.query(FSObject))
+                        for x in session.execute(select(FSObject)).scalars())
 
         if session is not None:
             return _list(session)

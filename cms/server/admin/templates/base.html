@@ -218,6 +218,22 @@ $(document).ready(init);
           </li>
 {% endif %}
         </ul>
+
+        <h1><a class="menu_link" href="{{ url("ranking_groups") }}">Ranking groups</a></h1>
+        <ul class="menu">
+          <li>
+            <a class="menu_link" href="{{ url("ranking_groups") }}">
+              (show the {{ ranking_group_list|length }} ranking groups...)
+            </a>
+          </li>
+{% if admin.permission_all %}
+          <li class="menu_entry">
+            <a class="menu_link" href="{{ url("ranking_groups", "add") }}">
+              (create new ranking group...)
+            </a>
+          </li>
+{% endif %}
+        </ul>
         {% else %}
           <ul class="menu">
             <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id) }}">General</a></li>

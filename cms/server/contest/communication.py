@@ -30,6 +30,8 @@
 from datetime import datetime
 import logging
 
+from sqlalchemy import select
+
 from cms.db import Question, Announcement, Message
 from cms.db.session import Session
 from cms.db.user import Participation
@@ -147,12 +149,12 @@ def get_communications(
     res = list()
 
     # Announcements
-    query = sql_session.query(Announcement) \
+    query = select(Announcement) \
         .filter(Announcement.contest == participation.contest) \
         .filter(Announcement.timestamp <= timestamp)
     if after is not None:
         query = query.filter(Announcement.timestamp > after)
-    for announcement in query.all():
+    for announcement in sql_session.execute(query).scalars():
         announcement: Announcement
         res.append({"type": "announcement",
                     "timestamp": make_timestamp(announcement.timestamp),
@@ -160,12 +162,12 @@ def get_communications(
                     "text": announcement.text})
 
     # Private messages
-    query = sql_session.query(Message) \
+    query = select(Message) \
         .filter(Message.participation == participation) \
         .filter(Message.timestamp <= timestamp)
     if after is not None:
         query = query.filter(Message.timestamp > after)
-    for message in query.all():
+    for message in sql_session.execute(query).scalars():
         message: Message
         res.append({"type": "message",
                     "timestamp": make_timestamp(message.timestamp),
@@ -173,13 +175,13 @@ def get_communications(
                     "text": message.text})
 
     # Answers to questions
-    query = sql_session.query(Question) \
+    query = select(Question) \
         .filter(Question.participation == participation) \
         .filter(Question.reply_timestamp.isnot(None)) \
         .filter(Question.reply_timestamp <= timestamp)
     if after is not None:
         query = query.filter(Question.reply_timestamp > after)
-    for question in query.all():
+    for question in sql_session.execute(query).scalars():
         question: Question
         subject = question.reply_subject
         text = question.reply_text

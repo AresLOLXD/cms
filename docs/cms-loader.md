@@ -1,5 +1,9 @@
 # CMS-Loader
 
+> AWS can now import users and participations itself; see
+> [importing-users.md](importing-users.md). CMS-Loader will be removed
+> after 2026-10-10.
+
 [CMS-Loader](https://github.com/AresLOLXD/CMS-Loader) is a browser-based tool
 for bulk-importing users and contest participations via CSV. It is bundled
 directly inside the CMS Docker image and managed by supervisord alongside the

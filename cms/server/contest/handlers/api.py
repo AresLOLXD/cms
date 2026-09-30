@@ -21,10 +21,12 @@
 import ipaddress
 import logging
 
+from sqlalchemy import select
+
 from cms import FEEDBACK_LEVEL_FULL
 from cms.db.submission import Submission
 from cms.server import multi_contest
-from cms.server.contest.authentication import validate_login
+from cms.server.contest.authentication import validate_login_async
 from cms.server.contest.submission import UnacceptableSubmission, accept_submission
 from .contest import ContestHandler, api_login_required
 from ..phase_management import actual_phase_required
@@ -44,7 +46,7 @@ class ApiLoginHandler(ApiContestHandler):
     """Login handler."""
 
     @multi_contest
-    def post(self):
+    async def post(self):
         current_user = self.get_current_user()
 
         username = self.get_argument("username", "")
@@ -81,7 +83,11 @@ class ApiLoginHandler(ApiContestHandler):
             )
             return None
 
-        participation, login_data = validate_login(
+        # Read it now: validate_login_async ends the session's transaction,
+        # which expires the contest.
+        cookie_name = self.contest.name + "_login"
+
+        participation, login_data = await validate_login_async(
             self.sql_session,
             self.contest,
             self.timestamp,
@@ -94,7 +100,6 @@ class ApiLoginHandler(ApiContestHandler):
         if participation is None:
             self.json({"error": "Login failed"}, 403)
         elif login_data is not None:
-            cookie_name = self.contest.name + "_login"
             self.json(
                 {
                     "login_data": self.create_signed_value(
@@ -187,7 +192,10 @@ class ApiSubmitHandler(ApiContestHandler):
             self.json({"error": e.subject, "details": e.formatted_text}, 422)
         else:
             logger.info(f"API submission accepted: Submission ID {submission.id}")
-            self.service.evaluation_service.new_submission(submission_id=submission.id)
+            self.schedule_rpc(
+                self.service.evaluation_service.new_submission,
+                submission_id=submission.id,
+            )
             self.json({"id": str(submission.opaque_id)})
 
 
@@ -203,9 +211,12 @@ class ApiSubmissionListHandler(ApiContestHandler):
             self.json({"error": "Not found"}, 404)
             return
         submissions: list[Submission] = (
-            self.sql_session.query(Submission)
-            .filter(Submission.participation == self.current_user)
-            .filter(Submission.task == task)
+            self.sql_session.execute(
+                select(Submission)
+                .filter(Submission.participation == self.current_user)
+                .filter(Submission.task == task)
+            )
+            .scalars()
             .all()
         )
         self.json({"list": [{"id": str(s.opaque_id)} for s in submissions]})

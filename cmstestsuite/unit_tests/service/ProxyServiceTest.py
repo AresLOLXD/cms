@@ -20,23 +20,22 @@
 
 """
 
-# We enable monkey patching to make many libraries gevent-friendly
-# (for instance, urllib3, used by requests)
-import gevent.monkey
-gevent.monkey.patch_all()  # noqa
-
+import asyncio
 import unittest
 from unittest.mock import patch, PropertyMock
 
-import gevent
-
-from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
-
+from cms.conf import Address
 from cms.service.ProxyService import ProxyService
 from cmscommon.constants import SCORE_MODE_MAX
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 
-class TestProxyService(DatabaseMixin, unittest.TestCase):
+class TestProxyService(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
 
     def setUp(self):
         super().setUp()
@@ -75,6 +74,22 @@ class TestProxyService(DatabaseMixin, unittest.TestCase):
 
         self.session.commit()
 
+    async def asyncSetUp(self):
+        address_patcher = patch(
+            "cms.io.async_service.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        address_patcher.start()
+        self.addCleanup(address_patcher.stop)
+
+        # ProxyService.__init__ (via AsyncService.__init__) connects to
+        # LogService, which goes through async_rpc's own imported
+        # reference to get_service_address.
+        rpc_address_patcher = patch(
+            "cms.io.async_rpc.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        rpc_address_patcher.start()
+        self.addCleanup(rpc_address_patcher.stop)
+
     def new_sr_unscored(self):
         submission = self.add_submission(task=self.task,
                                          participation=self.participation)
@@ -93,11 +108,54 @@ class TestProxyService(DatabaseMixin, unittest.TestCase):
         result.ranking_score_details = ["100"]
         return result
 
-    def test_startup(self):
-        """Test that data is sent in the right order at startup."""
-        ProxyService(0, self.contest.id)
+    async def _wait_until(self, predicate, attempts: int = 50) -> None:
+        """Poll predicate() until it is true, or give up.
 
-        gevent.sleep(0.1)
+        The background executor.run() task (spawned by
+        ProxyService.__init__'s add_executor, since a running loop
+        already exists when the service is constructed here) processes
+        enqueued operations asynchronously, so assertions on their
+        effects (the mocked HTTP calls) need to wait for it.
+
+        predicate: a zero-argument callable to poll.
+        attempts: how many times to poll, sleeping 0.05s between tries.
+
+        """
+        for _ in range(attempts):
+            if predicate():
+                return
+            await asyncio.sleep(0.05)
+
+    async def _build_service(self) -> ProxyService:
+        """Build a ProxyService safe to drive from a running loop.
+
+        Mirrors proxyservice_groups_test.py's start(): constructs the
+        service while this test's own event loop is already running
+        (so __init__'s initialize() call enqueues its initial contest/
+        user/task batch synchronously, since self._loop is still None
+        at that point), sets self._loop explicitly afterwards so any
+        later _threadsafe_enqueue call takes its call_soon_threadsafe
+        branch as it would in production, and stubs out start_sweeper
+        so its background sweep can't race with the explicit
+        _missing_operations() call below -- which does the same work
+        the sweeper's first run would do in production, sending the
+        already-scored/tokened submissions this test asserts on.
+
+        """
+        with patch.object(
+                ProxyService, "start_sweeper", lambda self, timeout: None):
+            service = ProxyService(0, self.contest.id)
+        service._loop = asyncio.get_running_loop()
+        self.addCleanup(service._disconnect_all)
+        await service._missing_operations()
+        return service
+
+    async def test_startup(self):
+        """Test that data is sent in the right order at startup."""
+        await self._build_service()
+
+        await self._wait_until(
+            lambda: len(self.requests_put.call_args_list) >= 6)
 
         urls = [args[0] for args, _ in self.requests_put.call_args_list]
 

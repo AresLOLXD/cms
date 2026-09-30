@@ -50,6 +50,27 @@ dependencies) that we don't want to wait on upstream for — happen on the
 **`beta`** branch instead, before they're considered stable enough to land
 here.
 
+### Beta-line modernization
+
+The main effort on `beta` right now is retiring gevent in favor of Python's
+native `asyncio`, one layer of the system at a time:
+
+| Stage | Status | What it does |
+|-------|--------|---------------|
+| SQLAlchemy 2.0 migration | Done | Move the whole codebase off the legacy `Query` API to SQLAlchemy 2.0's `select()` style |
+| `cms/io/` gevent → asyncio | Done | New `AsyncService`/`AsyncTriggeredService` runtime, RPC client/server ported to native asyncio |
+| Async DB access | Infrastructure only | Async-safe session/query layer (`AsyncSessionGen`) exists and is ready, but no consumers yet |
+| Service migration | Done | `EvaluationService`, `ScoringService`, `ProxyService`, `Checker`, `ResourceService`, `LogService` ported to `AsyncService`/`AsyncTriggeredService`; `Worker` remains gevent (deferred to post-October-10) |
+| `WebService`/Tornado-native | Done | `WebService` and the admin/contest RPC handlers now run on native Tornado instead of gevent-patched WSGI |
+| AdminWebServer handlers | Done | `cms/server/admin/handlers/` run their blocking DB work off the event loop, and admin login/session uses native Tornado secure cookies |
+| ContestWebServer handlers | Planned | Same migration for the contestant-facing server |
+
+Each stage (except Service migration, which was coordinated per-service) has a written design spec under
+[`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `beta`
+once implemented, reviewed, and its tests pass. `docker/_cms-test-internal.sh`
+also gained a gevent/asyncio-aware test split so both the legacy and
+migrated code can be tested in CI without the two colliding.
+
 ---
 
 ## Features
@@ -59,10 +80,13 @@ here.
 | Docker deployment | Stand up the full system with `./up.sh` | [Deploy with Docker](#deploy-with-docker) |
 | Helper scripts | `up`, `down`, `logs`, `restart`, `contest`, `sync-upstream` | [docs/docker-scripts.md](docs/docker-scripts.md) |
 | CMS-Loader | Bulk-import users and participations via CSV from the browser | [docs/cms-loader.md](docs/cms-loader.md) |
+| AWS user import | Bulk-import users and participations via CSV from the Admin Web Server, one file per contest | [docs/importing-users.md](docs/importing-users.md) |
+| Subtask dependencies | A subtask whose prerequisite scored 0 is worth 0 and is not graded | [docs/subtask-dependencies.md](docs/subtask-dependencies.md) |
 | Rekarel | Karel compiler and interpreter bundled in the Docker image | [docs/rekarel.md](docs/rekarel.md) |
 | Ranking: flags and teams | Real Mexican state flags + automatic team registration on startup | [docs/ranking-mexico.md](docs/ranking-mexico.md) |
 | Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
 | External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it, plus optional two-phase fail-fast grading (`CMS_TWO_PHASE_EVALUATION`) that screens a few testcases per subtask before running the rest | [.env.example](.env.example) |
+| Several contests at once | `CMS_CONTEST_ID=ALL` serves every active contest; each ranking group gets its own scoreboard at `/<group>/`, managed and regenerated from the Admin Web Server | [docs/multi-contest.md](docs/multi-contest.md), [migration guide](docs/migrating-to-multi-contest.md) |
 
 ---
 
@@ -105,7 +129,7 @@ in the values marked `CHANGE_ME`:
 | `POSTGRES_PASSWORD` | Password for the Docker-managed PostgreSQL database (required for Option A). Must match the password in `CMS_DB_URL`. |
 | `CMS_ADMIN_USER` | Username for the initial admin account created on first run. Can be removed after the first deploy. |
 | `CMS_ADMIN_PASSWORD` | Password for the initial admin account created on first run. Can be removed after the first deploy. |
-| `CMS_CONTEST_ID` | The numeric ID of the contest to serve. You get this from the Admin interface after importing a contest — set it then and restart. |
+| `CMS_CONTEST_ID` | The numeric ID of the contest to serve, or `ALL` to serve every active contest at once (see [docs/multi-contest.md](docs/multi-contest.md)). You get the ID from the Admin interface after importing a contest — set it then and restart. |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
@@ -117,7 +141,7 @@ Everything else has a sensible default and can be left as-is on the first try.
 
 The script asks two questions:
 - **Use local database (Docker)?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly.
-- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image).
+- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment follows the two steps in [docs/multi-contest.md](docs/multi-contest.md) instead.
 
 ### Step 4 — Import a contest and set it as active
 
@@ -182,12 +206,14 @@ the `cms` container ran. The volume is now mounted on `/home/cmsuser/cms/data`,
 which holds only runtime data (submission and user-test copies, Telegram bot
 state). It keeps its name and its contents, so nothing is lost.
 
-After updating to this version you **must rebuild the CMS image**: run
-`./up.sh` and choose `2) All services` (or `4) CMS only`). `3) Ranking only` is
-not enough: it builds only the ranking image but then starts every service,
-so `cms` is recreated with the old image. Never start this version with an old
-image, which is also what `1) No`
-does (the default in `./up.sh`, `./restart.sh` and `./contest.sh`): the old
+After updating to this version you **must rebuild the CMS image**. For a
+single-contest deployment run `./up.sh` and choose `4) CMS only` (or `2) All
+services`). For a multi-contest deployment follow the two steps of "Deployment"
+in [docs/multi-contest.md](docs/multi-contest.md): `./up.sh` and `3) Ranking
+only` first (it starts only the ranking container, so `cms` is not recreated
+from its old image), then `./up.sh` and `4) CMS only`. Never start this version
+with an old image, which is also what `1) No` does (the default in `./up.sh`,
+`./restart.sh` and `./contest.sh`): the old
 image does not know the new `data_dir`, so submission and user-test copies go to
 the container's own filesystem and are lost the next time it is recreated, and
 the Telegram bot re-sends every question and announcement. Once rebuilt, the

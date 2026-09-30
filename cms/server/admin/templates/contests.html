@@ -22,6 +22,8 @@
         <th></th>
         <th>Name</th>
         <th>Description</th>
+        <th>Active</th>
+        <th>Ranking group</th>
       </tr>
     </thead>
     <tbody>
@@ -32,6 +34,8 @@
         </td>
         <td><a href="{{ url("contest", c.id) }}">{{ c.name }}</a></td>
         <td>{{ c.description }}</td>
+        <td>{{ "yes" if c.active else "no" }}</td>
+        <td>{{ c.ranking_group.name if c.ranking_group is not none else "" }}</td>
       </tr>
       {% endfor %}
     </tbody>

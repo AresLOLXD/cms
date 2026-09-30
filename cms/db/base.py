@@ -35,7 +35,7 @@ from sqlalchemy.types import \
 
 from cms.db.session import Session
 
-from . import engine, metadata, CastingArray, Codename, Filename, \
+from . import metadata, CastingArray, Codename, Filename, \
     FilenameSchema, FilenameSchemaArray, Digest
 
 
@@ -69,6 +69,14 @@ class Base:
     base class given by SQLAlchemy.
 
     """
+    # This codebase maps its models the classic way (Column() attributes
+    # plus separate, non-Mapped[] type annotations), not via SQLAlchemy
+    # 2.0's Annotated Declarative Table form. Without this, 2.0 raises
+    # MappedAnnotationError for every plain type annotation on a mapped
+    # class. This is SQLAlchemy's own documented opt-out for this style;
+    # it changes no column, relationship, or model behavior.
+    __allow_unmapped__ = True
+
     @property
     def sa_mapper(self):
         return object_mapper(self)
@@ -208,12 +216,12 @@ class Base:
 
         """
         try:
-            # The .get() method returns None if the object isn't in the
+            # session.get() returns None if the object isn't in the
             # identity map of the session nor in the database, but
             # raises ObjectDeletedError in case it was in the identity
             # map, got marked as expired but couldn't be found in the
             # database again.
-            return session.query(cls).get(id_)
+            return session.get(cls, id_)
         except ObjectDeletedError:
             return None
 
@@ -327,4 +335,10 @@ class Base:
 # doesn't consider Base to be a valid base class, and thus all derived classes
 # will be missing the methods from Base.
 if not typing.TYPE_CHECKING:
-    Base = as_declarative(bind=engine, metadata=metadata, constructor=None)(Base)
+    # SQLAlchemy 2.0's registry.generate_base() no longer accepts a
+    # constructor=None kwarg to keep Base's own __init__ (it always sets
+    # __init__ = registry.constructor); restore our custom __init__
+    # afterwards to preserve the previous behavior.
+    _original_init = Base.__init__
+    Base = as_declarative(metadata=metadata)(Base)
+    Base.__init__ = _original_init

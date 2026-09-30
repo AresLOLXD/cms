@@ -44,6 +44,8 @@ import logging
 import os
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db.session import Session
 from cms.db import SessionGen, User, Team, Participation, Task, Contest, Group
@@ -162,9 +164,9 @@ class ContestImporter:
             the user did not ask to update any data.
 
         """
-        contest: Contest | None = (
-            session.query(Contest).filter(Contest.name == new_contest.name).first()
-        )
+        contest: Contest | None = session.execute(
+            select(Contest).filter(Contest.name == new_contest.name)
+        ).scalars().first()
 
         if contest is None:
             # Contest not present, we import it.
@@ -215,7 +217,9 @@ class ContestImporter:
 
         """
         task_loader = self.loader.get_task_loader(taskname)
-        task: Task | None = session.query(Task).filter(Task.name == taskname).first()
+        task: Task | None = session.execute(
+            select(Task).filter(Task.name == taskname)
+        ).scalars().first()
 
         if task is None:
             # Task is not in the DB; if the user asked us to import it, we do
@@ -283,18 +287,18 @@ class ContestImporter:
             - the team for this participation does not already exist in the DB.
 
         """
-        user: User | None = (
-            session.query(User).filter(User.username == new_p["username"]).first()
-        )
+        user: User | None = session.execute(
+            select(User).filter(User.username == new_p["username"])
+        ).scalars().first()
         if user is None:
             # FIXME: it would be nice to automatically try to import.
             raise ImportDataError("User \"%s\" not found in database. "
                                   "Use cmsImportUser to import it." %
                                   new_p["username"])
 
-        team: Team | None = (
-            session.query(Team).filter(Team.code == new_p.get("team")).first()
-        )
+        team: Team | None = session.execute(
+            select(Team).filter(Team.code == new_p.get("team"))
+        ).scalars().first()
         if team is None and new_p.get("team") is not None:
             # FIXME: it would be nice to automatically try to import.
             raise ImportDataError("Team \"%s\" not found in database. "
@@ -302,12 +306,11 @@ class ContestImporter:
                                   % new_p.get("team"))
 
         # Check that the participation is not already defined.
-        p: Participation | None = (
-            session.query(Participation)
+        p: Participation | None = session.execute(
+            select(Participation)
             .filter(Participation.user_id == user.id)
             .filter(Participation.contest_id == contest.id)
-            .first()
-        )
+        ).scalars().first()
 
         # Prepare new participation
         args = {
@@ -352,12 +355,11 @@ class ContestImporter:
         """
         # Check whether a group of this name already exists for
         # the given contest
-        g: Group | None = (
-            session.query(Group)
+        g: Group | None = session.execute(
+            select(Group)
             .filter(Group.name == new_g.name)
             .filter(Group.contest_id == contest.id)
-            .first()
-        )
+        ).scalars().first()
 
         if g is not None:
             update_group(g, new_g)

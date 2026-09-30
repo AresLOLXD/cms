@@ -27,6 +27,7 @@
 
 """
 
+import asyncio
 import io
 import logging
 import re
@@ -40,6 +41,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms.db import Dataset, Manager, Message, Participation, \
     Session, Submission, Task, Testcase
@@ -58,12 +60,16 @@ class DatasetSubmissionsHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
 
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.task == task)
         page = int(self.get_query_argument("page", 0))
         self.render_params_for_submissions(submission_query, page)
@@ -71,10 +77,11 @@ class DatasetSubmissionsHandler(BaseHandler):
         self.r_params["task"] = task
         self.r_params["active_dataset"] = task.active_dataset
         self.r_params["shown_dataset"] = dataset
-        self.r_params["datasets"] = \
-            self.sql_session.query(Dataset)\
-                            .filter(Dataset.task == task)\
-                            .order_by(Dataset.description).all()
+        self.r_params["datasets"] = self.sql_session.execute(
+            select(Dataset)
+            .filter(Dataset.task == task)
+            .order_by(Dataset.description)
+        ).scalars().all()
         self.render("dataset.html", **self.r_params)
 
 
@@ -89,7 +96,11 @@ class CloneDatasetHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id_to_copy):
+    async def get(self, dataset_id_to_copy):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id_to_copy)
+
+    def _get_sync(self, dataset_id_to_copy):
         dataset = self.safe_get_item(Dataset, dataset_id_to_copy)
         task = self.safe_get_item(Task, dataset.task_id)
         self.contest = task.contest
@@ -111,7 +122,11 @@ class CloneDatasetHandler(BaseHandler):
         self.render("add_dataset.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id_to_copy):
+    async def post(self, dataset_id_to_copy):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id_to_copy)
+
+    def _post_sync(self, dataset_id_to_copy):
         fallback_page = self.url("dataset", dataset_id_to_copy, "clone")
 
         dataset = self.safe_get_item(Dataset, dataset_id_to_copy)
@@ -180,7 +195,11 @@ class RenameDatasetHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -191,7 +210,11 @@ class RenameDatasetHandler(BaseHandler):
         self.render("rename_dataset.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         fallback_page = self.url("dataset", dataset_id, "rename")
 
         dataset = self.safe_get_item(Dataset, dataset_id)
@@ -222,7 +245,11 @@ class DeleteDatasetHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -233,7 +260,11 @@ class DeleteDatasetHandler(BaseHandler):
         self.render("delete_dataset.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
 
@@ -250,7 +281,11 @@ class ActivateDatasetHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -276,22 +311,26 @@ class ActivateDatasetHandler(BaseHandler):
         self.render("activate_dataset.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
 
         task.active_dataset = dataset
 
         if self.try_commit():
-            self.service.proxy_service.dataset_updated(
-                task_id=task.id)
+            self.schedule_rpc(self.service.proxy_service.dataset_updated,
+                              task_id=task.id)
 
             # This kicks off judging of any submissions which were previously
             # unloved, but are now part of an autojudged taskset.
-            self.service\
-                .evaluation_service.search_operations_not_done()
-            self.service\
-                .scoring_service.search_operations_not_done()
+            self.schedule_rpc(
+                self.service.evaluation_service.search_operations_not_done)
+            self.schedule_rpc(
+                self.service.scoring_service.search_operations_not_done)
 
         # Now send notifications to contestants.
         datetime = make_datetime()
@@ -323,7 +362,11 @@ class ToggleAutojudgeDatasetHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
 
         dataset.autojudge = not dataset.autojudge
@@ -333,10 +376,10 @@ class ToggleAutojudgeDatasetHandler(BaseHandler):
 
             # This kicks off judging of any submissions which were previously
             # unloved, but are now part of an autojudged taskset.
-            self.service\
-                .evaluation_service.search_operations_not_done()
-            self.service\
-                .scoring_service.search_operations_not_done()
+            self.schedule_rpc(
+                self.service.evaluation_service.search_operations_not_done)
+            self.schedule_rpc(
+                self.service.scoring_service.search_operations_not_done)
 
         self.write("./%d" % dataset.task_id)
 
@@ -346,7 +389,11 @@ class AddManagerHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -357,7 +404,11 @@ class AddManagerHandler(BaseHandler):
         self.render("add_manager.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         fallback_page = self.url("dataset", dataset_id, "managers", "add")
 
         dataset = self.safe_get_item(Dataset, dataset_id)
@@ -397,7 +448,11 @@ class DeleteManagerHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, dataset_id, manager_id):
+    async def delete(self, dataset_id, manager_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, dataset_id, manager_id)
+
+    def _delete_sync(self, dataset_id, manager_id):
         manager = self.safe_get_item(Manager, manager_id)
         dataset = self.safe_get_item(Dataset, dataset_id)
 
@@ -418,7 +473,11 @@ class AddTestcaseHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -429,7 +488,11 @@ class AddTestcaseHandler(BaseHandler):
         self.render("add_testcase.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         fallback_page = self.url("dataset", dataset_id, "testcases", "add")
 
         dataset = self.safe_get_item(Dataset, dataset_id)
@@ -479,7 +542,7 @@ class AddTestcaseHandler(BaseHandler):
 
         if self.try_commit():
             # max_score and/or extra_headers might have changed.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
             self.redirect(self.url("task", task.id))
         else:
             self.redirect(fallback_page)
@@ -490,7 +553,11 @@ class AddTestcasesHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -501,7 +568,11 @@ class AddTestcasesHandler(BaseHandler):
         self.render("add_testcases.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         fallback_page = \
             self.url("dataset", dataset_id, "testcases", "add_multiple")
 
@@ -544,7 +615,7 @@ class AddTestcasesHandler(BaseHandler):
 
         self.service.add_notification(
             make_datetime(), successful_subject, successful_text)
-        self.service.proxy_service.reinitialize()
+        self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(self.url("task", task.id))
 
 
@@ -553,7 +624,11 @@ class DeleteTestcaseHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, dataset_id, testcase_id):
+    async def delete(self, dataset_id, testcase_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, dataset_id, testcase_id)
+
+    def _delete_sync(self, dataset_id, testcase_id):
         testcase = self.safe_get_item(Testcase, testcase_id)
         dataset = self.safe_get_item(Dataset, dataset_id)
 
@@ -567,7 +642,7 @@ class DeleteTestcaseHandler(BaseHandler):
 
         if self.try_commit():
             # max_score and/or extra_headers might have changed.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.write("./%d" % task_id)
 
 
@@ -576,7 +651,11 @@ class DownloadTestcasesHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, dataset_id):
+    async def get(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, dataset_id)
+
+    def _get_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
         self.contest = task.contest
@@ -587,7 +666,11 @@ class DownloadTestcasesHandler(BaseHandler):
         self.render("download_testcases.html", **self.r_params)
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self, dataset_id):
+    async def post(self, dataset_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, dataset_id)
+
+    def _post_sync(self, dataset_id):
         fallback_page = \
             self.url("dataset", dataset_id, "testcases", "download")
 

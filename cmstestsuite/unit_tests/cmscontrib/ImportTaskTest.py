@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import SessionGen, Submission, Task
@@ -92,8 +94,9 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
 
         """
         with SessionGen() as session:
-            db_tasks = session.query(Task) \
-                .filter(Task.name == task_name).all()
+            db_tasks = session.execute(
+                select(Task).filter(Task.name == task_name)
+            ).scalars().all()
             self.assertEqual(len(db_tasks), 1)
             t = db_tasks[0]
             self.assertEqual(t.name, task_name)
@@ -261,8 +264,9 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
         self.assertTaskInDb(self.task_name, new_title, self.contest_id,
                             task_id=self.task_id)
         with SessionGen() as session:
-            submissions = session.query(Submission)\
-                .filter(Submission.id == self.submission_id).all()
+            submissions = session.execute(
+                select(Submission).filter(Submission.id == self.submission_id)
+            ).scalars().all()
             self.assertEqual(len(submissions), 1)
 
     def test_task_exists_not_tied(self):

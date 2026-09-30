@@ -27,7 +27,7 @@ import logging
 from prometheus_client import start_http_server
 from prometheus_client.registry import Collector
 from prometheus_client.core import REGISTRY, CounterMetricFamily, GaugeMetricFamily
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, select
 
 from cms import ServiceCoord
 from cms import config
@@ -115,15 +115,14 @@ class PrometheusExporter(Service, Collector):
             "Number of submissions per task",
             labels=["task"],
         )
-        data = (
-            session.query(Task.name, func.count(SubmissionResult.submission_id))
+        data = session.execute(
+            select(Task.name, func.count(SubmissionResult.submission_id))
             .select_from(SubmissionResult)
             .join(Dataset)
             .join(Task, Dataset.task_id == Task.id)
-            .filter(Task.active_dataset_id == SubmissionResult.dataset_id)
+            .where(Task.active_dataset_id == SubmissionResult.dataset_id)
             .group_by(Task.name)
-            .all()
-        )
+        ).all()
         for task_name, count in data:
             metric.add_metric([task_name], count)
         yield metric
@@ -133,12 +132,11 @@ class PrometheusExporter(Service, Collector):
             "Number of submissions per language",
             labels=["language"],
         )
-        data = (
-            session.query(Submission.language, func.count(Submission.id))
+        data = session.execute(
+            select(Submission.language, func.count(Submission.id))
             .select_from(Submission)
             .group_by(Submission.language)
-            .all()
-        )
+        ).all()
         for language, count in data:
             metric.add_metric([language], count)
         yield metric
@@ -195,33 +193,35 @@ class PrometheusExporter(Service, Collector):
             "Number of questions",
             labels=["status"],
         )
-        data = session.query(func.count(Question.id)).select_from(Question).all()
+        data = session.execute(
+            select(func.count(Question.id)).select_from(Question)
+        ).all()
         metric.add_metric(["total"], data[0][0])
-        data = (
-            session.query(func.count(Question.id))
+        data = session.execute(
+            select(func.count(Question.id))
             .select_from(Question)
-            .filter((Question.ignored == True) & (Question.reply_timestamp == None))
-            .all()
-        )
+            .where((Question.ignored == True) & (Question.reply_timestamp == None))
+        ).all()
         metric.add_metric(["ignored"], data[0][0])
-        data = (
-            session.query(func.count(Question.id))
+        data = session.execute(
+            select(func.count(Question.id))
             .select_from(Question)
-            .filter(Question.reply_timestamp != None)
-            .all()
-        )
+            .where(Question.reply_timestamp != None)
+        ).all()
         metric.add_metric(["answered"], data[0][0])
         yield metric
 
         metric = CounterMetricFamily("cms_messages", "Number of private messages")
-        data = session.query(func.count(Message.id)).select_from(Message).all()
+        data = session.execute(
+            select(func.count(Message.id)).select_from(Message)
+        ).all()
         metric.add_metric([], data[0][0])
         yield metric
 
         metric = CounterMetricFamily("cms_announcements", "Number of announcements")
-        data = (
-            session.query(func.count(Announcement.id)).select_from(Announcement).all()
-        )
+        data = session.execute(
+            select(func.count(Announcement.id)).select_from(Announcement)
+        ).all()
         metric.add_metric([], data[0][0])
         yield metric
 
@@ -231,54 +231,49 @@ class PrometheusExporter(Service, Collector):
             "Number of participations grouped by category and contest",
             labels=["category", "contest"],
         )
-        data = (
-            session.query(Participation.contest_id, func.count(Participation.id))
+        data = session.execute(
+            select(Participation.contest_id, func.count(Participation.id))
             .select_from(Participation)
             .group_by(Participation.contest_id)
-            .all()
-        )
+        ).all()
         for contest_id, count in data:
             metric.add_metric(["total", str(contest_id)], count)
-        data = (
-            session.query(Participation.contest_id, func.count(Participation.id))
+        data = session.execute(
+            select(Participation.contest_id, func.count(Participation.id))
             .select_from(Participation)
-            .filter(Participation.hidden == True)
+            .where(Participation.hidden == True)
             .group_by(Participation.contest_id)
-            .all()
-        )
+        ).all()
         for contest_id, count in data:
             metric.add_metric(["hidden", str(contest_id)], count)
-        data = (
-            session.query(Participation.contest_id, func.count(Participation.id))
+        data = session.execute(
+            select(Participation.contest_id, func.count(Participation.id))
             .select_from(Participation)
-            .filter(Participation.unrestricted == True)
+            .where(Participation.unrestricted == True)
             .group_by(Participation.contest_id)
-            .all()
-        )
+        ).all()
         for contest_id, count in data:
             metric.add_metric(["unrestricted", str(contest_id)], count)
-        data = (
-            session.query(Participation.contest_id, func.count(Participation.id))
+        data = session.execute(
+            select(Participation.contest_id, func.count(Participation.id))
             .select_from(Participation)
-            .filter(Participation.starting_time != None)
+            .where(Participation.starting_time != None)
             .group_by(Participation.contest_id)
-            .all()
-        )
+        ).all()
         for contest_id, count in data:
             metric.add_metric(["started", str(contest_id)], count)
-        data = (
-            session.query(
+        data = session.execute(
+            select(
                 Participation.contest_id, func.count(distinct(Participation.id))
             )
             .select_from(Participation)
             .join(Submission)
             .group_by(Participation.contest_id)
-            .all()
-        )
+        ).all()
         for contest_id, count in data:
             metric.add_metric(["submitted", str(contest_id)], count)
-        data = (
-            session.query(
+        data = session.execute(
+            select(
                 Participation.contest_id, func.count(distinct(Participation.id))
             )
             .select_from(Participation)
@@ -286,11 +281,10 @@ class PrometheusExporter(Service, Collector):
             .join(SubmissionResult)
             .join(Dataset)
             .join(Task, Dataset.task_id == Task.id)
-            .filter(Task.active_dataset_id == SubmissionResult.dataset_id)
-            .filter(SubmissionResult.score > 0)
+            .where(Task.active_dataset_id == SubmissionResult.dataset_id)
+            .where(SubmissionResult.score > 0)
             .group_by(Participation.contest_id)
-            .all()
-        )
+        ).all()
         for contest_id, count in data:
             metric.add_metric(["non_zero", str(contest_id)], count)
         yield metric

@@ -28,9 +28,11 @@
 """
 
 from collections.abc import Callable
+import asyncio
 import ipaddress
 import json
 import logging
+import math
 import traceback
 from datetime import datetime, timedelta
 from functools import wraps
@@ -47,18 +49,19 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select, func, Select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Query, selectinload
+from sqlalchemy.orm import selectinload
 
 from cms import __version__, config
-from cms.db import Admin, Contest, Participation, Question, Submission, \
-    SubmissionResult, Task, Team, User, UserTest, Group
+from cms.db import Admin, Contest, Participation, Question, RankingGroup, \
+    Submission, SubmissionResult, Task, Team, User, UserTest, Group
 import cms.db
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
 from cms.server import CommonRequestHandler, FileHandlerMixin
 from cmscommon.crypto import hash_password, parse_authentication
-from cmscommon.datetime import make_datetime
+from cmscommon.datetime import make_datetime, make_timestamp
 if typing.TYPE_CHECKING:
     from cms.server.admin import AdminWebServer
 
@@ -217,6 +220,72 @@ def require_permission(permission: str = "authenticated", self_allowed: bool = F
     return decorator
 
 
+def _read_admin_session_cookie(
+    handler: tornado.web.RequestHandler,
+) -> bytes | None:
+    """Return the verified raw awslogin cookie, or None.
+
+    None means no cookie or a bad signature.
+
+    """
+    return handler.get_secure_cookie(
+        BaseHandler.COOKIE_NAME,
+        # We do our own expiry checking, so an upper bound here is
+        # fine (same reasoning as the old middleware's max_age_days).
+        max_age_days=math.ceil(
+            config.admin_web_server.cookie_duration / 60 / 60 / 24),
+    )
+
+
+def _admin_id_from_session_cookie(raw: bytes) -> int | None:
+    """Return the admin id in a verified awslogin cookie, or None.
+
+    raw: the signature-verified cookie value.
+
+    return: the admin id if the payload is well-formed and not
+        expired, otherwise None.
+
+    """
+    try:
+        session = json.loads(raw.decode())
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+    admin_id = session.get("id", None)
+    timestamp = session.get("timestamp", None)
+    if admin_id is None or timestamp is None:
+        return None
+    if not isinstance(admin_id, int) or not isinstance(timestamp, float):
+        return None
+    if make_timestamp() - timestamp > config.admin_web_server.cookie_duration:
+        return None
+
+    return admin_id
+
+
+def decode_admin_session(handler: tornado.web.RequestHandler) -> int | None:
+    """Decode the awslogin cookie of a request and return its admin id.
+
+    Applies the same expiry/shape checks the old
+    AWSAuthMiddleware._verify_cookie() did. Any failure (missing
+    cookie, bad signature, malformed JSON, expired timestamp, wrong
+    field types) is treated as "no session," not an error. This is
+    pure: it neither looks the admin up in the database nor clears
+    the cookie. Shared by the page path (BaseHandler) and the /rpc
+    path (AdminWebServer), whose RPCHandler isn't a BaseHandler.
+
+    handler: the handler serving the current request.
+
+    return: the admin id stored in a valid, non-expired cookie, or
+        None.
+
+    """
+    raw = _read_admin_session_cookie(handler)
+    if raw is None:
+        return None
+    return _admin_id_from_session_cookie(raw)
+
+
 class BaseHandler(CommonRequestHandler):
     """Base RequestHandler for this application.
 
@@ -227,6 +296,7 @@ class BaseHandler(CommonRequestHandler):
     PERMISSION_ALL = "all"
     PERMISSION_MESSAGING = "messaging"
     AUTHENTICATED = "authenticated"
+    COOKIE_NAME = "awslogin"
     current_user: Admin | None
     service: "AdminWebServer"
 
@@ -258,24 +328,59 @@ class BaseHandler(CommonRequestHandler):
             the Admin object, otherwise None.
 
         """
-        admin_id = self.service.auth_handler.admin_id
+        admin_id = self._get_session_admin_id()
         if admin_id is None:
             return None
 
         # Load admin.
-        admin = self.sql_session.query(Admin)\
-            .filter(Admin.id == admin_id)\
-            .filter(Admin.enabled.is_(True))\
-            .first()
+        admin = self.sql_session.execute(
+            select(Admin)
+            .filter(Admin.id == admin_id)
+            .filter(Admin.enabled.is_(True))
+        ).scalars().first()
         if admin is None:
-            self.service.auth_handler.clear()
+            self.clear_cookie(self.COOKIE_NAME)
             return None
 
         # Maybe refresh the cookie.
         if self.refresh_cookie:
-            self.service.auth_handler.refresh()
+            self._set_admin_session(admin_id)
 
         return admin
+
+    def _get_session_admin_id(self) -> int | None:
+        """Decode the awslogin cookie and return its admin id.
+
+        See decode_admin_session(). Additionally, a cookie that is
+        validly signed but unusable (malformed, wrong shape, expired)
+        is cleared; a missing or badly signed one is left alone.
+
+        return: the admin id stored in a valid, non-expired cookie,
+            or None.
+
+        """
+        raw = _read_admin_session_cookie(self)
+        if raw is None:
+            return None
+        admin_id = _admin_id_from_session_cookie(raw)
+        if admin_id is None:
+            self.clear_cookie(self.COOKIE_NAME)
+        return admin_id
+
+    def _set_admin_session(self, admin_id: int):
+        """Write a fresh, signed awslogin cookie for the given admin.
+
+        Used both at login and to refresh an existing session's
+        expiry (there is no separate "refresh" operation: refreshing
+        is just re-issuing the cookie with a new timestamp).
+
+        admin_id: the id of the admin to store in the session.
+
+        """
+        payload = json.dumps({"id": admin_id, "timestamp": make_timestamp()})
+        self.set_secure_cookie(
+            self.COOKIE_NAME, payload, expires_days=None,
+            max_age=config.admin_web_server.cookie_duration, httponly=True)
 
     _GetItemT = typing.TypeVar("_GetItemT", bound=cms.db.Base)
 
@@ -302,12 +407,21 @@ class BaseHandler(CommonRequestHandler):
             raise tornado.web.HTTPError(404)
         return entity
 
-    def prepare(self):
+    async def prepare(self):
         """This method is executed at the beginning of each request.
 
+        Resolves and caches current_user here, off the main thread,
+        so every later synchronous read of self.current_user in this
+        request (the @require_permission/@tornado.web.authenticated
+        check, render_params()) hits Tornado's own cache instead of
+        re-running a blocking DB query on the event loop thread.
+
         """
-        super().prepare()
+        await super().prepare()
         self.contest = None
+        loop = asyncio.get_running_loop()
+        self._current_user = await loop.run_in_executor(
+            None, self.get_current_user)
 
     def render(self, template_name: str, **params):
         t = self.service.jinja2_environment.get_template(template_name)
@@ -335,19 +449,46 @@ class BaseHandler(CommonRequestHandler):
         if self.current_user is not None:
             params["admin"] = self.current_user
         if self.contest is not None:
-            params["unanswered"] = self.sql_session.query(Question)\
-                .join(Participation)\
-                .filter(Participation.contest_id == self.contest.id)\
-                .filter(Question.reply_timestamp.is_(None))\
-                .filter(Question.ignored.is_(False))\
-                .count()
+            params["unanswered"] = self.sql_session.execute(
+                select(func.count()).select_from(Question)
+                .join(Participation)
+                .filter(Participation.contest_id == self.contest.id)
+                .filter(Question.reply_timestamp.is_(None))
+                .filter(Question.ignored.is_(False))
+            ).scalar_one()
         # TODO: not all pages require all these data.
         # TODO: use a better sorting method.
-        params["contest_list"] = self.sql_session.query(Contest).order_by(Contest.name).all()
-        params["task_list"] = self.sql_session.query(Task).order_by(Task.name).all()
-        params["user_list"] = self.sql_session.query(User).order_by(User.username).all()
-        params["team_list"] = self.sql_session.query(Team).order_by(Team.name).all()
+        params["contest_list"] = self.sql_session.execute(
+            select(Contest).order_by(Contest.name)).scalars().all()
+        params["task_list"] = self.sql_session.execute(
+            select(Task).order_by(Task.name)).scalars().all()
+        params["user_list"] = self.sql_session.execute(
+            select(User).order_by(User.username)).scalars().all()
+        params["team_list"] = self.sql_session.execute(
+            select(Team).order_by(Team.name)).scalars().all()
+        params["ranking_group_list"] = self.sql_session.execute(
+            select(RankingGroup).order_by(RankingGroup.name)).scalars().all()
         return params
+
+    def finish(self, chunk=None):
+        """Finish the response, unless called from an executor thread.
+
+        Handler bodies run via run_in_executor may call redirect() or
+        finish(chunk), but finishing does socket I/O, which fails off
+        the event-loop thread. In that case only buffer the chunk:
+        Tornado auto-finishes the request on the loop thread once the
+        handler method's awaitable completes.
+
+        chunk (str|bytes|dict|None): final data to write, if any.
+
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            if chunk is not None:
+                self.write(chunk)
+            return None
+        return super().finish(chunk)
 
     def write_error(self, status_code, **kwargs):
         if "exc_info" in kwargs and \
@@ -582,7 +723,7 @@ class BaseHandler(CommonRequestHandler):
             dest["password"] = hash_password("", method)
 
     def render_params_for_submissions(
-        self, query: Query, page: int, page_size: int = 50
+        self, query: Select, page: int, page_size: int = 50
     ):
         """Add data about the requested submissions to r_params.
 
@@ -601,7 +742,9 @@ class BaseHandler(CommonRequestHandler):
             .order_by(Submission.timestamp.desc())
 
         offset = page * page_size
-        count = query.count()
+        count = self.sql_session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
 
         if self.r_params is None:
             self.r_params = self.render_params()
@@ -611,14 +754,14 @@ class BaseHandler(CommonRequestHandler):
         # display in this page, index of the current page, total
         # number of pages.
         self.r_params["submission_count"] = count
-        self.r_params["submissions"] = \
-            query.slice(offset, offset + page_size).all()
+        self.r_params["submissions"] = self.sql_session.execute(
+            query.offset(offset).limit(page_size)).scalars().all()
         self.r_params["submission_page"] = page
         self.r_params["submission_pages"] = \
             (count + page_size - 1) // page_size
 
     def render_params_for_user_tests(
-        self, query: Query, page: int, page_size: int = 50
+        self, query: Select, page: int, page_size: int = 50
     ):
         """Add data about the requested user tests to r_params.
 
@@ -635,20 +778,24 @@ class BaseHandler(CommonRequestHandler):
             .order_by(UserTest.timestamp.desc())
 
         offset = page * page_size
-        count = query.count()
+        count = self.sql_session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
 
         if self.r_params is None:
             self.r_params = self.render_params()
 
         self.r_params["user_test_count"] = count
-        self.r_params["user_tests"] = \
-            query.slice(offset, offset + page_size).all()
+        self.r_params["user_tests"] = self.sql_session.execute(
+            query.offset(offset).limit(page_size)).scalars().all()
         self.r_params["user_test_page"] = page
         self.r_params["user_test_pages"] = \
             (count + page_size - 1) // page_size
 
-    def render_params_for_remove_confirmation(self, query):
-        count = query.count()
+    def render_params_for_remove_confirmation(self, query: Select):
+        count = self.sql_session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
 
         if self.r_params is None:
             self.r_params = self.render_params()
@@ -680,28 +827,40 @@ class FileHandler(BaseHandler, FileHandlerMixin):
 class FileFromDigestHandler(FileHandler):
     """Return the file, using the given name, and as plain text."""
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, digest, filename):
+    async def get(self, digest, filename):
         # TODO: Accept a MIME type
         self.sql_session.close()
-        self.fetch(digest, "text/plain", filename)
+        await self.fetch(digest, "text/plain", filename)
 
 
 def SimpleHandler(page, authenticated=True, permission_all=False) -> type[BaseHandler]:
     if permission_all:
         class Cls(BaseHandler):
             @require_permission(BaseHandler.PERMISSION_ALL)
-            def get(self):
+            async def get(self):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._get_sync)
+
+            def _get_sync(self):
                 self.r_params = self.render_params()
                 self.render(page, **self.r_params)
     elif authenticated:
         class Cls(BaseHandler):
             @require_permission(BaseHandler.AUTHENTICATED)
-            def get(self):
+            async def get(self):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._get_sync)
+
+            def _get_sync(self):
                 self.r_params = self.render_params()
                 self.render(page, **self.r_params)
     else:
         class Cls(BaseHandler):
-            def get(self):
+            async def get(self):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._get_sync)
+
+            def _get_sync(self):
                 self.r_params = self.render_params()
                 self.render(page, **self.r_params)
     return Cls
@@ -710,7 +869,11 @@ def SimpleHandler(page, authenticated=True, permission_all=False) -> type[BaseHa
 def SimpleContestHandler(page) -> type[BaseHandler]:
     class Cls(BaseHandler):
         @require_permission(BaseHandler.AUTHENTICATED)
-        def get(self, contest_id: str):
+        async def get(self, contest_id: str):
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._get_sync, contest_id)
+
+        def _get_sync(self, contest_id: str):
             self.contest = self.safe_get_item(Contest, contest_id)
 
             self.r_params = self.render_params()

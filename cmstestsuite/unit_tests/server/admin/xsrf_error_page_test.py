@@ -19,40 +19,34 @@
 """Tests for the error page of a POST that fails the XSRF check in AWS.
 
 Tornado checks the XSRF token before it calls prepare(), and the
-handlers only set up what the error page needs (the URL helpers) in
-prepare(). These tests send real requests, without a valid XSRF token,
-through the WSGI application of a real AdminWebServer and check that
-the admin gets a readable 403 error page, and that nothing is logged as
-an error.
+handlers only set up what the error page needs (the URL helpers, the
+current admin) in prepare(). These tests send real requests, without a
+valid XSRF token, through a real AdminWebServer and check that the
+admin gets a readable 403 error page, and nothing is logged as an
+error.
 
 """
 
-import collections
-import json
 import unittest
+from urllib.parse import urlencode
 
-try:
-    collections.MutableMapping
-except AttributeError:
-    # Monkey-patch: Tornado 4.5.3 does not work on Python 3.11 by default
-    collections.MutableMapping = collections.abc.MutableMapping
-
-from tornado.web import create_signed_value
-from werkzeug.test import Client, TestResponse
+from tornado.httpclient import AsyncHTTPClient, HTTPResponse
+from tornado.httpserver import HTTPServer
+from tornado.netutil import bind_sockets
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.server.admin.admin_session_test import \
+    session_payload, sign
 
-from cms import config
 from cms.db import Contest
-from cms.server.admin.authentication import AWSAuthMiddleware
+from cms.server.admin.handlers.base import BaseHandler
 from cms.server.admin.server import AdminWebServer
-from cmscommon.datetime import make_timestamp
 
 
 XSRF_TOKEN = "0123456789abcdef"
 
 
-class XsrfErrorPageTest(DatabaseMixin, unittest.TestCase):
+class XsrfErrorPageTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
     """Serve the real AdminWebServer application."""
 
     @classmethod
@@ -60,51 +54,65 @@ class XsrfErrorPageTest(DatabaseMixin, unittest.TestCase):
         super().setUpClass()
         cls.aws = AdminWebServer(0)
 
-    def setUp(self):
-        super().setUp()
-        # This is the application that the WSGI server of the service
-        # runs, including all its middlewares.
-        self.client = Client(self.aws)
+    async def asyncSetUp(self):
+        sockets = bind_sockets(0, "127.0.0.1")
+        self.port = sockets[0].getsockname()[1]
+        self.server = HTTPServer(self.aws.application)
+        self.server.add_sockets(sockets)
+        self.client = AsyncHTTPClient()
+
+    async def asyncTearDown(self):
+        self.client.close()
+        self.server.stop()
+        await self.server.close_all_connections()
 
     def tearDown(self):
         self.delete_data()
         super().tearDown()
 
-    def post(self, path: str, arguments: dict[str, str]) -> TestResponse:
-        """Send a form, with the given arguments."""
-        return self.client.post(path, data=arguments)
+    async def post(
+        self, path: str, arguments: dict[str, str],
+        cookies: dict[str, str] | None = None,
+    ) -> HTTPResponse:
+        headers = {}
+        if cookies:
+            headers["Cookie"] = "; ".join(
+                "%s=%s" % item for item in cookies.items())
+        return await self.client.fetch(
+            "http://127.0.0.1:%d%s" % (self.port, path),
+            method="POST", body=urlencode(arguments), headers=headers,
+            raise_error=False)
 
-    def assert_error_page(self, response: TestResponse):
+    def assert_error_page(self, response: HTTPResponse):
         """Check that response is the normal 403 error page."""
-        self.assertEqual(response.status_code, 403)
-        body = response.text
+        self.assertEqual(response.code, 403)
+        body = response.body.decode()
         self.assertIn("Error 403", body)
         # The page is complete, with its static files.
         self.assertIn("aws_style.css", body)
         self.assertIn("</html>", body)
 
-    def test_login_without_xsrf(self):
+    async def test_login_without_xsrf(self):
         with self.assertNoLogs("tornado.application", "ERROR"):
-            response = self.post(
+            response = await self.post(
                 "/login", {"username": "admin", "password": "admin"})
         self.assert_error_page(response)
 
-    def test_form_after_the_xsrf_cookie_was_cleared(self):
+    async def test_form_after_the_xsrf_cookie_was_cleared(self):
         # The form still carries the token, but the cookie is gone.
         with self.assertNoLogs("tornado.application", "ERROR"):
-            response = self.post(
+            response = await self.post(
                 "/contests/add", {"name": "c", "_xsrf": XSRF_TOKEN})
         self.assert_error_page(response)
 
-    def test_form_of_a_logged_in_admin_without_xsrf(self):
+    async def test_form_of_a_logged_in_admin_without_xsrf(self):
         admin = self.add_admin()
-        awslogin = create_signed_value(
-            bytes.fromhex(config.web_server.secret_key),
-            AWSAuthMiddleware.COOKIE,
-            json.dumps({"id": admin.id, "timestamp": make_timestamp()}))
-        self.client.set_cookie(AWSAuthMiddleware.COOKIE, awslogin.decode())
+        self.session.commit()
+        awslogin = sign(session_payload(admin.id))
         with self.assertNoLogs("tornado.application", "ERROR"):
-            response = self.post("/contests/add", {"name": "c"})
+            response = await self.post(
+                "/contests/add", {"name": "c"},
+                cookies={BaseHandler.COOKIE_NAME: awslogin})
         self.assert_error_page(response)
         self.assertEqual(self.session.query(Contest).count(), 0)
 

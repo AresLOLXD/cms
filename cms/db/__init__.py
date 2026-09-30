@@ -31,7 +31,7 @@
 
 import logging
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, select, MetaData
 from sqlalchemy.orm import configure_mappers, joinedload, subqueryload
 
 from cms import config
@@ -46,6 +46,7 @@ __all__ = [
     "version", "engine",
     # session
     "Session", "ScopedSession", "SessionGen", "custom_psycopg2_connection",
+    "async_engine", "AsyncSession", "AsyncSessionGen",
     # types
     "CastingArray", "Codename", "Filename", "FilenameSchema",
     "FilenameSchemaArray", "Digest",
@@ -55,6 +56,8 @@ __all__ = [
     "FSObject", "LargeObject",
     # contest
     "Contest", "Announcement",
+    # rankinggroup
+    "RankingGroup",
     # user
     "Group", "User", "Team", "Participation", "Message", "Question",
     # admin
@@ -85,10 +88,11 @@ version = 49
 engine = create_engine(config.database.url, echo=config.database.debug,
                        pool_timeout=60, pool_recycle=120)
 
-metadata = MetaData(engine)
+metadata = MetaData()
 
 from .session import Session, ScopedSession, SessionGen, \
     custom_psycopg2_connection
+from .async_session import async_engine, AsyncSession, AsyncSessionGen
 
 from .types import CastingArray, Codename, Filename, FilenameSchema, \
     FilenameSchemaArray, Digest
@@ -96,6 +100,7 @@ from .base import Base
 from .fsobject import FSObject, LargeObject
 from .admin import Admin
 from .contest import Contest, Announcement
+from .rankinggroup import RankingGroup
 from .user import Group, User, Team, Participation, Message, Question
 from .task import Task, Statement, Attachment, Dataset, Manager, Testcase
 from .submission import Submission, File, Token, SubmissionResult, \
@@ -131,13 +136,13 @@ def get_submission_results_for_dataset(self, dataset) -> list[SubmissionResult]:
     # executables and evaluations at once instead of having SA
     # lazy-load them when we access them for each SubmissionResult,
     # one at a time.
-    return self.sa_session\
-        .query(SubmissionResult)\
-        .filter(SubmissionResult.dataset == dataset)\
-        .options(joinedload(SubmissionResult.submission))\
-        .options(subqueryload(SubmissionResult.executables))\
-        .options(subqueryload(SubmissionResult.evaluations))\
-        .all()
+    return self.sa_session.execute(
+        select(SubmissionResult)
+        .filter(SubmissionResult.dataset == dataset)
+        .options(joinedload(SubmissionResult.submission))
+        .options(subqueryload(SubmissionResult.executables))
+        .options(subqueryload(SubmissionResult.evaluations))
+    ).scalars().all()
 
 
 Dataset.get_submission_results = get_submission_results_for_dataset

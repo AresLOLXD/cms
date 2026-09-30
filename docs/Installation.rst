@@ -190,3 +190,11 @@ You can then update CMS and reset the database schema by running:
     cmsInitDB
 
 To load the previous data back into the database you can use ``cmsDumpImporter``: it will adapt the data model automatically on-the-fly (you can use ``cmsDumpUpdater`` to store the updated version back on disk and speed up future imports).
+
+.. note::
+
+   In this fork, ``cmsDumpImporter`` imports every contest as inactive, so a
+   contest never becomes visible to contestants by accident. When restoring
+   a full backup into an empty database, pass ``-d`` (``--drop``) to keep
+   each contest's active flag as it was, or activate the contests afterwards
+   from the Admin Web Server.

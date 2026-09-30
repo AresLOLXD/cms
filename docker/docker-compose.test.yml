@@ -10,6 +10,13 @@ services:
       - "testdb"
     environment:
       CMS_CONFIG: /home/cmsuser/cms/etc/cms-testdb.toml
+      # The entrypoint regenerates cms_ranking.toml from these two variables
+      # (default: "rws" and an empty password), while cms-testdb.toml is baked
+      # from config/cms.sample.toml, so ProxyService pushes to
+      # http://usern4me:passw0rd@localhost:8890/. Keep them equal or
+      # RankingWebServer answers every push with 401.
+      CMS_RWS_USERNAME: usern4me
+      CMS_RWS_PASSWORD: passw0rd
       # Could be removed in the future, see:
       # - https://github.com/pytest-dev/pytest/issues/7443
       # - https://github.com/actions/runner/issues/241

@@ -91,5 +91,442 @@ class TestUrl(unittest.TestCase):
                          "/?%3Ffoo=%2Fbar%23&f%3Do%3Fo=%3Fb%3Da%26r")
 
 
+class TestNoLegacyTornadoWorkarounds(unittest.TestCase):
+
+    def test_no_mutablemapping_monkeypatch_needed(self):
+        # cms.server.util used to monkey-patch collections.MutableMapping
+        # back onto the collections module for Tornado 4.5.3's benefit.
+        # Tornado 6.x doesn't need it -- importing this module shouldn't
+        # touch collections.MutableMapping at all.
+        import collections
+        import importlib
+        had_attr_before = hasattr(collections, "MutableMapping")
+        module = importlib.import_module("cms.server.util")
+        self.assertIsNotNone(module)
+        has_attr_after = hasattr(collections, "MutableMapping")
+        self.assertEqual(had_attr_before, has_attr_after)
+
+    def test_tornado_version_is_6x(self):
+        import tornado
+        self.assertTrue(
+            tornado.version.startswith("6."),
+            "Expected Tornado 6.x, got %r -- the rest of this migration "
+            "assumes Tornado 6's native asyncio IOLoop integration." %
+            tornado.version)
+
+
+class FetchStreamsFileTest(unittest.IsolatedAsyncioTestCase):
+
+    async def asyncSetUp(self):
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+        from unittest.mock import MagicMock
+        from cms.server.util import FileHandlerMixin
+
+        # A file bigger than one read chunk, to confirm streaming (not
+        # buffering the whole thing) actually happens.
+        self.chunk_size = 1024
+        self.content = b"x" * (self.chunk_size * 3 + 17)
+
+        self.fake_cacher = MagicMock()
+        self.fake_cacher.CHUNK_SIZE = self.chunk_size
+        import io
+        self.fake_cacher.get_file.return_value = io.BytesIO(self.content)
+        self.fake_cacher.get_size.return_value = len(self.content)
+
+        # Per-test override of the kwargs passed to fetch() by TestHandler
+        # below; read at request time, so each test can set it right before
+        # calling self._request().
+        self.fetch_kwargs = {"filename": "thefile.bin"}
+
+        outer = self
+
+        class TestHandler(FileHandlerMixin):
+            async def get(inner_self):
+                inner_self.application.service = MagicMock(
+                    file_cacher=outer.fake_cacher)
+                await inner_self.fetch(
+                    "somedigest", "application/octet-stream",
+                    **outer.fetch_kwargs)
+
+        application = tornado.web.Application([(r"/f", TestHandler)])
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def _request(self):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            writer.write(
+                b"GET /f HTTP/1.1\r\nHost: localhost\r\n"
+                b"Connection: close\r\n\r\n")
+            await writer.drain()
+            response = b""
+            while True:
+                chunk = await asyncio.wait_for(reader.read(65536), timeout=5)
+                if not chunk:
+                    break
+                response += chunk
+                if len(response) > len(self.content) + 4096:
+                    break
+        finally:
+            writer.close()
+        return response
+
+    async def test_serves_full_content_and_content_disposition_header(self):
+        response = await self._request()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"thefile.bin", response)
+        self.assertIn(self.content, response)
+
+    async def test_cache_control_header_present(self):
+        response = await self._request()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"Cache-Control: no-cache, private", response)
+
+    async def test_no_filename_means_no_content_disposition_header(self):
+        self.fetch_kwargs = {}
+        response = await self._request()
+        self.assertIn(b"200 OK", response)
+        self.assertNotIn(b"Content-Disposition", response)
+
+    async def test_disposition_inline(self):
+        self.fetch_kwargs = {
+            "filename": "thefile.bin", "disposition": "inline"}
+        response = await self._request()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(
+            b'Content-Disposition: inline; filename="thefile.bin"',
+            response)
+
+    async def test_non_ascii_filename_does_not_crash(self):
+        self.fetch_kwargs = {"filename": "日本語.txt"}
+        response = await self._request()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"Content-Disposition", response)
+        self.assertIn(self.content, response)
+
+    async def test_key_error_from_get_file_returns_404(self):
+        self.fake_cacher.get_file.side_effect = KeyError()
+        response = await self._request()
+        self.assertIn(b"404", response)
+
+    async def test_tombstone_error_returns_503(self):
+        from cms.db.filecacher import TombstoneError
+        self.fake_cacher.get_file.side_effect = TombstoneError()
+        response = await self._request()
+        self.assertIn(b"503", response)
+
+
+class MultiContestDecoratorReturnsFetchResultTest(unittest.IsolatedAsyncioTestCase):
+    """Regression test for a Critical bug: multi_contest used to not
+    `return` the wrapped function's result, so when the wrapped `get()` is
+    `async def` (as it now is for the CWS file-download handlers), the
+    coroutine it creates was discarded instead of being returned to
+    Tornado's dispatcher, which never awaited it -- the file body never got
+    written and the request silently completed with an empty 200 response.
+
+    """
+
+    async def asyncSetUp(self):
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+        from unittest.mock import MagicMock
+        from cms.server.util import FileHandlerMixin, multi_contest
+
+        self.content = b"payload contents"
+
+        self.fake_cacher = MagicMock()
+        self.fake_cacher.CHUNK_SIZE = 1024
+        import io
+        self.fake_cacher.get_file.return_value = io.BytesIO(self.content)
+        self.fake_cacher.get_size.return_value = len(self.content)
+
+        fake_cacher = self.fake_cacher
+
+        # The single-contest case (is_multi_contest() == False): the URL
+        # doesn't carry a contest name, so get() is called with no extra
+        # arguments and multi_contest just forwards the call through
+        # unchanged. This is the common case exercised by all 5 real CWS
+        # download endpoints when running in single-contest mode.
+        class SingleContestHandler(FileHandlerMixin):
+            def is_multi_contest(inner_self):
+                return False
+
+            @multi_contest
+            async def get(inner_self):
+                inner_self.application.service = MagicMock(
+                    file_cacher=fake_cacher)
+                await inner_self.fetch(
+                    "somedigest", "application/octet-stream",
+                    filename="thefile.bin")
+
+        # The multi-contest case (is_multi_contest() == True): the URL
+        # carries a leading contest-name path component that Tornado passes
+        # as the first positional argument to get(); multi_contest is
+        # supposed to swallow it and forward the rest.
+        class MultiContestHandler(FileHandlerMixin):
+            def is_multi_contest(inner_self):
+                return True
+
+            @multi_contest
+            async def get(inner_self):
+                inner_self.application.service = MagicMock(
+                    file_cacher=fake_cacher)
+                await inner_self.fetch(
+                    "somedigest", "application/octet-stream",
+                    filename="thefile.bin")
+
+        application = tornado.web.Application([
+            (r"/single", SingleContestHandler),
+            (r"/multi/([^/]*)", MultiContestHandler),
+        ])
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def _request(self, path: str) -> bytes:
+        import asyncio
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", self.port)
+        try:
+            writer.write(
+                ("GET %s HTTP/1.1\r\nHost: localhost\r\n"
+                 "Connection: close\r\n\r\n" % path).encode("ascii"))
+            await writer.drain()
+            response = b""
+            while True:
+                chunk = await asyncio.wait_for(reader.read(65536), timeout=5)
+                if not chunk:
+                    break
+                response += chunk
+        finally:
+            writer.close()
+        return response
+
+    async def test_single_contest_get_body_is_actually_served(self):
+        response = await self._request("/single")
+        self.assertIn(b"200 OK", response)
+        self.assertIn(self.content, response)
+
+    async def test_multi_contest_get_body_is_actually_served(self):
+        response = await self._request("/multi/somecontest")
+        self.assertIn(b"200 OK", response)
+        self.assertIn(self.content, response)
+
+
+class AuthExtensionPointTest(unittest.IsolatedAsyncioTestCase):
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+
+        class OkHandler(CommonRequestHandler):
+            def get(self):
+                self.write("ok")
+
+        class RejectingAuth:
+            async def authenticate(self, handler):
+                return False
+
+        class AcceptingAuth:
+            async def authenticate(self, handler):
+                return True
+
+        # num_proxies_used=0 mirrors a real WebService instance (which
+        # always sets it to an int): CommonRequestHandler.prepare()
+        # now resolves self.request.remote_ip via resolve_remote_ip()
+        # before running the auth hook below, and that function
+        # requires an int, not a bare MagicMock attribute.
+        self.rejecting_service = MagicMock(
+            auth_handler=RejectingAuth(), num_proxies_used=0)
+        self.accepting_service = MagicMock(
+            auth_handler=AcceptingAuth(), num_proxies_used=0)
+        self.no_auth_service = MagicMock(auth_handler=None, num_proxies_used=0)
+
+        self._handler_class = OkHandler
+        self.addAsyncCleanup(self._stop_all)
+        self._servers = []
+
+    async def _stop_all(self):
+        for server in self._servers:
+            server.stop()
+            await server.close_all_connections()
+
+    async def _serve_with(self, service):
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+        application = tornado.web.Application([(r"/", self._handler_class)])
+        application.service = service
+        server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        server.add_sockets(sockets)
+        self._servers.append(server)
+        return sockets[0].getsockname()[1]
+
+    async def _get(self, port, headers=b""):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n" + headers + b"\r\n")
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_no_auth_handler_allows_request(self):
+        port = await self._serve_with(self.no_auth_service)
+        response = await self._get(port)
+        self.assertIn(b"200 OK", response)
+
+    async def test_accepting_auth_handler_allows_request(self):
+        port = await self._serve_with(self.accepting_service)
+        response = await self._get(port)
+        self.assertIn(b"200 OK", response)
+
+    async def test_rejecting_auth_handler_blocks_request(self):
+        port = await self._serve_with(self.rejecting_service)
+        response = await self._get(port)
+        self.assertIn(b"403", response)
+
+
+class PrepareResolvesRemoteIpTest(unittest.IsolatedAsyncioTestCase):
+    """CommonRequestHandler.prepare() must resolve self.request.remote_ip
+    through resolve_remote_ip() (using the service's num_proxies_used)
+    before anything else runs, so a downstream auth handler (or the
+    handler body itself) sees the real client address rather than the
+    raw TCP peer address of a trusted reverse proxy.
+
+    """
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+
+        class RemoteIpHandler(CommonRequestHandler):
+            def get(self):
+                self.write(self.request.remote_ip)
+
+        self.service = MagicMock(auth_handler=None, num_proxies_used=1)
+        application = tornado.web.Application([(r"/", RemoteIpHandler)])
+        application.service = self.service
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def _get(self, headers=b""):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            writer.write(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n" + headers + b"\r\n")
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_remote_ip_is_resolved_from_forwarded_for_header(self):
+        response = await self._get(
+            b"X-Forwarded-For: 203.0.113.7, 10.0.0.1\r\n")
+        # num_proxies_used=1: the rightmost address of the header is
+        # trusted as the last hop, so it (not the raw TCP peer, which
+        # would be 127.0.0.1) is what the handler should see.
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"10.0.0.1", response)
+        self.assertNotIn(b"127.0.0.1", response)
+
+    async def test_falls_back_to_socket_ip_without_header(self):
+        response = await self._get()
+        self.assertIn(b"200 OK", response)
+        self.assertIn(b"127.0.0.1", response)
+
+
+class AuthHandlerObservesResolvedIpTest(unittest.IsolatedAsyncioTestCase):
+    """Task 3's carried-forward obligation: the auth extension point
+    must observe the already-resolved self.request.remote_ip (set by
+    CommonRequestHandler.prepare() via resolve_remote_ip() before the
+    auth hook runs), not the raw connecting socket's address.
+
+    """
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+
+        self.observed_ips = []
+        observed_ips = self.observed_ips
+
+        class RecordingAuth:
+            async def authenticate(self, handler):
+                observed_ips.append(handler.request.remote_ip)
+                return True
+
+        class OkHandler(CommonRequestHandler):
+            def get(self):
+                self.write("ok")
+
+        # num_proxies_used=1: the auth hook should see the header's
+        # rightmost address, not the raw loopback socket address.
+        self.service = MagicMock(
+            auth_handler=RecordingAuth(), num_proxies_used=1)
+        application = tornado.web.Application([(r"/", OkHandler)])
+        application.service = self.service
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def _get(self, headers=b""):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            writer.write(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n" + headers + b"\r\n")
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_auth_handler_observes_resolved_remote_ip(self):
+        response = await self._get(
+            b"X-Forwarded-For: 203.0.113.7, 10.0.0.1\r\n")
+        self.assertIn(b"200 OK", response)
+        self.assertEqual(self.observed_ips, ["10.0.0.1"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,7 +31,8 @@ Follow these steps to start the contest system for the first time:
 
 4. **Answer the second question:** `Rebuild?` is a menu from 1 to 7.
    - Choose **`1`** (No, the default and the fastest) on the first run or when nothing has changed.
-   - After updating the code, choose **`4`** (CMS only) or **`2`** (all services).
+   - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`3`** and then **`4`**, see below.
+   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update, see [multi-contest.md](multi-contest.md).
 
 5. **Wait for startup.** You'll see output like:
    ```
@@ -92,7 +93,7 @@ Shows a live stream of what every service is doing — useful for debugging prob
 
 ### restart.sh
 
-Stops and immediately starts the system again. Use this after editing the `.env` config file to apply changes, or if services seem stuck.
+Stops and immediately starts the system again. Use this after editing the `.env` config file to apply changes, or if services seem stuck. Answer **`1`** (No) to the rebuild question: if you choose **`3`** (Ranking only), only the ranking container starts after the stop, and you have to run `./up.sh` and choose **`4`** (CMS only) to start the rest.
 
 ```bash
 ./restart.sh
@@ -106,15 +107,8 @@ Changes which contest is currently active. It shows you the list of contests alr
 ./contest.sh
 ```
 
-### clear-ranking.sh
-
-Clears ranking data from the running container. Asks what to delete — results (submissions and subchanges), users, or tasks and contests — and whether to regenerate the ranking from the current contest data in the database. Only affects the scoreboard; contestant submissions and scores stored in PostgreSQL are never touched.
-
-```bash
-./clear-ranking.sh
-```
-
-If you choose to regenerate, `ProxyService` is restarted and will re-push all scored submissions to the ranking. Scores appear on the scoreboard within ~6 minutes.
+> `clear-ranking.sh` was removed: use **Ranking groups → Regenerate** in the
+> Admin Web Server instead (see [multi-contest.md](multi-contest.md)).
 
 ### export.sh
 
@@ -135,6 +129,11 @@ Restores contest data from a `.zip` backup file created by `export.sh`. Lists th
 ```
 
 > **Warning:** Choosing to wipe the database before importing will permanently delete all existing contest data. Only do this when you are sure you want to restore from the selected backup.
+
+Imported contests arrive **inactive** unless you choose to wipe the
+database first (`-d`), which restores each contest's active flag from the
+backup. After a normal import, activate the contests from the Admin Web
+Server when they are ready.
 
 ## Configuring the project name
 

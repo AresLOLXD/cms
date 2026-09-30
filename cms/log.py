@@ -47,39 +47,26 @@ import logging
 import sys
 import typing
 
-import gevent.lock
-
 from cmscommon.terminal import colors, add_color_to_string, has_color_support
 if typing.TYPE_CHECKING:
     from cms.io.rpc import RemoteServiceClient
 
 
+# The handlers below keep the stdlib (threading) lock on purpose. They
+# are shared process-wide and records reach them from several OS
+# threads (e.g. an AsyncService's event loop thread and its
+# run_in_executor threads). A gevent lock does not work across OS
+# threads unless the thread owning its hub keeps running the gevent
+# loop, so a waiting thread could sleep forever on a lock that was
+# already released.
+
+
 class StreamHandler(logging.StreamHandler):
-    """Subclass to make gevent-aware.
-
-    Use a gevent lock instead of a threading one to block only the
-    current greenlet.
-
-    """
-    def createLock(self):
-        """Set self.lock to a new gevent RLock.
-
-        """
-        self.lock = gevent.lock.RLock()
+    """Stream handler used by CMS services."""
 
 
 class FileHandler(logging.FileHandler):
-    """Subclass to make gevent-aware.
-
-    Use a gevent lock instead of a threading one to block only the
-    current greenlet.
-
-    """
-    def createLock(self):
-        """Set self.lock to a new gevent RLock.
-
-        """
-        self.lock = gevent.lock.RLock()
+    """File handler used by CMS services."""
 
 
 class LogServiceHandler(logging.Handler):
@@ -113,12 +100,6 @@ class LogServiceHandler(logging.Handler):
         logging.Handler.__init__(self)
         self._log_service = log_service
 
-    def createLock(self):
-        """Set self.lock to a new gevent RLock.
-
-        """
-        self.lock = gevent.lock.RLock()
-
     def emit(self, record):
         """Pickle and emit a record to LogService.
 
@@ -141,9 +122,18 @@ class LogServiceHandler(logging.Handler):
             d['exc_info'] = None
             # Issue #25685: delete 'message' if present: redundant with 'msg'
             d.pop('message', None)
-            self._log_service.Log(**d)
+            self._send(d)
         except Exception:
             self.handleError(record)
+
+    def _send(self, d: dict):
+        """Send the encoded record to LogService.
+
+        d: the record's attributes, to be used as keyword arguments
+            for LogService.Log.
+
+        """
+        self._log_service.Log(**d)
 
 
 def get_color_hash(string: str) -> int:

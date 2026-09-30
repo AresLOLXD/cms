@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block core %}
+<div class="core_title">
+  <h1>Remove ranking group</h1>
+</div>
+
+{% if admin.permission_all %}
+<p>
+  Are you sure you want to remove ranking group {{ ranking_group.name }} ({{ ranking_group.description }})?
+  <br>
+  {% if contest_count > 0 %}
+  {{ contest_count }} contest(s) will no longer be sent to any ranking. The contests themselves are not removed.
+  {% else %}
+  No contest is sent to this ranking.
+  {% endif %}
+  <br>
+  Its scoreboard will be emptied. This operation cannot be undone.
+</p>
+<br>
+<a onclick="CMS.AWSUtils.ajax_delete('{{ url("ranking_groups", ranking_group.id, "remove") }}');" class="button-link">Yes, remove</a>
+<a href="{{ url("ranking_groups") }}" class="button-link">No</a>
+
+{% else %}
+You do not have permission to remove a ranking group.
+{% endif %}
+
+{% endblock core %}

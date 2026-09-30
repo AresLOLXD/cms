@@ -21,6 +21,8 @@
 
 """
 
+from sqlalchemy import select
+
 from cms.db import Admin, SessionGen
 
 
@@ -64,12 +66,11 @@ def rpc_authorization_checker(
 
     with SessionGen() as session:
         # Load admin.
-        admin: Admin | None = (
-            session.query(Admin)
+        admin: Admin | None = session.execute(
+            select(Admin)
             .filter(Admin.id == admin_id)
             .filter(Admin.enabled.is_(True))
-            .first()
-        )
+        ).scalars().first()
         if admin is None:
             return False
 

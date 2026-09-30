@@ -39,6 +39,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms import config
 from cms.db import UserTest, UserTestResult
@@ -88,10 +89,11 @@ class UserTestInterfaceHandler(ContestHandler):
         for task in self.contest.tasks:
             if self.get_argument("task_name", None) == task.name:
                 default_task = task
-            user_tests[task.id] = self.sql_session.query(UserTest)\
-                .filter(UserTest.participation == participation)\
-                .filter(UserTest.task == task)\
-                .all()
+            user_tests[task.id] = self.sql_session.execute(
+                select(UserTest)
+                .filter(UserTest.participation == participation)
+                .filter(UserTest.task == task)
+            ).scalars().all()
             user_tests_left_task = None
             if task.max_user_test_number is not None:
                 user_tests_left_task = \
@@ -147,8 +149,8 @@ class UserTestHandler(ContestHandler):
             logger.info("Sent error: `%s' - `%s'", e.subject, e.formatted_text)
             self.notify_error(e.subject, e.text, e.text_params)
         else:
-            self.service.evaluation_service.new_user_test(
-                user_test_id=user_test.id)
+            self.schedule_rpc(self.service.evaluation_service.new_user_test,
+                              user_test_id=user_test.id)
             self.notify_success(N_("Test received"),
                                 N_("Your test has been received "
                                    "and is currently being executed."))
@@ -249,7 +251,7 @@ class UserTestIOHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0)
     @multi_contest
-    def get(self, task_name, user_test_num, io):
+    async def get(self, task_name, user_test_num, io):
         if not self.r_params["testing_enabled"]:
             raise tornado.web.HTTPError(404)
 
@@ -273,7 +275,7 @@ class UserTestIOHandler(FileHandler):
 
         mimetype = 'text/plain'
 
-        self.fetch(digest, mimetype, io)
+        await self.fetch(digest, mimetype, io)
 
 
 class UserTestFileHandler(FileHandler):
@@ -283,7 +285,7 @@ class UserTestFileHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0)
     @multi_contest
-    def get(self, task_name, user_test_num, filename):
+    async def get(self, task_name, user_test_num, filename):
         if not self.r_params["testing_enabled"]:
             raise tornado.web.HTTPError(404)
 
@@ -318,4 +320,4 @@ class UserTestFileHandler(FileHandler):
         if mimetype is None:
             mimetype = 'application/octet-stream'
 
-        self.fetch(digest, mimetype, filename)
+        await self.fetch(digest, mimetype, filename)

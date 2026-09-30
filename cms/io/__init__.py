@@ -29,7 +29,7 @@ __all__ = [
     # priorityqueue
     "FakeQueueItem", "PriorityQueue", "QueueEntry", "QueueItem",
     # web_rpc
-    "RPCMiddleware",
+    "RPCHandler",
     # web_service
     "WebService",
     ]
@@ -42,7 +42,7 @@ from .priorityqueue import FakeQueueItem, PriorityQueue, QueueEntry, QueueItem
 from .rpc import RPCError, rpc_method, RemoteServiceServer, RemoteServiceClient
 from .service import Service
 from .triggeredservice import Executor, TriggeredService
-from .web_rpc import RPCMiddleware
+from .web_rpc import RPCHandler
 from .web_service import WebService
 
 

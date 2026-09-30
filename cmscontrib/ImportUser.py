@@ -40,6 +40,8 @@ import os
 import sys
 from collections.abc import Callable
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db.session import Session
 from cms.db import Participation, SessionGen, User
@@ -121,9 +123,9 @@ class UserImporter:
         was already present in the DB.
 
         """
-        old_user: User | None = (
-            session.query(User).filter(User.username == user.username).first()
-        )
+        old_user: User | None = session.execute(
+            select(User).filter(User.username == user.username)
+        ).scalars().first()
         if old_user is not None:
             raise ImportDataError(
                 "User \"%s\" already exists." % user.username)

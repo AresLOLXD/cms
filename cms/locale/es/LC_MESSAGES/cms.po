@@ -48,6 +48,10 @@ msgstr "La puntuación detallada se encuentra temporalmente no disponible."
 msgid "Subtask %(index)s"
 msgstr "Subtarea %(index)s"
 
+#, python-format
+msgid "Worth 0 because it depends on subtask %(index)s, which scored no points."
+msgstr "Vale 0 porque depende de la subtarea %(index)s, que no obtuvo puntos."
+
 msgid "Compilation succeeded"
 msgstr "Compilación correcta"
 
@@ -130,6 +134,22 @@ msgstr "Ejecución fallida por código de retorno distinto de cero"
 
 msgid "Your submission failed because it exited with a return code different from 0."
 msgstr "El envío falló porque terminó con un código de retorno (return code) distinto de 0."
+
+msgid "Skipped after screening phase failure"
+msgstr "No se probó: el envío falló los primeros casos de la subtarea"
+
+msgid "This testcase was not run because the screening testcases for its subtask did not pass."
+msgstr ""
+"Este caso no se probó porque el envío falló alguno de los primeros casos de "
+"su subtarea. Primero se prueban unos pocos casos de cada subtarea y, si "
+"alguno falla, los demás ya no se prueban."
+
+#, python-format
+msgid "Not tested: this subtask depends on subtask %s, which scored no points."
+msgstr "No se probó: esta subtarea depende de la subtarea %s, que no obtuvo puntos."
+
+msgid "This testcase was not run because its subtask depends on another subtask that scored no points, so it is worth 0 anyway."
+msgstr "Este caso no se probó porque su subtarea depende de otra subtarea que no obtuvo puntos, así que vale 0 de todos modos."
 
 msgid "Execution completed successfully"
 msgstr "Ejecución completada de manera exitosa"

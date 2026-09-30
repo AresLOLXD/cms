@@ -55,7 +55,9 @@ from .contestuser import \
     RemoveParticipationHandler, \
     AddContestUserHandler, \
     ParticipationHandler, \
-    MessageHandler
+    MessageHandler, \
+    ImportUsersHandler, \
+    ImportJobStatusHandler
 from .dataset import \
     DatasetSubmissionsHandler, \
     CloneDatasetHandler, \
@@ -75,6 +77,12 @@ from .main import \
     ResourcesHandler, \
     NotificationsHandler, \
     MarkdownRenderHandler
+from .rankinggroup import \
+    AddRankingGroupHandler, \
+    RankingGroupHandler, \
+    RankingGroupListHandler, \
+    RegenerateRankingHandler, \
+    RemoveRankingGroupHandler
 from .submission import \
     SubmissionHandler, \
     SubmissionCommentHandler, \
@@ -135,6 +143,9 @@ HANDLERS = [
 
     (r"/contest/([0-9]+)/users", ContestUsersHandler),
     (r"/contest/([0-9]+)/users/add", AddContestUserHandler),
+    (r"/contest/([0-9]+)/users/import", ImportUsersHandler),
+    (r"/contest/([0-9]+)/users/import/([A-Za-z0-9_-]+)/status",
+     ImportJobStatusHandler),
     (r"/contest/([0-9]+)/user/([0-9]+)/remove", RemoveParticipationHandler),
     (r"/contest/([0-9]+)/user/([0-9]+)/edit", ParticipationHandler),
     (r"/contest/([0-9]+)/user/([0-9]+)/message", MessageHandler),
@@ -212,6 +223,14 @@ HANDLERS = [
     (r"/team/([0-9]+)", TeamHandler),
     (r"/user/([0-9]+)/add_participation", AddParticipationHandler),
     (r"/user/([0-9]+)/edit_participation", EditParticipationHandler),
+
+    # Ranking groups
+
+    (r"/ranking_groups", RankingGroupListHandler),
+    (r"/ranking_groups/add", AddRankingGroupHandler),
+    (r"/ranking_groups/regenerate", RegenerateRankingHandler),
+    (r"/ranking_groups/([0-9]+)/remove", RemoveRankingGroupHandler),
+    (r"/ranking_group/([0-9]+)", RankingGroupHandler),
 
     # Admins
 

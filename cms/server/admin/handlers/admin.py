@@ -21,7 +21,10 @@
 
 """
 
+import asyncio
 import logging
+
+from sqlalchemy import select
 
 from cms.db import Admin
 from cmscommon.crypto import hash_password
@@ -65,7 +68,11 @@ def _admin_attrs(handler: BaseHandler) -> dict:
 
 class AddAdminHandler(SimpleHandler("add_admin.html", permission_all=True)):
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         fallback_page = self.url("admins", "add")
 
         try:
@@ -93,11 +100,17 @@ class AdminsHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self):
+    async def get(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync)
+
+    def _get_sync(self):
         self.r_params = self.render_params()
-        self.r_params["admins"] = self.sql_session.query(Admin)\
-            .order_by(Admin.enabled.desc())\
-            .order_by(Admin.username).all()
+        self.r_params["admins"] = self.sql_session.execute(
+            select(Admin)
+            .order_by(Admin.enabled.desc())
+            .order_by(Admin.username)
+        ).scalars().all()
         self.render("admins.html", **self.r_params)
 
 
@@ -115,7 +128,11 @@ class AdminHandler(BaseHandler):
     ]
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, admin_id: str):
+    async def get(self, admin_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, admin_id)
+
+    def _get_sync(self, admin_id: str):
         admin = self.safe_get_item(Admin, admin_id)
 
         self.r_params = self.render_params()
@@ -123,7 +140,11 @@ class AdminHandler(BaseHandler):
         self.render("admin.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL, self_allowed=True)
-    def post(self, admin_id: str):
+    async def post(self, admin_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, admin_id)
+
+    def _post_sync(self, admin_id: str):
         admin = self.safe_get_item(Admin, admin_id)
 
         try:
@@ -152,7 +173,11 @@ class AdminHandler(BaseHandler):
             self.redirect(self.url("admin", admin_id))
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, admin_id: str):
+    async def delete(self, admin_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, admin_id)
+
+    def _delete_sync(self, admin_id: str):
         admin = self.safe_get_item(Admin, admin_id)
 
         self.sql_session.delete(admin)

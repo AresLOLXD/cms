@@ -22,6 +22,8 @@ import json
 import os
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Contest, User, FSObject, Session, version
@@ -184,8 +186,9 @@ class TestDumpImporter(DatabaseMixin, FileSystemMixin, unittest.TestCase):
         a brand new session.
 
         """
-        db_contests = self.session.query(Contest)\
-            .filter(Contest.name == name).all()
+        db_contests = self.session.execute(
+            select(Contest).filter(Contest.name == name)
+        ).scalars().all()
         self.assertEqual(len(db_contests), 1)
         c = db_contests[0]
         self.assertEqual(c.name, name)
@@ -198,20 +201,23 @@ class TestDumpImporter(DatabaseMixin, FileSystemMixin, unittest.TestCase):
 
     def assertContestNotInDb(self, name):
         """Assert that the contest with the given name is not in the DB."""
-        db_contests = self.session.query(Contest)\
-            .filter(Contest.name == name).all()
+        db_contests = self.session.execute(
+            select(Contest).filter(Contest.name == name)
+        ).scalars().all()
         self.assertEqual(len(db_contests), 0)
 
     def assertUserNotInDb(self, username):
         """Assert that the user with the given username is not in the DB."""
-        db_users = self.session.query(User)\
-            .filter(User.username == username).all()
+        db_users = self.session.execute(
+            select(User).filter(User.username == username)
+        ).scalars().all()
         self.assertEqual(len(db_users), 0)
 
     def assertFileInDb(self, digest, description, content):
         """Assert that the file with the given data is in the DB."""
-        fsos = self.session.query(FSObject)\
-            .filter(FSObject.digest == digest).all()
+        fsos = self.session.execute(
+            select(FSObject).filter(FSObject.digest == digest)
+        ).scalars().all()
         self.assertEqual(len(fsos), 1)
         fso = fsos[0]
         self.assertEqual(fso.digest, digest)
@@ -220,8 +226,9 @@ class TestDumpImporter(DatabaseMixin, FileSystemMixin, unittest.TestCase):
 
     def assertFileNotInDb(self, digest):
         """Assert that the file with the given digest is not in the DB."""
-        fsos = self.session.query(FSObject)\
-            .filter(FSObject.digest == digest).all()
+        fsos = self.session.execute(
+            select(FSObject).filter(FSObject.digest == digest)
+        ).scalars().all()
         self.assertEqual(len(fsos), 0)
 
     def test_import(self):

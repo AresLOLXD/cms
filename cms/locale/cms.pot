@@ -51,6 +51,10 @@ msgstr ""
 msgid "Subtask %(index)s"
 msgstr ""
 
+#, python-format
+msgid "Worth 0 because it depends on subtask %(index)s, which scored no points."
+msgstr ""
+
 msgid "Compilation succeeded"
 msgstr ""
 
@@ -135,6 +139,13 @@ msgid "Skipped after screening phase failure"
 msgstr ""
 
 msgid "This testcase was not run because the screening testcases for its subtask did not pass."
+msgstr ""
+
+#, python-format
+msgid "Not tested: this subtask depends on subtask %s, which scored no points."
+msgstr ""
+
+msgid "This testcase was not run because its subtask depends on another subtask that scored no points, so it is worth 0 anyway."
 msgstr ""
 
 msgid "Execution completed successfully"

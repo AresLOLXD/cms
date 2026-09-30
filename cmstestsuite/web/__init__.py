@@ -32,6 +32,12 @@ import requests
 
 debug = False
 
+# Seconds a request waits for the server (to connect, and then between the
+# bytes of its answer) before failing with requests.exceptions.Timeout.
+# requests waits forever by default, so a hung service would block the whole
+# run.
+REQUEST_TIMEOUT = 60
+
 
 class Browser:
     def __init__(self):
@@ -39,7 +45,7 @@ class Browser:
         self.session = requests.Session()
 
     def read_xsrf_token(self, url):
-        self.session.get(url)
+        self.session.get(url, timeout=REQUEST_TIMEOUT)
         for cookie in self.session.cookies:
             if cookie.name == "_xsrf":
                 self.xsrf_token = cookie.value
@@ -67,11 +73,12 @@ class Browser:
         """
         if file_names is None:
             if data is None:
-                response = self.session.get(url)
+                response = self.session.get(url, timeout=REQUEST_TIMEOUT)
             else:
                 data = data.copy()
                 data['_xsrf'] = self.xsrf_token
-                response = self.session.post(url, data)
+                response = self.session.post(
+                    url, data, timeout=REQUEST_TIMEOUT)
         else:
             file_objs = {}
             try:
@@ -79,7 +86,8 @@ class Browser:
                 data['_xsrf'] = self.xsrf_token
                 for k, v in file_names:
                     file_objs[k] = open(v, "rb")
-                response = self.session.post(url, data, files=file_objs)
+                response = self.session.post(
+                    url, data, files=file_objs, timeout=REQUEST_TIMEOUT)
             finally:
                 for fobj in file_objs.values():
                     fobj.close()

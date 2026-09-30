@@ -37,6 +37,12 @@ from cmstestsuite.web import GenericRequest, LoginRequest
 logger = logging.getLogger(__name__)
 
 
+# Default of the `language` argument of the requests that submit sources:
+# guess the language from the filenames. None, instead, means that there is
+# no language (as for output-only tasks) and that none must be sent.
+GUESS_LANGUAGE = object()
+
+
 class CWSLoginRequest(LoginRequest):
     def test_success(self):
         if not LoginRequest.test_success(self):
@@ -111,7 +117,7 @@ class SubmitRequest(GenericRequest):
     """
 
     def __init__(self, browser, task, submission_format,
-                 filenames, language=None, base_url=None):
+                 filenames, language=GUESS_LANGUAGE, base_url=None):
         GenericRequest.__init__(self, browser, base_url)
         self.url = "%s/tasks/%s/submit" % (self.base_url, task[1])
         self.task = task
@@ -119,7 +125,11 @@ class SubmitRequest(GenericRequest):
         self.filenames = filenames
         self.data = {}
         # If not passed, try to recover the language from the filenames.
-        if language is None:
+        # An explicit None means "no language", so nothing is guessed: a
+        # plugin may register .txt, the extension of output files, as a
+        # source extension.
+        if language is GUESS_LANGUAGE:
+            language = None
             for filename in filenames:
                 lang = filename_to_language(filename)
                 if lang is not None:
@@ -174,7 +184,7 @@ class SubmitUserTestRequest(GenericRequest):
     """Submit a user test in CWS."""
 
     def __init__(self, browser, task, submission_format,
-                 filenames, language=None, base_url=None):
+                 filenames, language=GUESS_LANGUAGE, base_url=None):
         GenericRequest.__init__(self, browser, base_url)
         self.url = "%s/tasks/%s/test" % (self.base_url, task[1])
         self.task = task
@@ -182,7 +192,11 @@ class SubmitUserTestRequest(GenericRequest):
         self.filenames = filenames
         self.data = {}
         # If not passed, try to recover the language from the filenames.
-        if language is None:
+        # An explicit None means "no language", so nothing is guessed: a
+        # plugin may register .txt, the extension of output files, as a
+        # source extension.
+        if language is GUESS_LANGUAGE:
+            language = None
             for filename in filenames:
                 lang = filename_to_language(filename)
                 if lang is not None:

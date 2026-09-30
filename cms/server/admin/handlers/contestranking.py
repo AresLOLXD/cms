@@ -26,12 +26,14 @@
 
 """
 
+import asyncio
 import csv
 import io
 
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from cms.db import Contest
+from cms.db import Contest, Participation, Submission
 from cms.grading.scoring import task_score
 from .base import BaseHandler, require_permission
 
@@ -40,22 +42,22 @@ class RankingHandler(BaseHandler):
     """Shows the ranking for a contest.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id, format="online"):
+    def _get_sync(self, contest_id, format="online"):
         # This validates the contest id.
         self.safe_get_item(Contest, contest_id)
 
         # This massive joined load gets all the information which we will need
         # to generating the rankings.
-        self.contest: Contest = (
-            self.sql_session.query(Contest)
+        self.contest: Contest = self.sql_session.execute(
+            select(Contest)
             .filter(Contest.id == contest_id)
-            .options(joinedload("participations"))
-            .options(joinedload("participations.submissions"))
-            .options(joinedload("participations.submissions.token"))
-            .options(joinedload("participations.submissions.results"))
-            .first()
-        )
+            .options(joinedload(Contest.participations)
+                     .joinedload(Participation.submissions)
+                     .joinedload(Submission.token))
+            .options(joinedload(Contest.participations)
+                     .joinedload(Participation.submissions)
+                     .joinedload(Submission.results))
+        ).unique().scalars().first()
 
         # Preprocess participations: get data about teams, scores
         show_teams = False
@@ -131,3 +133,8 @@ class RankingHandler(BaseHandler):
             self.finish(output.getvalue())
         else:
             self.render("ranking.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id, format="online"):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, format)

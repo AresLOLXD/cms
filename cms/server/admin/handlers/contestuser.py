@@ -32,6 +32,8 @@
 
 """
 
+import asyncio
+import json
 import logging
 
 import collections
@@ -42,9 +44,12 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms.db import Contest, Group, Message, Participation, Submission, User, \
     Team
+from cms.server.admin.bulkimport import FIELDS, plan_import, read_rows
+from cms.server.admin.importjobs import IMPORT_JOBS, ImportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
 
@@ -55,23 +60,26 @@ logger = logging.getLogger(__name__)
 class ContestUsersHandler(BaseHandler):
     REMOVE_FROM_CONTEST = "Remove from contest"
 
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         self.r_params = self.render_params()
         self.r_params["contest"] = self.contest
-        self.r_params["unassigned_users"] = \
-            self.sql_session.query(User)\
-                .filter(User.id.notin_(
-                    self.sql_session.query(Participation.user_id)
-                        .filter(Participation.contest == self.contest)
-                        .all()))\
-                .all()
+        assigned_user_ids = self.sql_session.execute(
+            select(Participation.user_id)
+            .filter(Participation.contest == self.contest)
+        ).scalars().all()
+        self.r_params["unassigned_users"] = self.sql_session.execute(
+            select(User).filter(User.id.notin_(assigned_user_ids))
+        ).scalars().all()
         self.render("contest_users.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "users")
 
         try:
@@ -95,6 +103,11 @@ class ContestUsersHandler(BaseHandler):
 
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class RemoveParticipationHandler(BaseHandler):
     """Get returns a page asking for confirmation, delete actually removes
@@ -102,21 +115,19 @@ class RemoveParticipationHandler(BaseHandler):
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def get(self, contest_id, user_id):
+    def _get_sync(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
         user = self.safe_get_item(User, user_id)
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest_id == contest_id)
             .filter(Participation.user_id == user_id)
-            .first()
-        )
+        ).scalars().first()
         # Check that the participation is valid.
         if participation is None:
             raise tornado.web.HTTPError(404)
 
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.participation == participation)
         self.render_params_for_remove_confirmation(submission_query)
 
@@ -125,31 +136,38 @@ class RemoveParticipationHandler(BaseHandler):
         self.render("participation_remove.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
-    def delete(self, contest_id, user_id):
+    async def get(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, user_id)
+
+    def _delete_sync(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
         user = self.safe_get_item(User, user_id)
 
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.user == user)
             .filter(Participation.contest == self.contest)
-            .first()
-        )
+        ).scalars().first()
 
         # Unassign the user from the contest.
         self.sql_session.delete(participation)
 
         if self.try_commit():
             # Remove the participation on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another participation)
         self.write("../../users")
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def delete(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._delete_sync, contest_id, user_id)
+
 
 class AddContestUserHandler(BaseHandler):
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "users")
 
         self.contest = self.safe_get_item(Contest, contest_id)
@@ -175,10 +193,15 @@ class AddContestUserHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another user)
         self.redirect(fallback_page)
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
 
 
 class ParticipationHandler(BaseHandler):
@@ -186,42 +209,44 @@ class ParticipationHandler(BaseHandler):
     questions, messages (and allows to send the latters).
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id, user_id):
+    def _get_sync(self, contest_id, user_id):
         self.contest = self.safe_get_item(Contest, contest_id)
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest_id == contest_id)
             .filter(Participation.user_id == user_id)
-            .first()
-        )
+        ).scalars().first()
 
         # Check that the participation is valid.
         if participation is None:
             raise tornado.web.HTTPError(404)
 
-        submission_query = self.sql_session.query(Submission)\
+        submission_query = select(Submission)\
             .filter(Submission.participation == participation)
         page = int(self.get_query_argument("page", 0))
         self.render_params_for_submissions(submission_query, page)
 
         self.r_params["participation"] = participation
         self.r_params["selected_user"] = participation.user
-        self.r_params["teams"] = self.sql_session.query(Team).all()
+        self.r_params["teams"] = self.sql_session.execute(
+            select(Team)).scalars().all()
         self.render("participation.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id, user_id):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id, user_id)
+
+    def _post_sync(self, contest_id, user_id):
         fallback_page = \
             self.url("contest", contest_id, "user", user_id, "edit")
 
         self.contest = self.safe_get_item(Contest, contest_id)
-        participation: Participation = (
-            self.sql_session.query(Participation)
+        participation: Participation = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest_id == contest_id)
             .filter(Participation.user_id == user_id)
-            .first()
-        )
+        ).scalars().first()
 
         # Check that the participation is valid.
         if participation is None:
@@ -251,9 +276,9 @@ class ParticipationHandler(BaseHandler):
             team_code = attrs["team"]
 
             if team_code:  # If a team code is provided
-                team: Team | None = (
-                    self.sql_session.query(Team).filter(Team.code == team_code).first()
-                )
+                team: Team | None = self.sql_session.execute(
+                    select(Team).filter(Team.code == team_code)
+                ).scalars().first()
                 if team is None:
                     raise ValueError(f"Team with code '{team_code}' does not exist")
                 participation.team = team
@@ -268,8 +293,13 @@ class ParticipationHandler(BaseHandler):
 
         if self.try_commit():
             # Update the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
         self.redirect(fallback_page)
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id, user_id)
 
 
 class MessageHandler(BaseHandler):
@@ -277,16 +307,14 @@ class MessageHandler(BaseHandler):
 
     """
 
-    @require_permission(BaseHandler.PERMISSION_MESSAGING)
-    def post(self, contest_id, user_id):
+    def _post_sync(self, contest_id, user_id):
         user = self.safe_get_item(User, user_id)
         self.contest = self.safe_get_item(Contest, contest_id)
-        participation: Participation | None = (
-            self.sql_session.query(Participation)
+        participation: Participation | None = self.sql_session.execute(
+            select(Participation)
             .filter(Participation.contest == self.contest)
             .filter(Participation.user == user)
-            .first()
-        )
+        ).scalars().first()
 
         # check that the participation is valid
         if participation is None:
@@ -303,3 +331,148 @@ class MessageHandler(BaseHandler):
                         user.username, self.contest.name)
 
         self.redirect(self.url("contest", contest_id, "user", user_id, "edit"))
+
+    @require_permission(BaseHandler.PERMISSION_MESSAGING)
+    async def post(self, contest_id, user_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id, user_id)
+
+
+class ImportUsersHandler(BaseHandler):
+    """Bulk import of users and participations into a contest (CSV).
+
+    GET shows the form, or the progress of the job given by ?job= (with
+    &repetido=1, also a notice that the file just sent was not imported).
+    POST reads the file: "validate" only reports what an import would do,
+    "import" starts the job and redirects to its progress page.
+
+    """
+
+    def _render_page(self, mapping: dict[str, str] | None = None,
+                     errors: list[str] | None = None,
+                     summary: dict[str, int] | None = None,
+                     job: ImportJob | None = None,
+                     notice: str | None = None) -> None:
+        """Render the page.
+
+        The template gets every one of these parameters, as AWS renders
+        with StrictUndefined.
+
+        mapping: import field -> header the admin chose for it, so that
+            the choice survives the page being shown again.
+        errors: why nothing was imported, to list them.
+        summary: what an import of the file would do, after "validate".
+        job: the import job whose progress to show, instead of the form.
+        notice: something to tell the admin that is not an error, as
+            errors say that nothing was applied.
+
+        """
+        self.r_params = self.render_params()
+        self.r_params["contest"] = self.contest
+        self.r_params["fields"] = FIELDS
+        self.r_params["mapping"] = mapping or {}
+        self.r_params["errors"] = errors or []
+        self.r_params["summary"] = summary
+        self.r_params["job"] = job
+        self.r_params["notice"] = notice
+        self.render("contest_users_import.html", **self.r_params)
+
+    def _job_url(self, job: ImportJob) -> str:
+        """Return the URL of the page that shows the progress of a job.
+
+        job: the job.
+
+        """
+        return self.url("contest", self.contest.id, "users",
+                        "import") + "?job=" + job.id
+
+    def _get_sync(self, contest_id: str) -> None:
+        self.contest = self.safe_get_item(Contest, contest_id)
+        job_id = self.get_argument("job", None)
+        if job_id is None:
+            self._render_page()
+            return
+        job = IMPORT_JOBS.get(job_id, self.current_user.id)
+        if job is None or job.contest_id != self.contest.id:
+            # A notice, not an error: the job may have been saved before it
+            # expired or the AWS restarted, so "nothing was applied" would
+            # be false.
+            self._render_page(notice=(
+                "No se encontró la importación: no existe o ya expiró. "
+                "Revisa la lista de usuarios para ver si se aplicó."))
+            return
+        # A second file was sent while this import ran and was refused: the
+        # admin must not take the progress for the one of that file.
+        repeated = bool(self.get_argument("repetido", None))
+        self._render_page(job=job, notice=(
+            "Ya tenías una importación en curso en este concurso; este es "
+            "su progreso. El archivo que acabas de enviar no se importó."
+            if repeated else None))
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, contest_id: str) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id: str) -> None:
+        self.contest = self.safe_get_item(Contest, contest_id)
+        mapping = {field: self.get_argument("map_" + field, "")
+                   for field in FIELDS}
+        files = self.request.files.get("file")
+        if not files:
+            self._render_page(mapping, errors=["elige un archivo CSV"])
+            return
+        rows, errors = read_rows(files[0]["body"], mapping)
+        plan = None
+        if not errors:
+            plan, errors = plan_import(self.sql_session, self.contest.id,
+                                       rows)
+        if errors:
+            self._render_page(mapping, errors=errors)
+            return
+        if self.get_argument("action", "validate") != "import":
+            self._render_page(mapping, summary=plan.summary())
+            return
+        service = self.service
+
+        def on_done() -> None:
+            # Called from the job's thread, once the import is saved.
+            self.schedule_rpc(service.proxy_service.reinitialize)
+
+        try:
+            job = IMPORT_JOBS.start(self.current_user.id, self.contest.id,
+                                    rows, on_done)
+        except ValueError:
+            # The contest already has a running import. If it is this
+            # admin's, follow it instead of losing its progress page. The
+            # file just sent may not be the one that is running, so the
+            # page is told that it was not imported. Otherwise there is
+            # nothing wrong with the file: the admin only has to wait.
+            running = IMPORT_JOBS.running_job(self.contest.id)
+            if running is not None \
+                    and running.owner_id == self.current_user.id:
+                self.redirect(self._job_url(running) + "&repetido=1")
+                return
+            self._render_page(mapping, notice=(
+                "Hay una importación en curso para este concurso; "
+                "espera a que termine."))
+            return
+        self.redirect(self._job_url(job))
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id: str) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
+
+class ImportJobStatusHandler(BaseHandler):
+    """The progress of an import job, as JSON, for its owner only."""
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, contest_id: str, job_id: str) -> None:
+        job = IMPORT_JOBS.get(job_id, self.current_user.id)
+        if job is None or str(job.contest_id) != contest_id:
+            raise tornado.web.HTTPError(404)
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.write(json.dumps(job.as_json()))

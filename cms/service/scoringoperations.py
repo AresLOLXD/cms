@@ -28,6 +28,8 @@ compute sets of operations to do.
 from datetime import datetime
 import logging
 
+from sqlalchemy import select
+
 from cms.db import Dataset, Submission, SubmissionResult, \
     Task
 from cms.db.session import Session
@@ -58,15 +60,16 @@ def get_operations(session: Session) -> list[tuple["ScoringOperation", datetime]
     """
     # Retrieve all the compilation operations for submissions
     # already having a result for a dataset to judge.
-    results = session.query(Submission)\
-        .join(Submission.task)\
-        .join(Submission.results)\
-        .join(SubmissionResult.dataset)\
+    results = session.execute(
+        select(Submission)
+        .join(Submission.task)
+        .join(Submission.results)
+        .join(SubmissionResult.dataset)
         .filter(
             (FILTER_DATASETS_TO_JUDGE) &
-            (FILTER_SUBMISSION_RESULTS_TO_SCORE))\
-        .with_entities(Submission.id, Dataset.id, Submission.timestamp)\
-        .all()
+            (FILTER_SUBMISSION_RESULTS_TO_SCORE))
+        .with_only_columns(Submission.id, Dataset.id, Submission.timestamp)
+    ).all()
 
     return [(ScoringOperation(result[0], result[1]), result[2])
             for result in results]

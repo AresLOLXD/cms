@@ -20,6 +20,10 @@
 
 """
 
+import asyncio
+
+from sqlalchemy import select
+
 from cms.db import Dataset, UserTestFile, UserTest
 from cms.grading.languagemanager import safe_get_lang_filename
 
@@ -28,8 +32,7 @@ from .base import BaseHandler, FileHandler, require_permission
 
 class UserTestHandler(BaseHandler):
     """Shows the details of a user test."""
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, user_test_id, dataset_id=None):
+    def _get_sync(self, user_test_id, dataset_id=None):
         user_test = self.safe_get_item(UserTest, user_test_id)
         task = user_test.task
         self.contest = task.contest
@@ -44,11 +47,17 @@ class UserTestHandler(BaseHandler):
         self.r_params["ut"] = user_test
         self.r_params["active_dataset"] = task.active_dataset
         self.r_params["shown_dataset"] = dataset
-        self.r_params["datasets"] = \
-            self.sql_session.query(Dataset)\
-                            .filter(Dataset.task == task)\
-                            .order_by(Dataset.description).all()
+        self.r_params["datasets"] = self.sql_session.execute(
+            select(Dataset)
+            .filter(Dataset.task == task)
+            .order_by(Dataset.description)
+        ).scalars().all()
         self.render("user_test.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, user_test_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, user_test_id, dataset_id)
 
 
 class UserTestFileHandler(FileHandler):
@@ -56,12 +65,18 @@ class UserTestFileHandler(FileHandler):
     # We cannot use FileFromDigestHandler as it does not know how to
     # set the proper name (i.e., converting %l to the language).
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, file_id):
+    async def get(self, file_id):
+        loop = asyncio.get_running_loop()
+        digest, real_filename = await loop.run_in_executor(
+            None, self._get_file_info_sync, file_id)
+
+        self.sql_session.close()
+        await self.fetch(digest, "text/plain", real_filename)
+
+    def _get_file_info_sync(self, file_id) -> tuple[str, str]:
+        """Look up the file's digest and download name (DB access)."""
         user_test_file = self.safe_get_item(UserTestFile, file_id)
         user_test = user_test_file.user_test
 
         real_filename = safe_get_lang_filename(user_test.language, user_test_file.filename)
-        digest = user_test_file.digest
-
-        self.sql_session.close()
-        self.fetch(digest, "text/plain", real_filename)
+        return user_test_file.digest, real_filename

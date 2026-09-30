@@ -34,8 +34,8 @@ exported as they may be of general interest.
 
 """
 from datetime import datetime, timedelta
-from sqlalchemy import desc, func
-from sqlalchemy.orm import Query
+from sqlalchemy import desc, func, select
+from sqlalchemy.sql import Select
 
 from cms.db import Task, Submission
 from cms.db.contest import Contest
@@ -45,12 +45,12 @@ from cms.db.usertest import UserTest
 
 
 def _filter_submission_query(
-    q: Query,
+    q: Select,
     participation: Participation,
     contest: Contest | None,
     task: Task | None,
     cls: type[Submission | UserTest],
-) -> Query:
+) -> Select:
     """Filter a query for submissions by participation, contest, task.
 
     Apply to the given query some filters that narrow down the set of
@@ -103,9 +103,9 @@ def get_submission_count(
     return: the count.
 
     """
-    q = sql_session.query(func.count(cls.id))
+    q = select(func.count(cls.id))
     q = _filter_submission_query(q, participation, contest, task, cls)
-    return q.scalar()
+    return sql_session.execute(q).scalar_one()
 
 
 def check_max_number(
@@ -166,10 +166,10 @@ def get_latest_submission(
         if any.
 
     """
-    q = sql_session.query(cls)
+    q = select(cls)
     q = _filter_submission_query(q, participation, contest, task, cls)
     q = q.order_by(desc(cls.timestamp))
-    return q.first()
+    return sql_session.execute(q).scalars().first()
 
 
 def check_min_interval(

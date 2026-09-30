@@ -29,14 +29,15 @@ import time
 from collections import deque
 
 from cms import config, mkdir
-from cms.io import Service, rpc_method
+from cms.io.async_service import AsyncService
+from cms.io.rpc import rpc_method
 from cms.log import root_logger, shell_handler, FileHandler, DetailedFormatter
 
 
 logger = logging.getLogger(__name__)
 
 
-class LogService(Service):
+class LogService(AsyncService):
     """Logger service.
 
     """
@@ -44,7 +45,7 @@ class LogService(Service):
     LAST_MESSAGES_COUNT = 100
 
     def __init__(self, shard: int):
-        Service.__init__(self, shard)
+        AsyncService.__init__(self, shard)
 
         # Determine location of log file, and make directories.
         log_dir = os.path.join(config.global_.log_dir, "cms")

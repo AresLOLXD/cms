@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import func, select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Contest, SessionGen, Submission, User
@@ -134,8 +136,9 @@ class TestImportContest(DatabaseMixin, unittest.TestCase):
 
         """
         with SessionGen() as session:
-            db_contests = session.query(Contest) \
-                .filter(Contest.name == name).all()
+            db_contests = session.execute(
+                select(Contest).filter(Contest.name == name)
+            ).scalars().all()
             self.assertEqual(len(db_contests), 1)
             c = db_contests[0]
             self.assertEqual(c.name, name)
@@ -149,7 +152,12 @@ class TestImportContest(DatabaseMixin, unittest.TestCase):
     def assertSubmissionCount(self, count):
         """Assert that we have that many submissions in the DB"""
         with SessionGen() as session:
-            self.assertEqual(session.query(Submission).count(), count)
+            self.assertEqual(
+                session.execute(
+                    select(func.count()).select_from(Submission)
+                ).scalar_one(),
+                count,
+            )
 
     def test_import_task_in_db_not_attached(self):
         # Completely new contest, the task is already in the DB, not attached
@@ -338,7 +346,9 @@ class TestImportContest(DatabaseMixin, unittest.TestCase):
         self.assertSubmissionCount(3)
         # Even if the original participation has been deleted, the user should
         # remain.
-        self.assertEqual(len(self.session.query(User).all()), 2)
+        self.assertEqual(
+            len(self.session.execute(select(User)).scalars().all()), 2
+        )
 
     def test_update_contest_same_participations(self):
         # Update the existing contest, task not updated, participations passed.

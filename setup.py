@@ -67,6 +67,7 @@ PACKAGE_DATA = {
         "code/*.*",
         "tasks/batch_and_output/code/*",
         "tasks/batch_and_output/data/*",
+        "tasks/batch_dag/data/*.*",
         "tasks/batch_stdio/data/*.*",
         "tasks/batch_fileio/data/*.*",
         "tasks/batch_fileio_managed/code/*",

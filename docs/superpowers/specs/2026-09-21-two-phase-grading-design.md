@@ -127,7 +127,7 @@ def _advance_two_phase(self, session, submission_result):
             continue
         if status.get(twophase.group_of(codename), "passed") == "failed":
             submission_result.evaluations += [Evaluation(
-                text=["Saltado tras fallo en la fase de tamizaje"],
+                text=[N_("Skipped after screening phase failure")],
                 outcome="0.0",
                 execution_time=0.0,
                 execution_wall_clock_time=0.0,

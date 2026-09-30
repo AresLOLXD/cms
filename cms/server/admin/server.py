@@ -27,18 +27,23 @@
 
 from datetime import datetime
 import logging
+import threading
+import typing
 
-from sqlalchemy import func, not_, literal_column
+from sqlalchemy import func, not_, literal_column, select
 
 from cms import config, ServiceCoord, get_service_shards
 from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
 from cms.io import WebService, rpc_method
 from cms.service import EvaluationService
 from cmscommon.binary import hex_to_bin
-from .authentication import AWSAuthMiddleware
 from .handlers import HANDLERS
+from .handlers.base import decode_admin_session
 from .jinja2_toolbox import AWS_ENVIRONMENT
 from .rpc_authorization import rpc_authorization_checker
+
+if typing.TYPE_CHECKING:
+    from cms.io.web_rpc import RPCHandler
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +60,6 @@ class AdminWebServer(WebService):
             "cookie_secret": hex_to_bin(config.web_server.secret_key),
             "debug": config.web_server.tornado_debug,
             "num_proxies_used": config.admin_web_server.num_proxies_used,
-            "auth_middleware": AWSAuthMiddleware,
             "rpc_enabled": True,
             "rpc_auth": self.is_rpc_authorized,
             "xsrf_cookies": True,
@@ -66,12 +70,13 @@ class AdminWebServer(WebService):
             parameters,
             shard=shard,
             listen_address=config.admin_web_server.listen_address)
-        self.auth_handler: AWSAuthMiddleware
 
         self.jinja2_environment = AWS_ENVIRONMENT
 
-        # A list of pending notifications.
+        # A list of pending notifications, appended to and drained
+        # from executor threads; guarded by notifications_lock.
         self.notifications: list[tuple[datetime, str, str]] = []
+        self.notifications_lock = threading.Lock()
 
         self.admin_web_server = self.connect_to(
             ServiceCoord("AdminWebServer", 0))
@@ -91,20 +96,54 @@ class AdminWebServer(WebService):
                 ServiceCoord("ResourceService", i)))
         self.logservice = self.connect_to(ServiceCoord("LogService", 0))
 
-    def is_rpc_authorized(self, service: str, shard: int, method: str):
-        return rpc_authorization_checker(self.auth_handler.admin_id,
-                                         service, shard, method)
+    def is_rpc_authorized(
+        self, handler: "RPCHandler", service: str, shard: int, method: str,
+    ) -> bool:
+        admin_id = self._get_rpc_admin_id(handler)
+        return rpc_authorization_checker(admin_id, service, shard, method)
+
+    @staticmethod
+    def _get_rpc_admin_id(handler: "RPCHandler") -> int | None:
+        """Decode the awslogin cookie directly off an RPCHandler.
+
+        RPCHandler doesn't inherit from BaseHandler (see
+        cms/io/web_rpc.py's module docstring), hence the shared
+        module-level decode_admin_session(). The admin isn't looked up
+        here: rpc_authorization_checker() already loads it and rejects
+        a missing or disabled one.
+
+        handler: the RPCHandler instance serving the current request.
+
+        return: the admin id from a valid, non-expired session, or
+            None.
+
+        """
+        return decode_admin_session(handler)
 
     def add_notification(self, timestamp: datetime, subject: str, text: str):
         """Store a new notification to send at the first
         opportunity (i.e., at the first request for db notifications).
+
+        Handler bodies run in executor threads, so this is guarded by
+        notifications_lock (see take_notifications()).
 
         timestamp: the time of the notification.
         subject: subject of the notification.
         text: body of the notification.
 
         """
-        self.notifications.append((timestamp, subject, text))
+        with self.notifications_lock:
+            self.notifications.append((timestamp, subject, text))
+
+    def take_notifications(self) -> list[tuple[datetime, str, str]]:
+        """Atomically return all pending notifications and clear them.
+
+        return: the pending notifications, each returned exactly once.
+
+        """
+        with self.notifications_lock:
+            pending, self.notifications = self.notifications, []
+        return pending
 
     @staticmethod
     @rpc_method
@@ -131,8 +170,8 @@ class AdminWebServer(WebService):
         # for the datasets with autojudge, and for all datasets.
         stats = {}
         with SessionGen() as session:
-            base_query = session\
-                .query(func.count(SubmissionResult.submission_id))\
+            base_query = \
+                select(func.count(SubmissionResult.submission_id))\
                 .select_from(SubmissionResult)\
                 .join(Dataset)\
                 .join(Task, Dataset.task_id == Task.id)\
@@ -169,8 +208,8 @@ class AdminWebServer(WebService):
             queries['scored'] = evaluated.filter(
                 SubmissionResult.filter_scored())
 
-            total_query = session\
-                .query(func.count(Submission.id))\
+            total_query = \
+                select(func.count(Submission.id))\
                 .select_from(Submission)\
                 .join(Task, Submission.task_id == Task.id)
             if contest_id is not None:
@@ -185,8 +224,8 @@ class AdminWebServer(WebService):
                 queries[key] = query.add_columns(key_column)
 
             keys = list(queries.keys())
-            results = queries[keys[0]].union_all(
-                *(queries[key] for key in keys[1:])).all()
+            results = session.execute(queries[keys[0]].union_all(
+                *(queries[key] for key in keys[1:]))).all()
 
         stats = {key: value for value, key in results}
         stats['compiling'] += 2 * stats['total'] - sum(stats.values())

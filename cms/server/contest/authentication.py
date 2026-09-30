@@ -25,12 +25,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import asyncio
+import dataclasses
 import ipaddress
 import json
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 import typing
 
+from sqlalchemy import select
 from sqlalchemy.orm import contains_eager, joinedload
 
 from cms import config
@@ -41,13 +46,24 @@ from cmscommon.crypto import validate_password
 from cmscommon.datetime import make_datetime, make_timestamp
 
 
-__all__ = ["validate_login", "authenticate_request"]
+__all__ = ["validate_login", "validate_login_async", "authenticate_request"]
 
 
 logger = logging.getLogger(__name__)
 
 
 AnyIPAddress: typing.TypeAlias = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+LoginResult: typing.TypeAlias = tuple[Participation | None, bytes | None]
+
+
+# The threads checking the passwords of logins. bcrypt releases the GIL, so
+# they run in parallel with each other and with the event loop. It is
+# dedicated to this so that a burst of logins cannot delay (or be delayed by)
+# whatever else uses the event loop's default executor.
+_PASSWORD_CHECK_POOL = ThreadPoolExecutor(
+    max_workers=min(4, os.cpu_count() or 1),
+    thread_name_prefix="cws-password-check")
 
 
 def get_password(participation: Participation) -> str:
@@ -64,6 +80,174 @@ def get_password(participation: Participation) -> str:
         return participation.password
 
 
+@dataclasses.dataclass(frozen=True)
+class _PendingLogin:
+    """A login that is only waiting for its password to be checked.
+
+    It holds plain values only: everything the rest of the login needs
+    is read from the database objects before the (slow) password check,
+    so that the check can run without a database connection checked out
+    and without touching any SQLAlchemy object.
+
+    """
+
+    # Handed back to the caller as the login's result; never read here.
+    participation: Participation
+
+    ip_address: AnyIPAddress
+    timestamp: datetime
+    username: str
+    contest_name: str
+    stored_username: str
+    # Kept out of the repr, as it can be the plaintext password.
+    correct_password: str = dataclasses.field(repr=False)
+    ip_restriction: bool
+    block_hidden_participations: bool
+    participation_ip: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network,
+                            ...] | None
+    hidden: bool
+
+    def finish_invalid_password(self, error: ValueError) -> LoginResult:
+        """Conclude a login whose stored password could not be checked.
+
+        error: the error the password check raised.
+
+        return: the result of the login, i.e., a failure.
+
+        """
+        # This is either a programming or a configuration error.
+        logger.warning(
+            "Invalid password stored in database for user %s in contest %s: "
+            "%s", self.stored_username, self.contest_name, error)
+        return None, None
+
+    def finish(self, password_valid: bool) -> LoginResult:
+        """Conclude the login, given the outcome of the password check.
+
+        password_valid: whether the password the user provided matched.
+
+        return: the result of the login, as in validate_login.
+
+        """
+        def log_failed_attempt(msg):
+            _log_failed_login_attempt(
+                self.ip_address, self.username, self.contest_name,
+                self.timestamp, msg)
+
+        if not password_valid:
+            log_failed_attempt("wrong password")
+            return None, None
+
+        if self.ip_restriction and self.participation_ip is not None \
+                and not any(self.ip_address in network
+                            for network in self.participation_ip):
+            log_failed_attempt("unauthorized IP address")
+            return None, None
+
+        if self.block_hidden_participations and self.hidden:
+            log_failed_attempt("participation is hidden and unauthorized")
+            return None, None
+
+        logger.info("Successful login attempt from IP address %s, as user %r, "
+                    "on contest %s, at %s", self.ip_address, self.username,
+                    self.contest_name, self.timestamp)
+
+        # If hashing is used, the cookie stores the hashed password so that
+        # the expensive bcrypt call doesn't need to be done at every request.
+        return (self.participation,
+                json.dumps([self.username, self.correct_password,
+                            make_timestamp(self.timestamp), False])
+                    .encode("utf-8"))
+
+
+def _log_failed_login_attempt(
+    ip_address: AnyIPAddress,
+    username: str,
+    contest_name: str,
+    timestamp: datetime,
+    msg: str,
+):
+    logger.info("Unsuccessful login attempt from IP address %s, as user "
+                "%r, on contest %s, at %s: " + msg, ip_address,
+                username, contest_name, timestamp)
+
+
+def _begin_login(
+    sql_session: Session,
+    contest: Contest,
+    timestamp: datetime,
+    username: str,
+    ip_address: AnyIPAddress,
+    admin_token: str,
+) -> LoginResult | _PendingLogin:
+    """Do the part of a login that needs the database.
+
+    See validate_login for the meaning of the arguments.
+
+    return: either the final result of the login, if it could be
+        decided without checking the password, or the login waiting for
+        the password to be checked.
+
+    """
+    contest_name = contest.name
+
+    if not contest.allow_password_authentication and admin_token == "":
+        _log_failed_login_attempt(
+            ip_address, username, contest_name, timestamp,
+            "password authentication not allowed")
+        return None, None
+
+    participation: Participation | None = sql_session.execute(
+        select(Participation)
+        .join(Participation.user)
+        .options(contains_eager(Participation.user))
+        .filter(Participation.contest == contest)
+        .filter(User.username == username)
+    ).scalars().first()
+
+    if participation is None:
+        _log_failed_login_attempt(
+            ip_address, username, contest_name, timestamp,
+            "user not registered to contest")
+        return None, None
+
+    if admin_token != "":
+        if config.contest_web_server.contest_admin_token is None:
+            _log_failed_login_attempt(
+                ip_address, username, contest_name, timestamp,
+                "admin token not configured")
+            return None, None
+
+        if admin_token != config.contest_web_server.contest_admin_token:
+            _log_failed_login_attempt(
+                ip_address, username, contest_name, timestamp,
+                "invalid admin token")
+            return None, None
+
+        logger.info("Successful impersonated login from IP address %s, as user %r, on "
+                    "contest %s, at %s", ip_address, username, contest_name,
+                    timestamp)
+
+        return (participation,
+                json.dumps([username, "", make_timestamp(timestamp), True])
+                    .encode("utf-8"))
+
+    return _PendingLogin(
+        participation=participation,
+        ip_address=ip_address,
+        timestamp=timestamp,
+        username=username,
+        contest_name=contest_name,
+        stored_username=participation.user.username,
+        correct_password=get_password(participation),
+        ip_restriction=contest.ip_restriction,
+        block_hidden_participations=contest.block_hidden_participations,
+        participation_ip=(None if participation.ip is None
+                          else tuple(participation.ip)),
+        hidden=participation.hidden,
+    )
+
+
 def validate_login(
     sql_session: Session,
     contest: Contest,
@@ -72,7 +256,7 @@ def validate_login(
     password: str,
     ip_address: AnyIPAddress,
     admin_token: str = ""
-) -> tuple[Participation | None, bytes | None]:
+) -> LoginResult:
     """Authenticate a user logging in, with username and password.
 
     Given the information the user provided (the username and the
@@ -84,6 +268,9 @@ def validate_login(
 
     After finding the participation, IP login and hidden users
     restrictions are checked.
+
+    The password is checked on the calling thread. Code running on an
+    event loop should use validate_login_async instead.
 
     sql_session: the SQLAlchemy database session used to
         execute queries.
@@ -100,78 +287,65 @@ def validate_login(
         has to be set return it as well, otherwise return None.
 
     """
-    def log_failed_attempt(msg, *args):
-        logger.info("Unsuccessful login attempt from IP address %s, as user "
-                    "%r, on contest %s, at %s: " + msg, ip_address,
-                    username, contest.name, timestamp, *args)
-
-    if not contest.allow_password_authentication and admin_token == "":
-        log_failed_attempt("password authentication not allowed")
-        return None, None
-
-    participation: Participation | None = (
-        sql_session.query(Participation)
-        .join(Participation.user)
-        .options(contains_eager(Participation.user))
-        .filter(Participation.contest == contest)
-        .filter(User.username == username)
-        .first()
-    )
-
-    if participation is None:
-        log_failed_attempt("user not registered to contest")
-        return None, None
-
-    if admin_token != "":
-        if config.contest_web_server.contest_admin_token is None:
-            log_failed_attempt("admin token not configured")
-            return None, None
-
-        if admin_token != config.contest_web_server.contest_admin_token:
-            log_failed_attempt("invalid admin token")
-            return None, None
-
-        logger.info("Successful impersonated login from IP address %s, as user %r, on "
-                    "contest %s, at %s", ip_address, username, contest.name,
-                    timestamp)
-
-        return (participation,
-                json.dumps([username, "", make_timestamp(timestamp), True])
-                    .encode("utf-8"))
-
-    correct_password = get_password(participation)
+    login = _begin_login(
+        sql_session, contest, timestamp, username, ip_address, admin_token)
+    if not isinstance(login, _PendingLogin):
+        return login
 
     try:
-        password_valid = validate_password(correct_password, password)
+        password_valid = validate_password(login.correct_password, password)
     except ValueError as e:
-        # This is either a programming or a configuration error.
-        logger.warning(
-            "Invalid password stored in database for user %s in contest %s: "
-            "%s", participation.user.username, participation.contest.name, e)
-        return None, None
+        return login.finish_invalid_password(e)
 
-    if not password_valid:
-        log_failed_attempt("wrong password")
-        return None, None
+    return login.finish(password_valid)
 
-    if contest.ip_restriction and participation.ip is not None \
-            and not any(ip_address in network for network in participation.ip):
-        log_failed_attempt("unauthorized IP address")
-        return None, None
 
-    if contest.block_hidden_participations and participation.hidden:
-        log_failed_attempt("participation is hidden and unauthorized")
-        return None, None
+async def validate_login_async(
+    sql_session: Session,
+    contest: Contest,
+    timestamp: datetime,
+    username: str,
+    password: str,
+    ip_address: AnyIPAddress,
+    admin_token: str = ""
+) -> LoginResult:
+    """Authenticate a user logging in, without blocking the event loop.
 
-    logger.info("Successful login attempt from IP address %s, as user %r, on "
-                "contest %s, at %s", ip_address, username, contest.name,
-                timestamp)
+    Behaves exactly as validate_login, but the password check (bcrypt
+    takes around 200 ms of CPU) runs in a dedicated thread pool while
+    the caller's coroutine waits for it.
 
-    # If hashing is used, the cookie stores the hashed password so that
-    # the expensive bcrypt call doesn't need to be done at every request.
-    return (participation,
-            json.dumps([username, correct_password, make_timestamp(timestamp), False])
-                .encode("utf-8"))
+    While waiting, the session must not keep a database connection
+    checked out, since many logins can be waiting at the same time and
+    would exhaust the connection pool. Therefore, once the participation
+    has been read, its data is copied to plain values and the session's
+    transaction is rolled back, giving the connection back (so the
+    session must not have changes that need to be kept). As a
+    consequence all the objects loaded in sql_session are expired when
+    this function returns (unless the login is decided before the
+    password has to be checked, as with an admin token): the caller
+    must read what it needs from them beforehand, as accessing them
+    later would start a new transaction.
+
+    See validate_login for the arguments and the return value.
+
+    """
+    login = _begin_login(
+        sql_session, contest, timestamp, username, ip_address, admin_token)
+    if not isinstance(login, _PendingLogin):
+        return login
+
+    sql_session.rollback()
+
+    loop = asyncio.get_running_loop()
+    try:
+        password_valid = await loop.run_in_executor(
+            _PASSWORD_CHECK_POOL, validate_password,
+            login.correct_password, password)
+    except ValueError as e:
+        return login.finish_invalid_password(e)
+
+    return login.finish(password_valid)
 
 
 class AmbiguousIPAddress(Exception):
@@ -295,7 +469,7 @@ def _authenticate_request_by_ip_address(
     ip_network = ipaddress.ip_network((ip_address, ip_address.max_prefixlen))
 
     participations_query = (
-        sql_session.query(Participation)
+        select(Participation)
         .options(joinedload(Participation.user))
         .filter(Participation.contest == contest)
         .filter(Participation.ip.any(ip_network))
@@ -307,7 +481,9 @@ def _authenticate_request_by_ip_address(
             Participation.hidden.is_(False)
         )
 
-    participations: list[Participation] = participations_query.all()
+    participations: list[Participation] = list(
+        sql_session.execute(participations_query).scalars()
+    )
 
     if len(participations) == 0:
         logger.info(
@@ -386,14 +562,13 @@ def _authenticate_request_from_cookie_or_authorization_header(
         return None, None, False
 
     # Load participation from DB and make sure it exists.
-    participation: Participation | None = (
-        sql_session.query(Participation)
+    participation: Participation | None = sql_session.execute(
+        select(Participation)
         .join(Participation.user)
         .options(contains_eager(Participation.user))
         .filter(Participation.contest == contest)
         .filter(User.username == username)
-        .first()
-    )
+    ).scalars().first()
     if participation is None:
         log_failed_attempt("user not registered to contest")
         return None, None, False

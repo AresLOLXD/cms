@@ -22,13 +22,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import json
 import logging
 import os
 import re
 import sys
 import time
 import tomllib
+from urllib.parse import urlsplit
+
+import requests
 
 from cmstestsuite import CONFIG, TestException, sh
 from cmstestsuite.web import Browser
@@ -53,6 +55,17 @@ class FunctionalTestFramework:
     # Base URLs for AWS and CWS
     AWS_BASE_URL = "http://localhost:8889"
     CWS_BASE_URL = "http://localhost:8888"
+
+    # Seconds a single request to RWS may take. A failed staff login alone
+    # takes over a second by design.
+    RWS_REQUEST_TIMEOUT = 10
+
+    # For each visibility action of a ranking group's page in AWS, the
+    # button that the page offers instead once the action is applied.
+    OPPOSITE_VISIBILITY_ACTION = {
+        "hide_now": "show_now", "show_now": "hide_now",
+        "freeze_now": "unfreeze_now", "unfreeze_now": "freeze_now",
+    }
 
     # Regexes for submission statuses.
     WAITING_STATUSES = re.compile(
@@ -147,9 +160,44 @@ class FunctionalTestFramework:
                 self._cms_config = tomllib.load(f)
         return self._cms_config
 
+    def get_log_dir(self) -> str:
+        """Return the directory the services write their logs to."""
+        return self.get_cms_config().get("global", {}).get(
+            "log_dir", os.path.join(sys.prefix, "log"))
+
     def admin_req(self, path, args=None, files=None):
         browser = self.get_aws_browser()
         return browser.do_request(self.AWS_BASE_URL + '/' + path, args, files)
+
+    def get_rws_url(self, path: str = "") -> str:
+        """Return the URL of a path of RWS.
+
+        RWS is where ProxyService pushes to: the first of the rankings in
+        the configuration, without its credentials (reading needs none).
+
+        path: the path, starting with a slash.
+
+        """
+        url = urlsplit(self.get_cms_config()["proxy_service"]["rankings"][0])
+        return "%s://%s:%s%s" % (url.scheme, url.hostname, url.port, path)
+
+    def rws_request(self, session: requests.Session, method: str, path: str,
+                    **kwargs) -> requests.Response:
+        """Send a request to RWS and return its response.
+
+        Unlike Browser, it neither raises on an error status nor follows
+        redirects (unless told to): the tests look at 403 and 303.
+
+        session: the requests.Session to send it with, which keeps the
+            cookies of one visitor (public or staff).
+        method: the HTTP method.
+        path: the path on RWS, starting with a slash.
+        kwargs: further arguments for requests.
+
+        """
+        kwargs.setdefault("timeout", self.RWS_REQUEST_TIMEOUT)
+        kwargs.setdefault("allow_redirects", False)
+        return session.request(method, self.get_rws_url(path), **kwargs)
 
     def get_tasks(self) -> dict[str, dict[str, str]]:
         """Return the existing tasks
@@ -222,6 +270,66 @@ class FunctionalTestFramework:
             return contest_id, group_id
         else:
             raise TestException("Unable to create contest.")
+
+    def add_ranking_group(self, name, description,
+                          staff_password=None) -> int:
+        """Create a ranking group.
+
+        return: the id of the ranking group.
+
+        """
+        add_args = {"name": name, "description": description}
+        if staff_password is not None:
+            add_args["staff_password"] = staff_password
+        r = self.admin_req('ranking_groups/add', args=add_args)
+        # On success AWS redirects to the list of groups, which links it.
+        match = re.search(
+            r'ranking_group/([0-9]+)">%s</a>' % re.escape(name), r.text)
+        if match is None:
+            raise TestException("Unable to create ranking group.")
+        return int(match.group(1))
+
+    def edit_ranking_group(self, group_id, name, description, action=None,
+                           staff_password=None):
+        """Save the page of a ranking group, as its form does.
+
+        The page is read first: each time of the visibility windows is
+        sent back as it is rendered, along with the <field>_shown the
+        page carries for it, and AWS keeps the times that did not change.
+
+        action: the visibility_action button to press (hide_now,
+            show_now, freeze_now or unfreeze_now), or None to press
+            Update.
+        staff_password: a new staff password, or None to keep the current
+            one.
+
+        raise (TestException): if the page has no window times, or AWS
+            did not apply the change.
+
+        """
+        page = self.admin_req('ranking_group/%s' % group_id).text
+        # Needs the template's name-then-value order; else it raises below.
+        shown = re.findall(r'name="(\w+)_shown" value="([^"]*)"', page)
+        if not shown:
+            raise TestException("Unable to read ranking group.")
+        edit_args = {"name": name, "description": description}
+        for field, value in shown:
+            edit_args[field] = value
+            edit_args[field + "_shown"] = value
+        if action is not None:
+            edit_args["visibility_action"] = action
+        if staff_password is not None:
+            edit_args["staff_password"] = staff_password
+        self.admin_req('ranking_group/%s' % group_id, args=edit_args)
+
+        # AWS answers an invalid form with a redirect and a notification,
+        # so read the page back to know what was saved.
+        page = self.admin_req('ranking_group/%s' % group_id).text
+        if (action is not None and
+                'name="visibility_action" value="%s"'
+                % self.OPPOSITE_VISIBILITY_ACTION[action] not in page) or \
+                (staff_password is not None and "(set)" not in page):
+            raise TestException("Unable to update ranking group.")
 
     def add_task(self, **kwargs):
         add_args = {

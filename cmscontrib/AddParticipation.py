@@ -36,6 +36,7 @@ import ipaddress
 import logging
 import sys
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from cms import utf8_decoder
@@ -72,9 +73,9 @@ def add_participation(
 
     try:
         with SessionGen() as session:
-            user: User | None = (
-                session.query(User).filter(User.username == username).first()
-            )
+            user: User | None = session.execute(
+                select(User).filter(User.username == username)
+            ).scalars().first()
             if user is None:
                 logger.error("No user with username `%s' found.", username)
                 return False
@@ -82,17 +83,19 @@ def add_participation(
             if contest is None:
                 logger.error("No contest with id `%s' found.", contest_id)
                 return False
-            group: Group | None = \
-                session.query(Group) \
-                    .filter(Group.contest_id == contest_id,
-                            Group.name == groupname).first()
+            group: Group | None = session.execute(
+                select(Group)
+                .filter(Group.contest_id == contest_id,
+                        Group.name == groupname)
+            ).scalars().first()
             if group is None:
                 logger.error("No group with name `%s' found.", groupname)
                 return False
             team: Team | None = None
             if team_code is not None:
-                team = \
-                    session.query(Team).filter(Team.code == team_code).first()
+                team = session.execute(
+                    select(Team).filter(Team.code == team_code)
+                ).scalars().first()
                 if team is None:
                     logger.error("No team with code `%s' found.", team_code)
                     return False
@@ -172,8 +175,12 @@ def main():
 
     if args.group is None:
         with SessionGen() as session:
-            groups = session.query(Group).filter(Group.contest_id == args.contest_id).all()
-            main_group_id = session.query(Contest).filter(Contest.id == args.contest_id).first().main_group_id
+            groups = session.execute(
+                select(Group).filter(Group.contest_id == args.contest_id)
+            ).scalars().all()
+            main_group_id = session.execute(
+                select(Contest).filter(Contest.id == args.contest_id)
+            ).scalars().first().main_group_id
 
             matches = {}
             default_group_name = ""

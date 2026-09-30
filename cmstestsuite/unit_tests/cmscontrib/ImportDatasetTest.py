@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Dataset, SessionGen
@@ -81,9 +83,11 @@ class TestImportDataset(DatabaseMixin, unittest.TestCase):
 
         """
         with SessionGen() as session:
-            db_datasets = session.query(Dataset)\
-                .filter(Dataset.task_id == task_id)\
-                .filter(Dataset.description == description).all()
+            db_datasets = session.execute(
+                select(Dataset)
+                .filter(Dataset.task_id == task_id)
+                .filter(Dataset.description == description)
+            ).scalars().all()
             self.assertEqual(len(db_datasets), 1)
             d = db_datasets[0]
             self.assertEqual(d.description, description)

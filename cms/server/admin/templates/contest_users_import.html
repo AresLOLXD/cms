@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block core %}
+<style>
+/* AWS styles ".notification" only inside its own "#notifications" toasts,
+   so the blocks of this page have classes of their own. */
+.import-box {
+    margin: 1em 0;
+    padding: 0.25em 1em;
+    border: 1px solid #8a94a6;
+    border-left-width: 5px;
+    background: #f2f4f8;
+}
+p.import-box { padding: 0.75em 1em; }
+.import-box p { padding: 0.5em 0; }
+.import-box h3 { margin-left: 0; }
+.import-box ul { list-style: disc; margin: 0 0 0.75em 1.5em; }
+.import-error { border-color: #c0392b; background: #fdecea; }
+.import-warning { border-color: #d98e04; background: #fff6df; }
+.import-done { border-color: #2e8b57; background: #e8f6ee; }
+td.import-note {
+    width: auto;
+    max-width: 26em;
+    padding-left: 1em;
+    white-space: normal;
+    border-left: 3px solid #d98e04;
+    background: #fff6df;
+}
+</style>
+<div class="core_title">
+  <h1>Importar CSV &mdash; {{ contest.name }}</h1>
+</div>
+
+<p>Un renglón por concursante: crea los usuarios que falten y registra su
+participación en este concurso con la contraseña del día. Si el usuario o
+la participación ya existen, se actualizan. Si hay cualquier error, no se
+guarda nada.</p>
+
+{% if errors %}
+<div class="import-box import-error">
+  <p>No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:</p>
+  {# A file of thousands of bad rows would give a page as long. #}
+  {% set max_errors = 50 %}
+  <h3>{{ errors|length }} error{% if errors|length != 1 %}es{% endif %}</h3>
+  <ul>{% for e in errors[:max_errors] %}<li>{{ e }}</li>{% endfor %}</ul>
+  {% if errors|length > max_errors %}<p>y {{ errors|length - max_errors }} más</p>{% endif %}
+</div>
+{% endif %}
+
+{% if notice %}
+<div class="import-box import-notice">
+  <p>{{ notice }}</p>
+</div>
+{% endif %}
+
+{% macro count_of(count, one, many) %}{% if count == 1 %}1 {{ one }}{% else %}{{ count }} {{ many }}{% endif %}{% endmacro %}
+{% if summary %}
+<div class="import-box import-summary">
+  <p>El archivo es válido. Al importarlo:</p>
+  <ul>
+    <li>Usuarios nuevos: {{ summary.usuarios_nuevos }}</li>
+    <li>Usuarios actualizados: {{ summary.usuarios_actualizados }}</li>
+    <li>Participaciones nuevas: {{ summary.participaciones_nuevas }}</li>
+    <li>Participaciones actualizadas: {{ summary.participaciones_actualizadas }}</li>
+  </ul>
+</div>
+{% if summary.equipos_quitados or summary.movidas_al_grupo_principal %}
+<div class="import-box import-warning">
+  {% if summary.equipos_quitados %}<p>{{ count_of(summary.equipos_quitados, "participación perderá su equipo", "participaciones perderán su equipo") }}</p>{% endif %}
+  {% if summary.movidas_al_grupo_principal %}<p>{{ count_of(summary.movidas_al_grupo_principal, "participación pasará al grupo principal", "participaciones pasarán al grupo principal") }}</p>{% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+{% if job %}
+<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") }}"
+     data-users-url="{{ url("contest", contest.id, "users") }}"
+     data-import-url="{{ url("contest", contest.id, "users", "import") }}">
+  <p id="import_text" aria-live="polite">Procesando {{ job.processed }} de {{ job.total }}</p>
+  <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" aria-label="Progreso de la importación" style="width: 100%"></progress>
+  <div id="import_result" aria-live="polite"></div>
+</div>
+{% else %}
+<form enctype="multipart/form-data" method="POST" id="import_form"
+      action="{{ url("contest", contest.id, "users", "import") }}">
+  {{ xsrf_form_html|safe }}
+  {% if mapping %}
+  <p>Vuelve a elegir el archivo para importarlo. Se conservan las columnas asignadas, salvo la de la contraseña: revísala.</p>
+  {% endif %}
+  <p>* obligatorio</p>
+  <p><label for="import_file">Archivo CSV *</label>
+    <input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
+  {# The header chosen for the password is not echoed back: in a file without
+     a header row it would be a contestant's password. #}
+  {% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
+  <table{% if mapping %} data-has-mapping="1"{% endif %}>
+    {% for field in fields %}
+    <tr>
+      <td><label for="map_{{ field }}">{{ labels[field] }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</label></td>
+      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"><option value="">(sin asignar)</option></select></td>
+      {% if field == "team" %}<td rowspan="2" class="import-note">Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal.</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p>La importación cifra las contraseñas y puede tardar de 20 a 40 s por cada 300 concursantes.</p>
+  <button type="submit" name="action" value="validate">Solo validar</button>
+  <button type="submit" name="action" value="import">Importar</button>
+</form>
+{% endif %}
+
+<script>
+(function () {
+    "use strict";
+    var ALIASES = {
+        "username": ["username", "usuario", "user"],
+        "first_name": ["first_name", "nombre", "nombres"],
+        "last_name": ["last_name", "apellido", "apellidos"],
+        "password": ["password", "contraseña", "contrasena", "clave"],
+        "team": ["team", "equipo", "estado"],
+        "group": ["group", "grupo"]
+    };
+    function norm(s) {
+        return s.trim().toLowerCase().normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "").replace(/^"|"$/g, "");
+    }
+    var fileInput = document.getElementById("import_file");
+    if (fileInput) {
+        fileInput.addEventListener("change", function () {
+            var file = fileInput.files[0];
+            if (!file) { return; }
+            var reader = new FileReader();
+            reader.onload = function () {
+                var text = String(reader.result).replace(/^\ufeff/, "");
+                var first = text.split(/\r?\n/)[0];
+                var sep = (first.split(";").length > first.split(",").length) ? ";" : ",";
+                var headers = first.split(sep).map(function (h) {
+                    return h.trim().replace(/^"|"$/g, "").trim();
+                });
+                // With a previous mapping the admin's choices are kept as they
+                // were, an unassigned field included; the aliases only guess
+                // the columns on the first visit.
+                var hasMapping = document.querySelector("table[data-has-mapping]") !== null;
+                document.querySelectorAll("select[data-field]").forEach(function (select) {
+                    var field = select.getAttribute("data-field");
+                    var chosen = select.getAttribute("data-selected");
+                    // The page never echoes the column chosen for the
+                    // password (in a file without a header row it would
+                    // be a real password), so that select is always guessed.
+                    var keepChoice = hasMapping && field !== "password";
+                    var aliases = ALIASES[field].map(norm);
+                    select.length = 1;
+                    headers.forEach(function (h) {
+                        var option = document.createElement("option");
+                        option.value = h;
+                        option.textContent = h;
+                        if (keepChoice ? (Boolean(chosen) && h === chosen) : aliases.indexOf(norm(h)) !== -1) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                });
+            };
+            reader.readAsText(file.slice(0, 65536), "utf-8");
+        });
+    }
+    var form = document.getElementById("import_form");
+    if (form) {
+        var buttons = form.querySelectorAll("button");
+        // A second submit, from a double click, would be refused while the
+        // first import runs, and its page would hide the progress link.
+        form.addEventListener("submit", function (event) {
+            // A disabled submit button is not sent with the form, so the
+            // one pressed is copied into a hidden input first.
+            if (event.submitter && event.submitter.name) {
+                var input = document.createElement("input");
+                input.type = "hidden";
+                input.name = event.submitter.name;
+                input.value = event.submitter.value;
+                input.setAttribute("data-submitter", "1");
+                form.appendChild(input);
+            }
+            buttons.forEach(function (button) {
+                button.disabled = true;
+            });
+        });
+        // Going back may show the page as it was left, with the buttons
+        // disabled, whether it comes from the back/forward cache or the
+        // browser only restores the state of the form. On a normal load
+        // there is nothing to undo.
+        window.addEventListener("pageshow", function () {
+            buttons.forEach(function (button) {
+                button.disabled = false;
+            });
+            form.querySelectorAll("input[data-submitter]").forEach(function (input) {
+                input.remove();
+            });
+        });
+    }
+    function addLine(parent, text, className) {
+        var line = document.createElement("p");
+        if (className) { line.className = className; }
+        line.textContent = text;
+        parent.appendChild(line);
+    }
+    function makeLink(href, text) {
+        var link = document.createElement("a");
+        link.href = href;
+        link.textContent = text;
+        return link;
+    }
+    function countOf(count, one, many) {
+        return count === 1 ? "1 " + one : count + " " + many;
+    }
+    var job = document.getElementById("import_job");
+    // Not a dead end, whether the import is done or failed: back to the
+    // users, or to another file.
+    function addLinks(parent) {
+        var links = document.createElement("p");
+        links.appendChild(makeLink(job.getAttribute("data-users-url"),
+            "Lista de usuarios"));
+        links.appendChild(document.createTextNode(" | "));
+        links.appendChild(makeLink(job.getAttribute("data-import-url"),
+            "Importar otro archivo"));
+        parent.appendChild(links);
+    }
+    if (job) {
+        var url = job.getAttribute("data-status-url");
+        var MAX_FAILURES = 5;
+        var RETRY_MS = 2000;
+        var failures = 0;
+        var poll = function () {
+            fetch(url, {credentials: "same-origin"}).then(function (r) {
+                if (!r.ok) { throw new Error(r.status); }
+                return r.json();
+            }).then(function (s) {
+                document.getElementById("import_bar").value = s.processed;
+                document.getElementById("import_bar").max = s.total;
+                document.getElementById("import_text").textContent =
+                    "Procesando " + s.processed + " de " + s.total;
+                var out = document.getElementById("import_result");
+                // Written again from scratch each time, so that a failure
+                // half way through never leaves a duplicate behind.
+                out.textContent = "";
+                if (s.status === "done") {
+                    var lead = document.createElement("p");
+                    lead.className = "import-box import-done";
+                    var strong = document.createElement("strong");
+                    strong.textContent = "Listo.";
+                    lead.appendChild(strong);
+                    lead.appendChild(document.createTextNode(
+                        " Usuarios nuevos: " + s.summary.usuarios_nuevos +
+                        ", actualizados: " + s.summary.usuarios_actualizados +
+                        ". Participaciones nuevas: " + s.summary.participaciones_nuevas +
+                        ", actualizadas: " + s.summary.participaciones_actualizadas + "."));
+                    out.appendChild(lead);
+                    // The import is over, so what it cleared is told in the past.
+                    var losses = document.createElement("div");
+                    losses.className = "import-box import-warning";
+                    if (s.summary.equipos_quitados > 0) {
+                        addLine(losses, countOf(s.summary.equipos_quitados,
+                            "participación perdió su equipo",
+                            "participaciones perdieron su equipo"));
+                    }
+                    if (s.summary.movidas_al_grupo_principal > 0) {
+                        addLine(losses, countOf(s.summary.movidas_al_grupo_principal,
+                            "participación pasó al grupo principal",
+                            "participaciones pasaron al grupo principal"));
+                    }
+                    if (losses.firstChild) { out.appendChild(losses); }
+                    addLinks(out);
+                } else if (s.status === "error") {
+                    addLine(out, "Error: " + s.error, "import-box import-error");
+                    addLinks(out);
+                } else {
+                    setTimeout(poll, 500);
+                }
+                failures = 0;
+            }).catch(function () {
+                failures += 1;
+                if (failures < MAX_FAILURES) {
+                    setTimeout(poll, RETRY_MS);
+                    return;
+                }
+                var lost = document.getElementById("import_result");
+                lost.textContent = "";
+                addLine(lost, "No se pudo consultar el progreso; recarga la página.",
+                    "import-box import-notice");
+            });
+        };
+        poll();
+    }
+}());
+</script>
+{% endblock core %}

@@ -224,6 +224,7 @@ def main():
     # Startup the test runner.
     runner = TestRunner(test_list, contest_id=args.contest, workers=4)
     failures = []
+    ranking_problems = []
 
     testing_general_failure = False
 
@@ -234,10 +235,15 @@ def main():
         write_test_case_list(
             [(test, lang) for test, lang, _ in failures],
             FAILED_TEST_FILENAME)
+        # Then check what RWS got, and how it hides a ranking. This comes
+        # last: it changes which ProxyService runs.
+        ranking_problems += runner.check_rankings()
     except TestException:
-        if os.path.exists("./log/cms/last.log"):
+        log_path = os.path.join(
+            runner.framework.get_log_dir(), "cms", "last.log")
+        if os.path.exists(log_path):
             print("\n\n===== START OF LOG DUMP =====\n\n")
-            with open("./log/cms/last.log", "rt", encoding="utf-8") as f:
+            with open(log_path, "rt", encoding="utf-8") as f:
                 print(f.read())
             print("\n\n===== END OF LOG DUMP =====\n\n")
         logging.error("Failure while running tests", exc_info=True)
@@ -254,15 +260,21 @@ def main():
 
     logger.info("Executed: %s", tests)
     logger.info("Failed: %s", len(failures))
-    if not failures:
+    logger.info("Failed ranking checks: %s", len(ranking_problems))
+    if not failures and not ranking_problems:
         logger.info("All tests passed!")
         return 0
     else:
         logger.error("Some test failed!")
-        logger.info("Run again with --retry-failed (or -r) to retry.")
-        logger.info("Failed tests:")
-        for test, lang, msg in failures:
-            logger.info("%s (%s): %s\n", test.name, lang, msg)
+        if failures:
+            logger.info("Run again with --retry-failed (or -r) to retry.")
+            logger.info("Failed tests:")
+            for test, lang, msg in failures:
+                logger.info("%s (%s): %s\n", test.name, lang, msg)
+        if ranking_problems:
+            logger.info("Failed ranking checks:")
+            for problem in ranking_problems:
+                logger.info("%s\n", problem)
         return 1
 
 

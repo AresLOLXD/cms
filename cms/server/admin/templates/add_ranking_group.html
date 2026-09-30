@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block core %}
+
+<h1>New ranking group</h1>
+
+<h2 id="title_general_info" class="toggling_on">General information</h2>
+<div id="general_info">
+  <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
+  <form enctype="multipart/form-data" action="{{ url("ranking_groups", "add") }}" method="POST">
+    {{ xsrf_form_html|safe }}
+    <table>
+      <tr>
+        <td>
+          <span class="info" title="Used in the scoreboard URL (/<name>/): lowercase letters, digits, '-' and '_'."></span>
+          Name
+        </td>
+        <td><input type="text" name="name"/></td>
+      </tr>
+      <tr>
+        <td>Description</td>
+        <td><input type="text" name="description"/></td>
+      </tr>
+      {% for name, label in window_fields %}
+      <tr>
+        <td>
+          {% if loop.first %}<span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Leave a time empty for none."></span>{% endif %}
+          {{ label }} (UTC)
+        </td>
+        <td><input type="text" name="{{ name }}" value="" placeholder="YYYY-MM-DD HH:MM:SS"/></td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td>
+          <span class="info" title="The staff use it to see the ranking while it is hidden. Leave empty for none: a hidden ranking is then visible to nobody."></span>
+          Staff password
+        </td>
+        <td><input type="password" name="staff_password" autocomplete="new-password"/></td>
+      </tr>
+    </table>
+    <input type="submit"/>
+    <input type="reset" value="Reset" />
+  </form>
+  <div class="hr"></div>
+</div>
+
+{% endblock core %}

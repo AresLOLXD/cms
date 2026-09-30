@@ -26,23 +26,18 @@
 
 """
 
+import asyncio
 import logging
 from functools import wraps
 from urllib.parse import quote, urlencode, urlsplit
 
-import collections
-try:
-    collections.MutableMapping
-except:
-    # Monkey-patch: Tornado 4.5.3 does not work on Python 3.11 by default
-    collections.MutableMapping = collections.abc.MutableMapping
-
 import typing
 
-from tornado.web import RequestHandler
+from tornado.iostream import StreamClosedError
+from tornado.web import HTTPError, RequestHandler
 
 from cms.db import Session
-from cms.server.file_middleware import FileServerMiddleware
+from cms.db.filecacher import TombstoneError
 from cmscommon.datetime import make_datetime
 
 if typing.TYPE_CHECKING:
@@ -60,28 +55,28 @@ def multi_contest(f):
     def wrapped_f(self, *args):
         if self.is_multi_contest():
             # Swallow the first argument (the contest name).
-            f(self, *(args[1:]))
+            return f(self, *(args[1:]))
         else:
             # Otherwise, just forward all arguments.
-            f(self, *args)
+            return f(self, *args)
     return wrapped_f
 
 
 class FileHandlerMixin(RequestHandler):
 
-    """Provide methods for serving files.
-
-    Due to shortcomings of Tornado's WSGI support we need to resort to
-    hack-ish solutions to achieve efficient file serving. For a more
-    detailed explanation see the docstrings of FileServerMiddleware.
+    """Provide methods for serving files, streaming them directly from
+    FileCacher without buffering the whole file in memory.
 
     """
 
-    def fetch(self, digest: str, content_type: str, filename: str | None = None, disposition: str | None = None):
+    async def fetch(
+        self,
+        digest: str,
+        content_type: str,
+        filename: str | None = None,
+        disposition: str | None = None,
+    ):
         """Serve the file with the given digest.
-
-        This will just add the headers required to trigger
-        FileServerMiddleware, which will do the real work.
 
         digest: the digest of the file that has to be served.
         content_type: the MIME type the file should be served as.
@@ -89,13 +84,60 @@ class FileHandlerMixin(RequestHandler):
         disposition: value to set the Content-Disposition header to.
 
         """
-        self.set_header(FileServerMiddleware.DIGEST_HEADER, digest)
-        if filename is not None:
-            self.set_header(FileServerMiddleware.FILENAME_HEADER, filename)
-        if disposition is not None:
-            self.set_header(FileServerMiddleware.DISPOSITION_HEADER, disposition)
-        self.set_header("Content-Type", content_type)
-        self.finish()
+        loop = asyncio.get_running_loop()
+        file_cacher = self.application.service.file_cacher
+        try:
+            fobj, size = await loop.run_in_executor(
+                None, self._open_file_and_size, file_cacher, digest)
+        except KeyError:
+            raise HTTPError(404)
+        except TombstoneError:
+            raise HTTPError(503)
+
+        try:
+            self.set_header("Content-Type", content_type)
+            self.set_header("Content-Length", str(size))
+            self.set_header("Cache-Control", "no-cache, private")
+            if filename is not None:
+                disposition_value = disposition or "attachment"
+                safe_filename = \
+                    filename.replace("\\", "\\\\").replace('"', '\\"')
+                header_value = '%s; filename="%s"' % (
+                    disposition_value, safe_filename)
+                try:
+                    header_value.encode("latin-1")
+                except UnicodeEncodeError:
+                    header_value = "%s; filename*=UTF-8''%s" % (
+                        disposition_value, quote(filename, safe=""))
+                self.set_header("Content-Disposition", header_value)
+
+            chunk_size = file_cacher.CHUNK_SIZE
+            try:
+                while True:
+                    chunk = await loop.run_in_executor(
+                        None, fobj.read, chunk_size)
+                    if not chunk:
+                        break
+                    self.write(chunk)
+                    await self.flush()
+            except StreamClosedError:
+                # The client disconnected mid-download; nothing more to do.
+                return
+        finally:
+            fobj.close()
+
+    @staticmethod
+    def _open_file_and_size(file_cacher, digest: str):
+        """Open a cached file and get its size, synchronously.
+
+        Runs inside loop.run_in_executor -- FileCacher's DB-backed
+        lookup is a blocking call (see sub-project 2.3's design spec:
+        FileCacher/DBBackend stay sync-only).
+
+        """
+        fobj = file_cacher.get_file(digest)
+        size = file_cacher.get_size(digest)
+        return fobj, size
 
 
 def get_url_root(request_path: str) -> str:
@@ -223,12 +265,94 @@ class CommonRequestHandler(RequestHandler):
         self.static_url_helper = self.service.static_file_hasher.make(
             self.url)
 
-    def prepare(self):
+    async def prepare(self):
         """This method is executed at the beginning of each request.
+
+        First resolves the real client IP from behind any trusted
+        reverse proxies (see WebService's num_proxies_used), since
+        the auth hook below (or a handler's own get()/post()) may
+        depend on it -- e.g. the contestants' IP-lock feature. Then,
+        if the service was configured with an auth handler (see
+        WebService's auth_handler attribute), it's consulted here,
+        before any handler-specific get()/post() runs: a False
+        return from its authenticate() coroutine aborts the request
+        with 403.
+
+        It also stores the running event loop, which schedule_rpc()
+        submits its coroutines to.
 
         """
         super().prepare()
+        self._loop = asyncio.get_running_loop()
+        # Local import to avoid a circular import: cms.io.web_service
+        # imports Url from this module.
+        from cms.io.web_service import resolve_remote_ip
+        self.request.remote_ip = resolve_remote_ip(
+            self.request.headers.get("X-Forwarded-For"),
+            self.request.remote_ip,
+            self.service.num_proxies_used)
+        auth_handler = getattr(self.service, "auth_handler", None)
+        if auth_handler is not None:
+            if not await auth_handler.authenticate(self):
+                raise HTTPError(403)
         self.set_header("Cache-Control", "no-cache, must-revalidate")
+
+    def schedule_rpc(self, remote_method, **kwargs):
+        """Fire-and-forget a remote RPC.
+
+        The remote-service client methods are coroutines, so calling
+        one without awaiting it would never send anything. Submit the
+        coroutine to the event loop instead, without waiting for it.
+        That makes this safe both from a run_in_executor worker thread,
+        which has no event loop of its own, and from the event loop
+        thread itself (a synchronous handler body), since nothing ever
+        blocks on the result. Any exception it raises is logged, not
+        propagated. So is the lack of an answer: a peer that is
+        connected but stuck would otherwise leave the call pending
+        forever, so after FIRE_AND_FORGET_TIMEOUT seconds the call is
+        dropped, with a warning.
+
+        remote_method (callable): a remote-service client method,
+            e.g. self.service.proxy_service.reinitialize.
+        kwargs: the keyword arguments for the RPC.
+
+        """
+        # Local imports to avoid a circular import: cms.io imports Url
+        # from this module (via cms.io.web_service).
+        from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
+        from cms.io.rpc import RPCError, ServiceNotConfiguredError
+        name = getattr(remote_method, "__qualname__", None) \
+            or getattr(remote_method, "__name__", None) \
+            or repr(remote_method)
+        rpc = remote_method(**kwargs)
+
+        async def call_with_timeout():
+            await asyncio.wait_for(rpc, FIRE_AND_FORGET_TIMEOUT)
+
+        future = asyncio.run_coroutine_threadsafe(
+            call_with_timeout(), self._loop)
+
+        def log_failure(done):
+            if done.cancelled():
+                return
+            exc = done.exception()
+            if isinstance(exc, ServiceNotConfiguredError):
+                # Nothing to warn about: the service is not part of this
+                # deployment (e.g. there are no rankings to tell).
+                logger.debug("RPC %s failed: %r", name, exc)
+            elif isinstance(exc, RPCError):
+                # The message already names the RPC and the error;
+                # a traceback of the client internals adds nothing.
+                logger.warning("RPC %s failed: %r", name, exc)
+            elif isinstance(exc, asyncio.TimeoutError):
+                logger.warning("RPC %s got no answer in %s seconds, "
+                               "giving up on it.",
+                               name, FIRE_AND_FORGET_TIMEOUT)
+            elif exc is not None:
+                logger.warning("RPC %s failed: %r", name, exc,
+                               exc_info=exc)
+
+        future.add_done_callback(log_failure)
 
     def finish(self, *args, **kwargs):
         """Finish this response, ending the HTTP request.

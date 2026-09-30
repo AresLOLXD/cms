@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import SessionGen, Team
@@ -72,7 +74,9 @@ class TestImportTeam(DatabaseMixin, unittest.TestCase):
 
         """
         with SessionGen() as session:
-            db_teams = session.query(Team).filter(Team.code == code).all()
+            db_teams = session.execute(
+                select(Team).filter(Team.code == code)
+            ).scalars().all()
             self.assertEqual(len(db_teams), 1)
             t = db_teams[0]
             self.assertEqual(t.code, code)

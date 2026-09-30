@@ -21,6 +21,8 @@
 import ipaddress
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Participation
@@ -48,9 +50,11 @@ class TestAddParticipation(DatabaseMixin, unittest.TestCase):
                                 hidden=False, unrestricted=False,
                                 ip=None, team_code=None):
         """Assert that the participation with the given data is in the DB."""
-        db_participations = self.session.query(Participation)\
-            .filter(Participation.user_id == user_id)\
-            .filter(Participation.contest_id == contest_id).all()
+        db_participations = self.session.execute(
+            select(Participation)
+            .filter(Participation.user_id == user_id)
+            .filter(Participation.contest_id == contest_id)
+        ).scalars().all()
         self.assertEqual(len(db_participations), 1)
         p = db_participations[0]
         self.assertTrue(validate_password(p.password, password))

@@ -25,6 +25,10 @@
 
 """
 
+import asyncio
+
+from sqlalchemy import select
+
 from cms.db import Contest, Task
 from cmscommon.datetime import make_datetime
 
@@ -38,20 +42,23 @@ class ContestTasksHandler(BaseHandler):
     MOVE_TOP = "to the top"
     MOVE_BOTTOM = "to the bottom"
 
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, contest_id):
+    def _get_sync(self, contest_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
         self.r_params = self.render_params()
         self.r_params["contest"] = self.contest
-        self.r_params["unassigned_tasks"] = \
-            self.sql_session.query(Task)\
-                .filter(Task.contest_id.is_(None))\
-                .all()
+        self.r_params["unassigned_tasks"] = self.sql_session.execute(
+            select(Task)
+            .filter(Task.contest_id.is_(None))
+        ).scalars().all()
         self.render("contest_tasks.html", **self.r_params)
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "tasks")
 
         self.contest = self.safe_get_item(Contest, contest_id)
@@ -86,36 +93,40 @@ class ContestTasksHandler(BaseHandler):
             self.sql_session.flush()
 
             # Decrease by 1 the num of every subsequent task.
-            for t in self.sql_session.query(Task)\
-                         .filter(Task.contest == self.contest)\
-                         .filter(Task.num > task_num)\
-                         .order_by(Task.num)\
-                         .all():
+            for t in self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num > task_num)
+                .order_by(Task.num)
+            ).scalars().all():
                 t.num -= 1
                 self.sql_session.flush()
 
         elif operation == self.MOVE_UP:
-            task2 = self.sql_session.query(Task)\
-                        .filter(Task.contest == self.contest)\
-                        .filter(Task.num == task.num - 1)\
-                        .first()
+            task2 = self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num == task.num - 1)
+            ).scalars().first()
 
         elif operation == self.MOVE_DOWN:
-            task2 = self.sql_session.query(Task)\
-                        .filter(Task.contest == self.contest)\
-                        .filter(Task.num == task.num + 1)\
-                        .first()
+            task2 = self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num == task.num + 1)
+            ).scalars().first()
 
         elif operation == self.MOVE_TOP:
             task.num = None
             self.sql_session.flush()
 
             # Increase by 1 the num of every previous task.
-            for t in self.sql_session.query(Task)\
-                         .filter(Task.contest == self.contest)\
-                         .filter(Task.num < task_num)\
-                         .order_by(Task.num.desc())\
-                         .all():
+            for t in self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num < task_num)
+                .order_by(Task.num.desc())
+            ).scalars().all():
                 t.num += 1
                 self.sql_session.flush()
 
@@ -126,11 +137,12 @@ class ContestTasksHandler(BaseHandler):
             self.sql_session.flush()
 
             # Decrease by 1 the num of every subsequent task.
-            for t in self.sql_session.query(Task)\
-                         .filter(Task.contest == self.contest)\
-                         .filter(Task.num > task_num)\
-                         .order_by(Task.num)\
-                         .all():
+            for t in self.sql_session.execute(
+                select(Task)
+                .filter(Task.contest == self.contest)
+                .filter(Task.num > task_num)
+                .order_by(Task.num)
+            ).scalars().all():
                 t.num -= 1
                 self.sql_session.flush()
 
@@ -146,15 +158,19 @@ class ContestTasksHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another task)
         self.redirect(fallback_page)
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)
+
 
 class AddContestTaskHandler(BaseHandler):
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, contest_id):
+    def _post_sync(self, contest_id):
         fallback_page = self.url("contest", contest_id, "tasks")
 
         self.contest = self.safe_get_item(Contest, contest_id)
@@ -177,7 +193,12 @@ class AddContestTaskHandler(BaseHandler):
 
         if self.try_commit():
             # Create the user on RWS.
-            self.service.proxy_service.reinitialize()
+            self.schedule_rpc(self.service.proxy_service.reinitialize)
 
         # Maybe they'll want to do this again (for another task)
         self.redirect(fallback_page)
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, contest_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, contest_id)

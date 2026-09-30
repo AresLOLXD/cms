@@ -43,6 +43,7 @@ from . import Codename, Base, Admin
 import typing
 if typing.TYPE_CHECKING:
     from . import Task, Participation, Group
+    from .rankinggroup import RankingGroup
 
 
 class Contest(Base):
@@ -251,6 +252,23 @@ class Contest(Base):
         "Group",
         primaryjoin="Group.id==Contest.main_group_id",
         post_update=True)
+
+    # Whether contestants can see and use this contest when CWS serves
+    # all contests (it is ignored when CWS serves a single contest).
+    active: bool = Column(
+        Boolean,
+        nullable=False,
+        default=False)
+
+    # Ranking group (id and object) this contest is sent to, or None
+    # if it is not sent to any ranking.
+    ranking_group_id: int | None = Column(
+        Integer,
+        ForeignKey("ranking_groups.id",
+                   onupdate="CASCADE", ondelete="SET NULL"),
+        nullable=True,
+        index=True)
+    ranking_group: "RankingGroup | None" = relationship("RankingGroup")
 
     # These one-to-many relationships are the reversed directions of
     # the ones defined in the "child" classes using foreign keys.

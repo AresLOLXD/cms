@@ -21,26 +21,24 @@
 
 """
 
-# We enable monkey patching to make many libraries gevent-friendly
-# (for instance, urllib3, used by requests)
-import gevent.monkey
-
-gevent.monkey.patch_all()  # noqa
-
+import asyncio
 import unittest
 from unittest.mock import patch, PropertyMock
 
-import gevent
-
-from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
-
+from cms.conf import Address
 from cms.service.ScoringService import ScoringService
 from cmscommon.datetime import make_datetime
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 from cmstestsuite.unit_tests.testidgenerator import unique_long_id, \
     unique_unicode_id
 
 
-class TestScoringService(DatabaseMixin, unittest.TestCase):
+class TestScoringService(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
 
     def setUp(self):
         super().setUp()
@@ -57,6 +55,25 @@ class TestScoringService(DatabaseMixin, unittest.TestCase):
         self.score_type.compute_score.side_effect = self.compute_score
 
         self.contest = self.add_contest()
+
+    async def asyncSetUp(self):
+        address_patcher = patch(
+            "cms.io.async_service.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        address_patcher.start()
+        self.addCleanup(address_patcher.stop)
+
+        # ScoringService.__init__ connects to LogService (via
+        # AsyncService.__init__) and to ProxyService: both go through
+        # async_rpc's own imported reference to get_service_address.
+        rpc_address_patcher = patch(
+            "cms.io.async_rpc.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        rpc_address_patcher.start()
+        self.addCleanup(rpc_address_patcher.stop)
+
+        self.service = ScoringService(0)
+        self.addCleanup(self.service._disconnect_all)
 
     def compute_score(self, sr):
         self.call_args.append((sr.submission_id, sr.dataset_id))
@@ -82,17 +99,16 @@ class TestScoringService(DatabaseMixin, unittest.TestCase):
 
     # Testing new_evaluation.
 
-    def test_new_evaluation(self):
+    async def test_new_evaluation(self):
         """One submission is scored.
 
         """
         sr = self.new_sr_to_score()
         self.session.commit()
 
-        service = ScoringService(0)
-        service.new_evaluation(sr.submission_id, sr.dataset_id)
+        self.service.new_evaluation(sr.submission_id, sr.dataset_id)
 
-        gevent.sleep(0.1)  # Needed to trigger the score loop.
+        await asyncio.sleep(0.1)  # Needed to trigger the score loop.
 
         # Asserts that compute_score was called.
         self.assertCountEqual(self.call_args,
@@ -104,7 +120,7 @@ class TestScoringService(DatabaseMixin, unittest.TestCase):
                          self.score_info)
         self.assertIsNotNone(sr.scored_at)
 
-    def test_new_evaluation_two(self):
+    async def test_new_evaluation_two(self):
         """More than one submissions in the queue.
 
         """
@@ -112,18 +128,17 @@ class TestScoringService(DatabaseMixin, unittest.TestCase):
         sr_b = self.new_sr_to_score()
         self.session.commit()
 
-        service = ScoringService(0)
-        service.new_evaluation(sr_a.submission_id, sr_a.dataset_id)
-        service.new_evaluation(sr_b.submission_id, sr_b.dataset_id)
+        self.service.new_evaluation(sr_a.submission_id, sr_a.dataset_id)
+        self.service.new_evaluation(sr_b.submission_id, sr_b.dataset_id)
 
-        gevent.sleep(0.1)  # Needed to trigger the score loop.
+        await asyncio.sleep(0.1)  # Needed to trigger the score loop.
 
         # Asserts that compute_score was called.
         self.assertCountEqual(self.call_args,
                               [(sr_a.submission_id, sr_a.dataset_id),
                                (sr_b.submission_id, sr_b.dataset_id)])
 
-    def test_new_evaluation_already_scored(self):
+    async def test_new_evaluation_already_scored(self):
         """One submission is not re-scored if already scored.
 
         """
@@ -132,10 +147,9 @@ class TestScoringService(DatabaseMixin, unittest.TestCase):
         sr.scored_at = current_time
         self.session.commit()
 
-        service = ScoringService(0)
-        service.new_evaluation(sr.submission_id, sr.dataset_id)
+        self.service.new_evaluation(sr.submission_id, sr.dataset_id)
 
-        gevent.sleep(0.1)  # Needed to trigger the score loop.
+        await asyncio.sleep(0.1)  # Needed to trigger the score loop.
 
         # Asserts that compute_score was called.
         self.score_type.compute_score.assert_not_called()

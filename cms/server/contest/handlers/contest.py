@@ -48,6 +48,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 
 from cms import config, TOKEN_MODE_MIXED
 from cms.db import Contest, Submission, Task, UserTest
@@ -81,8 +82,8 @@ class ContestHandler(BaseHandler):
         self.contest: Contest
         self.impersonated_by_admin = False
 
-    def prepare(self):
-        self.choose_contest()
+    async def prepare(self):
+        await self.choose_contest()
 
         if self.contest.allowed_localizations:
             lang_codes = filter_language_codes(
@@ -92,7 +93,7 @@ class ContestHandler(BaseHandler):
                 (k, v) for k, v in self.available_translations.items()
                 if k in lang_codes)
 
-        super().prepare()
+        await super().prepare()
 
         if self.is_multi_contest():
             self.contest_url = self.url[self.contest.name]
@@ -103,7 +104,7 @@ class ContestHandler(BaseHandler):
         # because we need contest_name
         self.r_params = self.render_params()
 
-    def choose_contest(self):
+    async def choose_contest(self):
         """Fill self.contest using contest passed as argument or path.
 
         If a contest was specified as argument to CWS, fill
@@ -116,15 +117,19 @@ class ContestHandler(BaseHandler):
             contest_name = self.path_args[0]
 
             # Select the correct contest or return an error
-            self.contest = self.sql_session.query(Contest)\
-                .filter(Contest.name == contest_name).first()
+            # Inactive contests are not served, as if they did not exist.
+            self.contest = self.sql_session.execute(
+                select(Contest)
+                .filter(Contest.name == contest_name)
+                .filter(Contest.active.is_(True))
+            ).scalars().first()
             if self.contest is None:
                 self.contest = Contest(
                     name=contest_name, description=contest_name)
                 # render_params in this class assumes the contest is loaded,
                 # so we cannot call it without a fully defined contest. Luckily
                 # the one from the base class is enough to display a 404 page.
-                super().prepare()
+                await super().prepare()
                 self.r_params = super().render_params()
                 raise tornado.web.HTTPError(404)
         else:
@@ -259,10 +264,11 @@ class ContestHandler(BaseHandler):
         return: the corresponding task object, if found.
 
         """
-        return self.sql_session.query(Task) \
-            .filter(Task.contest == self.contest) \
-            .filter(Task.name == task_name) \
-            .one_or_none()
+        return self.sql_session.execute(
+            select(Task)
+            .filter(Task.contest == self.contest)
+            .filter(Task.name == task_name)
+        ).scalar_one_or_none()
 
     def get_submission(self, task: Task, opaque_id: str | int) -> Submission | None:
         """Return the num-th contestant's submission on the given task.
@@ -276,11 +282,12 @@ class ContestHandler(BaseHandler):
             not found).
 
         """
-        return self.sql_session.query(Submission) \
-            .filter(Submission.participation == self.current_user) \
-            .filter(Submission.task == task) \
-            .filter(Submission.opaque_id == int(opaque_id)) \
-            .first()
+        return self.sql_session.execute(
+            select(Submission)
+            .filter(Submission.participation == self.current_user)
+            .filter(Submission.task == task)
+            .filter(Submission.opaque_id == int(opaque_id))
+        ).scalars().first()
 
     def get_user_test(self, task: Task, user_test_num: int) -> UserTest | None:
         """Return the num-th contestant's test on the given task.
@@ -293,12 +300,13 @@ class ContestHandler(BaseHandler):
             in contestant on the given task (None if not found).
 
         """
-        return self.sql_session.query(UserTest) \
-            .filter(UserTest.participation == self.current_user) \
-            .filter(UserTest.task == task) \
-            .order_by(UserTest.timestamp) \
-            .offset(int(user_test_num) - 1) \
-            .first()
+        return self.sql_session.execute(
+            select(UserTest)
+            .filter(UserTest.participation == self.current_user)
+            .filter(UserTest.task == task)
+            .order_by(UserTest.timestamp)
+            .offset(int(user_test_num) - 1)
+        ).scalars().first()
 
     def add_notification(
         self, subject: str, text: str, level: str, text_params: object | None = None

@@ -44,6 +44,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from cms import config, FEEDBACK_LEVEL_FULL
@@ -104,8 +105,8 @@ class SubmitHandler(ContestHandler):
             logger.info("Sent error: `%s' - `%s'", e.subject, e.formatted_text)
             self.notify_error(e.subject, e.text, e.text_params)
         else:
-            self.service.evaluation_service.new_submission(
-                submission_id=submission.id)
+            self.schedule_rpc(self.service.evaluation_service.new_submission,
+                              submission_id=submission.id)
             self.notify_success(N_("Submission received"),
                                 N_("Your submission has been received "
                                    "and is currently being evaluated."))
@@ -134,11 +135,15 @@ class TaskSubmissionsHandler(ContestHandler):
             raise tornado.web.HTTPError(404)
 
         submissions: list[Submission] = (
-            self.sql_session.query(Submission)
-            .filter(Submission.participation == participation)
-            .filter(Submission.task == task)
-            .options(joinedload(Submission.token))
-            .options(joinedload(Submission.results))
+            self.sql_session.execute(
+                select(Submission)
+                .filter(Submission.participation == participation)
+                .filter(Submission.task == task)
+                .options(joinedload(Submission.token))
+                .options(joinedload(Submission.results))
+            )
+            .unique()
+            .scalars()
             .all()
         )
 
@@ -214,12 +219,13 @@ class SubmissionStatusHandler(ContestHandler):
 
         """
         # Just to preload all information required to compute the task score.
-        self.sql_session.query(Submission)\
-            .filter(Submission.participation == participation)\
-            .filter(Submission.task == task)\
-            .options(joinedload(Submission.token))\
-            .options(joinedload(Submission.results))\
-            .all()
+        self.sql_session.execute(
+            select(Submission)
+            .filter(Submission.participation == participation)
+            .filter(Submission.task == task)
+            .options(joinedload(Submission.token))
+            .options(joinedload(Submission.results))
+        ).unique().scalars().all()
         data["task_public_score"], public_score_is_partial = \
             task_score(participation, task, public=True)
         data["task_tokened_score"], tokened_score_is_partial = \
@@ -336,7 +342,7 @@ class SubmissionFileHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0, 1, 2, 3, 4)
     @multi_contest
-    def get(self, task_name, opaque_id, filename):
+    async def get(self, task_name, opaque_id, filename):
         if not self.contest.submissions_download_allowed:
             raise tornado.web.HTTPError(404)
 
@@ -372,7 +378,7 @@ class SubmissionFileHandler(FileHandler):
         if mimetype is None:
             mimetype = 'application/octet-stream'
 
-        self.fetch(digest, mimetype, filename)
+        await self.fetch(digest, mimetype, filename)
 
 
 class UseTokenHandler(ContestHandler):
@@ -401,8 +407,8 @@ class UseTokenHandler(ContestHandler):
         else:
             # Inform ProxyService and eventually the ranking that the
             # token has been played.
-            self.service.proxy_service.submission_tokened(
-                submission_id=submission.id)
+            self.schedule_rpc(self.service.proxy_service.submission_tokened,
+                              submission_id=submission.id)
 
             logger.info("Token played by user %s on task %s.",
                         self.current_user.user.username, task.name)

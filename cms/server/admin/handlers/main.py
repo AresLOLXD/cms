@@ -25,8 +25,11 @@
 
 """
 
+import asyncio
 import json
 import logging
+
+from sqlalchemy import select
 
 from cms import ServiceCoord, get_service_shards, get_service_address
 from cms.db import Admin, Contest, Question
@@ -44,7 +47,11 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
     """Login handler.
 
     """
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         error_args = {"login_error": "true"}
         next_page: str = self.get_argument("next", None)
         if next_page is not None:
@@ -54,9 +61,9 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
 
         username: str = self.get_argument("username", "")
         password: str = self.get_argument("password", "")
-        admin: Admin | None = (
-            self.sql_session.query(Admin).filter(Admin.username == username).first()
-        )
+        admin: Admin | None = self.sql_session.execute(
+            select(Admin).filter(Admin.username == username)
+        ).scalars().first()
 
         if admin is None:
             logger.warning("Nonexistent admin account: %s", username)
@@ -83,7 +90,7 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
 
         logger.info("Admin logged in: %r from IP %s.", username,
                     self.request.remote_ip)
-        self.service.auth_handler.set(admin.id)
+        self._set_admin_session(admin.id)
         self.redirect(next_page)
 
 
@@ -91,14 +98,22 @@ class LogoutHandler(BaseHandler):
     """Logout handler.
 
     """
-    def post(self):
-        self.service.auth_handler.clear()
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
+        self.clear_cookie(self.COOKIE_NAME)
         self.redirect(self.url())
 
 
 class ResourcesHandler(BaseHandler):
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, shard=None, contest_id=None):
+    async def get(self, shard=None, contest_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, shard, contest_id)
+
+    def _get_sync(self, shard=None, contest_id=None):
         if contest_id is not None:
             self.contest = self.safe_get_item(Contest, contest_id)
             contest_address = [contest_id]
@@ -134,17 +149,20 @@ class NotificationsHandler(BaseHandler):
 
     """
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self):
+    async def get(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync)
+
+    def _get_sync(self):
         res = []
         last_notification = make_datetime(
             float(self.get_argument("last_notification", "0")))
 
-        questions: list[Question] = (
-            self.sql_session.query(Question)
+        questions: list[Question] = self.sql_session.execute(
+            select(Question)
             .filter(Question.reply_timestamp.is_(None))
             .filter(Question.question_timestamp > last_notification)
-            .all()
-        )
+        ).scalars().all()
 
         for question in questions:
             res.append({
@@ -156,12 +174,11 @@ class NotificationsHandler(BaseHandler):
             })
 
         # Simple notifications
-        for notification in self.service.notifications:
+        for notification in self.service.take_notifications():
             res.append({"type": "notification",
                         "timestamp": make_timestamp(notification[0]),
                         "subject": notification[1],
                         "text": notification[2]})
-        self.service.notifications = []
 
         self.write(json.dumps(res))
 
@@ -169,7 +186,11 @@ class MarkdownRenderHandler(BaseHandler):
     """Renders Markdown for AWS message previews."""
 
     @require_permission(BaseHandler.AUTHENTICATED)
-    def post(self):
+    async def post(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+    def _post_sync(self):
         data = self.get_argument("input")
         rendered = markdown_filter(data)
         self.write(rendered)

@@ -22,12 +22,15 @@ import json
 import os
 import unittest
 
+from sqlalchemy import func, select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
-from cms.db import Contest, Executable, Participation, Statement, Submission, \
-    SubmissionResult, Task, User, version
+from cms.db import Contest, Executable, Participation, RankingGroup, \
+    Statement, Submission, SubmissionResult, Task, User, version
 from cmscommon.digest import bytes_digest
 from cmscontrib.DumpExporter import DumpExporter
+from cmscontrib.DumpImporter import DumpImporter
 from cmstestsuite.unit_tests.filesystemmixin import FileSystemMixin
 
 
@@ -286,6 +289,45 @@ class TestDumpExporter(DatabaseMixin, FileSystemMixin, unittest.TestCase):
         self.assertNotInDump(SubmissionResult)
         self.assertFileNotInDump(self.file_digest)
         self.assertFileNotInDump(self.exe_digest)
+
+    def test_ranking_group_not_exported(self):
+        """Test that a contest's ranking group never travels with it.
+
+        Importing the dump back into a DB that already has the group
+        must succeed, leaving the imported contest without a group.
+
+        """
+        group = RankingGroup(name="olim", description="OLIM")
+        self.session.add(group)
+        self.other_contest.ranking_group = group
+        self.session.commit()
+        contest_name = self.other_contest.name
+
+        self.assertTrue(self.do_export([self.other_contest.id]))
+
+        self.assertNotInDump(RankingGroup)
+        contest_key = self.assertInDump(Contest, name=contest_name)
+        self.assertNotIn("ranking_group", self.dump[contest_key])
+
+        # Free the contest name, keeping the group, and import back.
+        self.other_contest.name = "renamed"
+        self.session.commit()
+        self.assertTrue(DumpImporter(
+            False, self.target, load_files=True, load_model=True,
+            skip_generated=False, skip_submissions=False,
+            skip_user_tests=False, skip_users=False).do_import())
+
+        self.session.expire_all()
+        imported = self.session.execute(
+            select(Contest).filter(Contest.name == contest_name)
+        ).scalar_one()
+        self.assertIsNone(imported.ranking_group)
+        self.assertEqual(
+            self.session.execute(
+                select(func.count()).select_from(RankingGroup)
+            ).scalar_one(),
+            1,
+        )
 
 
 if __name__ == "__main__":

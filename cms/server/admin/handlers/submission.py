@@ -26,9 +26,12 @@
 
 """
 
+import asyncio
 import json
 import logging
 import difflib
+
+from sqlalchemy import select
 
 from cms.db import Dataset, File, Submission
 from cms.grading.languagemanager import safe_get_lang_filename
@@ -46,8 +49,7 @@ class SubmissionHandler(BaseHandler):
     compile please check'.
 
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, submission_id, dataset_id=None):
+    def _get_sync(self, submission_id, dataset_id=None):
         submission = self.safe_get_item(Submission, submission_id)
         task = submission.task
         self.contest = task.contest
@@ -62,11 +64,17 @@ class SubmissionHandler(BaseHandler):
         self.r_params["s"] = submission
         self.r_params["active_dataset"] = task.active_dataset
         self.r_params["shown_dataset"] = dataset
-        self.r_params["datasets"] = \
-            self.sql_session.query(Dataset)\
-                            .filter(Dataset.task == task)\
-                            .order_by(Dataset.description).all()
+        self.r_params["datasets"] = self.sql_session.execute(
+            select(Dataset)
+            .filter(Dataset.task == task)
+            .order_by(Dataset.description)
+        ).scalars().all()
         self.render("submission.html", **self.r_params)
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, submission_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, submission_id, dataset_id)
 
 
 class SubmissionFileHandler(FileHandler):
@@ -76,22 +84,27 @@ class SubmissionFileHandler(FileHandler):
     # We cannot use FileFromDigestHandler as it does not know how to
     # set the proper name (i.e., converting %l to the language).
     @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, file_id):
+    async def get(self, file_id):
+        loop = asyncio.get_running_loop()
+        digest, real_filename = await loop.run_in_executor(
+            None, self._get_file_info_sync, file_id)
+
+        self.sql_session.close()
+        await self.fetch(digest, "text/plain", real_filename)
+
+    def _get_file_info_sync(self, file_id) -> tuple[str, str]:
+        """Look up the file's digest and download name (DB access)."""
         sub_file = self.safe_get_item(File, file_id)
         submission = sub_file.submission
 
         real_filename = safe_get_lang_filename(submission.language, sub_file.filename)
-        digest = sub_file.digest
-
-        self.sql_session.close()
-        self.fetch(digest, "text/plain", real_filename)
+        return sub_file.digest, real_filename
 
 
 class SubmissionDiffHandler(BaseHandler):
     """Shows a diff between two submissions.
     """
-    @require_permission(BaseHandler.AUTHENTICATED)
-    def get(self, old_id, new_id):
+    def _get_sync(self, old_id, new_id):
         sub_old = Submission.get_from_id(old_id, self.sql_session)
         sub_new = Submission.get_from_id(new_id, self.sql_session)
 
@@ -168,13 +181,17 @@ class SubmissionDiffHandler(BaseHandler):
         resp['files'] = result_files
         self.write(json.dumps(resp))
 
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, old_id, new_id):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, old_id, new_id)
+
 
 class SubmissionCommentHandler(BaseHandler):
     """Called when the admin comments on a submission.
 
     """
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, submission_id, dataset_id=None):
+    def _post_sync(self, submission_id, dataset_id=None):
         submission = self.safe_get_item(Submission, submission_id)
 
         try:
@@ -194,11 +211,15 @@ class SubmissionCommentHandler(BaseHandler):
         else:
             self.redirect(self.url("submission", submission_id, dataset_id))
 
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, submission_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, submission_id, dataset_id)
+
 
 class SubmissionOfficialStatusHandler(BaseHandler):
     """Called when the admin changes the official status of a submission."""
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    def post(self, submission_id, dataset_id=None):
+    def _post_sync(self, submission_id, dataset_id=None):
         submission = self.safe_get_item(Submission, submission_id)
 
         should_make_official = self.get_argument("official", "yes") == "yes"
@@ -216,3 +237,8 @@ class SubmissionOfficialStatusHandler(BaseHandler):
             self.redirect(self.url("submission", submission_id))
         else:
             self.redirect(self.url("submission", submission_id, dataset_id))
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self, submission_id, dataset_id=None):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync, submission_id, dataset_id)

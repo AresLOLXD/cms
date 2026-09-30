@@ -30,31 +30,36 @@ the current ranking.
 
 """
 
+import asyncio
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 
-import gevent.lock
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from cms import ServiceCoord, get_service_shards
 from cms.db.session import Session
-from cms.io.priorityqueue import QueueEntry, QueueEntryDict, QueueItem
+from cms.io.priorityqueue import PriorityQueue, QueueEntry, QueueEntryDict, \
+    QueueItem
 from cmscommon.datetime import make_timestamp
 from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
     SubmissionResult, Testcase, UserTest, UserTestResult, get_submissions, \
     get_submission_results, get_datasets_to_judge
-from cms.grading import twophase
+from cms.grading import subtaskdag, twophase
 from cms.grading.Job import Job, JobGroup
 from cms.grading.steps import EVALUATION_MESSAGES
-from cms.io import Executor, TriggeredService, rpc_method
+from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
+from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
+from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
+    any_dataset_declares_dependencies, \
     get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
-    submission_get_operations, submission_to_evaluate, \
-    user_test_get_operations
+    outcomes_for_screening, submission_get_operations, \
+    submission_to_evaluate, user_test_get_operations
 from .flushingdict import FlushingDict
 from .workerpool import WorkerPool
 
@@ -62,7 +67,24 @@ from .workerpool import WorkerPool
 logger = logging.getLogger(__name__)
 
 
-class EvaluationExecutor(Executor[ESOperation]):
+# Note on EvaluationService.post_finish_lock: it is used reentrantly --
+# write_results (via _write_results_sync) calls compilation_ended/
+# evaluation_ended, which call submission_enqueue_operations, which
+# calls _enqueue_sync, and every one of these is guarded by the same
+# lock. asyncio.Lock is not reentrant (a recursive acquire by the same
+# task deadlocks), and a real lock must never be held across an await
+# (another coroutine trying to acquire it while the holder is suspended
+# in loop.run_in_executor would hard-block the event loop forever). The
+# fix kept here is to keep the entire reentrant call graph as plain
+# synchronous code running together inside one loop.run_in_executor
+# call (the "_sync"-suffixed methods below), guarded by a real
+# threading.RLock: since threading.RLock is already reentrant per
+# thread, and the whole nested call chain runs synchronously on a
+# single background thread, no wrapper class is needed -- a plain
+# threading.RLock() is reentrant and safe to hold with no await inside
+# it, exactly like cms/log.py's shared handlers and FlushingDict's own
+# lock elsewhere in this modernization effort.
+class EvaluationExecutor(AsyncExecutor[ESOperation]):
 
     # Real maximum number of operations to be sent to a worker.
     MAX_OPERATIONS_PER_BATCH = 25
@@ -83,7 +105,7 @@ class EvaluationExecutor(Executor[ESOperation]):
         self._currently_executing: list[ESOperation] = []
 
         # Lock used to guard the currently executing operations
-        self._current_execution_lock = gevent.lock.RLock()
+        self._current_execution_lock = threading.RLock()
 
         # As evaluate operations are split by testcases, there are too
         # many entries in the queue to display, so we just take only one
@@ -115,8 +137,12 @@ class EvaluationExecutor(Executor[ESOperation]):
 
         We derive the number from the length of the queue divided by
         the number of workers, with a cap at MAX_OPERATIONS_PER_BATCH.
+        With no workers at all (e.g. CMS_WORKER_COUNT=0) nothing can be
+        dispatched, so we do not batch and just return 1.
 
         """
+        if len(self.pool) == 0:
+            return 1
         # TODO: len(self.pool) is the total number of workers,
         # included those that are disabled.
         ratio = len(self._operation_queue) // len(self.pool) + 1
@@ -125,7 +151,7 @@ class EvaluationExecutor(Executor[ESOperation]):
                     ratio, ret)
         return ret
 
-    def execute(self, entries: list[QueueEntry[ESOperation]]):
+    async def execute(self, entries: list[QueueEntry[ESOperation]]):
         """Execute a batch of operations in the queue.
 
         The operations might not be executed immediately because of
@@ -146,10 +172,12 @@ class EvaluationExecutor(Executor[ESOperation]):
                 operation.side_data = (entry.priority, entry.timestamp)
                 self._currently_executing.append(operation)
         while len(self._currently_executing) > 0:
-            self.pool.wait_for_workers()
+            await self.pool.wait_for_workers()
             with self._current_execution_lock:
                 if len(self._currently_executing) == 0:
                     break
+                # acquire_worker is synchronous: nothing may be awaited
+                # while holding _current_execution_lock.
                 res = self.pool.acquire_worker(self._currently_executing)
                 if res is not None:
                     self._currently_executing = []
@@ -192,8 +220,8 @@ class EvaluationExecutor(Executor[ESOperation]):
                         return
             raise
 
-    def _pop(self, wait=False):
-        queue_entry = super()._pop(wait=wait)
+    async def _pop(self, wait=False):
+        queue_entry = await super()._pop(wait=wait)
         self._remove_from_cumulative_status(queue_entry)
         return queue_entry
 
@@ -230,7 +258,7 @@ class Result:
         self.job_success = job_success
 
 
-class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
+class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
     """Evaluation service.
 
     """
@@ -266,6 +294,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             EvaluationService.RESULT_CACHE_SIZE,
             EvaluationService.MAX_FLUSHING_TIME_SECONDS,
             self.write_results)
+        self._call_when_running(self.result_cache.start)
 
         # This lock is used to avoid inserting in the queue (which
         # itself is already thread-safe) an operation which is already
@@ -288,7 +317,13 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         # invalidate_submission, enqueue) are not executed
         # concurrently with action_finished to avoid picking
         # operations in state 4.
-        self.post_finish_lock = gevent.lock.RLock()
+        self.post_finish_lock = threading.RLock()
+
+        # For each operation with push/dequeue callbacks scheduled on the
+        # event loop but not run yet: the last scheduled action ("push"
+        # or "dequeue") and how many of those callbacks are still
+        # pending. Guarded by post_finish_lock.
+        self._pending_operations: dict[ESOperation, tuple[str, int]] = {}
 
         self.scoring_service = self.connect_to(
             ServiceCoord("ScoringService", 0))
@@ -321,7 +356,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             for operation, priority, timestamp in submission_get_operations(
                     submission_result, submission, dataset, archive_sandbox):
                 number_of_operations += 1
-                if self.enqueue(operation, priority, timestamp):
+                if self._enqueue_sync(operation, priority, timestamp):
                     new_operations += 1
 
             # Two-phase fail-fast: 0 operations does not necessarily mean
@@ -337,16 +372,61 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 self._advance_two_phase(
                     submission_result.sa_session, submission_result)
 
+            # Subtask dependencies: likewise, the only testcases left may
+            # belong to subtasks whose dependency failed and whose skips
+            # are not synthesized yet. No-op without dependencies. See
+            # cms/grading/subtaskdag.py.
+            if number_of_operations == 0 and submission_result is not None:
+                self._advance_dependencies(
+                    submission_result.sa_session, submission_result)
+
             # If we got 0 operations, but the submission result is to
             # evaluate, it means that we just need to finalize the
-            # evaluation.
+            # evaluation, provided that every testcase has an evaluation:
+            # finalizing a result with some missing would make scoring
+            # raise.
             if number_of_operations == 0 and submission_to_evaluate(
                     submission_result):
-                logger.info("Result %d(%d) has already all evaluations, "
-                            "finalizing it.", submission.id, dataset.id)
-                submission_result.set_evaluation_outcome()
-                submission_result.sa_session.commit()
-                self.evaluation_ended(submission_result)
+                evaluated_ids = {
+                    e.testcase_id for e in submission_result.evaluations}
+                missing = sorted(
+                    codename for codename, testcase in dataset.testcases.items()
+                    if testcase.id not in evaluated_ids)
+                if missing:
+                    # Only reachable with two-phase on and a dataset whose
+                    # codename groups disagree with its subtasks (see the
+                    # alignment rule in docs/subtask-dependencies.md):
+                    # otherwise some testcase is always released or
+                    # skipped. Release the held ones without the gates,
+                    # so that the submission is not stuck.
+                    logger.warning(
+                        "Submission %d, dataset %d: no operations left but "
+                        "no evaluation for testcase(s) %s. The subtask "
+                        "dependency and two-phase screening gates are "
+                        "holding each other (see the alignment rule in "
+                        "docs/subtask-dependencies.md); releasing these "
+                        "testcases without the gates.",
+                        submission.id, dataset.id, ", ".join(missing))
+                    # As submission_get_operations() does.
+                    if not dataset.active:
+                        priority = PriorityQueue.PRIORITY_EXTRA_LOW
+                    elif submission_result.evaluation_tries == 0:
+                        priority = PriorityQueue.PRIORITY_MEDIUM
+                    else:
+                        priority = PriorityQueue.PRIORITY_LOW
+                    for codename in missing:
+                        operation = ESOperation(
+                            ESOperation.EVALUATION, submission.id, dataset.id,
+                            codename, archive_sandbox=archive_sandbox)
+                        if self._enqueue_sync(
+                                operation, priority, submission.timestamp):
+                            new_operations += 1
+                else:
+                    logger.info("Result %d(%d) has already all evaluations, "
+                                "finalizing it.", submission.id, dataset.id)
+                    submission_result.set_evaluation_outcome()
+                    submission_result.sa_session.commit()
+                    self.evaluation_ended(submission_result)
 
         return new_operations
 
@@ -362,22 +442,34 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         for dataset in get_datasets_to_judge(user_test.task):
             for operation, priority, timestamp in user_test_get_operations(
                     user_test, dataset):
-                if self.enqueue(operation, priority, timestamp):
+                if self._enqueue_sync(operation, priority, timestamp):
                     new_operations += 1
 
         return new_operations
 
-    @with_post_finish_lock
-    def _missing_operations(self) -> int:
+    async def _missing_operations(self) -> int:
         """Look in the database for submissions that have not been compiled or
         evaluated for no good reasons. Put the missing operation in
         the queue.
 
         """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._missing_operations_sync)
+
+    @with_post_finish_lock
+    def _missing_operations_sync(self) -> int:
+        """Do the work of _missing_operations(), synchronously.
+
+        Runs inside loop.run_in_executor, holding post_finish_lock for
+        its entire duration (a real threading.RLock -- safe, since
+        nothing here awaits or hands off to another thread).
+
+        """
         counter = 0
         with SessionGen() as session:
 
-            if twophase.enabled():
+            if twophase.enabled() or any_dataset_declares_dependencies(
+                    session, self.contest_id):
                 # get_submissions_operations() enumerates missing
                 # (submission, dataset, testcase) evaluations with plain
                 # SQL and has no notion of two-phase screening: it would
@@ -388,11 +480,14 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 # gate, but evaluation operations are computed per
                 # submission via submission_enqueue_operations(), the
                 # same gated primitive used everywhere else. See
-                # cms/grading/twophase.py.
+                # cms/grading/twophase.py. The plain SQL path would also
+                # bypass the subtask dependency gate, so the gated path
+                # is used whenever a dataset of the contest declares
+                # dependencies.
                 for operation, priority, timestamp in \
                         get_submissions_compilation_operations(
                             session, self.contest_id):
-                    if self.enqueue(operation, priority, timestamp):
+                    if self._enqueue_sync(operation, priority, timestamp):
                         counter += 1
 
                 for submission_result in get_submission_results_to_evaluate(
@@ -402,12 +497,12 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             else:
                 for operation, priority, timestamp in \
                         get_submissions_operations(session, self.contest_id):
-                    if self.enqueue(operation, priority, timestamp):
+                    if self._enqueue_sync(operation, priority, timestamp):
                         counter += 1
 
             for operation, priority, timestamp in \
                     get_user_tests_operations(session, self.contest_id):
-                if self.enqueue(operation, priority, timestamp):
+                if self._enqueue_sync(operation, priority, timestamp):
                     counter += 1
 
         return counter
@@ -423,7 +518,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         """
         return self.get_executor().pool.get_status()
 
-    def check_workers_timeout(self):
+    async def check_workers_timeout(self):
         """We ask WorkerPool for the unresponsive workers, and we put
         again their operations in the queue.
 
@@ -433,10 +528,10 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Operation %s put again in the queue because of "
                         "worker timeout.", operation)
             priority, timestamp = operation.side_data
-            self.enqueue(operation, priority, timestamp)
+            await self.enqueue(operation, priority, timestamp)
         return True
 
-    def check_workers_connection(self):
+    async def check_workers_connection(self):
         """We ask WorkerPool for the unconnected workers, and we put
         again their operations in the queue.
 
@@ -446,11 +541,10 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Operation %s put again in the queue because of "
                         "disconnected worker.", operation)
             priority, timestamp = operation.side_data
-            self.enqueue(operation, priority, timestamp)
+            await self.enqueue(operation, priority, timestamp)
         return True
 
-    @with_post_finish_lock
-    def enqueue(
+    async def enqueue(
         self, operation: ESOperation, priority: int, timestamp: datetime
     ) -> bool:
         """Push an operation in the queue.
@@ -465,19 +559,205 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         return: True if pushed, False if not.
 
         """
-        if operation in self.get_executor() or operation in self.result_cache:
-            return False
-
-        # enqueue() returns the number of successful pushes.
-        return super().enqueue(operation, priority, timestamp) > 0
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, self._enqueue_sync, operation, priority, timestamp)
 
     @with_post_finish_lock
-    def action_finished(self, data: dict, shard: int, error=None):
+    def _enqueue_sync(
+        self, operation: ESOperation, priority: int, timestamp: datetime
+    ) -> bool:
+        """Decide whether to enqueue, and push if so, synchronously.
+
+        Runs inside loop.run_in_executor (or is called directly, as a
+        plain nested function call, from another _sync method already
+        holding post_finish_lock on the same background thread -- see
+        submission_enqueue_operations/user_test_enqueue_operations/
+        write_results_sync/etc, which all call this directly rather than
+        the async enqueue()).
+
+        """
+        pending_action, _ = self._pending_operations.get(operation, (None, 0))
+        if pending_action == "push":
+            return False
+        if pending_action != "dequeue" and (
+                operation in self.get_executor()
+                or operation in self.result_cache):
+            return False
+        self._record_pending(operation, "push")
+        self._push_to_queue(operation, priority, timestamp)
+        return True
+
+    def _record_pending(self, operation: ESOperation, action: str):
+        """Record that action has just been scheduled for operation.
+
+        Tracks a (last_action, pending_count) pair per operation so that
+        _enqueue_sync()'s synchronous membership check can predict the
+        *eventual* state correctly even when multiple push/dequeue
+        callbacks are in flight for the same operation at once (e.g. a
+        push already scheduled when an invalidation's dequeue comes in
+        right after, or two invalidations of the same operation
+        back-to-back). The callbacks in _push_to_queue and
+        _threadsafe_dequeue_and_ignore each call _clear_pending_one()
+        once their real action has run, in the same FIFO order they
+        were scheduled in, so the last scheduled action is the one that
+        determines the final state. Must be called while holding
+        post_finish_lock.
+
+        operation: the operation the action was scheduled for.
+        action: "push" or "dequeue".
+
+        """
+        _, count = self._pending_operations.get(operation, (None, 0))
+        self._pending_operations[operation] = (action, count + 1)
+
+    def _clear_pending_one(self, operation: ESOperation):
+        """Record that one scheduled callback for operation has run.
+
+        Decrements the pending count; once it reaches zero, removes the
+        entry entirely (no callbacks left in flight, so _enqueue_sync()'s
+        real membership check alone is accurate again). Must be called
+        while holding post_finish_lock.
+
+        operation: the operation whose callback has just run.
+
+        """
+        action, count = self._pending_operations.get(operation, (None, 0))
+        if count <= 1:
+            self._pending_operations.pop(operation, None)
+        else:
+            self._pending_operations[operation] = (action, count - 1)
+
+    def _push_to_queue(
+        self, operation: ESOperation, priority: int, timestamp: datetime
+    ):
+        """Actually push into the executor's queue, safely from any thread.
+
+        AsyncTriggeredService.enqueue ultimately touches an asyncio.Event
+        (inside AsyncPriorityQueue.push()), unsafe to call directly from
+        a thread other than the event loop's. Route through
+        call_soon_threadsafe when a loop is running; at __init__ time
+        (self._loop is still None) a direct call is safe, mirroring the
+        same dual-mode dispatch already established in ProxyService's
+        _threadsafe_enqueue.
+
+        Once the push has landed, also clear one pending callback from
+        the operation's _pending_operations entry (recorded by
+        _enqueue_sync), under post_finish_lock so it stays consistent
+        with _enqueue_sync's check. Taking that real lock on the event loop thread is safe
+        because nothing awaits while holding it.
+
+        """
+        def _do():
+            with self.post_finish_lock:
+                try:
+                    AsyncTriggeredService.enqueue(
+                        self, operation, priority, timestamp)
+                finally:
+                    # Always clear the pending marker, even if enqueue()
+                    # raised -- otherwise a stuck "push" entry would
+                    # block every future re-enqueue of this operation.
+                    self._clear_pending_one(operation)
+        if self._loop is None:
+            _do()
+        else:
+            self._loop.call_soon_threadsafe(_do)
+
+    def _threadsafe_dequeue_and_ignore(self, operation: ESOperation):
+        """Dequeue and ignore an operation, safely from any thread.
+
+        Records "dequeue" as the operation's last scheduled action in
+        _pending_operations immediately (this method is only ever
+        called while post_finish_lock is already held by the caller --
+        _invalidate_submission_sync -- so this is itself
+        lock-protected) so a later _enqueue_sync() for the same
+        operation neither trusts its stale "still in the queue"
+        membership nor an earlier still-pending push, and schedules a
+        new push after this dequeue. The actual dequeue is still
+        deferred to the event loop (dequeue() eventually touches
+        AsyncPriorityQueue.remove(), unsafe off the event loop thread);
+        once it has run, the callback clears one pending callback from
+        the operation's entry.
+
+        operation: the operation to dequeue and ignore.
+
+        """
+        self._record_pending(operation, "dequeue")
+
+        def _do():
+            with self.post_finish_lock:
+                try:
+                    try:
+                        self.dequeue(operation)
+                    except KeyError:
+                        pass  # Ok, the operation wasn't in the queue.
+                    try:
+                        self.get_executor().pool.ignore_operation(operation)
+                    except LookupError:
+                        pass  # Ok, the operation wasn't in the pool.
+                finally:
+                    # Always clear the pending marker, even on an
+                    # unexpected exception -- otherwise a stuck
+                    # "dequeue" entry would block every future
+                    # re-enqueue of this operation.
+                    self._clear_pending_one(operation)
+        if self._loop is None:
+            _do()
+        else:
+            self._loop.call_soon_threadsafe(_do)
+
+    def _threadsafe_notify_scoring_service(self, submission_id: int, dataset_id: int):
+        """Tell ScoringService about a new evaluation, safely from any thread.
+
+        Fire-and-forget, matching the old RPC proxy's never-blocking
+        behavior; swallows RPCError like WorkerPool._fire_and_forget does
+        for the same reason (ScoringService being briefly unreachable is
+        not worth surfacing as an error here). Like it, it doesn't wait
+        for the answer longer than FIRE_AND_FORGET_TIMEOUT seconds, so a
+        ScoringService that is connected but stuck can't leave the
+        notifications pending forever.
+
+        Only reachable from compilation_ended/evaluation_ended, i.e. from
+        code already running inside loop.run_in_executor, so the loop
+        always exists here.
+
+        """
+        self._loop.call_soon_threadsafe(
+            self._spawn, self._notify_scoring_service(
+                submission_id, dataset_id))
+
+    async def _notify_scoring_service(self, submission_id: int, dataset_id: int):
+        try:
+            await asyncio.wait_for(
+                self.scoring_service.new_evaluation(
+                    submission_id=submission_id, dataset_id=dataset_id),
+                FIRE_AND_FORGET_TIMEOUT)
+        except RPCError:
+            pass
+        except asyncio.TimeoutError:
+            # Not lost: ScoringService's sweeper finds the evaluation.
+            logger.warning("ScoringService gave no answer in %s seconds to "
+                           "the notification of the evaluation of "
+                           "submission %d on dataset %d, giving up on it.",
+                           FIRE_AND_FORGET_TIMEOUT, submission_id, dataset_id)
+
+    async def action_finished(self, data: dict, shard: int, error=None):
         """Callback from a worker, to signal that is finished some
         action (compilation or evaluation).
 
         data: the JobGroup, exported to dict.
         shard: the shard finishing the action.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._action_finished_sync, data, shard, error)
+
+    @with_post_finish_lock
+    def _action_finished_sync(self, data: dict, shard: int, error=None):
+        """Do the work of action_finished(), synchronously.
+
+        Runs inside loop.run_in_executor.
 
         """
         # We notify the pool that the worker is available again for
@@ -522,8 +802,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                 else:
                     self.result_cache.add(operation, Result(job, job.success))
 
-    @with_post_finish_lock
-    def write_results(self, items: list[tuple[ESOperation, Result]]):
+    async def write_results(self, items: list[tuple[ESOperation, Result]]):
         """Receive worker results from the cache and writes them to the DB.
 
         Grouping results together by object (i.e., submission result
@@ -533,6 +812,26 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         of once for every result.
 
         items: the results received by ES but not yet written to the db.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._write_results_sync, items)
+
+    @with_post_finish_lock
+    def _write_results_sync(self, items: list[tuple[ESOperation, Result]]):
+        """Do the work of write_results(), synchronously.
+
+        Runs inside loop.run_in_executor, holding post_finish_lock for
+        its entire duration. Everything this calls internally --
+        write_results_one_object_and_type, write_results_one_row,
+        _advance_two_phase, compilation_ended, evaluation_ended,
+        user_test_compilation_ended, user_test_evaluation_ended,
+        submission_enqueue_operations, user_test_enqueue_operations,
+        _enqueue_sync -- runs as plain synchronous nested calls on this
+        same background thread; none of them may become `async def` or
+        call `await` anywhere in this call graph (see the module-level
+        note at the top of this file about why post_finish_lock is a real
+        threading.RLock, never held across an await).
 
         """
         logger.info("Starting commit process...")
@@ -580,29 +879,46 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Committing evaluations...")
             session.commit()
 
-            # Two-phase fail-fast: for any group whose screening just
-            # finished and failed, synthesize skipped evaluations for its
-            # remaining testcases so the submission can complete without
-            # running them. See cms/grading/twophase.py.
-            if twophase.enabled():
-                for type_, object_id, dataset_id, _ in by_object_and_type.keys():
+            # Two-phase fail-fast and subtask dependencies: synthesize the
+            # skipped evaluations that the results just written make
+            # certain, two-phase first (a failed screening can make a
+            # dependency fail). See cms/grading/twophase.py and
+            # cms/grading/subtaskdag.py.
+            gated_datasets: set[int] = set()
+            for type_, _, dataset_id, _ in by_object_and_type.keys():
+                if type_ == ESOperation.EVALUATION \
+                        and dataset_id not in gated_datasets:
+                    dataset = Dataset.get_from_id(dataset_id, session)
+                    if dataset is not None and \
+                            subtaskdag.gate_for_dataset(dataset) is not None:
+                        gated_datasets.add(dataset_id)
+            if twophase.enabled() or gated_datasets:
+                for type_, object_id, dataset_id, _ in \
+                        by_object_and_type.keys():
                     if type_ == ESOperation.EVALUATION:
                         submission_result = SubmissionResult.get_from_id(
                             (object_id, dataset_id), session)
                         if submission_result is not None:
-                            self._advance_two_phase(session, submission_result)
+                            if twophase.enabled():
+                                self._advance_two_phase(
+                                    session, submission_result)
+                            if dataset_id in gated_datasets:
+                                self._advance_dependencies(
+                                    session, submission_result)
 
             num_testcases_per_dataset = dict()
             for type_, object_id, dataset_id, archive_sandbox in by_object_and_type.keys():
                 if type_ == ESOperation.EVALUATION:
                     if dataset_id not in num_testcases_per_dataset:
-                        num_testcases_per_dataset[dataset_id] = session\
-                            .query(func.count(Testcase.id))\
-                            .filter(Testcase.dataset_id == dataset_id).scalar()
-                    num_evaluations = session\
-                        .query(func.count(Evaluation.id)) \
-                        .filter(Evaluation.dataset_id == dataset_id) \
-                        .filter(Evaluation.submission_id == object_id).scalar()
+                        num_testcases_per_dataset[dataset_id] = session.execute(
+                            select(func.count(Testcase.id))
+                            .filter(Testcase.dataset_id == dataset_id)
+                        ).scalar()
+                    num_evaluations = session.execute(
+                        select(func.count(Evaluation.id))
+                        .filter(Evaluation.dataset_id == dataset_id)
+                        .filter(Evaluation.submission_id == object_id)
+                    ).scalar()
                     if num_evaluations == num_testcases_per_dataset[dataset_id]:
                         submission_result = SubmissionResult.get_from_id(
                             (object_id, dataset_id), session)
@@ -639,9 +955,11 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                         continue
                     if submission_result.evaluated():
                         self.evaluation_ended(submission_result, archive_sandbox)
-                    elif twophase.enabled():
+                    elif twophase.enabled() or dataset_id in gated_datasets:
                         # Two-phase: some group's screening just passed;
-                        # push its now-unblocked operations.
+                        # subtask dependencies: some subtask's
+                        # dependencies just passed. Either way, push the
+                        # now-unblocked operations.
                         self.submission_enqueue_operations(
                             submission_result.submission, archive_sandbox)
                 elif type_ == ESOperation.USER_TEST_COMPILATION:
@@ -718,8 +1036,8 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
 
         """
         dataset = submission_result.dataset
-        outcome_by_codename = {
-            e.codename: e.outcome for e in submission_result.evaluations}
+        outcome_by_codename = outcomes_for_screening(
+            submission_result.evaluations)
         status = twophase.group_screening_status(dataset, outcome_by_codename)
         evaluated_ids = {
             e.testcase_id for e in submission_result.evaluations}
@@ -745,6 +1063,51 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info(
                 "Two-phase: synthesized %d skipped evaluation(s) for "
                 "submission %d(%d).", created,
+                submission_result.submission_id, submission_result.dataset_id)
+            session.commit()
+
+    def _advance_dependencies(
+        self, session: Session, submission_result: SubmissionResult
+    ) -> None:
+        """Skip the testcases that only subtasks with a failed dependency need.
+
+        For every subtask that failed because one of its dependencies
+        failed (transitively), synthesize a skipped evaluation (outcome 0)
+        for each of its testcases not evaluated yet and not needed by
+        another subtask, so the submission can complete without running
+        them. No-op for datasets that declare no dependency. See
+        cms/grading/subtaskdag.py.
+
+        session: the DB session to use.
+        submission_result: the submission result to advance.
+
+        """
+        dataset = submission_result.dataset
+        gate = subtaskdag.gate_for_dataset(dataset)
+        if gate is None:
+            return
+        outcome_by_codename = {
+            e.codename: e.outcome for e in submission_result.evaluations}
+        status, blocked_by = gate.statuses(outcome_by_codename)
+        left = [codename for codename in dataset.testcases
+                if codename not in outcome_by_codename]
+        skip = gate.skippable(left, status, blocked_by)
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        for codename, dependency in skip.items():
+            submission_result.evaluations += [Evaluation(
+                text=[message, str(dependency)],
+                outcome="0.0",
+                execution_time=0.0,
+                execution_wall_clock_time=0.0,
+                execution_memory=0,
+                evaluation_shard=None,
+                evaluation_sandbox_paths=[],
+                evaluation_sandbox_digests=[],
+                testcase=dataset.testcases[codename])]
+        if skip:
+            logger.info(
+                "Subtask dependencies: synthesized %d skipped evaluation(s) "
+                "for submission %d(%d).", len(skip),
                 submission_result.submission_id, submission_result.dataset_id)
             session.commit()
 
@@ -832,7 +1195,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Submission %d(%d) did not compile.",
                         submission_result.submission_id,
                         submission_result.dataset_id)
-            self.scoring_service.new_evaluation(
+            self._threadsafe_notify_scoring_service(
                 submission_id=submission_result.submission_id,
                 dataset_id=submission_result.dataset_id)
 
@@ -876,7 +1239,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Submission %d(%d) was evaluated successfully.",
                         submission_result.submission_id,
                         submission_result.dataset_id)
-            self.scoring_service.new_evaluation(
+            self._threadsafe_notify_scoring_service(
                 submission_id=submission_result.submission_id,
                 dataset_id=submission_result.dataset_id)
 
@@ -972,12 +1335,31 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         self.user_test_enqueue_operations(user_test)
 
     @rpc_method
-    def new_submission(self, submission_id: int):
+    async def new_submission(self, submission_id: int):
         """This RPC prompts ES of the existence of a new
         submission. ES takes the right countermeasures, i.e., it
         schedules it for compilation.
 
         submission_id: the id of the new submission.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._new_submission_sync, submission_id)
+
+    def _new_submission_sync(self, submission_id: int):
+        """Do the work of new_submission(), synchronously.
+
+        Runs inside loop.run_in_executor. Not decorated with
+        @with_post_finish_lock itself -- submission_enqueue_operations
+        calls _enqueue_sync, which acquires the lock itself for just its
+        own critical section. A brand new submission cannot race
+        action_finished (no operation of it can be in a worker yet), but
+        the sweeper (_missing_operations_sync, on another executor
+        thread) can pick up the same new submission concurrently: that
+        race is harmless because _enqueue_sync's dedup check (queue,
+        pool, result cache and _pending_operations, all checked
+        under post_finish_lock) lets only one of the two enqueue each
+        operation.
 
         """
         with SessionGen() as session:
@@ -992,12 +1374,23 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             session.commit()
 
     @rpc_method
-    def new_user_test(self, user_test_id: int):
+    async def new_user_test(self, user_test_id: int):
         """This RPC prompts ES of the existence of a new user test. ES
         takes takes the right countermeasures, i.e., it schedules it
         for compilation.
 
         user_test_id: the id of the new user test.
+
+        """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._new_user_test_sync, user_test_id)
+
+    def _new_user_test_sync(self, user_test_id: int):
+        """Do the work of new_user_test(), synchronously.
+
+        Runs inside loop.run_in_executor. Not decorated with
+        @with_post_finish_lock -- see _new_submission_sync's docstring
+        for why.
 
         """
         with SessionGen() as session:
@@ -1012,8 +1405,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             session.commit()
 
     @rpc_method
-    @with_post_finish_lock
-    def invalidate_submission(
+    async def invalidate_submission(
         self,
         contest_id: int | None = None,
         submission_id: int | None = None,
@@ -1052,13 +1444,37 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         archive_sandbox: whether to store submission output.
 
         """
-        logger.info("Invalidation request received.")
-
-        # Validate arguments
+        # Validate arguments (before touching run_in_executor, fail fast
+        # -- same reasoning ProxyService's regenerate_ranking already
+        # established for this migration effort).
         # TODO Check that all these objects belong to this contest.
         if level not in ("compilation", "evaluation"):
-            raise ValueError(
-                "Unexpected invalidation level `%s'." % level)
+            raise ValueError("Unexpected invalidation level `%s'." % level)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._invalidate_submission_sync,
+            contest_id, submission_id, dataset_id, testcase_id,
+            participation_id, task_id, level, archive_sandbox)
+
+    @with_post_finish_lock
+    def _invalidate_submission_sync(
+        self,
+        contest_id: int | None,
+        submission_id: int | None,
+        dataset_id: int | None,
+        testcase_id: int | None,
+        participation_id: int | None,
+        task_id: int | None,
+        level: str,
+        archive_sandbox: bool,
+    ) -> None:
+        """Do the work of invalidate_submission(), synchronously.
+
+        Runs inside loop.run_in_executor, holding post_finish_lock.
+        level has already been validated by the caller.
+
+        """
+        logger.info("Invalidation request received.")
 
         if contest_id is None:
             contest_id = self.contest_id
@@ -1071,18 +1487,20 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
                     and submission_id is None:
                 task_id = Dataset.get_from_id(dataset_id, session).task_id
             # First we load all involved submissions.
-            submissions: list[Submission] = get_submissions(
-                session,
-                # Give contest_id only if all others are None.
-                (
-                    contest_id
-                    if {participation_id, task_id, submission_id} == {None}
-                    else None
-                ),
-                participation_id,
-                task_id,
-                submission_id,
-            ).all()
+            submissions: list[Submission] = session.execute(
+                get_submissions(
+                    session,
+                    # Give contest_id only if all others are None.
+                    (
+                        contest_id
+                        if {participation_id, task_id, submission_id} == {None}
+                        else None
+                    ),
+                    participation_id,
+                    task_id,
+                    submission_id,
+                )
+            ).scalars().all()
 
             # Then we get all relevant operations, and we remove them
             # both from the queue and from the pool (i.e., we ignore
@@ -1090,32 +1508,28 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             operations = get_relevant_operations(
                 level, submissions, dataset_id)
             for operation in operations:
-                try:
-                    self.dequeue(operation)
-                except KeyError:
-                    pass  # Ok, the operation wasn't in the queue.
-                try:
-                    self.get_executor().pool.ignore_operation(operation)
-                except LookupError:
-                    pass  # Ok, the operation wasn't in the pool.
+                self._threadsafe_dequeue_and_ignore(operation)
 
             # Then we find all existing results in the database, and
             # we remove them.
-            submission_results: list[SubmissionResult] = get_submission_results(
-                session,
-                # Give contest_id only if all others are None.
-                (
-                    contest_id
-                    if {participation_id, task_id, submission_id, dataset_id} == {None}
-                    else None
-                ),
-                participation_id,
-                # Provide the task_id only if the entire task has to be
-                # reevaluated and not only a specific dataset.
-                task_id if dataset_id is None else None,
-                submission_id,
-                dataset_id,
-            ).all()
+            submission_results: list[SubmissionResult] = session.execute(
+                get_submission_results(
+                    session,
+                    # Give contest_id only if all others are None.
+                    (
+                        contest_id
+                        if {participation_id, task_id, submission_id, dataset_id}
+                        == {None}
+                        else None
+                    ),
+                    participation_id,
+                    # Provide the task_id only if the entire task has to be
+                    # reevaluated and not only a specific dataset.
+                    task_id if dataset_id is None else None,
+                    submission_id,
+                    dataset_id,
+                )
+            ).scalars().all()
             logger.info("Submission results to invalidate %s for: %d.",
                         level, len(submission_results))
             for submission_result in submission_results:
@@ -1147,7 +1561,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
         logger.info("Invalidate successfully completed.")
 
     @rpc_method
-    def disable_worker(self, shard: int) -> bool:
+    async def disable_worker(self, shard: int) -> bool:
         """Disable a specific worker (recovering its assigned operations).
 
         shard: the shard of the worker.
@@ -1167,7 +1581,7 @@ class EvaluationService(TriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Operation %s put again in the queue because "
                         "the worker was disabled.", operation)
             priority, timestamp = operation.side_data
-            self.enqueue(operation, priority, timestamp)
+            await self.enqueue(operation, priority, timestamp)
         return True
 
     @rpc_method

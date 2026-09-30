@@ -28,26 +28,50 @@ two-phase fail-fast grading:
 
 """
 
-import gevent.monkey
-
-gevent.monkey.patch_all()  # noqa
-
+import asyncio
 import unittest
 from unittest.mock import patch
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.servicelogmixin import \
+    ServiceLoggingIsolationMixin
 
 from cms import config
+from cms.conf import Address, ServiceCoord
 from cms.db import Submission
 from cms.service.esoperations import ESOperation
 from cms.service.EvaluationService import EvaluationService
 
 
-class TestSweeperRespectsTwoPhaseGate(DatabaseMixin, unittest.TestCase):
+class TestSweeperRespectsTwoPhaseGate(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
     """C1: the periodic sweeper must not bypass the two-phase gate."""
 
-    def setUp(self):
-        super().setUp()
+    async def asyncSetUp(self):
+        # EvaluationService.__init__ (via WorkerPool.__init__, which calls
+        # get_service_shards("Worker") defined in cms.util) would
+        # otherwise try to connect to every configured Worker shard.
+        config_patcher = patch("cms.util.config.services", {})
+        config_patcher.start()
+        self.addCleanup(config_patcher.stop)
+
+        address_patcher = patch(
+            "cms.io.async_service.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        address_patcher.start()
+        self.addCleanup(address_patcher.stop)
+
+        # EvaluationService.__init__ connects to LogService (via
+        # AsyncService.__init__) and to ScoringService: both go through
+        # async_rpc's own imported reference to get_service_address.
+        rpc_address_patcher = patch(
+            "cms.io.async_rpc.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        rpc_address_patcher.start()
+        self.addCleanup(rpc_address_patcher.stop)
+
         self.contest = self.add_contest()
         self.participation = self.add_participation(contest=self.contest)
         self.task = self.add_task(contest=self.contest)
@@ -72,22 +96,48 @@ class TestSweeperRespectsTwoPhaseGate(DatabaseMixin, unittest.TestCase):
         self.delete_data()
         super().tearDown()
 
+    def _build_service(self) -> EvaluationService:
+        """Build an EvaluationService safe to drive from a running loop.
+
+        Mirrors EvaluationService_test.py's _build_service: constructs
+        the service while this test's own event loop is already
+        running, sets self._loop explicitly so thread-safe dispatch
+        helpers take their call_soon_threadsafe branch as they would in
+        production, and stubs out start_sweeper so a background sweep
+        can't race with the test's own operations.
+
+        """
+        with patch.object(
+                EvaluationService, "start_sweeper", lambda self, timeout: None):
+            service = EvaluationService(shard=0)
+        service._loop = asyncio.get_running_loop()
+        self.addCleanup(service._disconnect_all)
+        # EvaluationExecutor.max_operations_per_batch divides by
+        # len(self.pool): with zero workers registered (the case here,
+        # since config.services is patched to {}), the executor's
+        # always-running background run() loop would crash with a
+        # ZeroDivisionError as soon as anything is enqueued. Register
+        # one placeholder worker (left unconnected, so acquire_worker
+        # never actually hands operations to it).
+        service.get_executor().pool.add_worker(ServiceCoord("Worker", 0))
+        return service
+
     @patch.object(config.global_, "two_phase_evaluation", True)
-    def test_sweeper_withholds_failed_groups_non_screening_testcases(self):
-        service = EvaluationService(0)
-        service._missing_operations()
+    async def test_sweeper_withholds_failed_groups_non_screening_testcases(self):
+        service = self._build_service()
+        await service._missing_operations()
 
         withheld = ESOperation(
             ESOperation.EVALUATION, self.submission.id, self.dataset.id,
             "s1-02-normal")
         self.assertNotIn(withheld, service.get_executor())
 
-    def test_sweeper_enqueues_it_when_two_phase_is_disabled(self):
+    async def test_sweeper_enqueues_it_when_two_phase_is_disabled(self):
         # Sanity check: with the flag off, the same testcase is real
         # (ungated) work and must still be enqueued by the sweeper, same
         # as before this feature existed.
-        service = EvaluationService(0)
-        service._missing_operations()
+        service = self._build_service()
+        await service._missing_operations()
 
         expected = ESOperation(
             ESOperation.EVALUATION, self.submission.id, self.dataset.id,
@@ -95,14 +145,32 @@ class TestSweeperRespectsTwoPhaseGate(DatabaseMixin, unittest.TestCase):
         self.assertIn(expected, service.get_executor())
 
 
-class TestInvalidateDoesNotPrematurelyFinalize(DatabaseMixin, unittest.TestCase):
+class TestInvalidateDoesNotPrematurelyFinalize(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
     """C2: submission_enqueue_operations() must not finalize a result that
     is still missing evaluations for a failed group's testcases.
 
     """
 
-    def setUp(self):
-        super().setUp()
+    async def asyncSetUp(self):
+        config_patcher = patch("cms.util.config.services", {})
+        config_patcher.start()
+        self.addCleanup(config_patcher.stop)
+
+        address_patcher = patch(
+            "cms.io.async_service.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        address_patcher.start()
+        self.addCleanup(address_patcher.stop)
+
+        rpc_address_patcher = patch(
+            "cms.io.async_rpc.get_service_address",
+            return_value=Address("127.0.0.1", 0))
+        rpc_address_patcher.start()
+        self.addCleanup(rpc_address_patcher.stop)
+
         self.contest = self.add_contest()
         self.participation = self.add_participation(contest=self.contest)
         self.task = self.add_task(contest=self.contest)
@@ -139,16 +207,39 @@ class TestInvalidateDoesNotPrematurelyFinalize(DatabaseMixin, unittest.TestCase)
         self.delete_data()
         super().tearDown()
 
+    def _build_service(self) -> EvaluationService:
+        """Build an EvaluationService safe to drive from a running loop.
+
+        See TestSweeperRespectsTwoPhaseGate._build_service for details.
+
+        """
+        with patch.object(
+                EvaluationService, "start_sweeper", lambda self, timeout: None):
+            service = EvaluationService(shard=0)
+        service._loop = asyncio.get_running_loop()
+        self.addCleanup(service._disconnect_all)
+        service.get_executor().pool.add_worker(ServiceCoord("Worker", 0))
+        return service
+
     @patch.object(config.global_, "two_phase_evaluation", True)
-    def test_invalidating_one_skipped_testcase_does_not_lose_it(self):
+    async def test_invalidating_one_skipped_testcase_does_not_lose_it(self):
         # Admin invalidates just the s1-02-normal evaluation (e.g. to
         # force a re-check). It still belongs to a failed group, so the
         # gate withholds it again; the fix must re-synthesize its skip
         # instead of finalizing the result without an evaluation for it.
         testcase_id = self.testcases["s1-02-normal"].id
+        # The fixture already built the "correctly resynthesized" end
+        # state (mirroring what _advance_two_phase would produce), so
+        # the assertions below can't tell a genuine
+        # delete-then-resynthesize from a no-op by codename/outcome
+        # alone: capture the pre-invalidation row's id to confirm the
+        # evaluation was actually replaced.
+        old_evaluation_id = next(
+            e.id for e in self.result.evaluations
+            if e.codename == "s1-02-normal")
 
-        service = EvaluationService(0)
-        service.invalidate_submission(
+        service = self._build_service()
+        await service.invalidate_submission(
             submission_id=self.submission.id,
             dataset_id=self.dataset.id,
             testcase_id=testcase_id,
@@ -166,6 +257,7 @@ class TestInvalidateDoesNotPrematurelyFinalize(DatabaseMixin, unittest.TestCase)
         resynthesized = next(
             e for e in result.evaluations if e.codename == "s1-02-normal")
         self.assertEqual(resynthesized.outcome, "0.0")
+        self.assertNotEqual(resynthesized.id, old_evaluation_id)
 
         # The result must only be marked evaluated once it genuinely has
         # an evaluation for every testcase again.

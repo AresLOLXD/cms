@@ -21,6 +21,8 @@ from collections import namedtuple
 from datetime import timedelta
 from unittest.mock import MagicMock, PropertyMock, patch, sentinel, ANY
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms import config
@@ -169,8 +171,9 @@ class TestAcceptSubmission(DatabaseMixin, unittest.TestCase):
         self.session.flush()
 
         # Ensure the submission is in the DB.
-        db_submission = self.session.query(Submission) \
-            .filter(Submission.id == submission.id).first()
+        db_submission = self.session.execute(
+            select(Submission).filter(Submission.id == submission.id)
+        ).scalars().first()
         self.assertIs(submission, db_submission)
 
         # And that it has the expected fields.
@@ -501,8 +504,9 @@ class TestAcceptUserTest(DatabaseMixin, unittest.TestCase):
         self.session.flush()
 
         # Ensure the user test is in the DB.
-        db_user_test = self.session.query(UserTest) \
-            .filter(UserTest.id == user_test.id).first()
+        db_user_test = self.session.execute(
+            select(UserTest).filter(UserTest.id == user_test.id)
+        ).scalars().first()
         self.assertIs(user_test, db_user_test)
 
         # And that it has the expected fields.

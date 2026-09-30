@@ -25,6 +25,8 @@ import argparse
 import logging
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import SessionGen, Contest, User, Participation, ask_for_contest
 
@@ -34,21 +36,25 @@ logger = logging.getLogger(__name__)
 
 def remove_participation(contest_id: int, username: str):
     with SessionGen() as session:
-        user = session.query(User)\
-            .filter(User.username == username).first()
+        user = session.execute(
+            select(User).filter(User.username == username)
+        ).scalars().first()
         if user is None:
             logger.error("User %s does not exist.", username)
             return False
 
-        contest = session.query(Contest)\
-            .filter(Contest.id == contest_id).first()
+        contest = session.execute(
+            select(Contest).filter(Contest.id == contest_id)
+        ).scalars().first()
         if contest is None:
             logger.error("Contest id %d does not exist.", contest_id)
             return False
 
-        participation = session.query(Participation)\
-            .filter(Participation.contest_id == contest_id)\
-            .filter(Participation.user == user).first()
+        participation = session.execute(
+            select(Participation)
+            .filter(Participation.contest_id == contest_id)
+            .filter(Participation.user == user)
+        ).scalars().first()
         if participation is None:
             logger.error("Participation of %s in contest %d does not exists.",
                          username, contest_id)

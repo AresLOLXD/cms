@@ -43,6 +43,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
+from sqlalchemy import select
 from werkzeug.datastructures import LanguageAccept
 from werkzeug.http import parse_accept_header
 
@@ -91,11 +92,11 @@ class BaseHandler(CommonRequestHandler):
         for chunk in t.generate(**params):
             self.write(chunk)
 
-    def prepare(self):
+    async def prepare(self):
         """This method is executed at the beginning of each request.
 
         """
-        super().prepare()
+        await super().prepare()
         self.setup_locale()
 
     def setup_locale(self):
@@ -211,7 +212,9 @@ class ContestListHandler(BaseHandler):
         # We need this to be computed for each request because we want to be
         # able to import new contests without having to restart CWS.
         contest_list = dict()
-        for contest in self.sql_session.query(Contest).all():
+        for contest in self.sql_session.execute(
+                select(Contest).filter(Contest.active.is_(True))
+        ).scalars().all():
             contest: Contest
             contest_list[contest.name] = contest
         self.render("contest_list.html", contest_list=contest_list,

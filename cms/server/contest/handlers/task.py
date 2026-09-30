@@ -70,7 +70,7 @@ class TaskStatementViewHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0, 1, 2, 3, 4)
     @multi_contest
-    def get(self, task_name: str, lang_code: str):
+    async def get(self, task_name: str, lang_code: str):
         task = self.get_task(task_name)
         if task is None:
             raise tornado.web.HTTPError(404)
@@ -86,7 +86,7 @@ class TaskStatementViewHandler(FileHandler):
         else:
             filename = "%s.pdf" % task.name
 
-        self.fetch(statement, "application/pdf", filename=filename, disposition="inline")
+        await self.fetch(statement, "application/pdf", filename=filename, disposition="inline")
 
 
 class TaskAttachmentViewHandler(FileHandler):
@@ -96,7 +96,7 @@ class TaskAttachmentViewHandler(FileHandler):
     @tornado.web.authenticated
     @actual_phase_required(0, 1, 2, 3, 4)
     @multi_contest
-    def get(self, task_name: str, filename: str):
+    async def get(self, task_name: str, filename: str):
         task = self.get_task(task_name)
         if task is None:
             raise tornado.web.HTTPError(404)
@@ -111,4 +111,4 @@ class TaskAttachmentViewHandler(FileHandler):
         if mimetype is None:
             mimetype = 'application/octet-stream'
 
-        self.fetch(attachment, mimetype, filename)
+        await self.fetch(attachment, mimetype, filename)

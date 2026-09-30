@@ -19,34 +19,58 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import asyncio
 import hashlib
 import logging
 import importlib.resources
 
-import collections
-try:
-    collections.MutableMapping
-except:
-    # Monkey-patch: Tornado 4.5.3 does not work on Python 3.11 by default
-    collections.MutableMapping = collections.abc.MutableMapping
-
-import tornado.wsgi
-from gevent.pywsgi import WSGIServer
-from werkzeug.middleware.proxy_fix import ProxyFix
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
-from werkzeug.middleware.shared_data import SharedDataMiddleware
+import tornado.httpserver
+import tornado.netutil
+import tornado.web
 
 from cms.db.filecacher import FileCacher
-from cms.server.file_middleware import FileServerMiddleware
 from cms.server.util import Url
-from .service import Service
-from .web_rpc import RPCMiddleware
+from .async_service import AsyncService
+from .static_handler import MultiLocationStaticFileHandler
 
 
 logger = logging.getLogger(__name__)
 
 
-SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60
+def resolve_remote_ip(
+    forwarded_for_header: str | None,
+    socket_remote_ip: str,
+    num_proxies_used: int,
+) -> str:
+    """Resolve the real client IP behind zero or more trusted proxies.
+
+    Replicates werkzeug.middleware.proxy_fix.ProxyFix's semantics
+    exactly (the mechanism this project used before this migration):
+    take the num_proxies_used-th address from the *right* of a
+    comma-separated X-Forwarded-For header, ignoring any X-Real-Ip
+    header entirely (unlike Tornado's own xheaders handling, which
+    this project deliberately does not use -- see this function's
+    caller for why).
+
+    forwarded_for_header: the raw X-Forwarded-For header value, or
+        None if absent.
+    socket_remote_ip: the actual TCP peer address (what
+        request.remote_ip is when xheaders is disabled) -- used
+        as-is when num_proxies_used is 0, or as a fallback if the
+        header doesn't have enough entries.
+    num_proxies_used: how many trusted proxies sit in front of this
+        service; 0 means "trust the raw TCP peer address only."
+
+    return: the resolved client IP.
+
+    """
+    if num_proxies_used <= 0 or not forwarded_for_header:
+        return socket_remote_ip
+    addresses = [addr.strip() for addr in forwarded_for_header.split(",")]
+    if len(addresses) < num_proxies_used:
+        return socket_remote_ip
+    return addresses[-num_proxies_used]
+
 
 class StaticFileHasher:
     """
@@ -101,8 +125,19 @@ class StaticFileHasher:
             return url_path_part + result
         return inner_func
 
-class WebService(Service):
+class WebService(AsyncService):
     """RPC service with Web server capabilities.
+
+    An optional auth_middleware parameter can be passed to __init__
+    (via the parameters dict): a class (not an instance), constructed
+    with no arguments, expected to implement
+    async def authenticate(self, handler) -> bool. The resulting
+    instance is stored as self.auth_handler and consulted, before
+    dispatch, by both CommonRequestHandler.prepare() (for regular web
+    handlers) and RPCHandler.post() (for the RPC-over-HTTP endpoint):
+    a False return aborts the request with a 403. If no
+    auth_middleware is given, self.auth_handler is None and no
+    authentication is enforced at this layer.
 
     """
 
@@ -120,65 +155,105 @@ class WebService(Service):
         rpc_enabled = parameters.pop('rpc_enabled', False)
         rpc_auth = parameters.pop('rpc_auth', None)
         auth_middleware = parameters.pop('auth_middleware', None)
-        num_proxies_used = parameters.pop('num_proxies_used', None)
+        if auth_middleware is not None:
+            self.auth_handler = auth_middleware()
+        else:
+            self.auth_handler = None
+        num_proxies_used = parameters.pop('num_proxies_used', None) or 0
 
-        self.wsgi_app = tornado.wsgi.WSGIApplication(handlers, **parameters)
-        self.wsgi_app.service = self
+        infra_handlers = []
+        if static_files:
+            static_locations = [
+                str(importlib.resources.files(module_name).joinpath(dir_))
+                for module_name, dir_ in static_files]
+            infra_handlers.append(MultiLocationStaticFileHandler.make_route(
+                r"/static/(.*)", static_locations))
+        if rpc_enabled:
+            # Imported here, not at module level, to avoid a circular
+            # import: web_rpc imports resolve_remote_ip from this module.
+            from .web_rpc import RPCHandler
+            infra_handlers.append(RPCHandler.make_route(
+                r"/rpc/([^/]+)/([0-9]+)/([^/]+)", rpc_auth))
 
-        for entry in static_files:
-            # TODO If we will introduce a flag to trigger autoreload in
-            # Jinja2 templates, use it to disable the cache arg here.
-            self.wsgi_app = SharedDataMiddleware(
-                self.wsgi_app, {"/static": entry},
-                cache=True, cache_timeout=SECONDS_IN_A_YEAR,
-                fallback_mimetype="application/octet-stream")
+        self.application = tornado.web.Application(
+            infra_handlers + handlers, **parameters)
+        self.application.service = self
 
         self.static_file_hasher = StaticFileHasher(static_files)
 
         self.file_cacher = FileCacher(self)
-        self.wsgi_app = FileServerMiddleware(self.file_cacher, self.wsgi_app)
 
-        if rpc_enabled:
-            self.wsgi_app = DispatcherMiddleware(
-                self.wsgi_app, {"/rpc": RPCMiddleware(self, rpc_auth)})
+        # Named distinctly from AsyncService's own self._listen_address
+        # (the RPC server's Address namedtuple, set in super().__init__
+        # and used by AsyncService._async_run) to avoid clobbering it:
+        # these are the plain host/port of the HTTP server instead.
+        self._http_listen_port = listen_port
+        self._http_listen_address = listen_address
+        # Never trust Tornado's own xheaders handling: it lets
+        # X-Real-Ip take priority in some cases and doesn't implement
+        # "skip N hops from the right" the way the old ProxyFix did,
+        # which would let a contestant spoof request.remote_ip and
+        # bypass the IP-lock feature. request.remote_ip is therefore
+        # always the raw TCP peer address here; resolve_remote_ip()
+        # below replicates ProxyFix's semantics explicitly. (Task 7's
+        # CommonRequestHandler.prepare() is responsible for calling
+        # resolve_remote_ip() with self.num_proxies_used and assigning
+        # the result to self.request.remote_ip, before any handler
+        # body or the auth hook runs.)
+        self.num_proxies_used = num_proxies_used
+        self._http_server = tornado.httpserver.HTTPServer(self.application)
+        self._http_server_sockets: list = []
 
-        # The authentication middleware needs to be applied before the
-        # ProxyFix as otherwise the remote address it gets is the one
-        # of the proxy.
-        if auth_middleware is not None:
-            self.wsgi_app = auth_middleware(self.wsgi_app)
-            self.auth_handler = self.wsgi_app
-
-        # If we are behind one or more proxies, we'll use the content
-        # of the X-Forwarded-For HTTP header (if provided) to determine
-        # the client IP address, ignoring the one the request came from.
-        # This allows to use the IP lock behind a proxy. Activate it
-        # only if all requests come from a trusted source (if clients
-        # were allowed to directlty communicate with the server they
-        # could fake their IP and compromise the security of IP lock).
-        if num_proxies_used is None:
-            num_proxies_used = 0
-
-        if num_proxies_used > 0:
-            self.wsgi_app = ProxyFix(self.wsgi_app, num_proxies_used)
-
-        self.web_server = WSGIServer((listen_address, listen_port), self)
-
-    def __call__(self, environ, start_response):
-        """Execute this instance as a WSGI application.
-
-        See the PEP for the meaning of parameters. The separation of
-        __call__ and wsgi_app eases the insertion of middlewares.
-
-        """
-        return self.wsgi_app(environ, start_response)
-
-    def run(self):
+    def run(self) -> bool:
         """Start the WebService.
 
-        Both the WSGI server and the RPC server are started.
+        Both the HTTP server and the RPC server are started, on the
+        same event loop.
 
         """
-        self.web_server.start()
-        Service.run(self)
-        self.web_server.stop()
+        return asyncio.run(self._async_run())
+
+    async def _async_run(self) -> bool:
+        self._http_server_sockets = tornado.netutil.bind_sockets(
+            self._http_listen_port, address=self._http_listen_address or None)
+        self._http_server.add_sockets(self._http_server_sockets)
+        try:
+            return await super()._async_run()
+        finally:
+            # Stop accepting new connections, then give genuinely
+            # in-flight requests a bounded grace period to finish on
+            # their own before force-closing whatever's left. This
+            # matters because asyncio.run() (how WebService.run() is
+            # actually invoked in production) tears down the event
+            # loop the moment this coroutine returns: any request
+            # still awaiting something at that point would otherwise
+            # have its task cancelled with no response sent, and any
+            # idle keep-alive connection would leak its socket open
+            # until process exit.
+            self._http_server.stop()
+            try:
+                await asyncio.wait_for(
+                    self._wait_for_requests_to_drain(), timeout=1.0)
+            except asyncio.TimeoutError:
+                # Only INFO: what's left is nearly always idle keep-alive
+                # connections, which browsers keep open after their last
+                # response and which never finish on their own, so this
+                # is what a routine shutdown ends up doing.
+                logger.info(
+                    "Closing %d HTTP connection(s) still open after the "
+                    "shutdown grace period (idle keep-alive connections, "
+                    "or requests that did not finish in time).",
+                    len(self._http_server._connections))
+            await self._http_server.close_all_connections()
+
+    async def _wait_for_requests_to_drain(self) -> None:
+        """Poll until no HTTP connection is being served.
+
+        Used by _async_run's shutdown to wait for in-flight requests
+        to finish before force-closing anything left, mirroring the
+        old gevent WSGIServer.stop(timeout=1)'s behavior this
+        replaces.
+
+        """
+        while self._http_server._connections:
+            await asyncio.sleep(0.02)

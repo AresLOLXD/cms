@@ -25,6 +25,8 @@ import argparse
 import logging
 import sys
 
+from sqlalchemy import select
+
 from cms import utf8_decoder
 from cms.db import SessionGen, User
 
@@ -34,8 +36,9 @@ logger = logging.getLogger(__name__)
 
 def remove_user(username: str):
     with SessionGen() as session:
-        user = session.query(User)\
-            .filter(User.username == username).first()
+        user = session.execute(
+            select(User).filter(User.username == username)
+        ).scalars().first()
         if user is None:
             logger.error("User %s does not exist.", username)
             return False

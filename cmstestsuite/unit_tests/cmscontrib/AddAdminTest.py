@@ -20,6 +20,8 @@
 
 import unittest
 
+from sqlalchemy import select
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import Admin
@@ -35,8 +37,9 @@ class TestAddAdmin(DatabaseMixin, unittest.TestCase):
 
     def assertAdminInDb(self, username, pwd, name, enabled, permission_all):
         """Assert that the admin with the given data is in the DB."""
-        db_admins = self.session.query(Admin)\
-            .filter(Admin.username == username).all()
+        db_admins = self.session.execute(
+            select(Admin).filter(Admin.username == username)
+        ).scalars().all()
         self.assertEqual(len(db_admins), 1)
         a = db_admins[0]
         self.assertTrue(validate_password(a.authentication, pwd))

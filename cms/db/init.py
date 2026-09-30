@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from . import metadata
+from . import engine, metadata
 
 
 def init_db() -> bool:
@@ -26,6 +26,6 @@ def init_db() -> bool:
     return: True if successful.
 
     """
-    metadata.create_all()
+    metadata.create_all(engine)
 
     return True
