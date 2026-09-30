@@ -130,12 +130,15 @@ ul.normal_list {
     overflow-y: auto;
 }
 
-/* Leave room below the last menu entry so it can scroll above the notice. */
+/* The spacer equals the footprint of .cr_notice (bottom offset + two lines +
+   vertical padding, in the notice's own units), so the sidebar only scrolls
+   when the notice would otherwise cover an entry. */
 #sidebar::after {
     content: "";
     display: block;
     clear: both;
-    height: 4em;
+    font-size: 0.6em;
+    height: calc(1.5em + 2 * 1.125em + 0.5em);
 }
 
 #sidebar_header {
@@ -225,9 +228,9 @@ ul.normal_list {
     text-align: center;
     position: fixed;
     bottom: 1.5em;
-    width: 200px;
-    margin-left: 15px;
-    background-color: #EAEEF3;  /* same as #sidebar, so nothing shows through */
+    width: 234px;
+    margin-left: 0;
+    background-color: inherit;  /* same as #sidebar, so nothing shows through */
     padding: 0.25em 0;
 }
 
