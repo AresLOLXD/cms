@@ -39,7 +39,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cms.db import Contest, Group, Participation, Team, User
-from cmscommon.crypto import generate_random_password, hash_password
+from cmscommon.crypto import generate_random_password, hash_password, \
+    validate_password
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +227,10 @@ class ImportPlan:
     moved_to_main_group: how many existing participations are in a group
         other than the main one and go to it, because their row has no
         group.
+    stored_passwords: username -> participation password stored in the
+        contest (an authentication string), for the existing
+        participations that have one. It is never shown or logged, so it
+        is out of summary() and of the representation of the plan.
 
     """
     new_users: list[str]
@@ -237,6 +242,8 @@ class ImportPlan:
     main_group_id: int
     removed_teams: int = 0
     moved_to_main_group: int = 0
+    stored_passwords: dict[str, str] = dataclasses.field(
+        default_factory=dict, repr=False)
 
     def summary(self) -> dict[str, int]:
         """Count what the import would do.
@@ -294,13 +301,16 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         ).scalars())
         current = session.execute(
             select(User.username, Participation.team_id,
-                   Participation.group_id)
+                   Participation.group_id, Participation.password)
             .select_from(User).join(Participation)
             .filter(Participation.contest_id == contest_id,
                     User.username.in_(usernames))).all()
     # username -> (team id, group id) of the existing participations.
     participating = {username: (team_id, group_id)
-                     for username, team_id, group_id in current}
+                     for username, team_id, group_id, _ in current}
+    stored_passwords = {username: password
+                        for username, _, _, password in current
+                        if password is not None}
     # An empty cell replaces: it clears the team and puts the participation
     # in the main group, so the page has to say how many that is.
     removed_teams = moved_to_main_group = 0
@@ -319,10 +329,12 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         updated_participations=[u for u in usernames if u in participating],
         teams=teams, groups=groups, main_group_id=contest.main_group_id,
         removed_teams=removed_teams,
-        moved_to_main_group=moved_to_main_group), []
+        moved_to_main_group=moved_to_main_group,
+        stored_passwords=stored_passwords), []
 
 
 def hash_passwords(rows: list[ImportRow], new_users: set[str],
+                   stored_passwords: dict[str, str],
                    progress: Callable[[], None]
                    ) -> dict[str, tuple[str, str | None]]:
     """Hash every password of the import, a few at a time.
@@ -330,8 +342,16 @@ def hash_passwords(rows: list[ImportRow], new_users: set[str],
     bcrypt costs about 0.2 s per password and releases the GIL, so a
     small pool divides the wait.
 
+    A participation keeps its stored bcrypt password when the row's
+    password still matches it. The CWS cookie holds the stored string,
+    and a new hash of the same password is another string (bcrypt salts
+    it), so replacing it would log the contestant out. Checking costs
+    about as much as hashing, so it is done in the pool too.
+
     rows: the rows to import.
     new_users: the usernames that do not exist yet.
+    stored_passwords: username -> participation password stored in the
+        contest, from the plan.
     progress: called once each time a row is done.
 
     return: username -> (participation password, account password or
@@ -339,7 +359,12 @@ def hash_passwords(rows: list[ImportRow], new_users: set[str],
 
     """
     def work(row: ImportRow) -> tuple[str, tuple[str, str | None]]:
-        participation = hash_password(row.password, "bcrypt")
+        stored = stored_passwords.get(row.username)
+        if stored is not None and stored.startswith("bcrypt:") \
+                and validate_password(stored, row.password):
+            participation = stored
+        else:
+            participation = hash_password(row.password, "bcrypt")
         account = hash_password(generate_random_password(), "bcrypt") \
             if row.username in new_users else None
         return row.username, (participation, account)

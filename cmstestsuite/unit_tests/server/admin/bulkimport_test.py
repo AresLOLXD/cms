@@ -19,7 +19,10 @@
 """Tests for reading and planning the bulk import CSV of AWS."""
 
 import concurrent.futures
+import dataclasses
+import ipaddress
 import logging
+import threading
 import time
 import unittest
 from unittest import mock
@@ -29,6 +32,9 @@ from sqlalchemy import event, inspect, select
 from cms.db import Participation, SessionGen, User
 from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, ImportRow, \
     apply_import, hash_passwords, plan_import, read_rows
+from cms.server.contest.authentication import authenticate_request, \
+    validate_login
+from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 MAPPING = {"username": "usuario", "first_name": "nombre",
@@ -449,6 +455,27 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         self.assertEqual(result,
                          (None, ["el concurso no tiene grupo principal"]))
 
+    def test_the_stored_passwords_of_the_contest_are_kept_out_of_sight(self):
+        # ana has a password in this contest; beto has one only in another
+        # contest, and dora a participation here without a password.
+        self.ana_participation.password = "bcrypt:stored-ana"
+        other_contest = self.add_contest()
+        self.add_participation(user=self.beto, contest=other_contest,
+                               password="bcrypt:stored-beto")
+        dora = self.add_user(username="dora")
+        self.add_participation(user=dora, contest=self.contest)
+        self.session.flush()
+
+        plan, errors = plan_import(self.session, self.contest.id, [
+            import_row(2, "ana"), import_row(3, "beto"),
+            import_row(4, "dora"), import_row(5, "carla")])
+
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.stored_passwords, {"ana": "bcrypt:stored-ana"})
+        # Neither the counts nor the representation of the plan show it.
+        self.assertNotIn("stored", str(plan.summary()))
+        self.assertNotIn("bcrypt:stored-ana", repr(plan))
+
 
 class TestPlanImportLosses(ImportFixtureMixin, unittest.TestCase):
     """The participations that an empty team or group cell changes."""
@@ -581,13 +608,50 @@ class TestHashPasswords(unittest.TestCase):
 
     def test_hashes_and_progress(self):
         calls = []
-        result = hash_passwords(self.rows, {"carla"},
+        result = hash_passwords(self.rows, {"carla"}, {},
                                 lambda: calls.append(None))
         self.assertEqual(result, {
             "ana": ("fake:pw-ana", None),
             "beto": ("fake:pw-beto", None),
             "carla": ("fake:pw-carla", "fake:RANDOM")})
         self.assertEqual(len(calls), 3)
+
+    def test_a_stored_password_that_still_matches_is_kept(self):
+        # A new hash of the same password would be another string, and the
+        # CWS cookie holds the stored string: keeping it keeps the session.
+        checked = []
+
+        def fake_validate(stored, password):
+            checked.append((stored, threading.current_thread().name))
+            return stored.split(":", 1)[1] == password
+
+        stored = {
+            # Still the password of the row: kept.
+            "ana": "bcrypt:pw-ana",
+            # The row brings another password: hashed.
+            "beto": "bcrypt:old-pw-beto",
+            # Not a bcrypt hash, even if it matches: hashed.
+            "carla": "plaintext:pw-carla"}
+        rows = self.rows + [import_row(5, "dora", password="pw-dora")]
+        calls = []
+        with mock.patch("cms.server.admin.bulkimport.validate_password",
+                        fake_validate):
+            result = hash_passwords(rows, {"dora"}, stored,
+                                    lambda: calls.append(None))
+
+        self.assertEqual(result, {
+            "ana": ("bcrypt:pw-ana", None),
+            "beto": ("fake:pw-beto", None),
+            "carla": ("fake:pw-carla", None),
+            "dora": ("fake:pw-dora", "fake:RANDOM")})
+        # One progress per row, whether it was checked or hashed.
+        self.assertEqual(len(calls), len(rows))
+        # The check costs as much as a hash, so it runs in the pool too.
+        self.assertEqual(sorted(s for s, _ in checked),
+                         ["bcrypt:old-pw-beto", "bcrypt:pw-ana"])
+        for _, thread_name in checked:
+            self.assertTrue(thread_name.startswith("aws-import-hash"),
+                            msg=thread_name)
 
     def test_pool_size(self):
         created = []
@@ -599,7 +663,7 @@ class TestHashPasswords(unittest.TestCase):
 
         with mock.patch("concurrent.futures.ThreadPoolExecutor",
                         RecordingExecutor):
-            hash_passwords(self.rows, set(), lambda: None)
+            hash_passwords(self.rows, set(), {}, lambda: None)
         self.assertEqual(created, [HASH_THREADS])
 
     def test_error_stops_the_queued_rows(self):
@@ -619,7 +683,7 @@ class TestHashPasswords(unittest.TestCase):
                 mock.patch("cms.server.admin.bulkimport.hash_password",
                            failing_hash):
             with self.assertRaises(RuntimeError):
-                hash_passwords(rows, set(), lambda: None)
+                hash_passwords(rows, set(), {}, lambda: None)
         # The failed row and, at most, the one the worker had already
         # taken; the other eight are never hashed.
         self.assertLessEqual(len(hashed), 2)
@@ -640,7 +704,7 @@ class TestHashPasswords(unittest.TestCase):
                 mock.patch("cms.server.admin.bulkimport.hash_password",
                            slow_hash):
             with self.assertRaises(RuntimeError):
-                hash_passwords(rows, set(), failing_progress)
+                hash_passwords(rows, set(), {}, failing_progress)
         self.assertLessEqual(len(hashed), 2)
 
 
@@ -833,6 +897,92 @@ class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
         self.assertEqual(written, [(len(before[0]) + 1,
                                     len(before[1]) + 1)])
         self.assertEqual(self.snapshot(), before)
+
+
+class TestReimportAndTheContestCookie(ImportFixtureMixin, unittest.TestCase):
+    """A re-import against the cookie check of CWS, with real bcrypt.
+
+    The CWS cookie holds the stored password string of the participation,
+    and bcrypt salts every hash, so rewriting an unchanged password with a
+    new hash would log the contestant out.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.delete_data)
+        patcher = mock.patch("cmscommon.crypto.BCRYPT_ROUNDS", 4)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # The imports run in sessions of their own, as the job does.
+        self.session.commit()
+        self.timestamp = make_datetime()
+        self.ip_address = ipaddress.ip_address("10.0.0.1")
+        self.rows = [import_row(2, "ana", password="dia1-ana"),
+                     import_row(3, "carla", password="dia1-carla")]
+
+    def run_import(self, rows):
+        """Import the rows and commit, the way the job does."""
+        with SessionGen() as session:
+            plan, errors = plan_import(session, self.contest.id, rows)
+            self.assertEqual(errors, [])
+            hashes = hash_passwords(rows, set(plan.new_users),
+                                    plan.stored_passwords, lambda: None)
+            apply_import(session, self.contest.id, rows, plan, hashes)
+            session.commit()
+
+    def stored_password(self, username):
+        with SessionGen() as session:
+            return session.execute(
+                select(Participation.password).join(Participation.user)
+                .filter(Participation.contest_id == self.contest.id,
+                        User.username == username)).scalar_one()
+
+    def log_in(self, username, password):
+        """Log in to CWS and return the cookie it sets."""
+        self.session.expire_all()
+        participation, cookie = validate_login(
+            self.session, self.contest, self.timestamp, username, password,
+            self.ip_address)
+        self.assertIsNotNone(participation)
+        self.assertIsNotNone(cookie)
+        return cookie
+
+    def cookie_authenticates(self, cookie):
+        self.session.expire_all()
+        participation, _, _ = authenticate_request(
+            self.session, self.contest, self.timestamp, cookie, None,
+            self.ip_address)
+        return participation is not None
+
+    def test_an_unchanged_row_keeps_its_contestant_logged_in(self):
+        self.run_import(self.rows)
+        cookies = {row.username: self.log_in(row.username, row.password)
+                   for row in self.rows}
+        stored_before = self.stored_password("carla")
+
+        # The same file again, only to fix the name of another contestant.
+        self.rows[0] = dataclasses.replace(self.rows[0],
+                                           first_name="Ana María")
+        self.run_import(self.rows)
+
+        self.assertEqual(self.stored_password("carla"), stored_before)
+        self.assertTrue(self.cookie_authenticates(cookies["carla"]))
+        self.assertTrue(self.cookie_authenticates(cookies["ana"]))
+
+    def test_a_changed_password_logs_out_only_that_contestant(self):
+        self.run_import(self.rows)
+        cookies = {row.username: self.log_in(row.username, row.password)
+                   for row in self.rows}
+
+        self.rows[1] = dataclasses.replace(self.rows[1],
+                                           password="dia1-carla-nueva")
+        self.run_import(self.rows)
+
+        self.assertFalse(self.cookie_authenticates(cookies["carla"]))
+        self.assertTrue(self.cookie_authenticates(cookies["ana"]))
+        # The new password is the one that logs in now.
+        self.log_in("carla", "dia1-carla-nueva")
 
 
 if __name__ == "__main__":

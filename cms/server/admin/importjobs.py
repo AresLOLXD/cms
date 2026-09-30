@@ -168,7 +168,7 @@ class ImportJobStore:
                     job.processed += 1
 
                 hashes = hash_passwords(rows, set(plan.new_users),
-                                        progress)
+                                        plan.stored_passwords, progress)
                 apply_import(session, job.contest_id, rows, plan, hashes)
                 session.commit()
             job.summary = plan.summary()

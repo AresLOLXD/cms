@@ -24,6 +24,7 @@ status, progress and eviction), not what an import writes.
 
 """
 
+import json
 import threading
 import time
 import unittest
@@ -44,6 +45,9 @@ LEAK_USERNAME = "ana-leak-check"
 LEAK_PASSWORD = "pw-secret-leak"
 LEAK_MESSAGE = "%s %s" % (LEAK_USERNAME, LEAK_PASSWORD)
 HASHES = {"user0": ("participation-hash", "account-hash")}
+# The participation password that user2 has in the contest before the
+# import, as the plan reads it.
+STORED_PASSWORD = "bcrypt:stored-user2"
 
 
 def make_rows(count: int = 3) -> list[ImportRow]:
@@ -57,7 +61,8 @@ def make_plan() -> ImportPlan:
     return ImportPlan(new_users=["user0"], updated_users=["user1", "user2"],
                       new_participations=["user0", "user1"],
                       updated_participations=["user2"], teams={}, groups={},
-                      main_group_id=1)
+                      main_group_id=1,
+                      stored_passwords={"user2": STORED_PASSWORD})
 
 
 class ImportJobsTestCase(unittest.TestCase):
@@ -79,7 +84,7 @@ class ImportJobsTestCase(unittest.TestCase):
         self.apply_import.return_value = None
 
     @staticmethod
-    def hash_every_row(rows, new_users, progress):
+    def hash_every_row(rows, new_users, stored_passwords, progress):
         for _ in rows:
             progress()
         return HASHES
@@ -118,8 +123,9 @@ class TestJobRuns(ImportJobsTestCase):
         self.on_done.assert_called_once_with()
         self.plan_import.assert_called_once_with(
             self.session, CONTEST_ID, self.rows)
+        # The stored passwords come from the plan made at run time.
         self.hash_passwords.assert_called_once_with(
-            self.rows, {"user0"}, mock.ANY)
+            self.rows, {"user0"}, {"user2": STORED_PASSWORD}, mock.ANY)
         self.apply_import.assert_called_once_with(
             self.session, CONTEST_ID, self.rows, self.plan, HASHES)
 
@@ -207,7 +213,7 @@ class TestStore(ImportJobsTestCase):
         # Never leave a job thread blocked, even if the test fails.
         self.addCleanup(release.set)
 
-        def blocking_hash(rows, new_users, progress):
+        def blocking_hash(rows, new_users, stored_passwords, progress):
             progress()
             started.set()
             release.wait(5)
@@ -241,7 +247,7 @@ class TestStore(ImportJobsTestCase):
         release = threading.Event()
         self.addCleanup(release.set)
 
-        def blocking_hash(rows, new_users, progress):
+        def blocking_hash(rows, new_users, stored_passwords, progress):
             started.set()
             release.wait(5)
             return HASHES
@@ -309,6 +315,7 @@ class TestAsJson(ImportJobsTestCase):
             "status": "done", "processed": len(self.rows),
             "total": len(self.rows), "summary": self.plan.summary(),
             "error": None})
+        self.assertNotIn(STORED_PASSWORD, json.dumps(job.as_json()))
 
 
 if __name__ == "__main__":
