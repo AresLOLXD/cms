@@ -675,6 +675,8 @@ class TestRunner:
             if response.status_code != 200:
                 return "the group's page answered HTTP %d" % \
                     response.status_code
+            if NOTICE_MARKER in response.text:
+                return "the group's page is the notice of a hidden group"
             if (FROZEN_BANNER_MARKER in response.text) != frozen:
                 return "the group's page %s the freeze banner" % (
                     "lacks" if frozen else "still has")
@@ -752,8 +754,6 @@ class TestRunner:
 
         # Freeze it.
         save("freeze_now")
-        # AWS froze it by now (this runs on the same clock).
-        frozen_at = time.time()
         wait_until("the banner of the frozen group %s" % group,
                    lambda: banner_unmet(True), retry=save)
         # RWS applies it at once: no further waiting for these.
@@ -786,12 +786,7 @@ class TestRunner:
             raise TestFailure("The staff page of the frozen group has no "
                               "banner.")
 
-        # Unfreeze it, in a later second than the freeze. ProxyService
-        # sends RWS whole seconds, and RWS refuses a window that ends in
-        # the second it starts, though AWS accepts it: the group would
-        # stay frozen. (Hiding and showing are over a second apart: a
-        # wrong staff password alone takes that long.)
-        time.sleep(max(0.0, int(frozen_at) + 1 - time.time()))
+        # Unfreeze it.
         save("unfreeze_now")
         wait_until("the unfrozen group %s to drop the banner" % group,
                    lambda: banner_unmet(False), retry=save)

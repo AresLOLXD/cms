@@ -308,6 +308,7 @@ class FunctionalTestFramework:
 
         """
         page = self.admin_req('ranking_group/%s' % group_id).text
+        # Needs the template's name-then-value order; else it raises below.
         shown = re.findall(r'name="(\w+)_shown" value="([^"]*)"', page)
         if not shown:
             raise TestException("Unable to read ranking group.")
