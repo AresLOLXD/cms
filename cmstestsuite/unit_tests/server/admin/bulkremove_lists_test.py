@@ -22,6 +22,7 @@ The templates are rendered from their "core" block only.
 
 """
 
+import re
 import unittest
 from types import SimpleNamespace
 
@@ -97,3 +98,15 @@ class TestContestUsersPage(ListPageTestCase):
         # The rest of the page is still there.
         self.assertIn('value="Add user"', html)
         self.assertIn("Importar CSV", html)
+
+    def test_functional_framework_pattern_matches(self):
+        # Same pattern as FunctionalTestFramework.add_user uses to check
+        # that the new participation shows up in the contest users page.
+        config = SimpleNamespace(
+            contest_web_server=SimpleNamespace(listen_port=[8888]))
+        html = self.render("contest_users.html", contest=self.contest(),
+                           unassigned_users=[], config=config)
+
+        self.assertTrue(re.search(
+            '<input type="checkbox" name="user_id" value="' + str(7) + '"/>',
+            html))
