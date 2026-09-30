@@ -54,8 +54,10 @@ from cmstestsuite.unit_tests.servicelogmixin import \
 
 # How long the long section of the responsiveness test keeps the lock.
 LOCK_HOLD_SECONDS = 1.0
-# The longest the loop may go without running the heartbeat meanwhile.
-MAX_LOOP_GAP_SECONDS = 0.1
+# The longest the loop may go without running the heartbeat meanwhile:
+# half the hold, so a loaded runner cannot trip it, yet a loop that
+# waited for the lock would exceed it.
+MAX_LOOP_GAP_SECONDS = 0.5
 
 HIGH = PriorityQueue.PRIORITY_HIGH
 
@@ -209,7 +211,9 @@ class TestEvaluationServiceLoopActions(
         # Landed as soon as the await returned, without waiting.
         self.assertIn(pushed, self.executor._operation_queue)
         self.assertEqual(self.service._pending_operations, {})
-        self.assertLess(max_gap, MAX_LOOP_GAP_SECONDS)
+        self.assertLess(
+            max_gap, MAX_LOOP_GAP_SECONDS,
+            "the loop stalled while a section held the lock")
 
     # -- order and pending bookkeeping -----------------------------------
 

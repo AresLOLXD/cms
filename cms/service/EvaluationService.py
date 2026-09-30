@@ -785,9 +785,15 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 AsyncTriggeredService.enqueue(
                     self, operation, priority, timestamp)
             finally:
-                # Always clear the pending marker, even if enqueue()
-                # raised -- otherwise a stuck "push" entry would
-                # block every future re-enqueue of this operation.
+                # Ordering rule: the pending mark is cleared only
+                # after the push has landed, because _enqueue_sync on
+                # another thread must keep treating the operation as
+                # "push pending" until it is really in the queue.
+                # Clearing it first would let a concurrent
+                # _enqueue_sync push a duplicate or skip a needed push.
+                # Also cleared if enqueue() raised -- otherwise a
+                # stuck "push" entry would block every future
+                # re-enqueue of this operation.
                 self._clear_pending_one(operation)
         self._schedule_loop_action(_do)
 
