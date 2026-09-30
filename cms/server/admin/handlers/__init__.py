@@ -58,6 +58,9 @@ from .contestuser import \
     MessageHandler, \
     ImportUsersHandler, \
     ImportJobStatusHandler
+from .bulkremove import \
+    BulkRemoveParticipationsHandler, \
+    BulkRemoveUsersHandler
 from .dataset import \
     DatasetSubmissionsHandler, \
     CloneDatasetHandler, \
@@ -143,6 +146,7 @@ HANDLERS = [
 
     (r"/contest/([0-9]+)/users", ContestUsersHandler),
     (r"/contest/([0-9]+)/users/add", AddContestUserHandler),
+    (r"/contest/([0-9]+)/users/remove", BulkRemoveParticipationsHandler),
     (r"/contest/([0-9]+)/users/import", ImportUsersHandler),
     (r"/contest/([0-9]+)/users/import/([A-Za-z0-9_-]+)/status",
      ImportJobStatusHandler),
@@ -215,6 +219,7 @@ HANDLERS = [
 
     (r"/users", UserListHandler),
     (r"/users/([0-9]+)/remove", RemoveUserHandler),
+    (r"/users/remove", BulkRemoveUsersHandler),
     (r"/teams", TeamListHandler),
     (r"/teams/([0-9]+)/remove", RemoveTeamHandler),
     (r"/users/add", AddUserHandler),

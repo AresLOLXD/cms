@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block core %}
+<div class="core_title">
+{% if contest is none %}
+  <h1>Borrar usuarios</h1>
+{% else %}
+  <h1>Quitar participaciones de {{ contest.name }}</h1>
+{% endif %}
+</div>
+
+{% if error is not none %}
+<p class="bulk_remove_error" style="color: red;"><strong>{{ error }}</strong></p>
+{% endif %}
+
+{% if plan.running %}
+<p class="bulk_remove_running" style="color: red;"><strong>
+  Atención: hay un concurso en curso entre los afectados. Se perderán
+  envíos hechos durante el concurso y el ranking se recalculará.
+</strong></p>
+{% endif %}
+
+{% if plan.users %}
+<p>
+{% if contest is none %}
+  Se borrarán {{ plan.users|length }} usuarios, {{ plan.submissions }} envíos y {{ plan.user_tests }} user tests.
+{% else %}
+  Se quitarán {{ plan.users|length }} participaciones de este concurso, con {{ plan.submissions }} envíos y {{ plan.user_tests }} user tests.
+{% endif %}
+  Esta operación no se puede deshacer.
+</p>
+<table class="bordered">
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>Nombre</th>
+      <th>Apellido</th>
+      <th>Envíos</th>
+      <th>User tests</th>
+{% if contest is none %}
+      <th>Concursos</th>
+{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+{% for u in plan.users %}
+    <tr>
+      <td>{{ u.username }}</td>
+      <td>{{ u.first_name }}</td>
+      <td>{{ u.last_name }}</td>
+      <td>{{ u.submissions }}</td>
+      <td>{{ u.user_tests }}</td>
+{% if contest is none %}
+      <td>{{ u.contests|join(", ") }}</td>
+{% endif %}
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No hay nada que borrar.</p>
+{% endif %}
+
+{% if plan.ignored %}
+<p>Ignorados:</p>
+<ul>
+{% for value, reason in plan.ignored %}
+  <li>{{ value }} — {{ reason }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if plan.users %}
+<form action="{{ action_url }}" method="POST">
+  {{ xsrf_form_html|safe }}
+  <input type="hidden" name="action" value="confirm"/>
+{% for user_id in plan.user_ids %}
+  <input type="hidden" name="user_id" value="{{ user_id }}"/>
+{% endfor %}
+  <label>Escribe {{ plan.users|length }} para confirmar:
+    <input type="text" name="expected_count" autocomplete="off"/>
+  </label>
+  <input type="submit"
+         value="{% if contest is none %}Borrar{% else %}Quitar{% endif %}"/>
+</form>
+{% endif %}
+<p><a href="{{ back_url }}">Cancelar</a></p>
+
+{% endblock core %}
