@@ -49,9 +49,10 @@ Required fields are marked with `*`, and the page explains it with the legend
 "* obligatorio". **"(sin asignar)"** means no column. A column cannot be used
 for two fields.
 
-Cells are stripped of surrounding spaces, except the password, which is used
-exactly as it is typed. The 72-byte limit counts bytes, not letters: a letter
-with an accent takes two.
+Cells are stripped of surrounding spaces, the password included, because CWS
+strips what the contestant types at the login. A password may have spaces
+inside, but no control characters. The 72-byte limit counts the bytes left
+after stripping, not letters: a letter with an accent takes two.
 
 Example:
 
@@ -124,6 +125,10 @@ existing user one. On a 4-core server, 300 new users take about **40 s** and
 minutes, and fewer cores are slower. You can close the tab. The import keeps
 running, and the same progress link shows where it is.
 
+**Avoid importing during a running contest.** The hashing keeps 4 cores busy
+for a while (about **25 s for 190 new users**) on the server that also runs the
+contestants' submissions and logins. Import before the contest starts.
+
 ## What the import does
 
 - **New user:** created with the names of the row and a random account
@@ -140,7 +145,9 @@ running, and the same progress link shows where it is.
   participation, IP address or subnet, Delay and Extra time.
 
 To fix a mistake, correct the file and import it again: what already exists is
-updated. Nothing is ever deleted.
+updated. Nothing is ever deleted. A contestant whose password in the file did
+not change stays logged in to CWS. A contestant whose password changed is
+logged out, and only that contestant: they log in again with the new password.
 
 > **Warning: empty cells replace.** An empty `team` cell **removes** the team
 > of that participation, and an empty `group` cell puts it in the contest's
@@ -203,6 +210,8 @@ groups are checked after the rest of the file.
 | "fila N: el equipo X no existe" | Create the team in **Teams**, or fix the code. |
 | "fila N: el grupo X no existe en este concurso" | Create the group in **Contest → Groups**, or fix the name. |
 | "fila N: la contraseña pasa de 72 bytes" | Use a shorter password. |
+| "fila N: la contraseña tiene caracteres no permitidos" | The password has a control character, which is usually invisible and comes from a pasted cell. Type the password again. |
+| "fila N: la celda del usuario tiene caracteres no permitidos" (or "del nombre", "del apellido", "del equipo", "del grupo") | The cell has a NUL character, which is invisible. Type the cell again. |
 
 ## Progress problems
 
@@ -218,6 +227,12 @@ groups are checked after the rest of the file.
   concurso; espera a que termine." This is a notice, not an error: the file is
   fine and nothing was applied by this request, so wait for the other import to
   end and import the file again. Choose the file again, as the page asks.
+- **Import one contest at a time when the files share users**, for example day
+  1 and day 2 of the same contestants. Imports into different contests can
+  run at once, and they save one after the other, so no user is created
+  twice. But if both files bring the same new users, the second import may
+  count them in "Usuarios nuevos" although the first one created them: it
+  only updates them.
 - **A progress page lives 1 hour**, counted from the start of the import.
   After that, or if the link is not yours (only the admin who started an
   import can see its progress), the page says "No se encontró la importación:
@@ -232,11 +247,13 @@ groups are checked after the rest of the file.
   is saved, because the database is only written at the very end, in a single
   step. But if the restart came at that very end, the import may already be
   saved, so check the contest's Users list. If the users are not there, run the
-  import again. Re-running the same file rewrites the same values, so it is
+  import again. Re-running the same file rewrites the same values and keeps
+  the passwords that did not change, so it logs nobody out of CWS. It is
   harmless unless someone changed those users or participations since.
 - "Error: …" instead of "Listo." means the import failed and nothing was saved.
-  Run it again, and if it fails again, ask whoever manages the server to look
-  at the AWS log.
+  The same two links follow it: "Lista de usuarios" and "Importar otro
+  archivo". Run it again, and if it fails again, ask whoever manages the
+  server to look at the AWS log.
 - "No se pudo consultar el progreso; recarga la página." means the page lost
   contact with AWS. The page retries first, so the message only appears after
   several failed attempts in a row. Reload the page. If AWS was restarted, see
