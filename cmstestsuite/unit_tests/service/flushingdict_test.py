@@ -104,6 +104,137 @@ class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(TestFlushingDict.FLUSH_LATENCY_SECONDS + 0.1)
         self.assertCountEqual(expected_data, sum(self.received_data, []))
 
+    # -- in-flight batches and discard ------------------------------------
+
+    def _make_unstarted_dict(self, callback):
+        """Build a dict with no background flush task.
+
+        Only the explicit flush() calls of the test flush it, so what is
+        pending and what is in flight is up to the test alone.
+
+        callback: the callback to flush to.
+
+        return: the dict.
+
+        """
+        return FlushingDict(
+            TestFlushingDict.SIZE, TestFlushingDict.FLUSH_LATENCY_SECONDS,
+            callback)
+
+    def _held_callback(self):
+        """Return a callback that keeps every flush in flight until released.
+
+        return: the callback, the list each call's items are appended
+            to (as the callback received them), and the event that
+            lets every call return.
+
+        """
+        calls: list[list] = []
+        release = asyncio.Event()
+
+        async def callback(items):
+            calls.append(items)
+            await release.wait()
+
+        return callback, calls, release
+
+    async def _wait_for_calls(self, calls: list, count: int):
+        """Let the loop run until the callback has been called count times.
+
+        calls: the list the held callback appends to.
+        count: how many calls to wait for.
+
+        """
+        for _ in range(100):
+            if len(calls) >= count:
+                return
+            await asyncio.sleep(0)
+        self.fail("The callback was called %d time(s), not %d."
+                  % (len(calls), count))
+
+    async def test_discard_removes_pending_entries(self):
+        d = self._make_unstarted_dict(self.callback)
+        kept, dropped = object(), object()
+        d.add("kept", kept)
+        d.add("dropped", dropped)
+
+        removed = d.discard(lambda key: key == "dropped")
+
+        self.assertEqual(len(removed), 1)
+        self.assertIs(removed[0], dropped)
+        self.assertNotIn("dropped", d)
+        self.assertIn("kept", d)
+        await d.flush()
+        self.assertEqual(self.received_data, [[("kept", kept)]])
+
+    async def test_discard_removes_in_flight_entries(self):
+        callback, calls, release = self._held_callback()
+        d = self._make_unstarted_dict(callback)
+        value, other = object(), object()
+        d.add("key", value)
+        d.add("other", other)
+        flush = asyncio.create_task(d.flush())
+        await self._wait_for_calls(calls, 1)
+        self.assertIn("key", d)
+        self.assertEqual(d.fd, {"key": value, "other": other})
+
+        removed = d.discard(lambda key: key == "key")
+
+        # The very object the callback got: marking it reaches the write.
+        self.assertEqual(len(removed), 1)
+        self.assertIs(removed[0], value)
+        self.assertIs(dict(calls[0])["key"], value)
+        self.assertNotIn("key", d)
+        self.assertEqual(d.fd, {"other": other})
+        release.set()
+        await flush
+        self.assertEqual(d.fd, {})
+        self.assertEqual(d._flushing, [])
+
+    async def test_overlapping_flushes_are_both_tracked(self):
+        callback, calls, release = self._held_callback()
+        d = self._make_unstarted_dict(callback)
+        first, second = object(), object()
+        d.add("first", first)
+        first_flush = asyncio.create_task(d.flush())
+        await self._wait_for_calls(calls, 1)
+        d.add("second", second)
+        second_flush = asyncio.create_task(d.flush())
+        await self._wait_for_calls(calls, 2)
+
+        # The second flush did not hide the first one's batch.
+        self.assertEqual(len(d._flushing), 2)
+        self.assertIn("first", d)
+        self.assertIn("second", d)
+        self.assertEqual(d.fd, {"first": first, "second": second})
+        removed = d.discard(lambda key: True)
+        self.assertCountEqual([id(value) for value in removed],
+                              [id(first), id(second)])
+        self.assertNotIn("first", d)
+        self.assertNotIn("second", d)
+
+        release.set()
+        await asyncio.gather(first_flush, second_flush)
+        self.assertEqual(d._flushing, [])
+        self.assertEqual(d.fd, {})
+
+    async def test_failed_flush_drops_its_batch(self):
+        async def failing_callback(items):
+            raise RuntimeError("cannot write")
+
+        d = self._make_unstarted_dict(failing_callback)
+        d.add("key", object())
+
+        with self.assertLogs(
+                "cms.service.flushingdict", level="ERROR") as logs:
+            await d.flush()
+
+        self.assertEqual([record.getMessage() for record in logs.records],
+                         ["Unexpected error while flushing."])
+        self.assertNotIn("key", d)
+        self.assertEqual(d._flushing, [])
+        self.assertEqual(d.fd, {})
+
     async def callback(self, data):
         self.received_data.append(data)
 
