@@ -740,6 +740,54 @@ class TestProxyServiceGroups(
                           "staff_password": None})
         self.assertIsInstance(payload["freeze_at"], int)
 
+    async def test_freeze_and_unfreeze_in_the_same_second_stay_ordered(self):
+        # The "freeze now" and "unfreeze now" buttons store microsecond
+        # times: a double click makes both fall in the same second, and
+        # the ranking answers 400 to an end that is not after its start.
+        self.olim.freeze_at = datetime(2026, 10, 10, 19, 0, 0, 300000)
+        self.olim.unfreeze_at = datetime(2026, 10, 10, 19, 0, 0, 800000)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        second = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        payload = self.put_payload(url("olim/visibility"))
+        self.assertEqual(payload["freeze_at"], second)
+        self.assertEqual(payload["unfreeze_at"], second + 1)
+        self.assertGreater(payload["unfreeze_at"], payload["freeze_at"])
+        self.assertIsInstance(payload["freeze_at"], int)
+        self.assertIsInstance(payload["unfreeze_at"], int)
+
+    async def test_hide_and_show_in_the_same_second_stay_ordered(self):
+        self.olim.hide_at = datetime(2026, 10, 10, 19, 0, 0, 300000)
+        self.olim.show_at = datetime(2026, 10, 10, 19, 0, 0, 800000)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        second = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        payload = self.put_payload(url("olim/visibility"))
+        self.assertEqual(payload["hide_at"], second)
+        self.assertEqual(payload["show_at"], second + 1)
+        self.assertGreater(payload["show_at"], payload["hide_at"])
+        self.assertIsInstance(payload["hide_at"], int)
+        self.assertIsInstance(payload["show_at"], int)
+
+    async def test_ends_on_a_whole_second_are_not_widened(self):
+        # Only a fractional end is rounded up: one that is already on a
+        # whole second stays that second, whatever its start is.
+        self.olim.hide_at = datetime(2026, 10, 10, 19, 0, 0, 500000)
+        self.olim.show_at = datetime(2026, 10, 10, 19, 0, 1)
+        self.olim.freeze_at = datetime(2026, 10, 10, 20, 0)
+        self.olim.unfreeze_at = datetime(2026, 10, 10, 20, 0, 2)
+        self.session.commit()
+        service = await self.start()
+        await self._settle(service)
+        hide = int(make_timestamp(datetime(2026, 10, 10, 19, 0)))
+        freeze = int(make_timestamp(datetime(2026, 10, 10, 20, 0)))
+        self.assertEqual(self.put_payload(url("olim/visibility")),
+                         {"hide_at": hide, "show_at": hide + 1,
+                          "freeze_at": freeze, "unfreeze_at": freeze + 2,
+                          "staff_password": None})
+
     async def test_reinitialize_sends_new_visibility(self):
         service = await self.start()
         await self._settle(service)

@@ -33,6 +33,7 @@ import asyncio
 import enum
 import json
 import logging
+import math
 import string
 from time import monotonic
 from urllib.parse import urljoin, urlsplit
@@ -117,14 +118,36 @@ def encode_id(entity_id: str) -> str:
     return encoded_id
 
 
-def _unix_time(value: datetime | None) -> int | None:
-    """Convert a naive UTC datetime to Unix seconds, keeping None.
+def _unix_start(value: datetime | None) -> int | None:
+    """Convert the start of a window to Unix seconds, rounding down.
+
+    The ranking takes whole seconds and refuses a window whose end is
+    not after its start, while the times set by the "now" buttons of
+    the admin have microseconds: a start and an end that are less than
+    a second apart would fall on the same second. Rounding the start
+    down (and the end up, see _unix_end) keeps the end after the start
+    and can only make the window wider by less than a second, which
+    hides or freezes a little more, never less.
 
     value: a naive datetime in UTC, or None.
     return: Unix seconds (int), or None.
 
     """
-    return None if value is None else int(make_timestamp(value))
+    return None if value is None else math.floor(make_timestamp(value))
+
+
+def _unix_end(value: datetime | None) -> int | None:
+    """Convert the end of a window to Unix seconds, rounding up.
+
+    The counterpart of _unix_start, which explains why: an end that
+    is after its start in microseconds is still after it in whole
+    seconds. An end that is already on a whole second is unchanged.
+
+    value: a naive datetime in UTC, or None.
+    return: Unix seconds (int), or None.
+
+    """
+    return None if value is None else math.ceil(make_timestamp(value))
 
 
 def _check_status(status_code: int, operation: str):
@@ -301,7 +324,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     # a ranking group namespace (MC-2): {"hide_at": int | None,
     # "show_at": int | None, "freeze_at": int | None,
     # "unfreeze_at": int | None, "staff_password": str | None} where
-    # the times are Unix seconds. Sent after resets and before any data,
+    # the times are Unix seconds: the starts (hide_at, freeze_at) are
+    # rounded down and the ends (show_at, unfreeze_at) up, so an end
+    # is always after its start. Sent after resets and before any data,
     # so a hidden namespace never exposes data, even briefly.
     VISIBILITY_TYPE = TYPE_COUNT + 1
 
@@ -963,10 +988,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         for ranking_group in session.execute(query).scalars().all():
             self._threadsafe_enqueue(ProxyOperation(
                 ProxyExecutor.VISIBILITY_TYPE,
-                {"hide_at": _unix_time(ranking_group.hide_at),
-                 "show_at": _unix_time(ranking_group.show_at),
-                 "freeze_at": _unix_time(ranking_group.freeze_at),
-                 "unfreeze_at": _unix_time(ranking_group.unfreeze_at),
+                {"hide_at": _unix_start(ranking_group.hide_at),
+                 "show_at": _unix_end(ranking_group.show_at),
+                 "freeze_at": _unix_start(ranking_group.freeze_at),
+                 "unfreeze_at": _unix_end(ranking_group.unfreeze_at),
                  "staff_password": ranking_group.staff_password},
                 ranking_group.name))
 
