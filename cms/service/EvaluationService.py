@@ -47,13 +47,14 @@ from cmscommon.datetime import make_timestamp
 from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
     SubmissionResult, Testcase, UserTest, UserTestResult, get_submissions, \
     get_submission_results, get_datasets_to_judge
-from cms.grading import twophase
+from cms.grading import subtaskdag, twophase
 from cms.grading.Job import Job, JobGroup
 from cms.grading.steps import EVALUATION_MESSAGES
 from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
+    any_dataset_declares_dependencies, \
     get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
     submission_get_operations, submission_to_evaluate, \
@@ -370,6 +371,14 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 self._advance_two_phase(
                     submission_result.sa_session, submission_result)
 
+            # Subtask dependencies: likewise, the only testcases left may
+            # belong to subtasks whose dependency failed and whose skips
+            # are not synthesized yet. No-op without dependencies. See
+            # cms/grading/subtaskdag.py.
+            if number_of_operations == 0 and submission_result is not None:
+                self._advance_dependencies(
+                    submission_result.sa_session, submission_result)
+
             # If we got 0 operations, but the submission result is to
             # evaluate, it means that we just need to finalize the
             # evaluation.
@@ -421,7 +430,8 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         counter = 0
         with SessionGen() as session:
 
-            if twophase.enabled():
+            if twophase.enabled() or any_dataset_declares_dependencies(
+                    session, self.contest_id):
                 # get_submissions_operations() enumerates missing
                 # (submission, dataset, testcase) evaluations with plain
                 # SQL and has no notion of two-phase screening: it would
@@ -432,7 +442,10 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 # gate, but evaluation operations are computed per
                 # submission via submission_enqueue_operations(), the
                 # same gated primitive used everywhere else. See
-                # cms/grading/twophase.py.
+                # cms/grading/twophase.py. The plain SQL path would also
+                # bypass the subtask dependency gate, so the gated path
+                # is used whenever a dataset of the contest declares
+                # dependencies.
                 for operation, priority, timestamp in \
                         get_submissions_compilation_operations(
                             session, self.contest_id):
@@ -828,17 +841,32 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             logger.info("Committing evaluations...")
             session.commit()
 
-            # Two-phase fail-fast: for any group whose screening just
-            # finished and failed, synthesize skipped evaluations for its
-            # remaining testcases so the submission can complete without
-            # running them. See cms/grading/twophase.py.
-            if twophase.enabled():
-                for type_, object_id, dataset_id, _ in by_object_and_type.keys():
+            # Two-phase fail-fast and subtask dependencies: synthesize the
+            # skipped evaluations that the results just written make
+            # certain, two-phase first (a failed screening can make a
+            # dependency fail). See cms/grading/twophase.py and
+            # cms/grading/subtaskdag.py.
+            gated_datasets = set()
+            for type_, _, dataset_id, _ in by_object_and_type.keys():
+                if type_ == ESOperation.EVALUATION \
+                        and dataset_id not in gated_datasets:
+                    dataset = Dataset.get_from_id(dataset_id, session)
+                    if dataset is not None and \
+                            subtaskdag.gate_for_dataset(dataset) is not None:
+                        gated_datasets.add(dataset_id)
+            if twophase.enabled() or gated_datasets:
+                for type_, object_id, dataset_id, _ in \
+                        by_object_and_type.keys():
                     if type_ == ESOperation.EVALUATION:
                         submission_result = SubmissionResult.get_from_id(
                             (object_id, dataset_id), session)
                         if submission_result is not None:
-                            self._advance_two_phase(session, submission_result)
+                            if twophase.enabled():
+                                self._advance_two_phase(
+                                    session, submission_result)
+                            if dataset_id in gated_datasets:
+                                self._advance_dependencies(
+                                    session, submission_result)
 
             num_testcases_per_dataset = dict()
             for type_, object_id, dataset_id, archive_sandbox in by_object_and_type.keys():
@@ -889,9 +917,12 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                         continue
                     if submission_result.evaluated():
                         self.evaluation_ended(submission_result, archive_sandbox)
-                    elif twophase.enabled():
+                    elif twophase.enabled() or subtaskdag.gate_for_dataset(
+                            submission_result.dataset) is not None:
                         # Two-phase: some group's screening just passed;
-                        # push its now-unblocked operations.
+                        # subtask dependencies: some subtask's
+                        # dependencies just passed. Either way, push the
+                        # now-unblocked operations.
                         self.submission_enqueue_operations(
                             submission_result.submission, archive_sandbox)
                 elif type_ == ESOperation.USER_TEST_COMPILATION:
@@ -995,6 +1026,51 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             logger.info(
                 "Two-phase: synthesized %d skipped evaluation(s) for "
                 "submission %d(%d).", created,
+                submission_result.submission_id, submission_result.dataset_id)
+            session.commit()
+
+    def _advance_dependencies(
+        self, session: Session, submission_result: SubmissionResult
+    ) -> None:
+        """Skip the testcases that only subtasks with a failed dependency need.
+
+        For every subtask that failed because one of its dependencies
+        failed (transitively), synthesize a skipped evaluation (outcome 0)
+        for each of its testcases not evaluated yet and not needed by
+        another subtask, so the submission can complete without running
+        them. No-op for datasets that declare no dependency. See
+        cms/grading/subtaskdag.py.
+
+        session: the DB session to use.
+        submission_result: the submission result to advance.
+
+        """
+        dataset = submission_result.dataset
+        gate = subtaskdag.gate_for_dataset(dataset)
+        if gate is None:
+            return
+        outcome_by_codename = {
+            e.codename: e.outcome for e in submission_result.evaluations}
+        status, blocked_by = gate.statuses(outcome_by_codename)
+        left = [codename for codename in dataset.testcases
+                if codename not in outcome_by_codename]
+        skip = gate.skippable(left, status, blocked_by)
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        for codename, dependency in skip.items():
+            submission_result.evaluations += [Evaluation(
+                text=[message, str(dependency)],
+                outcome="0.0",
+                execution_time=0.0,
+                execution_wall_clock_time=0.0,
+                execution_memory=0,
+                evaluation_shard=None,
+                evaluation_sandbox_paths=[],
+                evaluation_sandbox_digests=[],
+                testcase=dataset.testcases[codename])]
+        if skip:
+            logger.info(
+                "Subtask dependencies: synthesized %d skipped evaluation(s) "
+                "for submission %d(%d).", len(skip),
                 submission_result.submission_id, submission_result.dataset_id)
             session.commit()
 

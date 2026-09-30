@@ -133,6 +133,34 @@ class TestParityWithoutDependencies(DatabaseMixin, unittest.TestCase):
             "s0-00-sample", "s0-01-scr-wa", "s1-00-sample", "s2-00-sample"})
 
 
+class TestUnusableDependenciesDoNotBlock(DatabaseMixin, unittest.TestCase):
+
+    def test_dependencies_without_a_score_type_release_everything(self):
+        # An empty score type cannot be built, so the dependencies can't be
+        # used: the gate is off, nothing is held and nothing raises.
+        contest = self.add_contest()
+        participation = self.add_participation(contest=contest)
+        task = self.add_task(contest=contest)
+        dataset = self.add_dataset(
+            task=task, autojudge=True, score_type="",
+            score_type_parameters=[
+                {"max_score": 100, "testcases": 1, "depends_on": []},
+                {"max_score": 0, "testcases": 1, "depends_on": [0]}])
+        task.active_dataset = dataset
+        codenames = ["a", "b"]
+        for codename in codenames:
+            self.add_testcase(dataset, codename=codename)
+        submission, results = self.add_submission_with_results(
+            task, participation, True)
+        self.session.flush()
+        released = set(
+            op.testcase_codename
+            for op, _, _ in submission_get_operations(
+                results[0], submission, dataset)
+            if op.type_ == ESOperation.EVALUATION)
+        self.assertEqual(released, set(codenames))
+
+
 class TestSharedAndOrphanTestcases(DatabaseMixin, unittest.TestCase):
 
     def test_shared_and_orphan_testcases(self):
