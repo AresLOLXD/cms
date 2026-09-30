@@ -342,9 +342,12 @@ class VisibilityState:
         self.settings = VisibilitySettings()
         self.secret = secrets.token_hex(32)
         self._load()
-        # A restart counts as a change for a group with windows: streams
-        # opened before it reload. One without any is left as on beta.
-        self.changed_at = time.time() if self.settings.boundaries() else 0.0
+        # A restart counts as a change for a group that is hidden or
+        # frozen: streams opened before it reload. A live one is left as
+        # on beta, whatever times it keeps from earlier windows.
+        now = time.time()
+        self.changed_at = \
+            now if self.settings.public_view(now) != ("live",) else 0.0
 
     @property
     def hidden(self) -> bool:
@@ -649,6 +652,10 @@ class VisibilityGuard:
             captured["headers"] = headers
             return lambda data: None
 
+        # Always the whole page, never a 304: the copy that a browser kept
+        # from another view has no banner, or another one.
+        environ.pop("HTTP_IF_NONE_MATCH", None)
+        environ.pop("HTTP_IF_MODIFIED_SINCE", None)
         body_iter = self.app(environ, capture)
         try:
             body = b"".join(body_iter)

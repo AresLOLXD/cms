@@ -1283,10 +1283,22 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.assertEqual(self.body(self.get_events("/olim/events", before)),
                          self.BETA_REINIT)
 
-    def test_a_group_with_windows_still_reloads_after_a_restart(self):
+    def test_a_live_group_with_past_windows_is_as_on_beta_after_a_restart(
+            self):
+        # Hidden once and shown again: the group keeps both times.
         self.put_contest("/olim")
-        # A freeze that is over: the group is visible, but has windows.
-        self.put_freeze(1, 2)
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": 1, "show_at": 2, "freeze_at": None,
+            "unfreeze_at": None, "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+        before = "%x" % int(time.time() * 1_000_000)
+        self.client = self.make_client()
+        self.assertEqual(self.body(self.get_events("/olim/events", before)),
+                         self.BETA_REINIT)
+
+    def test_a_frozen_group_still_reloads_after_a_restart(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
         before = "%x" % int(time.time() * 1_000_000)
         self.client = self.make_client()
         response = self.client.get("/olim/events",
@@ -1933,6 +1945,20 @@ class TestFrozenPublicView(VisibilityTestCase):
         self.assertIn("<title>Acceso staff</title>",
                       login.get_data(as_text=True))
         self.assertNotIn("Ranking oculto", login.get_data(as_text=True))
+
+    def test_a_conditional_get_still_gets_the_banner(self):
+        # A browser that kept the page from when the group was live asks
+        # whether it changed: a 304 would show it without the bar.
+        live = self.client.get("/olim/Ranking.html")
+        for header, value in [
+                ("If-None-Match", live.headers["ETag"]),
+                ("If-Modified-Since", live.headers["Last-Modified"])]:
+            with self.subTest(header=header), self.at(350):
+                response = self.client.get("/olim/Ranking.html",
+                                           headers={header: value})
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("Ranking congelado desde las",
+                              response.get_data(as_text=True))
 
     def test_every_index_path_gets_the_banner(self):
         with self.at(350):

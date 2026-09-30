@@ -252,10 +252,10 @@ until its time comes. A page that is showing the hidden notice checks every 15
 seconds, and comes back by itself when the group is shown again (or only
 frozen). A page reloads itself at most once every 10 seconds.
 
-When the Ranking Web Server restarts, the open pages of a group that has a
-schedule (any of the four times set) reload once. The open pages of a visible
-group without a schedule, and of the root ranking, do not reload: they
-reconnect by themselves, as before this feature.
+When the Ranking Web Server restarts, the open pages of a group that is
+frozen at that moment reload once. The open pages of a visible group (even one
+that keeps the times of earlier windows), and of the root ranking, do not
+reload: they reconnect by themselves, as before this feature.
 
 ### Checking a schedule
 
