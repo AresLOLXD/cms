@@ -92,9 +92,10 @@ when saving").
 
 The `italy_yaml` loader only reads the score type from `task.yaml` when the file
 declares `score_type`, `score_type_parameters` **and** `n_input` (the number of
-testcases). Otherwise it ignores them (with a warning if only some of the three
-are there) and detects the subtasks from `gen/GEN`, which cannot carry
-dependencies.
+testcases). Otherwise it ignores them and detects the subtasks from `gen/GEN`,
+which cannot carry dependencies. It warns only when `score_type` or
+`score_type_parameters` is there without the other two; `n_input` alone gives
+no warning.
 
 This is an excerpt of a `task.yaml`, with the three keys. `n_input` must equal
 the sum of the `testcases` counts (16 = 3 + 5 + 8), and nothing checks it. The
@@ -257,23 +258,28 @@ that depend on it.
 - Where: open the dataset with its **[View results]** link (in the block of the
   dataset under **Datasets** on the task page, and on the **[Make Live ...]**
   page). Use the buttons next to "Reevaluate all N submissions for this
-  dataset". On a submission page, the dataset selector opens the same page for
-  another dataset.
+  dataset". On a submission page, the dataset selector shows that one
+  submission under another dataset; it does not open the dataset's page.
 - Always re-evaluate the whole submission or the whole task. The "Rerun and
   archive" button of one testcase (in the submission page) does not clear the
   "Not tested: …" rows. If you rerun a failed root testcase and it now passes,
   its dependents stay at 0 until the whole submission is evaluated again. The
   same is true for the testcases skipped by two-phase screening.
 
-> **Warning: do not press E on a live task during a contest.** **E** on the
-> whole dataset blanks every score and grades every submission again, so scores
-> are missing until each one is graded again, and the workers are busy with
-> them. Change the dependencies before the contest starts. For a live task,
-> use a clone instead: **[Clone]** the dataset (leave "clone results" unticked),
-> write the new dependencies in the clone and press **Update**, press
-> **[Enable background judging]** on the clone, and press **E** on the clone's
-> results page. The clone is graded at the lowest priority. When it is done,
-> use **[Make Live ...]** on the clone.
+> **Warning: do not press E or S on a live task during a contest.** **E** on
+> the whole dataset blanks every score and grades every submission again, and
+> **S** blanks every score until it is computed again, so scores are missing
+> meanwhile (and with parameters the score type cannot use, S leaves them all
+> unscored). Change the dependencies before the contest starts. For a live
+> task, use a clone instead: **[Clone]** the dataset (leave "Clone evaluation
+> results" unticked), write the new dependencies in the clone and press
+> **Update**, then press **[Enable background judging]** on the clone. That
+> alone grades and scores every submission on the clone, at the lowest
+> priority; press **E** on the clone only to redo it after changing its
+> parameters again. It is done when every submission on the clone's
+> **[View results]** page has a score and the **[Make Live ...]** summary looks
+> right; only then use **[Make Live ...]** on the clone. Making a half-graded
+> clone live hides scores from the contestants.
 
 ## When the dependencies cannot be used
 
