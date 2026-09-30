@@ -61,10 +61,11 @@ MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_PASSWORD_BYTES = 72
 HASH_THREADS = 4
-# Control characters (tab, line feed and carriage return aside) that a
-# password cannot have: Tornado turns most of them into spaces when CWS
-# reads the login form, so such a password could never match.
-PASSWORD_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Control characters, which a password cannot have: a login field cannot
+# produce a tab or a line break, and Tornado turns most of the others into
+# spaces when CWS reads the login form, so such a password could never
+# match.
+PASSWORD_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 
 @dataclasses.dataclass(frozen=True)

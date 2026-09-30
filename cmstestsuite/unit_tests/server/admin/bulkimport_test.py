@@ -288,24 +288,22 @@ class TestReadRows(unittest.TestCase):
                 self.assertEqual(rows[0].password, "abc 12")
 
     def test_a_password_with_control_characters_is_refused(self):
-        # Tornado turns most of them into spaces on the login, so such a
-        # password could never match; a tab inside is kept by both.
-        for character in ("\x00", "\x01", "\x08", "\x0b", "\x0c", "\x0e",
-                          "\x1b", "\x1f", "\x7f"):
-            secret = "s3c%sr3t" % character
+        # Tornado turns most of them into spaces on the login, and a login
+        # field cannot produce a tab or a line break at all, so such a
+        # password could never match. The line breaks come from a quoted
+        # cell of several lines.
+        for character in ("\x00", "\x01", "\x08", "\t", "\n", "\x0b",
+                          "\x0c", "\r", "\r\n", "\x0e", "\x1b", "\x1f",
+                          "\x7f"):
+            secret = '"s3c%sr3t"' % character
             with self.subTest(character=repr(character)):
-                rows, errors = read_rows(csv_bytes(
+                _, errors = read_rows(csv_bytes(
                     "usuario,nombre,apellido,contraseña,estado\n"
                     "ana,Ana,López,%s,\n" % secret), MAPPING)
                 self.assertEqual(
                     errors,
                     ["fila 2: la contraseña tiene caracteres no permitidos"])
                 self.assertFalse(any("s3c" in e for e in errors))
-        rows, errors = read_rows(csv_bytes(
-            "usuario,nombre,apellido,contraseña,estado\n"
-            "ana,Ana,López,s3c\tr3t,\n"), MAPPING)
-        self.assertEqual(errors, [])
-        self.assertEqual(rows[0].password, "s3c\tr3t")
 
     def test_a_nul_byte_in_any_cell_is_refused(self):
         # The database refuses NUL in a text, so the job would fail at the

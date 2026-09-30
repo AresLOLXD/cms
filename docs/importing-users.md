@@ -51,8 +51,9 @@ for two fields.
 
 Cells are stripped of surrounding spaces, the password included, because CWS
 strips what the contestant types at the login. A password may have spaces
-inside, but no control characters. The 72-byte limit counts the bytes left
-after stripping, not letters: a letter with an accent takes two.
+inside, but no control characters, not even a tab or a line break. The 72-byte
+limit counts the bytes left after stripping, not letters: a letter with an
+accent takes two.
 
 Example:
 
