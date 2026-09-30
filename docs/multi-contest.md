@@ -106,6 +106,11 @@ times. Nobody has to be at the screen when a scheduled time comes: the Ranking
 Web Server checks the clock on every request, so restarting a service does not
 disturb a schedule.
 
+The schedule follows the clock of the server that runs the Ranking Web Server,
+so keep that clock synced with NTP. A clock stepped backwards can re-open a
+window that has already closed: for example, the public would see the live
+scores again after the freeze.
+
 Hiding and freezing work only with ranking groups (`CMS_CONTEST_ID=ALL`).
 With a single contest (`CMS_CONTEST_ID=<id>`) the scores go to the root
 ranking at `/`, which can be neither hidden nor frozen: the fields and buttons
@@ -205,6 +210,10 @@ The public sees:
   later. Submissions made after the freeze, and token uses after it, do not
   count. A score change within the same second as the freeze may still
   appear.
+- With **Congelar ahora**, the freeze reaches the Ranking Web Server a few
+  seconds after the button is pressed, but the snapshot is as of the moment
+  the button was pressed. A score that the public saw live in those seconds
+  disappears from the page when it reloads.
 - A bar at the bottom of the page: "Ranking congelado desde las HH:MM
   (<zone>)", with the freeze time in the server's time zone, and an "Acceso
   staff" link.
@@ -235,11 +244,18 @@ The staff:
   **Ranking groups** list does not flag it (see "Hidden groups without a staff
   password" below).
 
-When the public view of a group changes (it is hidden, frozen or unfrozen, or
-its schedule changes), an open scoreboard page reloads by itself within about
-15 seconds (the ping interval). On a hide, it then shows the notice. A page
-that is showing the hidden notice does not come back by itself when the group
-is shown again: reload it.
+When the public view of a group changes (it is hidden, shown, frozen or
+unfrozen, by hand or at a scheduled time), an open scoreboard page reloads by
+itself within about 15 seconds (the ping interval). On a hide, it then shows
+the notice. Changing a window that is still ahead changes nothing on the page
+until its time comes. A page that is showing the hidden notice checks every 15
+seconds, and comes back by itself when the group is shown again (or only
+frozen). A page reloads itself at most once every 10 seconds.
+
+When the Ranking Web Server restarts, the open pages of a group that has a
+schedule (any of the four times set) reload once. The open pages of a visible
+group without a schedule, and of the root ranking, do not reload: they
+reconnect by themselves, as before this feature.
 
 ### Checking a schedule
 
