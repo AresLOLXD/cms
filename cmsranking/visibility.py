@@ -809,7 +809,7 @@ class VisibilityGuard:
             return self._notice(message=FROZEN_LOGIN_MESSAGE,
                                 title=FROZEN_LOGIN_TITLE)(
                 environ, start_response)
-        if path == "/" and request.method == "GET":
+        if path in INDEX_PATHS and request.method == "GET":
             return self._with_banner(
                 environ, start_response,
                 public_frozen_banner(self.state.settings.freeze_at))

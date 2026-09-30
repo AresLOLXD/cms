@@ -1925,6 +1925,14 @@ class TestFrozenPublicView(VisibilityTestCase):
                       login.get_data(as_text=True))
         self.assertNotIn("Ranking oculto", login.get_data(as_text=True))
 
+    def test_every_index_path_gets_the_banner(self):
+        with self.at(350):
+            for path in ("", "Ranking.html"):
+                with self.subTest(path=path):
+                    page = self.client.get("/olim/" + path)
+                    self.assertIn("Ranking congelado desde las",
+                                  page.get_data(as_text=True))
+
     def test_staff_login_page_does_not_poll(self):
         # config answers 200 while frozen: a poll would reload the page
         # every 15 s, and wipe the password being typed.
