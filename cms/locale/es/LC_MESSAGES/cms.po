@@ -144,6 +144,13 @@ msgstr ""
 "su subtarea. Primero se prueban unos pocos casos de cada subtarea y, si "
 "alguno falla, los demás ya no se prueban."
 
+#, python-format
+msgid "Not tested: this subtask depends on subtask %s, which scored no points."
+msgstr "No se probó: esta subtarea depende de la subtarea %s, que no obtuvo puntos."
+
+msgid "This testcase was not run because its subtask depends on another subtask that scored no points, so it is worth 0 anyway."
+msgstr "Este caso no se probó porque su subtarea depende de otra subtarea que no obtuvo puntos, así que vale 0 de todos modos."
+
 msgid "Execution completed successfully"
 msgstr "Ejecución completada de manera exitosa"
 

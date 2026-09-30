@@ -35,7 +35,7 @@ from sqlalchemy import case, literal, select
 from cms.db import Dataset, Evaluation, Submission, SubmissionResult, \
     Task, Testcase, UserTest, UserTestResult
 from cms.db.session import Session
-from cms.grading import twophase
+from cms.grading import subtaskdag, twophase
 from cms.io import PriorityQueue, QueueItem
 
 
@@ -213,9 +213,22 @@ def submission_get_operations(
         else:
             screening_status = None
 
+        # Subtask dependencies: hold a subtask's testcases until all its
+        # dependencies passed; a dependent of a failed subtask is never
+        # released (EvaluationService skips it). No-op for datasets that
+        # declare none. See cms/grading/subtaskdag.py.
+        gate = subtaskdag.gate_for_dataset(dataset)
+        if gate is not None:
+            dag_status, _ = gate.statuses({
+                evaluation.codename: evaluation.outcome
+                for evaluation in submission_result.evaluations})
+
         for testcase_codename in dataset.testcases.keys():
             testcase_id = dataset.testcases[testcase_codename].id
             if testcase_id in evaluated_testcase_ids:
+                continue
+            if gate is not None \
+                    and not gate.releasable(testcase_codename, dag_status):
                 continue
             if screening_status is not None \
                     and not twophase.is_screening(testcase_codename):
@@ -544,6 +557,31 @@ def get_submission_results_to_evaluate(
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
             (FILTER_SUBMISSION_RESULTS_TO_EVALUATE))
     ).scalars().all()
+
+
+def any_dataset_declares_dependencies(
+    session: Session, contest_id: int | None = None
+) -> bool:
+    """Tell whether any dataset of the contest declares subtask dependencies.
+
+    The sweeper uses this to choose the dependency-aware path, which
+    otherwise it only takes when two-phase grading is on.
+
+    session: the database session to use.
+    contest_id: the contest to look at; if None, look at every contest.
+
+    return: whether some dataset's parameters have a "depends_on".
+
+    """
+    if contest_id is None:
+        contest_filter = literal(True)
+    else:
+        contest_filter = Task.contest_id == contest_id
+    parameters = session.execute(
+        select(Dataset.score_type_parameters)
+        .join(Dataset.task)
+        .filter(contest_filter)).scalars()
+    return any(subtaskdag.declares_dependencies(p) for p in parameters)
 
 
 def get_user_tests_operations(

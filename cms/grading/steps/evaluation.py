@@ -81,6 +81,12 @@ EVALUATION_MESSAGES = MessageCollection([
                  N_("Skipped after screening phase failure"),
                  N_("This testcase was not run because the screening "
                     "testcases for its subtask did not pass.")),
+    HumanMessage("skipped_dependency",
+                 N_("Not tested: this subtask depends on subtask %s, "
+                    "which scored no points."),
+                 N_("This testcase was not run because its subtask depends "
+                    "on another subtask that scored no points, so it is "
+                    "worth 0 anyway.")),
 ])
 
 
