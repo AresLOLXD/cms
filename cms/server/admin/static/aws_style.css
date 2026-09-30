@@ -130,15 +130,15 @@ ul.normal_list {
     overflow-y: auto;
 }
 
-/* The spacer equals the footprint of .cr_notice (bottom offset + two lines +
-   vertical padding, in the notice's own units), so the sidebar only scrolls
-   when the notice would otherwise cover an entry. */
+/* The spacer equals the footprint of .cr_notice (bottom offset + two lines, in
+   the notice's own units), so the sidebar only scrolls when the notice would
+   otherwise cover an entry. */
 #sidebar::after {
     content: "";
     display: block;
     clear: both;
     font-size: 0.6em;
-    height: calc(1.5em + 2 * 1.125em + 0.5em);
+    height: calc(1.5em + 2 * 1.125em);
 }
 
 #sidebar_header {
@@ -231,7 +231,6 @@ ul.normal_list {
     width: 234px;
     margin-left: 0;
     background-color: inherit;  /* same as #sidebar, so nothing shows through */
-    padding: 0.25em 0;
 }
 
 
