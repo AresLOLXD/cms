@@ -309,9 +309,10 @@ class VisibilityState:
         self.path = os.path.join(group_dir, VISIBILITY_FILE)
         self.settings = VisibilitySettings()
         self.secret = secrets.token_hex(32)
-        # A restart counts as a change: streams opened before it reload.
-        self.changed_at = time.time()
         self._load()
+        # A restart counts as a change for a group with windows: streams
+        # opened before it reload. One without any is left as on beta.
+        self.changed_at = time.time() if self.settings.boundaries() else 0.0
 
     @property
     def hidden(self) -> bool:
@@ -653,12 +654,13 @@ class VisibilityGuard:
             view was decided at.
         served_as_staff: whether the request got the staff's live view,
             which a client that is no longer staff must not keep getting
-            (the password changing does not change the public view).
+            while the group is frozen (the password changing does not
+            change the public view).
 
         return: a start_response whose write() callables refuse to send
             data to a public client once the group is hidden or its view
             changed since the request came, or once a staff client lost
-            its access.
+            its access to a frozen group.
 
         """
         handler = getattr(start_response, "__self__", None)
@@ -673,7 +675,9 @@ class VisibilityGuard:
             def guarded_write(data):
                 if not self._is_staff(request):
                     now = time.time()
-                    if served_as_staff or self.state.settings.hidden(now) \
+                    settings = self.state.settings
+                    if settings.hidden(now) \
+                            or (served_as_staff and settings.frozen(now)) \
                             or self.state.last_change(now) > opened_at:
                         _close_connection(start_response)
                         if event_stream:

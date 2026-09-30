@@ -1240,6 +1240,37 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
             self.assertEqual(self.body(self.get_events("/events", last_id)),
                              self.BETA_REINIT)
 
+    def test_a_group_without_windows_is_as_on_beta_after_a_restart(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        before = "%x" % int(time.time() * 1_000_000)
+        self.client = self.make_client()
+        # No reload: the reinit of an empty cache, as on beta.
+        self.assertEqual(self.body(self.get_events("/olim/events", before)),
+                         self.BETA_REINIT)
+
+    def test_a_group_with_windows_still_reloads_after_a_restart(self):
+        self.put_contest("/olim")
+        # A freeze that is over: the group is visible, but has windows.
+        self.put_freeze(1, 2)
+        before = "%x" % int(time.time() * 1_000_000)
+        self.client = self.make_client()
+        response = self.client.get("/olim/events",
+                                   headers={"Last-Event-ID": before})
+        self.assertEqual(response.get_data(), b"event:reload\ndata:\n\n")
+
+    def test_staff_stream_of_a_group_without_windows_is_as_on_beta(self):
+        # Beta cut a staff stream whose access was revoked only while the
+        # group was hidden: on a visible group it shows what the public
+        # sees anyway.
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_visibility("olim", False,
+                            staff_password=build_password("new", "plaintext"))
+        self.put_second_contest()
+        self.assertIn(b"data:create c2", stream.recv(65536))
+
     def test_a_group_without_windows_is_as_on_beta_after_an_overflow(self):
         self.config.buffer_size = 2
         self.put_contest("/olim")
