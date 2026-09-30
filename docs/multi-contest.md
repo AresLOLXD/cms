@@ -32,15 +32,20 @@ changing staff passwords also apply immediately.
    If the ranking must be hidden or frozen, set the hide or freeze windows in
    this same form: the four time fields (in UTC) and a **Staff password** (see
    "Hiding and freezing a ranking (staff view)" below). To hide the ranking
-   from the start, put a time in the past in **Hide from**. Do it now, before
+   from the start, put a date well in the past in **Hide from**, for example
+   `2000-01-01 00:00:00` (do not type the local time "now": the field is in
+   UTC, so a local "now" typed east of UTC is in the future), or press
+   **Ocultar ahora** on the group's page after creating it. Do it now, before
    step 2: as soon as a contest is assigned to a visible group, its
    contestants' names and its task titles are public.
 2. **Each contest's page:** tick **Active** and choose its **Ranking group**,
    then save.
 3. **Check each hidden or scheduled group** in a private browser window: the
    public URL shows the notice (not the scoreboard) while hidden, and the
-   staff can log in with the password. For a schedule, follow "Checking a
-   schedule" below.
+   staff can log in with the password. The staff can log in only while the
+   group is hidden or frozen: on a visible group `/<group>/staff-login` is not
+   served, so a staff login cannot be checked before the schedule starts. For
+   a schedule, follow "Checking a schedule" below.
 4. Open `http://<server>:<CMS_RWS_HTTP_PORT>/<group>/` to check each
    scoreboard.
 
@@ -129,9 +134,10 @@ The rules:
   frozen scoreboard, not the live one.
 - A time in the past is allowed and applies at once.
 - An end must be after its start. Otherwise the page shows an "Invalid
-  field(s)" notification that says "The hide window must end after it
-  starts." (or "The freeze window must end after it starts.") and saves
-  nothing.
+  field(s)" notification that reads `ValueError('The hide window must end
+  after it starts.')` (or `ValueError('The freeze window must end after it
+  starts.')`) and saves nothing. AWS shows every error of this kind as
+  Python prints it, with the `ValueError(...)` around the message.
 - Type each time as `YYYY-MM-DD HH:MM:SS`. Clear a field to remove its time.
 - The form to create a group has the same four fields, but not the "… now"
   buttons.
@@ -141,6 +147,11 @@ time typed as 13:00 is 13:00 UTC, not 13:00 where the contest is. After you
 save, the page shows the equivalent in the server's time zone (`CMS_TIMEZONE`)
 next to each field, for example "= 2026-10-10 13:00 CST", and in the "next:"
 line described below. Always check it against the contest's start and end.
+This check works only if `CMS_TIMEZONE` in `.env` is set to the contest's time
+zone (for example `America/Mexico_City`). If it is unset, it defaults to UTC:
+the local equivalent then equals the UTC value, and comparing them catches
+nothing. Set `CMS_TIMEZONE` before you schedule anything; it applies when the
+containers are recreated (`./up.sh`).
 
 ### What the group page shows
 
@@ -162,16 +173,19 @@ applies:
   to now. It keeps a **Show again at** that is still ahead, so the ranking
   comes back at that time, and clears one that is already past.
 - **Mostrar ahora** (shown while hidden) sets **Show again at** to now.
-  Refused with "The ranking is not hidden." if the group is not hidden.
+  Refused with `ValueError('The ranking is not hidden.')` if the group is not
+  hidden.
 - **Congelar ahora** (shown while no freeze is open) sets **Freeze at** to
   now. It keeps an **Unfreeze at** that is still ahead and clears one that is
-  already past. Refused with "The ranking is already frozen." if a freeze is
-  already open, so the freeze time can never be moved later by accident.
+  already past. Refused with `ValueError('The ranking is already frozen.')` if
+  a freeze is already open, so the freeze time can never be moved later by
+  accident.
 - **Descongelar ahora** (shown while a freeze is open) sets **Unfreeze at** to
-  now. Refused with "The ranking is not frozen." if no freeze is open.
+  now. Refused with `ValueError('The ranking is not frozen.')` if no freeze is
+  open.
 
-A refusal shows an "Invalid field(s)" notification with that message and saves
-nothing.
+A refusal shows an "Invalid field(s)" notification with that message, in the
+form shown above, and saves nothing.
 
 The freeze buttons follow the freeze window, even while the group is hidden:
 on a hidden group whose freeze window is open, the page offers **Descongelar
@@ -194,8 +208,8 @@ The public sees:
 - A bar at the bottom of the page: "Ranking congelado desde las HH:MM
   (<zone>)", with the freeze time in the server's time zone, and an "Acceso
   staff" link.
-- No live updates. A late evaluation of a submission made before the freeze
-  appears when the public reloads the page.
+- No live score updates. A late evaluation of a submission made before the
+  freeze appears when the public reloads the page.
 - On the data URLs: `/<group>/scores`, `/<group>/history` and
   `/<group>/sublist/<user>` answer with the data as of the freeze;
   `/<group>/events` keeps sending contest, task, team and user changes, but no
@@ -208,18 +222,24 @@ The staff:
 
 - Log in with the same password and the same cookie as for a hidden group.
   While frozen, they log in from the "Acceso staff" link; while hidden, from
-  the notice.
+  the notice. They can log in only while the group is hidden or frozen: on a
+  visible group `/<group>/staff-login` is not served. The staff cookie
+  persists afterwards: a login made while the group is hidden or frozen is
+  still valid the next time it is hidden or frozen, until the staff press
+  "Salir", the browser session ends or the staff password changes.
 - See everything live. The page carries the bar "Vista staff: ranking
   congelado para el público" (on a hidden group, "Vista staff: este ranking
   está oculto al público"), with a "Salir" link to log out. A group that is
   hidden and frozen shows the hidden notice and the hidden bar.
-- A frozen group without a staff password has no live view for anybody.
+- A frozen group without a staff password has no live view for anybody. The
+  **Ranking groups** list does not flag it (see "Hidden groups without a staff
+  password" below).
 
-When the public view changes (the group is hidden, shown, frozen or
-unfrozen), RWS closes the live connections of the public pages. An open
-scoreboard page reconnects by itself within about 15 seconds and reloads if it
-missed a change. The notice of a hidden group does not refresh by itself:
-reload it.
+When the public view of a group changes (it is hidden, frozen or unfrozen, or
+its schedule changes), an open scoreboard page reloads by itself within about
+15 seconds (the ping interval). On a hide, it then shows the notice. A page
+that is showing the hidden notice does not come back by itself when the group
+is shown again: reload it.
 
 ### Checking a schedule
 
@@ -227,7 +247,9 @@ After saving a schedule, on the group's page:
 
 1. Compare the local equivalents shown next to each field, and in the "next:"
    line, with the contest's start and end. If they do not match, the times
-   were typed in the wrong time zone: correct them.
+   were typed in the wrong time zone: correct them. This only works if
+   `CMS_TIMEZONE` is set: if it is unset it defaults to UTC, and the local
+   equivalent equals the UTC value.
 2. Read the **Now** row: it must say what you expect at this moment.
 3. Open the public URL (`http://<server>:<CMS_RWS_HTTP_PORT>/<group>/`) in a
    private browser window. It shows the notice if the group is hidden, the
@@ -235,7 +257,10 @@ After saving a schedule, on the group's page:
    frozen (the time must be the freeze time you intended), and the plain
    scoreboard if visible.
 4. Log in as staff (from the notice or the "Acceso staff" link) and check the
-   staff bar.
+   staff bar. The staff can log in only while the group is hidden or frozen
+   (on a visible group `/<group>/staff-login` is not served), so this step
+   cannot be done before the schedule starts: do it when the group is first
+   hidden or frozen. The staff cookie persists afterwards.
 
 Do it again after every save, and again once a scheduled time has passed.
 
@@ -265,6 +290,9 @@ Do it again after every save, and again once a scheduled time has passed.
   staff. The **Ranking groups** list flags this with "(nobody can see it: no
   staff password)". The **Ranking groups** list also shows the state of every
   group and which ones have a password set.
+- The flag appears only on hidden groups, including "oculto (congelado)". A
+  frozen group without a staff password is not flagged, although nobody has a
+  live view of it either: check its **Staff password** column.
 
 ### Failure mode: RWS rejects the visibility setting
 
@@ -326,6 +354,10 @@ ask the staff to reload the ranking page once after the deploy.
 older checkout). **Never roll back RankingWebServer while a group is hidden
 or frozen.**
 
+Do not roll back the CMS container while a group is frozen: the older
+container unfreezes it, and a freeze set with curl is undone at its next
+sweep (about 6 minutes). If you must, stop the `ranking` container first.
+
 **Only roll back to a checkout that already mounts `cms-data` on
 `/home/cmsuser/cms/data`** (see the upgrade note in the README). An older
 checkout mounts the volume over the installed code again, so the `cms`
@@ -336,15 +368,16 @@ roll back to that.
 
 - A RankingWebServer without this feature ignores the hidden setting: it
   serves every group's scoreboard to everyone, including all the data
-  gathered while the group was hidden. One from before the schedule (MC-2
-  minimal) rejects the windows it is sent (see "Failure mode" above), so it
-  cannot freeze a group. If you must roll it back, first stop the `ranking`
-  container, or reveal the groups on purpose.
+  gathered while the group was hidden. One from before the schedule ("MC-2
+  minimal" from here on: the version that added ranking visibility but not
+  the schedule) rejects the windows it is sent (see "Failure mode" above), so
+  it cannot freeze a group. If you must roll it back, first stop the
+  `ranking` container, or reveal the groups on purpose.
 - The new RankingWebServer works with an older CMS container. It keeps the
   hidden groups hidden (it stores their setting on disk), the staff can
   still log in, and scores still arrive. What stops working is hiding and
-  revealing from AWS (with a CMS from before MC-2 minimal): use the command
-  below instead.
+  revealing from AWS (with a CMS from before ranking visibility): use the
+  command below instead.
 - A CMS container from before the schedule (MC-2 minimal) sends the old
   `{"hidden": …}` setting, which has no windows. RWS accepts it: a group with
   `hidden` set becomes hidden with no end, and any other group loses its
@@ -358,9 +391,11 @@ roll back to that.
   Create the groups you need before rolling back.
 
 To hide, reveal, freeze or unfreeze a group by hand (for example after a
-rollback), send the setting straight to RankingWebServer. Run this on the
-server, from the repository root: it reads the ranking credentials from `.env`
-and should print `204`.
+rollback), send the setting straight to RankingWebServer. A freeze set this way
+lasts only while the running CMS container is from before ranking visibility:
+any later container undoes it at its next sweep (see the last bullets below).
+Run this on the server, from the repository root: it reads the ranking
+credentials from `.env` and should print `204`.
 
     RWS_USER=$(grep '^CMS_RWS_USERNAME=' .env | cut -d= -f2-)
     RWS_PASS=$(grep '^CMS_RWS_PASSWORD=' .env | cut -d= -f2-)
@@ -392,9 +427,10 @@ and should print `204`.
   version without ranking visibility.** A version with it (the current one,
   or an older one that already has it) sends the setting stored in AWS
   again at every save and at every sweep, within about 6 minutes, and that
-  replaces the manual one. With such a version, change the setting in AWS;
-  use `curl` only for the immediate effect, together with the same change
-  in AWS.
+  replaces the manual one. That includes a freeze: the version from before the
+  schedule sends no windows, so it undoes a freeze set with `curl`. With such
+  a version, change the setting in AWS; use `curl` only for the immediate
+  effect, together with the same change in AWS.
 - When the current CMS container is back after a rollback, check every
   group in AWS right away: the settings stored there replace the manual
   ones.
@@ -407,7 +443,8 @@ the windows:
 - A group unhidden through the older AWS is hidden again by its window after
   the redeploy. That errs on the safe side.
 - A group hidden through the older AWS whose window had already ended stays
-  public after the redeploy. Hide it again.
+  public after the redeploy, from the redeploy until you press **Ocultar
+  ahora** on it. Do it right after `./up.sh` returns.
 
 ### Stale form
 
@@ -417,8 +454,8 @@ freeze), saving the page keeps their change: a field you did not touch does
 not undo it. The other fields of the page (name, description) still
 overwrite: if others are editing groups (for example during contest setup),
 **reload the page before saving**. A "now" button acts on the schedule stored
-at that moment, not on the one the page showed, so it can be refused with the
-messages above.
+at that moment plus any field you edited on that page, not on the schedule
+the page showed, so it can be refused with the messages above.
 
 ## Limitations
 
