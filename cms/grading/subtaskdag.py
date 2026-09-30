@@ -249,6 +249,8 @@ class SubtaskGate:
         codename: the testcase.
         status: from statuses().
 
+        return: whether the testcase may be evaluated now.
+
         """
         subtasks = self._subtasks_of.get(codename)
         if not subtasks:
@@ -300,6 +302,9 @@ def gate_for_dataset(dataset) -> SubtaskGate | None:
 
     dataset: the dataset (needs score_type_parameters, score_type_object
         and id).
+
+    return: the gate, or None if the dataset declares no dependency or
+        they can't be used.
 
     """
     if not declares_dependencies(dataset.score_type_parameters):
