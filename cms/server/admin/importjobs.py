@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 JOB_TTL = 3600.0
 APPLY_FAILED = "no se pudo aplicar la importación; no se guardó nada"
 
+# Held around the writing and the commit of every job, whatever its
+# contest: the files of two contests may share new users, and the second
+# job must read them after the first one commits, instead of inserting
+# them again and failing.
+_APPLY_LOCK = threading.Lock()
+
 
 @dataclasses.dataclass
 class ImportJob:
@@ -173,8 +179,10 @@ class ImportJobStore:
 
                 hashes = hash_passwords(rows, set(plan.new_users),
                                         plan.stored_passwords, progress)
-                apply_import(session, job.contest_id, rows, plan, hashes)
-                session.commit()
+                with _APPLY_LOCK:
+                    apply_import(session, job.contest_id, rows, plan,
+                                 hashes)
+                    session.commit()
             job.summary = plan.summary()
             job.status = "done"
             logger.info("Bulk import into contest %d by admin %d: %s.",

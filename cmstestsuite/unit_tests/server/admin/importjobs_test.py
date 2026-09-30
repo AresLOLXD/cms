@@ -158,6 +158,38 @@ class TestJobRuns(ImportJobsTestCase):
         self.assertEqual(events,
                          ["plan", "rollback", "hash", "apply", "commit"])
 
+    def test_jobs_of_two_contests_write_one_at_a_time(self):
+        # Two files may share new users: the second job has to read them
+        # after the first one commits, instead of inserting them again.
+        both_hashed = threading.Barrier(2, timeout=5)
+        events = []
+
+        def hash_together(rows, new_users, stored_passwords, progress):
+            both_hashed.wait()
+            return HASHES
+
+        def slow_apply(*args):
+            events.append(("enter", threading.current_thread().name))
+            time.sleep(0.2)
+        self.hash_passwords.side_effect = hash_together
+        self.apply_import.side_effect = slow_apply
+        self.session.commit.side_effect = lambda: events.append(
+            ("exit", threading.current_thread().name))
+        store = ImportJobStore()
+
+        jobs = [store.start(OWNER_ID, contest_id, self.rows, self.on_done)
+                for contest_id in (CONTEST_ID, CONTEST_ID + 1)]
+        for job in jobs:
+            self.wait_for_job(job)
+
+        self.assertEqual([job.status for job in jobs], ["done", "done"])
+        # Each job enters and commits before the other one enters.
+        self.assertEqual([kind for kind, _ in events],
+                         ["enter", "exit", "enter", "exit"])
+        self.assertEqual(events[0][1], events[1][1])
+        self.assertEqual(events[2][1], events[3][1])
+        self.assertNotEqual(events[0][1], events[2][1])
+
     def test_apply_failure_is_an_error_without_row_data_in_the_log(self):
         def failing_apply(*args):
             raise RuntimeError(LEAK_MESSAGE)
