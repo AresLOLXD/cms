@@ -121,7 +121,10 @@ class WorkerPool:
             self._operations[shard] = new_operation
             if isinstance(operations, list):
                 for operation in operations:
-                    del self._operations_reverse[operation]
+                    # If the same operation was later assigned to
+                    # another worker too, the entry is that worker's.
+                    if self._operations_reverse.get(operation) == shard:
+                        del self._operations_reverse[operation]
 
     def _add_operations(self, shard: int, operations: list[ESOperation]):
         """Assigns new operations to a currently inactive worker.

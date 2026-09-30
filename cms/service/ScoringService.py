@@ -30,7 +30,8 @@ import asyncio
 import logging
 
 from cms import ServiceCoord, config
-from cms.db import SessionGen, Submission, Dataset, get_submission_results
+from cms.db import SessionGen, Submission, SubmissionResult, Dataset, \
+    get_submission_results
 from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
@@ -122,8 +123,17 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
                 raise ValueError("Dataset %d not found in the database." %
                                  operation.dataset_id)
 
-            # Obtain submission result.
-            submission_result = submission.get_result(dataset)
+            # Obtain submission result, locking its row until we commit:
+            # if EvaluationService is invalidating it (flushed, not yet
+            # committed) we wait and then see the invalidated row,
+            # instead of writing a score computed from the old
+            # evaluations on top of it. FOR NO KEY UPDATE (key_share)
+            # is the lock our UPDATE would take anyway; unlike FOR
+            # UPDATE it doesn't block inserts of rows referencing it.
+            submission_result = session.get(
+                SubmissionResult, (submission.id, dataset.id),
+                populate_existing=True,
+                with_for_update={"key_share": True})
 
             # It means it was not even compiled (for some reason).
             if submission_result is None:
