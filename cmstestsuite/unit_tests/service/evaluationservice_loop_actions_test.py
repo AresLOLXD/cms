@@ -39,13 +39,13 @@ import contextlib
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from cms.conf import Address, ServiceCoord
 from cms.io.async_triggeredservice import AsyncTriggeredService
 from cms.io.priorityqueue import PriorityQueue
 from cms.service.esoperations import ESOperation
-from cms.service.EvaluationService import EvaluationService, \
+from cms.service.EvaluationService import EvaluationService, Result, \
     with_post_finish_lock
 from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.servicelogmixin import \
@@ -311,6 +311,38 @@ class TestEvaluationServiceLoopActions(
                         or operation in self.executor._currently_executing)
         self.assertEqual(self.service._pending_operations, {})
         self.assertEqual(self.service._dequeued_in_section, set())
+
+    async def test_cached_result_stops_the_push_even_with_a_dequeue_pending(
+        self
+    ):
+        # After the purge of an invalidation, a result still in the cache
+        # is a live one: _enqueue_sync must not push its operation again,
+        # even while a dequeue of it is pending.
+        operation = self._operation(1)
+        live = Result(MagicMock(), True)
+
+        @with_post_finish_lock
+        def dequeue_then_push(service):
+            service._threadsafe_dequeue_and_ignore(operation)
+            service.result_cache.add(operation, live)
+            pending = dict(service._pending_operations)
+            return pending, service._enqueue_sync(
+                operation, HIGH, self.timestamp)
+
+        def body():
+            with self._loop_held():
+                return dequeue_then_push(self.service)
+
+        try:
+            pending, pushed = await self._run_in_thread(body)
+        finally:
+            # Nothing of this is meant to be written.
+            self.service.result_cache.discard(lambda key: True)
+
+        self.assertEqual(pending, {operation: ("dequeue", 1)})
+        self.assertFalse(pushed)
+        self.assertNotIn(operation, self.executor)
+        self.assertEqual(self.service._pending_operations, {})
 
     # -- failures ---------------------------------------------------------
 

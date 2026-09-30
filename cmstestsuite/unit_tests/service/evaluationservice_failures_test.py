@@ -946,6 +946,303 @@ class EvaluationServiceFailurePathsTest(
                          ["run 2"])
         self.assertEqual(self.notifications.call_count, 1)
 
+    # -- results of invalidated operations, cached or being flushed -----
+
+    async def _cache_first_result(
+        self, fixture: Fixture, operation: ESOperation
+    ) -> RunLabellingWorker:
+        """Get a first result of operation into the cache, and keep it there.
+
+        The fixture's submission is sent to a worker, whose answer for
+        operation is then held in the cache (the flush latency is
+        raised). The worker holds its next answers.
+
+        fixture: the fixture whose submission to send.
+        operation: the operation whose result to wait for.
+
+        return: the worker.
+
+        """
+        worker = RunLabellingWorker()
+        await self._start_worker(worker)
+        self.service.result_cache.flush_latency_seconds = 3600
+        await self.service.new_submission(fixture.submission.id)
+        await self._wait_for(lambda: operation in self.service.result_cache,
+                             "the first result to reach the cache")
+        worker.answers_released.clear()
+        return worker
+
+    async def _release_and_finish(self, worker: RunLabellingWorker):
+        """Let the worker answer, flush right away, and wait for ES."""
+        self.service.result_cache.flush_latency_seconds = 0
+        worker.answers_released.set()
+        await self._wait_until_idle()
+
+    def _stale_line(self, operation: ESOperation) -> str:
+        """Return what write_results logs for a discarded result."""
+        return ("Not writing the result of `%s': its operation was "
+                "invalidated." % operation)
+
+    async def test_cached_evaluation_of_an_invalidated_operation_is_dropped(
+        self
+    ):
+        fixture = self._add_fixture(testcases=1, compiled=True)
+        operation = fixture.evaluation("t0")
+        worker = await self._cache_first_result(fixture, operation)
+        stale = self.service.result_cache.d[operation]
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service.invalidate_submission(
+                submission_id=fixture.submission.id, level="evaluation")
+            self.assertNotIn(operation, self.service.result_cache)
+            self.assertTrue(stale.discarded)
+            # What the cache held before the invalidation is not written.
+            await self.service.result_cache.flush()
+            self.assertEqual(self._load_result(fixture).evaluations, [])
+            await self._release_and_finish(worker)
+
+        self.assertEqual(len(worker.jobs), 2)
+        result = self._load_result(fixture)
+        self.assertEqual([(e.codename, e.text) for e in result.evaluations],
+                         [("t0", ["run 2"])])
+        self.assertFalse(any("Integrity error" in line
+                             for line in logs.output))
+        self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [fixture.key])
+
+    async def test_evaluation_being_flushed_when_invalidated_is_dropped(self):
+        # A flush has taken the result, and its write waits for the lock
+        # the invalidation holds: the write runs after the invalidation,
+        # and must skip it.
+        fixture = self._add_fixture(testcases=1, compiled=True)
+        operation = fixture.evaluation("t0")
+        worker = await self._cache_first_result(fixture, operation)
+        cache = self.service.result_cache
+        holding_lock = threading.Event()
+        batch_taken = threading.Event()
+        self._gates.append(batch_taken)
+        real_get_relevant_operations = \
+            EvaluationServiceModule.get_relevant_operations
+
+        def gated_get_relevant_operations(*args, **kwargs):
+            holding_lock.set()
+            batch_taken.wait(timeout=10)
+            return real_get_relevant_operations(*args, **kwargs)
+
+        batches: list[list] = []
+        real_callback = cache.callback
+
+        async def signalling_callback(items):
+            batches.append(items)
+            batch_taken.set()
+            await real_callback(items)
+
+        cache.callback = signalling_callback
+
+        with patch.object(EvaluationServiceModule, "get_relevant_operations",
+                          gated_get_relevant_operations), \
+                self.assertLogs("cms.service.EvaluationService",
+                                level="INFO") as logs:
+            invalidation = asyncio.create_task(
+                self.service.invalidate_submission(
+                    submission_id=fixture.submission.id,
+                    level="evaluation"))
+            await self._wait_for(holding_lock.is_set,
+                                 "the invalidation to hold the lock")
+            await cache.flush()
+            await invalidation
+            self.assertEqual(len(batches), 1)
+            [(flushed_operation, stale)] = batches[0]
+            self.assertEqual(flushed_operation, operation)
+            self.assertTrue(stale.discarded)
+            self.assertNotIn(operation, cache)
+            self.assertEqual(self._load_result(fixture).evaluations, [])
+            await self._release_and_finish(worker)
+
+        self.assertIn(self._stale_line(operation),
+                      [record.getMessage() for record in logs.records])
+        self.assertEqual(len(worker.jobs), 2)
+        result = self._load_result(fixture)
+        self.assertEqual([(e.codename, e.text) for e in result.evaluations],
+                         [("t0", ["run 2"])])
+        self.assertFalse(any("Integrity error" in line
+                             for line in logs.output))
+        self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [fixture.key])
+
+    async def test_cached_compilation_of_an_invalidated_operation_is_dropped(
+        self
+    ):
+        # The submission has no result in the DB yet: only the cache
+        # holds the stale compilation.
+        fixture = self._add_fixture()
+        operation = fixture.compilation()
+        worker = await self._cache_first_result(fixture, operation)
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service.invalidate_submission(
+                submission_id=fixture.submission.id, level="compilation")
+            self.assertNotIn(operation, self.service.result_cache)
+            await self.service.result_cache.flush()
+            self.assertIsNone(self._load_result(fixture))
+            await self._release_and_finish(worker)
+
+        self.assertEqual(len(worker.jobs), 2)
+        result = self._load_result(fixture)
+        self.assertTrue(result.compilation_failed())
+        self.assertEqual(result.compilation_text, ["run 2"])
+        self.assertEqual(result.compilation_tries, 0)
+        self.assertFalse(any("Integrity error" in line
+                             for line in logs.output))
+        self.assertEqual(self.notifications.call_count, 1)
+        self.assertEqual(self.scoring_stub.new_evaluation_calls,
+                         [fixture.key])
+
+    async def test_reenqueue_after_the_dequeue_landed_drops_the_stale_result(
+        self
+    ):
+        # The loop applies the invalidation's dequeues before the
+        # invalidation queues the operations again: nothing pending any
+        # more, and the stale result still cached would make it skip the
+        # push without the purge.
+        fixture = self._add_fixture()
+        operation = fixture.compilation()
+        worker = await self._cache_first_result(fixture, operation)
+        dequeues_applied = threading.Event()
+        self._gates.append(dequeues_applied)
+        real_clear_pending_one = self.service._clear_pending_one
+
+        def clear_pending_one_and_signal(cleared: ESOperation):
+            real_clear_pending_one(cleared)
+            if not self.service._pending_operations:
+                dequeues_applied.set()
+
+        self.service._clear_pending_one = clear_pending_one_and_signal
+        real_submission_enqueue_operations = \
+            self.service.submission_enqueue_operations
+
+        def late_submission_enqueue_operations(*args, **kwargs):
+            dequeues_applied.wait(timeout=10)
+            return real_submission_enqueue_operations(*args, **kwargs)
+
+        self.service.submission_enqueue_operations = \
+            late_submission_enqueue_operations
+
+        await self.service.invalidate_submission(
+            submission_id=fixture.submission.id, level="compilation")
+
+        self.assertTrue(dequeues_applied.is_set())
+        self.assertIn(operation, self.service.get_executor())
+        self.assertNotIn(operation, self.service.result_cache)
+        await self.service.result_cache.flush()
+        self.assertIsNone(self._load_result(fixture))
+        await self._release_and_finish(worker)
+        self.assertEqual(len(worker.jobs), 2)
+        self.assertEqual(self._load_result(fixture).compilation_text,
+                         ["run 2"])
+        self.assertEqual(self.notifications.call_count, 1)
+
+    async def test_invalidation_purges_only_the_results_it_invalidates(self):
+        # Keys are compared without archive_sandbox (twins are stale
+        # too) but with the type (a user test may share the id).
+        fixture = self._add_fixture(testcases=1, compiled=True)
+        submission_id, dataset_id = fixture.key
+        cache = self.service.result_cache
+        cache.flush_latency_seconds = 3600
+        twin_evaluation = ESOperation(
+            ESOperation.EVALUATION, submission_id, dataset_id, "t0",
+            archive_sandbox=True)
+        user_test_evaluation = ESOperation(
+            ESOperation.USER_TEST_EVALUATION, submission_id, dataset_id)
+        compilation = fixture.compilation()
+        results = {operation: Result(MagicMock(), True) for operation in (
+            twin_evaluation, user_test_evaluation, compilation)}
+        for operation, result in results.items():
+            cache.add(operation, result)
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service.invalidate_submission(
+                submission_id=submission_id, level="evaluation")
+
+        self.assertNotIn(twin_evaluation, cache)
+        self.assertTrue(results[twin_evaluation].discarded)
+        for operation in (user_test_evaluation, compilation):
+            self.assertIn(operation, cache)
+            self.assertFalse(results[operation].discarded)
+        self.assertIn(
+            "Discarded 1 cached result(s) of invalidated operations.",
+            [record.getMessage() for record in logs.records])
+        # Nothing of this is meant to be written.
+        cache.discard(lambda key: True)
+
+    async def test_write_results_skips_the_discarded_results(self):
+        # Of two evaluations of the same submission, the discarded one is
+        # not written: the other one is, and the submission, still
+        # missing an evaluation, is neither finalized nor notified.
+        fixture = self._add_fixture(testcases=2, compiled=True)
+        stale_operation = fixture.evaluation("t0")
+        stale = Result(self._evaluation_job(stale_operation), True)
+        stale.discarded = True
+        live_operation = fixture.evaluation("t1")
+        live = Result(self._evaluation_job(live_operation), True)
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service.write_results(
+                [(stale_operation, stale), (live_operation, live)])
+
+        self.assertIn(self._stale_line(stale_operation),
+                      [record.getMessage() for record in logs.records])
+        result = self._load_result(fixture)
+        self.assertEqual([e.codename for e in result.evaluations], ["t1"])
+        self.assertIsNone(result.evaluation_outcome)
+
+        # A batch of discarded results only: nothing at all is written.
+        fresh = self._add_fixture()
+        job = CompilationJob(
+            operation=fresh.compilation(), success=True,
+            compilation_success=False, text=["Compilation failed."],
+            plus={})
+        discarded = Result(job, True)
+        discarded.discarded = True
+        await self.service.write_results([(fresh.compilation(), discarded)])
+
+        self.assertIsNone(self._load_result(fresh))
+        self.assertEqual(self.notifications.call_count, 0)
+
+    async def test_testcase_invalidation_recomputes_the_purged_results(self):
+        # Invalidating one testcase dequeues, ignores and purges the
+        # operations of every testcase of the submission: the results
+        # that were only cached are computed again, and the submission
+        # still ends with one evaluation per testcase.
+        fixture = self._add_fixture(testcases=2, compiled=True)
+        cache = self.service.result_cache
+        worker = await self._cache_first_result(
+            fixture, fixture.evaluation("t1"))
+        await self._wait_for(lambda: fixture.evaluation("t0") in cache,
+                             "the other first result to reach the cache")
+        testcase_id = fixture.dataset.testcases["t0"].id
+
+        await self.service.invalidate_submission(
+            submission_id=fixture.submission.id, testcase_id=testcase_id,
+            level="evaluation")
+
+        self.assertNotIn(fixture.evaluation("t0"), cache)
+        self.assertNotIn(fixture.evaluation("t1"), cache)
+        await self._release_and_finish(worker)
+        self.assertEqual(len(worker.jobs), 4)
+        result = self._load_result(fixture)
+        self.assertEqual(
+            sorted((e.codename, e.text) for e in result.evaluations),
+            [("t0", ["run 2"]), ("t1", ["run 2"])])
+        self.assertTrue(result.evaluated())
+        self.assertEqual(self.notifications.call_count, 1)
+
     # -- the sweeper, driven through _sweep() ----------------------------
 
     async def test_sweep_finds_what_es_was_never_told_about(self):

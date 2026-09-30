@@ -291,6 +291,10 @@ class Result:
     def __init__(self, job: Job, job_success: bool):
         self.job = job
         self.job_success = job_success
+        # Set by an invalidation that purged this result from the cache
+        # (see EvaluationService._discard_cached_results): it must not
+        # be written, even by a flush that had already taken it.
+        self.discarded = False
 
 
 class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
@@ -649,9 +653,12 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             return False
         dequeued = pending_action == "dequeue" \
             or operation in self._dequeued_in_section
-        if not dequeued and (
-                operation in self.get_executor()
-                or operation in self.result_cache):
+        if not dequeued and operation in self.get_executor():
+            return False
+        # Even for a dequeued operation: an invalidation purges the
+        # results it makes stale before queueing again, so a result
+        # still cached is a live one.
+        if operation in self.result_cache:
             return False
         self._record_pending(operation, "push")
         self._push_to_queue(operation, priority, timestamp)
@@ -834,6 +841,32 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         except LookupError:
             pass  # Ok, the operation wasn't in the pool.
 
+    def _discard_cached_results(self, operations: list[ESOperation]):
+        """Drop the cached worker results of operations, for good.
+
+        Removes them from the result cache, both the ones waiting for a
+        flush and the ones a flush has already taken, and marks every
+        removed Result as discarded so that _write_results_sync skips
+        it. Results match by type, object, dataset and testcase, whatever
+        their archive_sandbox. Must be called while holding
+        post_finish_lock, which _write_results_sync and
+        _action_finished_sync also hold.
+
+        operations: the operations whose results are stale.
+
+        """
+        keys = {(operation.type_, operation.object_id,
+                 operation.dataset_id, operation.testcase_codename)
+                for operation in operations}
+        discarded = self.result_cache.discard(
+            lambda cached: (cached.type_, cached.object_id,
+                            cached.dataset_id,
+                            cached.testcase_codename) in keys)
+        for result in discarded:
+            result.discarded = True
+        logger.info("Discarded %d cached result(s) of invalidated "
+                    "operations.", len(discarded))
+
     def _threadsafe_notify_scoring_service(self, submission_id: int, dataset_id: int):
         """Tell ScoringService about a new evaluation, safely from any thread.
 
@@ -962,6 +995,14 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         threading.RLock, never held across an await).
 
         """
+        # Results purged by an invalidation after a flush took them.
+        for operation, result in items:
+            if result.discarded:
+                logger.info("Not writing the result of `%s': its "
+                            "operation was invalidated.", operation)
+        items = [(operation, result) for operation, result in items
+                 if not result.discarded]
+
         logger.info("Starting commit process...")
 
         # Reorganize the results by submission/usertest result and
@@ -1649,6 +1690,12 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                     operation.type_, operation.object_id,
                     operation.dataset_id, operation.testcase_codename,
                     archive_sandbox=True))
+
+            # Then we drop their results that a worker has already sent
+            # but that are not written yet. If this invalidation fails
+            # before committing, those results are lost, and the sweeper
+            # computes them again.
+            self._discard_cached_results(operations)
 
             # Then we find all existing results in the database, and
             # we remove them.
