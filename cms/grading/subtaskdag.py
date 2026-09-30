@@ -29,6 +29,7 @@ declares_dependencies(), so they are graded exactly as before.
 
 """
 
+import heapq
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,9 @@ def declares_dependencies(parameters: object) -> bool:
 
     A cheap check on the raw parameters: it builds and validates nothing,
     so that datasets without dependencies never pay for, nor are affected
-    by, the rest of this module.
+    by, the rest of this module. A falsy malformed value (such as null)
+    is not "declared" here, but parse_dependencies, which every group
+    score type runs when built, still rejects it.
 
     parameters: the score type parameters of a dataset.
 
@@ -116,21 +119,21 @@ def topological_order(dependencies: list[list[int]]) -> list[int]:
         for number in deps:
             dependents[number].append(index)
     ready = [index for index, count in enumerate(remaining) if count == 0]
+    heapq.heapify(ready)
     order: list[int] = []
     while ready:
-        ready.sort()
-        current = ready.pop(0)
+        current = heapq.heappop(ready)
         order.append(current)
         for dependent in dependents[current]:
             remaining[dependent] -= 1
             if remaining[dependent] == 0:
-                ready.append(dependent)
+                heapq.heappush(ready, dependent)
     if len(order) != len(dependencies):
         in_cycle = [str(index) for index, count in enumerate(remaining)
                     if count > 0]
         raise ValueError(
-            "The subtask dependencies form a cycle among subtasks %s."
-            % ", ".join(in_cycle))
+            "The subtask dependencies form a cycle; subtasks in it or "
+            "depending on it: %s." % ", ".join(in_cycle))
     return order
 
 
