@@ -121,8 +121,25 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 </form>
 {error}
 </main>
-</body>
+{script}</body>
 </html>
+"""
+
+# Brings the hidden notice back by itself: config answers 403 while the
+# group is hidden, and 200 once it is shown again or frozen. Only on the
+# notice served to a GET: reloading the answer to a failed login would
+# post the form again, and on the frozen group's login page config always
+# answers 200, so the page would reload every 15 s under a password being
+# typed.
+NOTICE_POLL = """<script>
+setInterval(function () {
+    fetch("config", {cache: "no-store"}).then(function (r) {
+        if (r.ok) {
+            location.reload();
+        }
+    }).catch(function () {});
+}, 15000);
+</script>
 """
 
 # A bar of its own at the bottom, above everything (the scoreboard goes up
@@ -764,7 +781,7 @@ class VisibilityGuard:
         if frozen:
             return self._frozen(request, environ, start_response)
         if path == "/" and request.method in ("GET", "HEAD"):
-            return self._notice()(environ, start_response)
+            return self._notice(poll=True)(environ, start_response)
         if path == "/staff-login" and request.method == "POST":
             return self._login(request, start_response)(
                 environ, start_response)
@@ -827,11 +844,12 @@ class VisibilityGuard:
 
     def _notice(self, error: bool = False, status: int = 200,
                 message: str = HIDDEN_MESSAGE,
-                title: str = HIDDEN_TITLE) -> Response:
+                title: str = HIDDEN_TITLE, poll: bool = False) -> Response:
         body = NOTICE_TEMPLATE.format(
             group=self._escaped_group(), message=message, title=title,
             error='<p class="error">Contraseña incorrecta.</p>'
-                  if error else "")
+                  if error else "",
+            script=NOTICE_POLL if poll else "")
         return Response(body, status=status, mimetype="text/html",
                         headers=NO_STORE)
 

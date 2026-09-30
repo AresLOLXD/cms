@@ -188,6 +188,23 @@ class TestHiddenGroup(VisibilityTestCase):
         self.assertIn("<title>Ranking oculto</title>", text)
         self.assertIn('action="staff-login"', text)
 
+    def test_notice_comes_back_by_itself(self):
+        text = self.client.get("/olim/").get_data(as_text=True)
+        self.assertIn('fetch("config", {cache: "no-store"})', text)
+        self.assertIn("location.reload()", text)
+        # What it polls answers 403 while hidden, and 200 once shown.
+        self.assertEqual(self.client.get("/olim/config").status_code, 403)
+        self.put_visibility("olim", False)
+        self.assertEqual(self.client.get("/olim/config").status_code, 200)
+
+    def test_failed_login_page_does_not_poll(self):
+        # Reloading the answer to a POST would send the form again.
+        with patch("cmsranking.visibility.gevent.sleep"):
+            response = self.client.post("/olim/staff-login",
+                                        data={"password": "wrong"})
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("fetch(", response.get_data(as_text=True))
+
     def test_every_data_endpoint_is_forbidden(self):
         for path in DATA_PATHS:
             response = self.client.get("/olim/" + path)
@@ -1907,6 +1924,13 @@ class TestFrozenPublicView(VisibilityTestCase):
         self.assertIn("<title>Acceso staff</title>",
                       login.get_data(as_text=True))
         self.assertNotIn("Ranking oculto", login.get_data(as_text=True))
+
+    def test_staff_login_page_does_not_poll(self):
+        # config answers 200 while frozen: a poll would reload the page
+        # every 15 s, and wipe the password being typed.
+        with self.at(350):
+            page = self.client.get("/olim/staff-login")
+        self.assertNotIn("fetch(", page.get_data(as_text=True))
 
     def test_staff_login_works_while_frozen(self):
         with self.at(350):
