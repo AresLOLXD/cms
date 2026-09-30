@@ -130,6 +130,14 @@ ul.normal_list {
     overflow-y: auto;
 }
 
+/* Leave room below the last menu entry so it can scroll above the notice. */
+#sidebar::after {
+    content: "";
+    display: block;
+    clear: both;
+    height: 4em;
+}
+
 #sidebar_header {
     margin-bottom: 15px;
 }
@@ -219,6 +227,8 @@ ul.normal_list {
     bottom: 1.5em;
     width: 200px;
     margin-left: 15px;
+    background-color: #EAEEF3;  /* same as #sidebar, so nothing shows through */
+    padding: 0.25em 0;
 }
 
 
