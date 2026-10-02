@@ -31,6 +31,8 @@ import threading
 import typing
 
 from sqlalchemy import func, not_, literal_column, select
+from tornado.httputil import (
+    ParseBodyConfig, ParseMultipartConfig, set_parse_body_config)
 
 from cms import config, ServiceCoord, get_service_shards
 from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
@@ -47,6 +49,14 @@ if typing.TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+# Tornado rejects a multipart/form-data body with more than 100 parts
+# (400 "too many parts"), but the task page sends one part per public
+# testcase on top of the task's and every dataset's own fields. AWS
+# serves admins, not contestants, so a higher limit is an acceptable
+# risk there.
+MAX_MULTIPART_PARTS = 10_000
 
 
 class AdminWebServer(WebService):
@@ -72,6 +82,11 @@ class AdminWebServer(WebService):
             listen_address=config.admin_web_server.listen_address)
 
         self.jinja2_environment = AWS_ENVIRONMENT
+
+        # Tornado's limit is global, but each service runs in its own
+        # process, so this leaves CWS with the default.
+        set_parse_body_config(ParseBodyConfig(
+            multipart=ParseMultipartConfig(max_parts=MAX_MULTIPART_PARTS)))
 
         # A list of pending notifications, appended to and drained
         # from executor threads; guarded by notifications_lock.
