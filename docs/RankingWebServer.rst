@@ -1,6 +1,12 @@
 RankingWebServer
 ****************
 
+.. note::
+
+   In this fork one Ranking Web Server can serve several scoreboards, one
+   per ranking group, and each can be hidden or frozen on a schedule. See
+   :doc:`multi-contest`.
+
 Description
 ===========
 

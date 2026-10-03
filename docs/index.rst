@@ -12,6 +12,7 @@ users from the Admin Web Server.
    :caption: Getting started
 
    Introduction
+   docker-deployment
    docker-scripts
    Installation
    Docker image

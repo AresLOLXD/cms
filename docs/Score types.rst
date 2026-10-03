@@ -1,6 +1,12 @@
 Score types
 ***********
 
+.. note::
+
+   In this fork a subtask can depend on other subtasks: if a dependency
+   scores 0, the subtask is worth 0 and is not graded. See
+   :doc:`subtask-dependencies`.
+
 Introduction
 ============
 
