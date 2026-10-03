@@ -85,7 +85,7 @@ Shows whether all services are running correctly. Lists each container (a lightw
 
 ### logs.sh
 
-Shows a live stream of what every service is doing — useful for debugging problems. Press `Ctrl+C` to stop watching and return to the terminal prompt.
+Shows the last 100 lines of what every service logged — useful for debugging problems. Arguments are passed to `docker compose logs`: add `-f` to keep following the logs (press `Ctrl+C` to stop), `--tail 2000` for more lines, or a service name (`cms`, `ranking`) to see only that one.
 
 ```bash
 ./logs.sh
@@ -112,7 +112,7 @@ Changes which contest is currently active. It shows you the list of contests alr
 
 ### export.sh
 
-Creates a backup of contest data as a `.zip` file in the `dumps/` folder. Asks which contests to back up, the filename to use, and whether to leave out submissions, user accounts, or generated files.
+Creates a backup of contest data as a `.tar.gz` file in the `dumps/` folder. Asks which contests to back up, the filename to use, and whether to leave out submissions, user accounts, or generated files.
 
 ```bash
 ./export.sh
@@ -122,7 +122,7 @@ The backup file is saved to `dumps/` at the project root and is ready to use imm
 
 ### import.sh
 
-Restores contest data from a `.zip` backup file created by `export.sh`. Lists the available backups in `dumps/`, lets you pick one, and walks you through the options — including whether to wipe the database first (useful for a full restore from scratch).
+Restores contest data from a backup file created by `export.sh`. Lists the available backups in `dumps/`, lets you pick one, and walks you through the options — including whether to wipe the database first (useful for a full restore from scratch).
 
 ```bash
 ./import.sh
