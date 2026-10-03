@@ -45,7 +45,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
-from sqlalchemy import select, func
+from sqlalchemy import inspect, select, func
 from sqlalchemy.orm.exc import NoResultFound
 
 from cms import config
@@ -262,6 +262,11 @@ class LoginHandler(ContestHandler):
         if participation is None:
             self.redirect(error_page)
         else:
+            # The login expired the participation: read its id from the
+            # identity key, as loading it again would need the database.
+            self.service.activity_recorder.record(
+                inspect(participation).identity[0], self.get_device_id(),
+                self.request.remote_ip, self.timestamp, login=True)
             self.redirect(next_page)
 
 
@@ -290,6 +295,11 @@ class LogoutHandler(ContestHandler):
     """
     @multi_contest
     def post(self):
+        participation: Participation | None = self.current_user
+        if participation is not None and not self.impersonated_by_admin:
+            self.service.activity_recorder.record_logout(
+                participation.id, self.activity_device_id,
+                self.request.remote_ip, self.timestamp)
         self.clear_cookie(self.contest.name + "_login")
         self.redirect(self.contest_url())
 

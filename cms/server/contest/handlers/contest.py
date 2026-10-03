@@ -35,6 +35,7 @@ import ipaddress
 import json
 import logging
 import typing
+import uuid
 
 import collections
 
@@ -67,6 +68,11 @@ NOTIFICATION_ERROR = "error"
 NOTIFICATION_WARNING = "warning"
 NOTIFICATION_SUCCESS = "success"
 
+# Anonymous id of the browser, for the participant activity log. It is
+# global (not per contest), so a computer is recognized in every contest.
+DEVICE_COOKIE_NAME = "cms_device"
+DEVICE_COOKIE_DAYS = 365
+
 
 class ContestHandler(BaseHandler):
     """A handler that has a contest attached.
@@ -81,6 +87,11 @@ class ContestHandler(BaseHandler):
         self.contest_url: Url = None
         self.contest: Contest
         self.impersonated_by_admin = False
+        # Device of the current request for the activity log: None
+        # until get_current_user() authenticates it, and for clients
+        # authenticated by the X-CMS-Authorization header.
+        self.activity_device_id: uuid.UUID | None = None
+        self._device_id: uuid.UUID | None = None
 
     async def prepare(self):
         await self.choose_contest()
@@ -196,7 +207,35 @@ class ContestHandler(BaseHandler):
             )
 
         self.impersonated_by_admin = impersonated
+        if participation is not None and not impersonated:
+            self.activity_device_id = \
+                None if authorization_header is not None \
+                else self.get_device_id()
+            self.service.activity_recorder.record(
+                participation.id, self.activity_device_id,
+                self.request.remote_ip, self.timestamp)
         return participation
+
+    def get_device_id(self) -> uuid.UUID:
+        """Return the anonymous id of the browser, issuing it if needed.
+
+        The id lives in the signed cms_device cookie. A missing,
+        expired or badly signed cookie is replaced by a new random id.
+
+        return: the device id.
+
+        """
+        if self._device_id is None:
+            value = self.get_secure_cookie(
+                DEVICE_COOKIE_NAME, max_age_days=DEVICE_COOKIE_DAYS)
+            try:
+                self._device_id = uuid.UUID(value.decode("ascii"))
+            except (AttributeError, UnicodeDecodeError, ValueError):
+                self._device_id = uuid.uuid4()
+                self.set_secure_cookie(
+                    DEVICE_COOKIE_NAME, str(self._device_id),
+                    expires_days=DEVICE_COOKIE_DAYS, httponly=True)
+        return self._device_id
 
     def render_params(self):
         ret = super().render_params()
