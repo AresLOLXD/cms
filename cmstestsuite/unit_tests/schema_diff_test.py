@@ -8,6 +8,8 @@ from cms.db.drop import drop_db
 from cms.db.init import init_db
 from cms.db.session import custom_psycopg2_connection
 from cmscontrib.updaters.fork_multi_contest import FORK_MULTI_CONTEST_SQL
+from cmscontrib.updaters.fork_activity_intervals import \
+    FORK_ACTIVITY_INTERVALS_SQL
 
 """
 Compare the DB schema obtained from upgrading an older version's database using
@@ -148,7 +150,11 @@ def get_updated_schema(schema_file: str, updater_file: str) -> str:
     updater_sql = open(updater_file).read()
     # We need to do this in two separate connections, since the schema_sql sets
     # some connection properties which we don't want.
-    for sql in [schema_sql, updater_sql, FORK_MULTI_CONTEST_SQL]:
+    # The fork's updates run twice: cmsSetupDB applies them at every
+    # start, so they must be idempotent.
+    for sql in [schema_sql, updater_sql,
+                FORK_MULTI_CONTEST_SQL, FORK_ACTIVITY_INTERVALS_SQL,
+                FORK_MULTI_CONTEST_SQL, FORK_ACTIVITY_INTERVALS_SQL]:
         conn = custom_psycopg2_connection()
         cursor = conn.cursor()
         cursor.execute(sql)

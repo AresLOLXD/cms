@@ -22,8 +22,10 @@
 import ipaddress
 from datetime import datetime, timedelta
 import typing
+import uuid
 
-from sqlalchemy.dialects.postgresql import ARRAY, CIDR, JSONB, OID
+from sqlalchemy.dialects.postgresql import ARRAY, CIDR, INET, JSONB, OID, \
+    UUID
 from sqlalchemy.ext.declarative import as_declarative
 from sqlalchemy.orm import \
     class_mapper, object_mapper, ColumnProperty, RelationshipProperty
@@ -58,6 +60,8 @@ _TYPE_MAP = {
     CastingArray: list,
     FilenameSchemaArray: list,
     CIDR: (ipaddress.IPv4Network, ipaddress.IPv6Network),
+    INET: str,
+    UUID: uuid.UUID,
     JSONB: object,
 }
 
