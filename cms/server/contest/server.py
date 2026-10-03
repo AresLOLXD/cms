@@ -37,7 +37,7 @@
 
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 from cms import ConfigError, ServiceCoord, config
@@ -46,6 +46,7 @@ from cms.io.static_handler import MultiLocationStaticFileHandler
 from cms.locale import get_translations
 from cms.server.contest.jinja2_toolbox import CWS_ENVIRONMENT
 from cmscommon.binary import hex_to_bin
+from .activity import ActivityRecorder
 from .handlers import HANDLERS
 from .handlers.base import ContestListHandler
 from .handlers.main import MainHandler
@@ -122,6 +123,18 @@ class ContestWebServer(WebService):
         self.proxy_service = self.connect_to(
             ServiceCoord("ProxyService", 0),
             must_be_present=ranking_enabled)
+
+        self.activity_recorder = ActivityRecorder(timedelta(
+            seconds=config.contest_web_server.activity_inactivity_threshold))
+        self.add_timeout(self.activity_recorder.flush, None,
+                         config.contest_web_server.activity_flush_interval)
+
+    async def _async_run(self) -> bool:
+        try:
+            return await super()._async_run()
+        finally:
+            # The HTTP server has stopped: store what is left.
+            await self.activity_recorder.flush()
 
     def add_notification(
         self, username: str, timestamp: datetime, subject: str, text: str, level: str

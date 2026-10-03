@@ -156,6 +156,13 @@ docs_path = "/usr/share/cms/docs"
 # impersonate an arbitrary user and bypass submit restrictions.
 #contest_admin_token = "CHANGE-ME"
 
+# Participant activity log (AWS > contest > Activity). Each CWS buffers
+# the activity in memory and writes it every activity_flush_interval
+# seconds. activity_inactivity_threshold seconds without requests end
+# an interval of activity.
+activity_flush_interval = 60
+activity_inactivity_threshold = 1800
+
 
 [admin_web_server]
 # Listening HTTP address and port for the AWS. By default only listens

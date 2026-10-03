@@ -21,7 +21,10 @@
 """
 
 import unittest
+from unittest.mock import AsyncMock, patch
 
+from cms import config
+from cms.io import WebService
 from cms.server.contest.server import ContestWebServer
 
 
@@ -38,6 +41,25 @@ class TestConstruction(unittest.TestCase):
     def test_constructs_without_raising(self):
         server = ContestWebServer(0)
         self.assertIsNone(server.contest_id)
+
+
+class TestActivityFlush(unittest.IsolatedAsyncioTestCase):
+    """The activity log is flushed periodically and at shutdown."""
+
+    def test_flush_is_scheduled_every_flush_interval(self):
+        with patch.object(ContestWebServer, "add_timeout") as add_timeout:
+            server = ContestWebServer(0)
+        add_timeout.assert_any_call(
+            server.activity_recorder.flush, None,
+            config.contest_web_server.activity_flush_interval)
+
+    async def test_shutdown_flushes_what_is_left(self):
+        server = ContestWebServer(0)
+        server.activity_recorder.flush = AsyncMock()
+        with patch.object(WebService, "_async_run",
+                          AsyncMock(return_value=True)):
+            self.assertTrue(await server._async_run())
+        server.activity_recorder.flush.assert_awaited_once_with()
 
 
 if __name__ == "__main__":
