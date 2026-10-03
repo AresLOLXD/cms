@@ -43,16 +43,15 @@ Docker-based deployment workflow and several OMI-specific integrations on top
 of the upstream CMS project, so you can go from a fresh machine to a running
 contest without manually installing dependencies.
 
-**`main` stays closely aligned with [upstream](#upstream-project)** and is
-what real contests should run. Larger, in-progress experiments — new
-features and deeper modernization work (e.g. updating long-pinned
-dependencies) that we don't want to wait on upstream for — happen on the
-**`beta`** branch instead, before they're considered stable enough to land
-here.
+**`main` is the only line of this fork** and is what real contests should
+run. It merges [upstream](#upstream-project) regularly (`./sync-upstream.sh`)
+and keeps the fork's own features and modernization work on top. The former
+`beta` branch, where that work used to happen, was merged into `main` on
+2026-09-30 and deleted.
 
-### Beta-line modernization
+### Modernization
 
-The main effort on `beta` right now is retiring gevent in favor of Python's
+The main modernization effort is retiring gevent in favor of Python's
 native `asyncio`, one layer of the system at a time:
 
 | Stage | Status | What it does |
@@ -66,7 +65,7 @@ native `asyncio`, one layer of the system at a time:
 | ContestWebServer handlers | Planned | Same migration for the contestant-facing server |
 
 Each stage (except Service migration, which was coordinated per-service) has a written design spec under
-[`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `beta`
+[`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `main`
 once implemented, reviewed, and its tests pass. `docker/_cms-test-internal.sh`
 also gained a gevent/asyncio-aware test split so both the legacy and
 migrated code can be tested in CI without the two colliding.
@@ -87,6 +86,7 @@ migrated code can be tested in CI without the two colliding.
 | Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
 | External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it, plus optional two-phase fail-fast grading (`CMS_TWO_PHASE_EVALUATION`) that screens a few testcases per subtask before running the rest | [.env.example](.env.example) |
 | Several contests at once | `CMS_CONTEST_ID=ALL` serves every active contest; each ranking group gets its own scoreboard at `/<group>/`, managed and regenerated from the Admin Web Server | [docs/multi-contest.md](docs/multi-contest.md), [migration guide](docs/migrating-to-multi-contest.md) |
+| Contest-day checklist | What to check the week before, at the start, during and at the end of a contest, and what to do when something goes wrong (English and Spanish) | [docs/contest-day.md](docs/contest-day.md), [español](docs/contest-day.es.md) |
 
 ---
 

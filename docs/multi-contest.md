@@ -49,6 +49,20 @@ changing staff passwords also apply immediately.
 4. Open `http://<server>:<CMS_RWS_HTTP_PORT>/<group>/` to check each
    scoreboard.
 
+## On the exam day
+
+The step-by-step checklist is [contest-day.md](contest-day.md). The points
+that matter most with several contests at once:
+
+- The workers and the Contest Web Server processes serve all the
+  simultaneous contests: size `CMS_WORKER_COUNT` and `CMS_CWS_COUNT` for the
+  combined load, and keep the Contest Web Server port range clear of the
+  Admin and Ranking ports.
+- Publish a final ranking only once the evaluation has finished: on the
+  contest's **Overview**, **Queue status** reads "Queue empty." and
+  **Submissions status** has no **Compiling...**, **Evaluating...** or
+  **Scoring...** row left. After the end this can take a few minutes.
+
 ## After the exam
 
 - Untick **Active** to hide the contest from contestants. Its scoreboard stays
@@ -95,6 +109,36 @@ ranking groups: the change may not have reached the scoreboards.
 The **Root ranking** row is the scoreboard at `/`. It is only used when a
 single contest is served (`CMS_CONTEST_ID=<id>`). After switching to
 `CMS_CONTEST_ID=ALL`, regenerate it once to clear the old data.
+
+## Removing an old scoreboard
+
+Renaming or deleting a ranking group leaves its old scoreboard on the
+Ranking Web Server: `/<old name>/` is still served, empty, with the last hide
+or freeze setting it had, and its directory (teams, flags, faces, logo,
+visibility) stays on disk. If ProxyService was down when the group was
+renamed or deleted, the old scoreboard may even keep its data. Nothing in the
+Admin Web Server removes it. To remove it, delete its directory and restart
+the ranking container. Set `OLD` to the old group name and `PROJECT` to
+`CMS_PROJECT_NAME` from `.env` (`cms-prod` if it is unset); the check stops
+the command if `OLD` is empty, which would delete every scoreboard:
+
+    OLD=olim
+    PROJECT=cms-prod
+    [ -n "$OLD" ] && docker compose -f docker/docker-compose.prod.yml \
+        --env-file .env -p "$PROJECT" exec ranking \
+        rm -rf -- "/home/cmsuser/cms/lib/ranking/groups/$OLD"
+    docker compose -f docker/docker-compose.prod.yml --env-file .env \
+        -p "$PROJECT" restart ranking
+
+Both steps are needed: the Ranking Web Server keeps the scoreboard in memory
+until it restarts, and it loads every directory again when it starts.
+Restarting it reloads the other groups from disk; their open pages reconnect or
+reload by themselves. Do it outside a contest.
+
+Then open `/<old name>/` on the Ranking Web Server: it must answer 404. If it
+is back, ProxyService still had an update queued for the old name and
+recreated it; it is then visible to everyone, with no data. Wait a few
+minutes and remove it again.
 
 ## Hiding and freezing a ranking (staff view)
 

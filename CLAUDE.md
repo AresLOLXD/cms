@@ -79,7 +79,7 @@ cmsDropDB && cmsInitDB      # reset the database
 
 ## Architecture
 
-CMS is a **service-oriented system** where each component is a long-running process communicating via **JSON-RPC over TCP**. On the `beta` branch, most services use asyncio (defined in `cms/io/async_rpc.py`), while `Worker`, `cmsranking`, and some `cmscontrib` tools still use gevent (defined in `cms/io/rpc.py`). Services discover each other through `cms.conf` (TOML, default location `~/.config/cms/cms.conf` or `config/cms.sample.toml` for reference).
+CMS is a **service-oriented system** where each component is a long-running process communicating via **JSON-RPC over TCP**. Most services use asyncio (defined in `cms/io/async_rpc.py`), while `Worker`, `cmsranking`, and some `cmscontrib` tools still use gevent (defined in `cms/io/rpc.py`). Services discover each other through `cms.conf` (TOML, default location `~/.config/cms/cms.conf` or `config/cms.sample.toml` for reference).
 
 ### Core packages
 
