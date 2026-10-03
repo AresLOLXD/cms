@@ -18,9 +18,11 @@
 """
 
 import asyncio
+import csv
 import functools
+import io
 import ipaddress
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import tornado.web
 from sqlalchemy import Select, and_, distinct, func, or_, select
@@ -30,12 +32,17 @@ from sqlalchemy.types import DateTime
 
 from cms import config
 from cms.db import ActivityInterval, Contest, Participation, User
-from cms.db.activity import activity_end_reason
+from cms.db.activity import ACTIVITY_END_INACTIVITY, ACTIVITY_END_LOGOUT, \
+    activity_end_reason
 from cmscommon.datetime import get_timezone, make_datetime
 from .base import BaseHandler, require_permission
 
 
 ACTIVITY_PAGE_SIZE = 100
+CSV_BATCH_SIZE = 1000
+CSV_HEADER = ["username", "first_name", "last_name", "device_id", "ip",
+              "started_at", "last_seen_at", "ended_at", "end_reason",
+              "started_by"]
 
 IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
@@ -231,6 +238,49 @@ def activity_render_params(
     }
 
 
+def iso_utc(dt: datetime | None) -> str:
+    """Return a stored (naive UTC) time in ISO 8601 with its offset.
+
+    dt: the time, or None.
+
+    return: the formatted time, or an empty string for None.
+
+    """
+    return "" if dt is None else dt.replace(tzinfo=timezone.utc).isoformat()
+
+
+def csv_row(row: Row, now: datetime) -> list[str]:
+    """Return the CSV fields of an interval from select_intervals.
+
+    row: the interval.
+    now: the current time, to tell active intervals from ended ones.
+
+    return: the fields, in the order of CSV_HEADER.
+
+    """
+    reason = activity_end_reason(
+        row.logged_out_at, row.last_seen_at, now, inactivity_threshold())
+    ended_at = {ACTIVITY_END_LOGOUT: row.logged_out_at,
+                ACTIVITY_END_INACTIVITY: row.last_seen_at}.get(reason)
+    return [row.username, row.first_name, row.last_name,
+            "" if row.device_id is None else str(row.device_id),
+            row.ip, iso_utc(row.started_at), iso_utc(row.last_seen_at),
+            iso_utc(ended_at), reason, row.started_by]
+
+
+def format_csv_rows(rows) -> str:
+    """Return rows of fields as CSV text.
+
+    rows (iterable of list of str): the rows.
+
+    return: the CSV text.
+
+    """
+    output = io.StringIO()
+    csv.writer(output).writerows(rows)
+    return output.getvalue()
+
+
 class ContestActivityHandler(BaseHandler):
     """Shows the participants' activity in a contest, with its alerts.
 
@@ -281,3 +331,64 @@ class ContestActivityHandler(BaseHandler):
     async def get(self, contest_id: str):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._get_sync, contest_id)
+
+
+class ContestActivityCsvHandler(BaseHandler):
+    """Downloads the participants' activity in a contest as CSV.
+
+    The rows are streamed in batches of CSV_BATCH_SIZE, read by
+    increasing id, so that the whole log never sits in memory and the
+    database connection is given back between batches.
+
+    """
+    def _read_filters_sync(
+        self, contest_id: str
+    ) -> tuple[str, IPNetwork | None]:
+        try:
+            self.safe_get_item(Contest, contest_id)
+            return parse_activity_filters(
+                self.get_query_argument("username", ""),
+                self.get_query_argument("ip", ""))
+        finally:
+            self.sql_session.rollback()
+
+    def _fetch_batch_sync(
+        self,
+        contest_id: str,
+        username: str,
+        network: IPNetwork | None,
+        after_id: int,
+    ) -> list[Row]:
+        try:
+            return self.sql_session.execute(
+                select_intervals(int(contest_id), username, network)
+                .where(ActivityInterval.id > after_id)
+                .order_by(ActivityInterval.id)
+                .limit(CSV_BATCH_SIZE)).all()
+        finally:
+            # Give the connection back while the batch is sent.
+            self.sql_session.rollback()
+
+    async def _get_csv(self, contest_id: str):
+        loop = asyncio.get_running_loop()
+        username, network = await loop.run_in_executor(
+            None, self._read_filters_sync, contest_id)
+        now = make_datetime()
+        self.set_header("Content-Type", "text/csv")
+        self.set_header("Content-Disposition",
+                        "attachment; filename=\"activity.csv\"")
+        self.write(format_csv_rows([CSV_HEADER]))
+        after_id = 0
+        while True:
+            rows = await loop.run_in_executor(
+                None, self._fetch_batch_sync, contest_id, username,
+                network, after_id)
+            if not rows:
+                break
+            self.write(format_csv_rows(csv_row(row, now) for row in rows))
+            await self.flush()
+            after_id = rows[-1].id
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self, contest_id: str):
+        await self._get_csv(contest_id)
