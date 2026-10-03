@@ -17,7 +17,7 @@ error is raised.
 
 Open `.env` and fill in:
 
-```env
+```bash
 # Random 32+ character string to sign session cookies.
 # Generate one with: openssl rand -base64 32
 CMS_LOADER_SESSION_SECRET=<your-secret>
@@ -78,7 +78,7 @@ On success, a confirmation message is shown in the UI. Users can then log in imm
 By default the image is built from the `main` branch of CMS-Loader. To pin to
 a specific release, set `CMS_LOADER_VERSION` in `.env` before building:
 
-```env
+```bash
 CMS_LOADER_VERSION=v1.0.0
 ```
 

@@ -27,13 +27,13 @@ sys.path.insert(0, os.path.abspath('.'))
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc', 'gh_links']
+extensions = ['myst_parser', 'gh_links']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
 # The suffix of source filenames.
-source_suffix = '.rst'
+source_suffix = {'.rst': 'restructuredtext', '.md': 'markdown'}
 
 # The encoding of source files.
 #source_encoding = 'utf-8-sig'
@@ -42,7 +42,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = "CMS"
+project = "CMS (OMI fork)"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-copyright
 copyright = "2011-%Y, The CMS development team"
 
@@ -71,7 +71,9 @@ with open("../pyproject.toml", 'rb') as f:
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['_build']
+# superpowers/ holds internal specs and plans; locale/ and tests/ are not
+# pages.
+exclude_patterns = ['_build', 'superpowers', 'locale', 'tests']
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -98,15 +100,12 @@ pygments_style = 'sphinx'
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-html_theme = 'alabaster'
+html_theme = 'furo'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
-html_theme_options = {
-    'fixed_sidebar': True,
-    'description': "Version " + version,
-}
+html_title = "CMS (OMI fork) " + version
 
 # Add any paths that contain custom themes here, relative to this directory.
 #html_theme_path = []
@@ -252,3 +251,12 @@ texinfo_documents = [
 
 # How to display URL addresses: 'footnote', 'no', or 'inline'.
 #texinfo_show_urls = 'footnote'
+
+# -- Translations ------------------------------------------------------
+# English is the source. Read the Docs passes -D language=<lang> for each
+# project; a local Spanish build passes -D language=es.
+language = 'en'
+locale_dirs = ['locale/']
+gettext_compact = False
+# Without source locations a .po only changes when its text changes.
+gettext_location = False
