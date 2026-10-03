@@ -1,5 +1,17 @@
 # Copyright © 2026 Ares Ulises Juárez Martínez <aresulises8@hotmail.com>
-# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """Tests for the buffered recording of the participants' activity.
 
@@ -18,7 +30,8 @@ from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms.db import ActivityInterval, Participation, Session
 from cms.db.async_session import async_engine
-from cms.server.contest.activity import ActivityRecorder, PendingSegment
+from cms.server.contest.activity import (ActivityRecorder, PendingSegment,
+                                         write_pending_activity)
 
 
 THRESHOLD = timedelta(minutes=30)
@@ -232,6 +245,81 @@ class TestFlush(FlushTestBase):
         other_shard.record(self.participation_id, DEVICE, IP, minutes(1))
 
         await asyncio.gather(self.recorder.flush(), other_shard.flush())
+
+        [interval] = self.intervals()
+        self.assertEqual(interval.started_at, minutes(0))
+        self.assertEqual(interval.last_seen_at, minutes(1))
+
+    async def test_activity_recorded_during_a_flush_waits_for_the_next_one(
+        self,
+    ):
+        self.recorder.record(self.participation_id, DEVICE, IP, minutes(0))
+
+        async def patched_write(session, pending, inactivity_threshold):
+            # Record activity while the flush is in flight.
+            self.recorder.record(
+                self.participation_id, DEVICE, IP, minutes(1))
+            # Now do the actual flush.
+            return await write_pending_activity(
+                session, pending, inactivity_threshold)
+
+        with patch("cms.server.contest.activity.write_pending_activity",
+                   side_effect=patched_write):
+            await self.recorder.flush()
+
+        # After the flush, pending() should have only the minutes(1) segment
+        # (the minutes(0) was written).
+        pending = self.recorder.pending()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(len(pending[(self.participation_id, DEVICE, IP)]), 1)
+        self.assertEqual(
+            pending[(self.participation_id, DEVICE, IP)][0].first_seen,
+            minutes(1))
+
+        # DB has one interval ending at minutes(0).
+        [interval] = self.intervals()
+        self.assertEqual(interval.started_at, minutes(0))
+        self.assertEqual(interval.last_seen_at, minutes(0))
+
+        # A second flush extends that same interval to minutes(1).
+        await self.recorder.flush()
+
+        [interval] = self.intervals()
+        self.assertEqual(interval.started_at, minutes(0))
+        self.assertEqual(interval.last_seen_at, minutes(1))
+
+    async def test_activity_recorded_during_a_failed_flush_follows_the_old_one(
+        self,
+    ):
+        self.recorder.record(self.participation_id, DEVICE, IP, minutes(0))
+
+        async def failing_write(session, pending, inactivity_threshold):
+            # Record activity while the flush is in flight.
+            self.recorder.record(
+                self.participation_id, DEVICE, IP, minutes(1))
+            # Then fail the flush.
+            raise OSError("database unavailable")
+
+        with patch("cms.server.contest.activity.write_pending_activity",
+                   side_effect=failing_write), \
+                self.assertLogs("cms.server.contest.activity", "ERROR"):
+            await self.recorder.flush()
+
+        # pending() should have both segments in order (minutes(0) from the
+        # failed flush, then minutes(1) from during the failed flush).
+        pending = self.recorder.pending()
+        segments = pending[(self.participation_id, DEVICE, IP)]
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0].first_seen, minutes(0))
+        self.assertEqual(segments[0].last_seen, minutes(0))
+        self.assertEqual(segments[1].first_seen, minutes(1))
+        self.assertEqual(segments[1].last_seen, minutes(1))
+
+        # The DB is still empty.
+        self.assertEqual(self.intervals(), [])
+
+        # The next real flush writes one interval minutes(0)..minutes(1).
+        await self.recorder.flush()
 
         [interval] = self.intervals()
         self.assertEqual(interval.started_at, minutes(0))
