@@ -12,7 +12,7 @@ These six scripts handle everything needed to start, stop, and manage the contes
   ```bash
   cp .env.example .env
   ```
-  Then open `.env` in a text editor (nano, gedit, VS Code, or whatever you normally use) and change every value marked `CHANGE_ME`. At minimum: `CMS_DB_URL` password, `POSTGRES_PASSWORD`, `CMS_SECRET_KEY`, `CMS_ADMIN_USER`, and `CMS_ADMIN_PASSWORD`.
+  Then open `.env` in a text editor (nano, gedit, VS Code, or whatever you normally use) and change every value marked `CHANGE_ME`. At minimum: `CMS_DB_URL` password, `POSTGRES_PASSWORD`, `CMS_SECRET_KEY`, `CMS_ADMIN_USER`, `CMS_ADMIN_PASSWORD`, and `CMS_RWS_PASSWORD`.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ Follow these steps to start the contest system for the first time:
    ./up.sh
    ```
 
-3. **Answer the first question:** `Use local database (Docker)? [y/N]`
+3. **Answer the first question:** `Use local PostgreSQL container? [y/N]`
    - Answer **`y`** if you want these scripts to manage the database (most common for new setups).
    - Answer **`n`** only if you already have a PostgreSQL database running somewhere else.
 
@@ -39,8 +39,8 @@ Follow these steps to start the contest system for the first time:
    [+] Running 4/4
     ✓ Container cms-prod-db-1           Created
     ✓ Container cms-prod-db-init-1      Created
+    ✓ Container cms-prod-ranking-1      Created
     ✓ Container cms-prod-cms-1          Created
-    ✓ Container cms-prod-cws-1          Created
    ```
    The system takes about 30-60 seconds to fully start. Services may not respond immediately.
 
