@@ -18,8 +18,12 @@
 """
 
 import json
+import time
 import unittest
 import uuid
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from http.cookies import SimpleCookie
 
 import tornado.web
 from tornado.httpclient import HTTPResponse
@@ -28,7 +32,8 @@ from cmstestsuite.unit_tests.server.contest.xsrf_error_page_test import \
     CwsTestBase
 
 from cms.db import Participation, User
-from cms.server.contest.handlers.contest import DEVICE_COOKIE_NAME
+from cms.server.contest.handlers.contest import \
+    DEVICE_COOKIE_DAYS, DEVICE_COOKIE_NAME
 from cmscommon.datetime import make_datetime, make_timestamp
 
 
@@ -53,9 +58,11 @@ class ActivityHandlersTests:
     def pending(self) -> dict:
         return self.cws.activity_recorder.pending()
 
-    def signed(self, name: str, value: str) -> str:
+    def signed(self, name: str, value: str, age_days: int = 0) -> str:
+        """Sign a cookie value as the server does, as of age_days ago."""
         return tornado.web.create_signed_value(
-            self.cws.application.settings["cookie_secret"], name, value
+            self.cws.application.settings["cookie_secret"], name, value,
+            clock=lambda: time.time() - age_days * 86400
         ).decode()
 
     async def get_with(self, path: str, cookies: dict[str, str] | None = None,
@@ -107,15 +114,109 @@ class ActivityHandlersTests:
         self.assertEqual(len(segments), 1)
         self.assertGreater(segments[0].last_seen, segments[0].first_seen)
 
-    async def test_badly_signed_device_cookie_is_replaced(self):
+    async def test_requests_without_a_device_cookie_share_one_key(self):
         cookies = await self.login()
-        cookies[DEVICE_COOKIE_NAME] = "forged"
+        device = self.device_of(cookies)
+        # A client that keeps no cookie jar: it only sends the login cookie.
+        login_only = {self.login_cookie_name: cookies[self.login_cookie_name]}
+
+        for _ in range(3):
+            response = await self.get_with(self.main_page, login_only)
+            self.assertEqual(response.code, 200)
+
+        keys = list(self.pending())
+        self.assertIn((self.participation_id, device, "127.0.0.1"), keys)
+        self.assertLessEqual(len(keys), 2)
+        self.assertEqual([key[1] for key in keys if key[1] != device],
+                         [None] * (len(keys) - 1))
+
+    async def assert_device_cookie_is_replaced(
+            self, device_cookie: str, presented: uuid.UUID | None = None):
+        """Check a request presenting device_cookie is not given its device.
+
+        The request is recorded with no device, and the response issues
+        a new cookie, which then identifies the following requests.
+
+        device_cookie: the value of the cms_device cookie to present.
+        presented: the device the cookie names, if it is well formed.
+
+        """
+        cookies = await self.login()
+        self.pending().clear()
+        cookies[DEVICE_COOKIE_NAME] = device_cookie
 
         response = await self.get_with(self.main_page, cookies)
 
-        new_device = self.device_of(self.set_cookies(response))
+        self.assertEqual(response.code, 200)
+        self.assertEqual(list(self.pending()),
+                         [(self.participation_id, None, "127.0.0.1")])
+        new_cookies = self.set_cookies(response)
+        new_device = self.device_of(new_cookies)
+        self.assertNotEqual(new_device, presented)
+
+        cookies[DEVICE_COOKIE_NAME] = new_cookies[DEVICE_COOKIE_NAME]
+        response = await self.get_with(self.main_page, cookies)
+
+        self.assertEqual(response.code, 200)
+        self.assertNotIn(DEVICE_COOKIE_NAME, self.set_cookies(response))
         self.assertIn((self.participation_id, new_device, "127.0.0.1"),
                       self.pending())
+
+    async def test_badly_signed_device_cookie_is_replaced(self):
+        await self.assert_device_cookie_is_replaced("forged")
+
+    async def test_unsigned_device_cookie_is_replaced(self):
+        device = uuid.uuid4()
+        await self.assert_device_cookie_is_replaced(str(device), device)
+
+    async def test_device_cookie_signed_for_another_name_is_replaced(self):
+        device = uuid.uuid4()
+        await self.assert_device_cookie_is_replaced(
+            self.signed(self.login_cookie_name, str(device)), device)
+
+    async def test_signed_value_that_is_not_an_id_is_replaced(self):
+        await self.assert_device_cookie_is_replaced(
+            self.signed(DEVICE_COOKIE_NAME, "not-a-uuid"))
+
+    async def test_expired_device_cookie_is_replaced(self):
+        device = uuid.uuid4()
+        await self.assert_device_cookie_is_replaced(
+            self.signed(DEVICE_COOKIE_NAME, str(device),
+                        age_days=DEVICE_COOKIE_DAYS + 35), device)
+
+    async def test_old_device_cookie_is_still_accepted(self):
+        # Older than Tornado's default 31 days, newer than the cookie's life.
+        device = uuid.uuid4()
+        cookies = await self.login()
+        self.pending().clear()
+        cookies[DEVICE_COOKIE_NAME] = self.signed(
+            DEVICE_COOKIE_NAME, str(device), age_days=40)
+
+        response = await self.get_with(self.main_page, cookies)
+
+        self.assertEqual(response.code, 200)
+        self.assertNotIn(DEVICE_COOKIE_NAME, self.set_cookies(response))
+        self.assertEqual(list(self.pending()),
+                         [(self.participation_id, device, "127.0.0.1")])
+
+    async def test_device_cookie_is_http_only_and_lasts_a_year(self):
+        token = await self.fetch_xsrf_token()
+        response = await self.post(
+            self.contest_path + "/login",
+            {"username": "myuser", "password": "mypass", "_xsrf": token},
+            cookies={"_xsrf": token})
+
+        jar = SimpleCookie()
+        for header in response.headers.get_list("Set-Cookie"):
+            jar.load(header)
+        morsel = jar[DEVICE_COOKIE_NAME]
+        self.assertTrue(morsel["httponly"])
+        if morsel["max-age"]:
+            lifetime = int(morsel["max-age"])
+        else:
+            lifetime = (parsedate_to_datetime(morsel["expires"])
+                        - datetime.now(timezone.utc)).total_seconds()
+        self.assertAlmostEqual(lifetime, 365 * 86400, delta=86400)
 
     async def test_logout_records_the_logout(self):
         cookies = await self.login()
