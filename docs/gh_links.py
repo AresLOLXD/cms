@@ -21,12 +21,17 @@ from docutils import nodes, utils
 
 from sphinx.util.nodes import split_explicit_title
 
+# File links show the fork's code. Issue numbers in the upstream pages
+# refer to upstream's tracker, so they keep pointing there.
+FORK_URL = 'https://github.com/AresLOLXD/cms'
+UPSTREAM_URL = 'https://github.com/cms-dev/cms'
+
 def gh_issue(typ, rawtext, text, lineno, inliner, options={}, content=[]):
     text = utils.unescape(text)
     has_explicit_title, title, part = split_explicit_title(text)
     if not has_explicit_title:
         title = 'issue #%s' % part
-    full_url = 'https://github.com/cms-dev/cms/issues/%s' % part
+    full_url = '%s/issues/%s' % (UPSTREAM_URL, part)
 
     retnode = nodes.reference(title, title, internal=False, refuri=full_url, **options)
     return [retnode], []
@@ -34,7 +39,8 @@ def gh_issue(typ, rawtext, text, lineno, inliner, options={}, content=[]):
 def make_gh_download(app):
     def gh_download(typ, rawtext, text, lineno, inliner, options={}, content=[]):
         title = utils.unescape(text)
-        full_url = 'https://github.com/cms-dev/cms/releases/download/v%(ver)s/v%(ver)s.tar.gz' % {"ver": app.config.release}
+        # The fork publishes no releases: download the main branch.
+        full_url = '%s/archive/refs/heads/main.tar.gz' % FORK_URL
 
         retnode = nodes.reference(title, title, internal=False, refuri=full_url, **options)
         return [retnode], []
@@ -46,7 +52,7 @@ def make_gh_tree(app):
         has_explicit_title, title, part = split_explicit_title(text)
         if not has_explicit_title:
             title = part
-        full_url = 'https://github.com/cms-dev/cms/tree/v%s/%s' % (app.config.release, part)
+        full_url = '%s/tree/main/%s' % (FORK_URL, part)
 
         refnode = nodes.reference(title, title, internal=False, refuri=full_url, **options)
         return [refnode], []
@@ -58,7 +64,7 @@ def make_gh_blob(app):
         has_explicit_title, title, part = split_explicit_title(text)
         if not has_explicit_title:
             title = part
-        full_url = 'https://github.com/cms-dev/cms/blob/v%s/%s' % (app.config.release, part)
+        full_url = '%s/blob/main/%s' % (FORK_URL, part)
 
         refnode = nodes.reference(title, title, internal=False, refuri=full_url, **options)
         return [refnode], []
