@@ -20,11 +20,15 @@ from pathlib import Path
 from babel.messages.catalog import Catalog
 from babel.messages.pofile import read_po
 
-# Roles (:doc:`x`, {doc}`x`) and reST links (`text <url>`_): their text
-# may be translated, so they are removed before looking for code. A link's
-# text never starts with a space, which keeps "`-` or `_`" two code spans.
+# Translatable roles (:doc:, :ref:, :numref:, :term:, :abbr: and their MyST
+# equivalents {doc}, {ref}, {numref}, {term}, {abbr}) and reST links
+# (`text <url>`_): their text may be translated, so they are removed before
+# looking for code. Other roles (:file:, :samp:, etc.) must NOT be stripped,
+# so their backticked content is checked like code. A link's text never starts
+# with a space, which keeps "`-` or `_`" two code spans.
 ROLE_OR_LINK = re.compile(
-    r"(?::[\w:+.-]+:|\{[\w:+.-]+\})`[^`]*`|(?<!`)`[^`\s][^`]*`__?")
+    r"(?::(?:doc|ref|numref|term|abbr):|\{(?:doc|ref|numref|term|abbr)\})"
+    r"`[^`]+`|(?<!`)`[^`\s][^`]*`__?")
 # Inline code in reStructuredText (``x``) and Markdown (`x`).
 CODE_SPAN = re.compile(r"``[^`]+``|`[^`]+`")
 
@@ -92,7 +96,15 @@ def main() -> int:
     if len(sys.argv) != 3:
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         return 2
-    problems = check(Path(sys.argv[1]), Path(sys.argv[2]))
+    pot_dir = Path(sys.argv[1])
+    po_dir = Path(sys.argv[2])
+    if not po_dir.exists():
+        print(f"Error: PO_DIR '{po_dir}' does not exist", file=sys.stderr)
+        return 2
+    if not list(pot_dir.glob("*.pot")):
+        print(f"Error: POT_DIR '{pot_dir}' has no .pot files", file=sys.stderr)
+        return 2
+    problems = check(pot_dir, po_dir)
     for problem in problems:
         print(problem)
     return 1 if problems else 0

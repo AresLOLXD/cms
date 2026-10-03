@@ -35,7 +35,11 @@ def write(directory: Path, name: str, text: str) -> None:
     (directory / name).write_text(text, encoding="utf-8")
 
 
-def run(tmp_path: Path, po_text: str | None, pot_text: str = TEMPLATE) -> list[str]:
+def run(
+    tmp_path: Path,
+    po_text: str | None,
+    pot_text: str = TEMPLATE,
+) -> list[str]:
     pot_dir, po_dir = tmp_path / "pot", tmp_path / "po"
     write(pot_dir, "page.pot", pot_text)
     po_dir.mkdir(parents=True, exist_ok=True)
@@ -111,3 +115,71 @@ def test_code_spans_next_to_an_underscore_are_code(tmp_path):
     po_without = po.replace("`_`", "guion bajo")
     problems = run(tmp_path, po_without, pot)
     assert len(problems) == 1 and "`_`" in problems[0]
+
+
+def test_file_role_content_change_is_reported(tmp_path):
+    pot = HEADER + 'msgid "See :file:`/etc/cms.toml` for config."\nmsgstr ""\n'
+    po = (HEADER + 'msgid "See :file:`/etc/cms.toml` for config."\n'
+          'msgstr "Ver :file:`/etc/cms-es.toml` para configurar."\n')
+    problems = run(tmp_path, po, pot)
+    assert len(problems) == 1 and "/etc/cms.toml" in problems[0]
+
+
+def test_literal_brace_equals_colon_is_not_a_role(tmp_path):
+    pot = HEADER + 'msgid "Set ``{a}={b}:{C}`` in the config."\nmsgstr ""\n'
+    po = (HEADER + 'msgid "Set ``{a}={b}:{C}`` in the config."\n'
+          'msgstr "Define ``{a}={b}:{C}`` en la configuración."\n')
+    assert run(tmp_path, po, pot) == []
+
+
+def test_myst_doc_role_text_may_be_translated(tmp_path):
+    pot = HEADER + 'msgid "See {doc}`text <multi-contest>` here."\nmsgstr ""\n'
+    po = (HEADER + 'msgid "See {doc}`text <multi-contest>` here."\n'
+          'msgstr "Ver {doc}`texto <multi-contest>` aquí."\n')
+    assert run(tmp_path, po, pot) == []
+
+
+def test_main_exit_code_0_on_complete_translation(tmp_path, monkeypatch):
+    from check_translations import main
+
+    pot_dir, po_dir = tmp_path / "pot", tmp_path / "po"
+    write(pot_dir, "page.pot", GOOD)
+    write(po_dir, "page.po", GOOD)
+    monkeypatch.setattr(sys, "argv",
+                        ["check_translations.py", str(pot_dir), str(po_dir)])
+    assert main() == 0
+
+
+def test_main_exit_code_1_on_problem(tmp_path, monkeypatch):
+    from check_translations import main
+
+    pot_dir, po_dir = tmp_path / "pot", tmp_path / "po"
+    write(pot_dir, "page.pot", TEMPLATE)
+    po = GOOD.replace('msgstr "Cómo funciona"', 'msgstr ""')
+    write(po_dir, "page.po", po)
+    monkeypatch.setattr(sys, "argv",
+                        ["check_translations.py", str(pot_dir), str(po_dir)])
+    assert main() == 1
+
+
+def test_main_exit_code_2_on_missing_po_dir(tmp_path, monkeypatch):
+    from check_translations import main
+
+    pot_dir = tmp_path / "pot"
+    po_dir = tmp_path / "nonexistent"
+    write(pot_dir, "page.pot", TEMPLATE)
+    monkeypatch.setattr(sys, "argv",
+                        ["check_translations.py", str(pot_dir), str(po_dir)])
+    assert main() == 2
+
+
+def test_main_exit_code_2_on_empty_pot_dir(tmp_path, monkeypatch):
+    from check_translations import main
+
+    pot_dir = tmp_path / "pot"
+    po_dir = tmp_path / "po"
+    pot_dir.mkdir()
+    po_dir.mkdir()
+    monkeypatch.setattr(sys, "argv",
+                        ["check_translations.py", str(pot_dir), str(po_dir)])
+    assert main() == 2
