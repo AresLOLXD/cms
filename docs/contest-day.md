@@ -4,8 +4,6 @@ A checklist for the people who run a contest on a Docker deployment of this
 fork, from the week before to the backup afterwards. It does not repeat the
 other guides: each step links to the page that explains it.
 
-[Versión en español](contest-day.es.md)
-
 The commands run on the server, from the repository root. Where a command
 needs Docker Compose directly, `<project>` is `CMS_PROJECT_NAME` from `.env`
 (`cms-prod` if it is unset).
