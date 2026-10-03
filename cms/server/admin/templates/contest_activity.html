@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import 'macro/pages.html' as macro_pages %}
+{% import 'macro/activity.html' as macro_activity with context %}
+
+{% block core %}
+<div class="core_title">
+  <h1>Activity</h1>
+</div>
+<p>Times are in the contest's timezone.</p>
+
+<h2 id="title_simultaneous_activity" class="toggling_on">Simultaneous activity ({{ activity_simultaneous|length }})</h2>
+<div id="simultaneous_activity">
+  <p>The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than {{ simultaneous_margin.total_seconds()|int }} seconds. A dynamic IP change on one device is not reported.</p>
+  {{ macro_activity.simultaneous_table(url, contest, activity_simultaneous) }}
+  <div class="hr"></div>
+</div>
+
+<h2 id="title_multiple_devices" class="toggling_on">More than one device ({{ multiple_devices|length }})</h2>
+<div id="multiple_devices">
+  <p>Informational only: another browser, a private window or cleared cookies also count as a new device.</p>
+  {% if multiple_devices %}
+  <table class="bordered">
+    <thead><tr><th>Username</th><th>Devices</th></tr></thead>
+    <tbody>
+      {% for row in multiple_devices %}
+      <tr>
+        <td><a href="{{ url("contest", contest.id, "user", row.user_id, "edit") }}">{{ row.username }}</a></td>
+        <td>{{ row.devices }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  None.
+  {% endif %}
+  <div class="hr"></div>
+</div>
+
+<h2 id="title_activity_intervals" class="toggling_on">Intervals ({{ activity_count }})</h2>
+<div id="activity_intervals">
+  <form action="{{ url("contest", contest.id, "activity") }}" method="GET">
+    Username: <input type="text" name="username" value="{{ activity_filters.username }}">
+    IP address or network: <input type="text" name="ip" value="{{ activity_filters.ip }}" placeholder="10.0.0.0/24">
+    <input type="submit" value="Filter">
+    <a href="{{ url("contest", contest.id, "activity") }}">Clear</a>
+  </form>
+  <p>Download as <a href="{{ activity_csv_url }}">csv</a> (with the filters above; times in UTC).</p>
+  {{ macro_activity.intervals_table(url, contest, activity_intervals, activity_end_reason, activity_flagged_ids, true) }}
+  {{ macro_pages.selector(activity_page_url, activity_page, activity_pages) }}
+</div>
+{% endblock core %}
