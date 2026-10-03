@@ -4,7 +4,6 @@
 # package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
@@ -21,22 +20,22 @@ msgstr ""
 "Generated-By: Babel 2.18.0\n"
 
 msgid "Getting started"
-msgstr ""
+msgstr "Primeros pasos"
 
 msgid "Preparing a contest"
-msgstr ""
+msgstr "Preparar una competencia"
 
 msgid "Running a contest"
-msgstr ""
+msgstr "Ejecutar una competencia"
 
 msgid "Reference"
-msgstr ""
+msgstr "Referencia"
 
 msgid "Development"
-msgstr ""
+msgstr "Desarrollo"
 
 msgid "CMS (OMI fork)"
-msgstr ""
+msgstr "CMS (fork de la OMI)"
 
 msgid ""
 "This is the manual of the `OMI fork <https://github.com/AresLOLXD/cms>`_ "
@@ -45,4 +44,9 @@ msgid ""
 "deployment, several contests at once, subtask dependencies and the import"
 " of users from the Admin Web Server."
 msgstr ""
-
+"Este es el manual del `fork de la OMI "
+"<https://github.com/AresLOLXD/cms>`_ del Contest Management System. Se "
+"basa en el `manual de upstream <https://cms.readthedocs.io>`_ y agrega "
+"las funciones propias del fork: despliegue con Docker, varias "
+"competencias a la vez, dependencias entre subtareas e importación de "
+"usuarios desde el Admin Web Server."
