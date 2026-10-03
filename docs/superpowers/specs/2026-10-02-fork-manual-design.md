@@ -59,7 +59,8 @@ the same Sphinx sources in `docs/*.rst`, but:
 ### Dependencies
 
 `docs/requirements.txt` pins the docs toolchain, separate from the CMS
-dependencies: Sphinx 8, `myst-parser`, `sphinx-intl`, `furo`. The docs do
+dependencies: Sphinx 9.1, `myst-parser`, `sphinx-intl`, `furo` (exact pins in
+the plan; Sphinx 9.1 was current on 2026-10-02). The docs do
 not use `autodoc` directives, so the build never imports `cms` and the
 `babel` pin does not matter. Remove the `XXX` Sphinx comment from
 `pyproject.toml` and drop `sphinx.ext.autodoc` from `extensions`.
@@ -71,17 +72,22 @@ not use `autodoc` directives, so the build never imports `cms` and the
 - `exclude_patterns`: `_build`, `superpowers`, `locale`.
 - `locale_dirs = ["locale/"]`, `gettext_compact = False` (one `.po` per
   page).
-- `language` comes from Read the Docs (`READTHEDOCS_LANGUAGE`), default
-  `en`; a local build passes `-D language=es`.
+- `language = "en"`; Read the Docs passes `-D language=<lang>` for each
+  project, and a local Spanish build passes `-D language=es`.
+- `gettext_location = False`, so a `.po` file changes only when its text
+  changes.
 - `html_theme = "furo"`.
 - The project name and copyright say this is the fork's manual, built on
   upstream CMS.
 
 ### `docs/gh_links.py`
 
-Split the targets: `gh_blob` and `gh_tree` point at `AresLOLXD/cms`, so file
-links show the fork's code; `gh_issue` keeps pointing at `cms-dev/cms`,
-because the issues cited in the upstream pages are upstream's.
+Split the targets: `gh_blob` and `gh_tree` point at `AresLOLXD/cms` (branch
+`main`), so file links show the fork's code; `gh_download` points at the
+fork's `main` archive, since the fork publishes no releases (today it links
+to an upstream tag `v1.6.dev0` that does not exist); `gh_issue` keeps
+pointing at `cms-dev/cms`, because the issues cited in the upstream pages
+are upstream's.
 
 ### Read the Docs
 
@@ -102,9 +108,11 @@ the workflow change:
    fails (broken reference, page outside the toctree).
 2. From phase 3 on, the same with `-D language=es`.
 3. From phase 3 on, a check that fails when a Spanish `.po` file has an
-   empty `msgstr` or a `fuzzy` entry, and when the `.pot` files are not up
-   to date with the English sources (so a changed English paragraph forces a
-   translation update in the same PR).
+   empty `msgstr` or a `fuzzy` entry, when its header is marked `fuzzy`
+   (Sphinx then ignores the whole file without a warning), when a
+   translation drops an inline code span of its source, and when the `.po`
+   files are not up to date with the English sources (so a changed English
+   paragraph forces a translation update in the same PR).
 
 ## Section 2: Content and structure
 
@@ -142,6 +150,9 @@ Any other upstream edit is limited to what Sphinx 8 needs to build without
 warnings, and is listed in the PR.
 
 ### Fork pages
+
+- Until phase 3 deletes it, `docs/contest-day.es.md` is built as an orphan
+  page (`orphan: true` front matter), outside the toctree.
 
 - CMS-Loader gets a notice that it is being retired in favor of Importing
   users (#18).
