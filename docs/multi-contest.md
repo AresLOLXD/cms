@@ -385,8 +385,8 @@ Update RankingWebServer **first**, then the rest:
 1. `./up.sh` and choose **Ranking only**. It rebuilds and restarts only the
    ranking container and returns once it is up; the other services are left
    alone. That is deliberate: `cms` must not be recreated from its old image
-   before step 2 rebuilds it (see the README, "Upgrading a deployment that was
-   started before the `cms-data` volume moved").
+   before step 2 rebuilds it (see "Upgrading a deployment that was started
+   before the `cms-data` volume moved" in [Docker deployment](docker-deployment.md)).
 2. `./up.sh` and choose **CMS only**. This runs `cmsSetupDB` (the `db-init`
    service), which adds the new columns (the four times of the windows among
    them), and restarts AWS and ProxyService. A group that was hidden with the
@@ -419,7 +419,8 @@ container unfreezes it, and a freeze set with curl is undone at its next
 sweep (about 6 minutes). If you must, stop the `ranking` container first.
 
 **Only roll back to a checkout that already mounts `cms-data` on
-`/home/cmsuser/cms/data`** (see the upgrade note in the README). An older
+`/home/cmsuser/cms/data`** (see the upgrade note in
+[Docker deployment](docker-deployment.md)). An older
 checkout mounts the volume over the installed code again, so the `cms`
 container would run the stale copy left in the volume, not that checkout's
 code, or not start at all if that copy was deleted. Before a contest, note

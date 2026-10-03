@@ -1,7 +1,7 @@
 # CMS-Loader
 
 > **Being retired.** The Admin Web Server now imports users and
-> participations itself; see [importing-users.md](importing-users.md).
+> participations itself; see [Importing users and participations](importing-users.md).
 > CMS-Loader will be removed after 2026-10-10
 > ([#18](https://github.com/AresLOLXD/cms/issues/18)).
 
