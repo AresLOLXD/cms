@@ -186,7 +186,8 @@ Under `[contest_web_server]` in `cms.toml`, in `cms/conf.py` and
 ## 4. AdminWebServer
 
 All views are read-only and available to any authenticated admin, like the
-ranking. Times are shown in the contest timezone, as elsewhere in AWS.
+ranking. Times are shown in the contest timezone (`get_timezone(None,
+contest)`; the rest of AWS prints raw UTC).
 
 ### 4.1 Contest activity page
 
@@ -200,7 +201,8 @@ ranking. Times are shown in the contest timezone, as elsewhere in AWS.
   with different `device_id` (or different `ip` when either device is `NULL`)
   whose time ranges overlap by more than `2 * activity_flush_interval`. The
   margin absorbs flush granularity. An interval's range is
-  `[started_at, ended_at]`, with `ended_at = now` while active. Each row:
+  `[started_at, last_seen_at]`: on logout `last_seen_at` equals
+  `logged_out_at`, and while active it lags at most one flush. Each row:
   user, the two devices/IPs, the overlap window, link to the participation.
 - **More than one device:** participations with more than one distinct
   non-null `device_id`, and the count. Informational only.
@@ -218,15 +220,19 @@ for a dispute.
 
 ### 4.3 CSV export
 
-`/contest/<id>/activity.csv`, a button on the activity page, following the
-ranking CSV pattern (`cms/server/admin/handlers/contestranking.py:85`).
+`/contest/<id>/activity/csv`, a link on the activity page, like the
+ranking's `/ranking/csv` (`cms/server/admin/handlers/contestranking.py:85`).
 
 - Honors the active filters.
 - Columns: `username, first_name, last_name, device_id, ip, started_at,
   last_seen_at, ended_at, end_reason, started_by`, where `ended_at` is
   `logged_out_at`, or `last_seen_at` for `inactivity`, empty for `active`.
 - Times in ISO 8601 with an explicit UTC offset.
-- Streamed in chunks (`yield_per`), so millions of rows never sit in memory.
+- Streamed: keyset batches (by `id`) are read in the executor and written
+  with `write()` + `await flush()` on the loop, releasing the DB connection
+  between batches, so millions of rows never sit in memory. (`yield_per`
+  would not stream: in AWS a `write()` from an executor thread only
+  buffers.)
 
 ### 4.4 Retention
 
@@ -236,9 +242,8 @@ so bulk removal and contest deletion take them too.
 ## 5. Testing
 
 New tests are asyncio or plain synchronous and import nothing from
-`cmscontrib/` that monkey-patches gevent, so they belong to the asyncio group
-of `docker/_cms-test-internal.sh`. The migration test is the exception: it
-imports `cmscontrib` and joins the gevent group.
+`cmscontrib/` that monkey-patches gevent (`cmscontrib.updaters.*` is safe),
+so they all belong to the asyncio group of `docker/_cms-test-internal.sh`.
 
 1. **Recorder buffer** (no DB): repeated requests of one key keep one
    segment; a login appends a segment; activity after a logout appends a
@@ -270,6 +275,6 @@ imports `cmscontrib` and joins the gevent group.
   `cms/server/contest/handlers/main.py`, `cms/server/contest/handlers/api.py`,
   `cms/server/admin/handlers/__init__.py`, the contest sidebar template,
   `cms/server/admin/templates/participation.html`, `cmscontrib/SetupDB.py`,
-  `cmstestsuite/unit_tests/schema_diff_test.py`,
-  `docker/_cms-test-internal.sh` (only if the migration test needs listing in
-  the gevent group).
+  `cmstestsuite/unit_tests/schema_diff_test.py`, `cms/db/base.py`
+  (`_TYPE_MAP` gains `INET` and `UUID`), `cmscommon/datetime.py`
+  (`get_timezone` accepts no user).
