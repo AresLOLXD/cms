@@ -4,7 +4,8 @@
 **Status:** Approved (design, sections 1-3); pending written-spec review
 **Issue:** #32 (related: #18, #27, #30)
 **When:** docs only, so it does not touch the code frozen for 2026-10-10.
-It is built in four phases, each its own PR to `main`. It assumes PR #36
+It is built in four phases, each merged directly into `main` once its
+review is clean (no PRs). It assumes PR #36
 (the contest-day checklist) is merged first.
 
 ## Problem
@@ -77,8 +78,9 @@ not use `autodoc` directives, so the build never imports `cms` and the
 - `gettext_location = False`, so a `.po` file changes only when its text
   changes.
 - `html_theme = "furo"`.
-- The project name and copyright say this is the fork's manual, built on
-  upstream CMS.
+- The project name and `html_title` say this is the fork's manual; the
+  copyright stays "The CMS development team", since the content is
+  upstream's.
 
 ### `docs/gh_links.py`
 
@@ -142,11 +144,12 @@ links to the fork's page. Expected notes:
 - Installation: Python 3.12; Docker is the recommended route.
 - Running CMS: on Docker the services run under the scripts; most services
   run on asyncio.
-- Docker image: this fork's images and compose files differ from upstream's.
+- Docker image: the fork's deployment builds this same `Dockerfile` and adds
+  a separate Ranking Web Server image and its own (prod) compose file.
 - RankingWebServer: ranking groups and hiding/freezing.
 - Score types: `depends_on`.
 
-Any other upstream edit is limited to what Sphinx 8 needs to build without
+Any other upstream edit is limited to what Sphinx 9.1 needs to build without
 warnings, and is listed in the PR.
 
 ### Fork pages
@@ -175,7 +178,8 @@ warnings, and is listed in the PR.
 
 ### Phases
 
-Each phase is one PR to `main` (phase 3 may be split by toctree section).
+Each phase is merged directly into `main` after its review, without a PR
+(phase 3 may be split by toctree section).
 
 1. **Infrastructure, English only.** Requirements, `conf.py`, MyST, the new
    toctree, Furo, `gh_links`, `superpowers/` excluded, the CI job, the
@@ -204,7 +208,7 @@ There is no code, so the tests are:
 
 ### Risks
 
-- **Old `.rst` under Sphinx 8.** Upstream pages may warn on old syntax.
+- **Old `.rst` under Sphinx 9.1.** Upstream pages may warn on old syntax.
   Phase 1 fixes them with minimal edits and lists each one, since they
   touch upstream files.
 - **Translation drift.** Every later change to an English page leaves
