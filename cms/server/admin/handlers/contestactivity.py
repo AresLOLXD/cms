@@ -22,6 +22,7 @@ import csv
 import functools
 import io
 import ipaddress
+import logging
 from datetime import datetime, timedelta, timezone
 
 import tornado.web
@@ -36,6 +37,9 @@ from cms.db.activity import ACTIVITY_END_INACTIVITY, ACTIVITY_END_LOGOUT, \
     activity_end_reason
 from cmscommon.datetime import get_timezone, make_datetime
 from .base import BaseHandler, require_permission
+
+
+logger = logging.getLogger(__name__)
 
 
 ACTIVITY_PAGE_SIZE = 100
@@ -340,6 +344,11 @@ class ContestActivityCsvHandler(BaseHandler):
     increasing id, so that the whole log never sits in memory and the
     database connection is given back between batches.
 
+    Once the first batch is sent the status and headers are gone, so a
+    later failure cannot become an error page: the connection is
+    closed instead, so that the client sees an incomplete download
+    rather than a complete-looking, truncated file.
+
     """
     def _read_filters_sync(
         self, contest_id: str
@@ -370,24 +379,50 @@ class ContestActivityCsvHandler(BaseHandler):
             self.sql_session.rollback()
 
     async def _get_csv(self, contest_id: str):
+        """Write the CSV, one batch at a time.
+
+        contest_id: the contest, as in the URL.
+
+        raise (tornado.web.HTTPError): 404 for an unknown contest, 400
+            for an invalid filter; like any failure to read the first
+            batch, they happen before anything is sent and get the
+            usual error response.
+        raise (Exception): whatever failed after the first batch was
+            sent, once the connection has been closed and the failure
+            logged.
+
+        """
         loop = asyncio.get_running_loop()
         username, network = await loop.run_in_executor(
             None, self._read_filters_sync, contest_id)
         now = make_datetime()
+
+        def fetch_batch(after_id: int):
+            return loop.run_in_executor(
+                None, self._fetch_batch_sync, contest_id, username,
+                network, after_id)
+
         self.set_header("Content-Type", "text/csv")
         self.set_header("Content-Disposition",
                         "attachment; filename=\"activity.csv\"")
         self.write(format_csv_rows([CSV_HEADER]))
-        after_id = 0
-        while True:
-            rows = await loop.run_in_executor(
-                None, self._fetch_batch_sync, contest_id, username,
-                network, after_id)
-            if not rows:
-                break
-            self.write(format_csv_rows(csv_row(row, now) for row in rows))
-            await self.flush()
-            after_id = rows[-1].id
+        # Nothing is flushed before the first batch is read, so a
+        # failure there is still answered with a normal error page.
+        rows = await fetch_batch(0)
+        try:
+            while rows:
+                self.write(
+                    format_csv_rows(csv_row(row, now) for row in rows))
+                await self.flush()
+                rows = await fetch_batch(rows[-1].id)
+        except Exception:
+            # The headers are already sent, so Tornado would end the
+            # response normally, as if the file were complete.
+            logger.error(
+                "Activity export of contest %s aborted after sending "
+                "part of the file.", contest_id, exc_info=True)
+            self.request.connection.stream.close()
+            raise
 
     @require_permission(BaseHandler.AUTHENTICATED)
     async def get(self, contest_id: str):
