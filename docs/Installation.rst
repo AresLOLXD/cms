@@ -1,6 +1,15 @@
 Installation
 ************
 
+.. note::
+
+   This fork runs on Python 3.12, and the recommended way to run it is the
+   :doc:`Docker deployment <docker-deployment>`. This page describes the
+   manual installation inherited from upstream CMS. The fork publishes no
+   releases: the download link below gets the current ``main`` branch, and
+   the latest code is in the fork's repository,
+   https://github.com/AresLOLXD/cms, not in upstream's.
+
 Overview
 ========
 

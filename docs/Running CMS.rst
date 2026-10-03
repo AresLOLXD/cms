@@ -1,6 +1,13 @@
 Running CMS
 ***********
 
+.. note::
+
+   On a Docker deployment the services are started and supervised by the
+   :doc:`helper scripts <docker-scripts>`; you do not run them by hand. In
+   this fork most services run on Python's asyncio instead of gevent; the
+   Worker and the Ranking Web Server still use gevent.
+
 Configuring the DB
 ==================
 
