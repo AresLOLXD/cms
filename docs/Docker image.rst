@@ -1,6 +1,13 @@
 Docker image
 ************
 
+.. note::
+
+   This page covers the Docker image and compose files for development and
+   testing. To run contests with this fork, use the :doc:`Docker deployment
+   <docker-deployment>`: it builds this same ``Dockerfile`` and adds a separate
+   Ranking Web Server image and its own compose file.
+
 We provide a docker image (defined in :gh_blob:`Dockerfile`) that can be used to
 easily get an instance of CMS running locally with all the necessary
 dependencies. We also provide:
