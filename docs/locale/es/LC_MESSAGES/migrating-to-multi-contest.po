@@ -1,0 +1,198 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid ""
+"Migrating from one deployment per contest to a single multi-contest "
+"deployment"
+msgstr ""
+
+msgid ""
+"This guide is for setups that ran parallel exams with **two (or more) "
+"copies** of this Docker deployment on the same machine, each with its own"
+" database, ports and scoreboard (for example scoreboards on 8890 and 7890"
+" behind different domains). After migrating, one deployment serves every "
+"contest and each olympiad keeps its own scoreboard. See [multi-contest.md"
+"](multi-contest.md) for day-to-day use."
+msgstr ""
+
+msgid ""
+"Below, **stack A** is the deployment you keep and **stack B** the one you"
+" retire. Run each command from that stack's directory."
+msgstr ""
+
+msgid "1. Back up everything"
+msgstr ""
+
+msgid "For each stack, while it is running:"
+msgstr ""
+
+msgid ""
+"If you use an external database, run `pg_dump` against the URL in "
+"`CMS_DB_URL` instead. Keep these files until the first exam on the new "
+"setup has finished."
+msgstr ""
+
+msgid "2. Update stack A"
+msgstr ""
+
+msgid ""
+"The database schema is updated automatically when the stack starts (the "
+"`db-init` container adds the `ranking_groups` table and the new contest "
+"columns). Existing contests start as **inactive** and without a ranking "
+"group; nothing changes for contestants until you switch to "
+"`CMS_CONTEST_ID=ALL`. Ranking groups also have hide and freeze windows "
+"and a **Staff password**, configured on the group page (see [multi-"
+"contest.md](multi-contest.md)). If stack A **already** runs with "
+"`CMS_CONTEST_ID=ALL`, its contest list is empty right after the update: "
+"tick **Active** on its contests in the Admin Web Server straight away. "
+"Check `./logs.sh` for errors before continuing."
+msgstr ""
+
+msgid "3. Bring stack B's contests into stack A"
+msgstr ""
+
+msgid ""
+"**Check for name collisions first.** Usernames, team codes and contest "
+"names must be unique across both databases. List the ones present in "
+"both:"
+msgstr ""
+
+msgid ""
+"Repeat with `SELECT code FROM teams` and `SELECT name FROM contests`. If "
+"the same person has an account in both stacks, import only one copy: when"
+" exporting in stack B, leave users out, and add those participations in "
+"stack A afterwards. Rename anything else that collides in stack B (from "
+"its Admin Web Server) before exporting."
+msgstr ""
+
+msgid "In stack B: `./export.sh` and pick the contests to move."
+msgstr ""
+
+msgid "Copy the new `.zip` from stack B's `dumps/` into stack A's `dumps/`."
+msgstr ""
+
+msgid ""
+"In stack A: `./import.sh`, pick that file, and **do not** wipe the "
+"database."
+msgstr ""
+
+msgid ""
+"Every contest you import arrives **inactive** and without a ranking "
+"group, whatever its state was in stack B (dumps made before this update "
+"work the same way). Contestants can't see it, or log in to it, until you "
+"switch it on in step 5; the importer prints a warning for each contest as"
+" a reminder."
+msgstr ""
+
+msgid ""
+"The one exception is a full restore, which is meant for bringing back a "
+"backup and not for this migration: if you answer yes to \"Drop database "
+"before importing?\" (`-d`), every contest keeps the **Active** flag "
+"stored in the dump."
+msgstr ""
+
+msgid "4. Update stack A's `.env`"
+msgstr ""
+
+msgid "`CMS_CONTEST_ID=ALL`"
+msgstr ""
+
+msgid "`CMS_WORKER_COUNT`: at least the sum of what both stacks used."
+msgstr ""
+
+msgid ""
+"Nothing else needs to change: the scoreboard keeps `CMS_RWS_HTTP_PORT` "
+"(for example 8890). Stack B's ports (for example 7890) are no longer "
+"used."
+msgstr ""
+
+msgid "Apply it with `./restart.sh`."
+msgstr ""
+
+msgid "5. Configure the contests in the Admin Web Server"
+msgstr ""
+
+msgid ""
+"**Ranking groups:** create one per olympiad (for example `olim` and "
+"`omips`)."
+msgstr ""
+
+msgid ""
+"**Each contest:** tick **Active** where needed and choose its ranking "
+"group."
+msgstr ""
+
+msgid ""
+"**Ranking groups → Root ranking → Regenerate:** clears the old single-"
+"contest scoreboard at `/`."
+msgstr ""
+
+msgid "6. Update the reverse proxy (on the server)"
+msgstr ""
+
+msgid "Each scoreboard domain now points at the same port plus its group:"
+msgstr ""
+
+msgid ""
+"Do the same for the other olympiad (`…:8890/olim/`), keep "
+"`proxy_buffering off;`, and point every contestant domain at stack A's "
+"Contest Web Server. Reload the proxy."
+msgstr ""
+
+msgid "7. Verify, then retire stack B"
+msgstr ""
+
+msgid ""
+"Each scoreboard domain shows only its own contests and updates live when "
+"a test submission is scored."
+msgstr ""
+
+msgid "The contest list shows exactly the active contests."
+msgstr ""
+
+msgid ""
+"Then stop stack B: `./down.sh` in its directory. Keep its volumes and the"
+" backups until you are confident."
+msgstr ""
+
+msgid "Rolling back"
+msgstr ""
+
+msgid ""
+"In stack A: set `CMS_CONTEST_ID` back to the previous contest id and "
+"`./restart.sh`."
+msgstr ""
+
+msgid ""
+"In stack B: `./up.sh` (its data is untouched unless you deleted its "
+"volumes)."
+msgstr ""
+
+msgid "Restore the previous reverse-proxy configuration."
+msgstr ""
+
+msgid ""
+"The new database columns are harmless to the old setup: with a single "
+"contest id they are ignored. To get back the exact pre-migration "
+"database, restore the `backup-*.sql` taken in step 1."
+msgstr ""
+

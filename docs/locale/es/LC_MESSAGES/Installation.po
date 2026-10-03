@@ -1,0 +1,282 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Installation"
+msgstr ""
+
+msgid ""
+"This fork is tested on Python 3.12 (the version of its Docker image), and"
+" the recommended way to run it is the :doc:`Docker deployment <docker-"
+"deployment>`. This page describes the manual installation inherited from "
+"upstream CMS. The fork publishes no releases: the download link below "
+"gets the current ``main`` branch, and the latest code is in the fork's "
+"repository, https://github.com/AresLOLXD/cms, not in upstream's."
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid ""
+"CMS runs on Linux. We test it on Debian and Ubuntu, but any modern "
+"distribution should work, too."
+msgstr ""
+
+msgid ""
+"You can run CMS as a Docker container. If you want to do so, please "
+"continue to the :doc:`container installation instructions <Docker "
+"image>`."
+msgstr ""
+
+msgid ""
+"Otherwise, please follow this chapter, which explains how to install CMS "
+"and its dependencies."
+msgstr ""
+
+msgid "Dependencies and available compilers"
+msgstr ""
+
+msgid ""
+"These are our requirements (in particular we highlight those that are not"
+" usually installed by default) - previous versions may or may not work:"
+msgstr ""
+
+msgid "`PostgreSQL <http://www.postgresql.org/>`_ >= 9.4;"
+msgstr ""
+
+msgid ""
+"`GNU compiler collection <https://gcc.gnu.org/>`_ (in particular the C "
+"compiler ``gcc``);"
+msgstr ""
+
+msgid "`Python <http://www.python.org/>`_ >= 3.11;"
+msgstr ""
+
+msgid "`Isolate <https://github.com/ioi/isolate/>`_ >= 2.0;"
+msgstr ""
+
+msgid ""
+"You will also require a Linux kernel with support for `cgroupv2 "
+"<https://docs.kernel.org/admin-guide/cgroup-v2.html>`_. Most Linux "
+"distributions provide such kernels by default."
+msgstr ""
+
+msgid ""
+"Then you require the compilation and execution environments for the "
+"languages you will use in your contest:"
+msgstr ""
+
+msgid ""
+"`GNU compiler collection <https://gcc.gnu.org/>`_ (for C and C++, "
+"respectively with executables ``gcc`` and ``g++``);"
+msgstr ""
+
+msgid ""
+"for Java, your choice of a JDK, for example OpenJDK (but any other JDK "
+"behaving similarly is fine, for example Oracle's);"
+msgstr ""
+
+msgid ""
+"`Free Pascal <http://www.freepascal.org/>`_ (for Pascal, with executable "
+"``fpc``);"
+msgstr ""
+
+msgid ""
+"`Python <http://www.python.org/>`_ (for Python, with executable "
+"``python3``; in addition you will need ``zip``);"
+msgstr ""
+
+msgid "`PHP <http://www.php.net>`_ (for PHP, with executable ``php``);"
+msgstr ""
+
+msgid ""
+"`Glasgow Haskell Compiler <https://www.haskell.org/ghc/>`_ (for Haskell, "
+"with executable ``ghc``);"
+msgstr ""
+
+msgid ""
+"`Rust <https://www.rust-lang.org/>`_ (for Rust, with executable "
+"``rustc``);"
+msgstr ""
+
+msgid ""
+"`C# <http://www.mono-project.com/docs/about-mono/languages/csharp/>`_ "
+"(for C#, with executable ``mcs``)."
+msgstr ""
+
+msgid ""
+"All dependencies can be installed automatically on most Linux "
+"distributions."
+msgstr ""
+
+msgid "Ubuntu"
+msgstr ""
+
+msgid ""
+"On Ubuntu 24.04, one will need to run the following script as root to "
+"satisfy all dependencies:"
+msgstr ""
+
+msgid ""
+"The above commands provide a very essential Pascal environment. Consider "
+"installing the following packages for additional units: ``fp-units-"
+"base``, ``fp-units-fcl``, ``fp-units-misc``, ``fp-units-math`` and ``fp-"
+"units-rtl``."
+msgstr ""
+
+msgid "Arch Linux"
+msgstr ""
+
+msgid ""
+"On Arch Linux, run the following commands as root to install almost all "
+"dependencies (some of them can be found in the AUR):"
+msgstr ""
+
+msgid "Preparation steps"
+msgstr ""
+
+msgid ""
+"We recommend to create a new user account for CMS, usually called "
+"``cmsuser``:"
+msgstr ""
+
+msgid ""
+"If you are using a packaged version of Isolate, you need to add "
+"``cmsuser`` to the ``isolate`` group:"
+msgstr ""
+
+msgid "Installing CMS"
+msgstr ""
+
+msgid "The installation of CMS should be performed as the ``cmsuser``."
+msgstr ""
+
+msgid ""
+"First obtain the source code of CMS. Download :gh_download:`CMS release` "
+"|release| from GitHub as an archive, extract it and start a shell inside."
+" Alternatively, if you like living at the bleeding edge, check out the "
+"CMS `Git repository <https://github.com/cms-dev/cms>`_ instead."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"The preferred method of installation is using :samp:`./install.py "
+"--dir={install_dir} cms`, which does the following:"
+msgstr ""
+
+msgid ""
+"Creates an *installation directory* of the given name. It contains a "
+"Python virtual environment and subdirectories where CMS stores its data, "
+"logs, and caches. If you omit the ``--dir`` option, CMS is installed to "
+"``~/cms`` (``cms`` in the home directory of the current user). Make sure "
+"that it is different from the source directory."
+msgstr ""
+
+msgid ""
+"Populates the virtual environment with CMS and Python packages on which "
+"CMS depends."
+msgstr ""
+
+msgid "Checks that Isolate is available."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Installs the sample configuration files to "
+":samp:`{install_dir}/etc/cms.toml` and "
+":samp:`{install_dir}/etc/cms_ranking.toml`."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Now you can run CMS commands from the shell directly as "
+":samp:`{install_dir}/bin/{command}`. It is usually more convenient to "
+"activate the virtual environment, which adds :samp:`{install_dir}/bin` to"
+" your ``$PATH``. This can be done by adding the following line to your "
+"``~/.profile``:"
+msgstr ""
+
+msgid "(with ``$TARGET`` replaced by the path to your installation directory)."
+msgstr ""
+
+msgid "Development installs"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"If you want to develop CMS, you can use :samp:`./install.py "
+"--dir={install_dir} cms --devel --editable`. This includes development "
+"dependencies. It also makes the installation linked to the source "
+"directory, so you don't need to reinstall if you edit the source."
+msgstr ""
+
+msgid "Configuring the worker machines"
+msgstr ""
+
+msgid ""
+"Worker machines need to be carefully set up in order to ensure that "
+"evaluation results are valid and consistent. Just running the evaluations"
+" under Isolate does not achieve this: for example, if the machine has CPU"
+" power management configured, it might affect execution time in an "
+"unpredictable way. Having an active swap partition may allow programs to "
+"evade memory limits."
+msgstr ""
+
+msgid ""
+"We suggest following Isolate's `guidelines "
+"<https://www.ucw.cz/isolate/isolate.1.html#_reproducibility>`_ for "
+"reproducible results and running the ``isolate-check-environment`` "
+"command which checks your system for common issues."
+msgstr ""
+
+msgid "Updating CMS"
+msgstr ""
+
+msgid ""
+"As CMS develops, the database schema it uses to represent its data may be"
+" updated and new versions may introduce changes that are incompatible "
+"with older versions."
+msgstr ""
+
+msgid ""
+"To preserve the data stored on the database you need to dump it on the "
+"filesystem using ``cmsDumpExporter`` **before you update CMS** (i.e. with"
+" the old version)."
+msgstr ""
+
+msgid "You can then update CMS and reset the database schema by running:"
+msgstr ""
+
+msgid ""
+"To load the previous data back into the database you can use "
+"``cmsDumpImporter``: it will adapt the data model automatically on-the-"
+"fly (you can use ``cmsDumpUpdater`` to store the updated version back on "
+"disk and speed up future imports)."
+msgstr ""
+
+msgid ""
+"In this fork, ``cmsDumpImporter`` imports every contest as inactive, so a"
+" contest never becomes visible to contestants by accident. When restoring"
+" a full backup into an empty database, pass ``-d`` (``--drop``) to keep "
+"each contest's active flag as it was, or activate the contests afterwards"
+" from the Admin Web Server."
+msgstr ""
+

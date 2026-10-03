@@ -1,0 +1,114 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Rekarel"
+msgstr ""
+
+msgid ""
+"This fork bundles two Karel tools directly inside the Docker image — no "
+"installation required."
+msgstr ""
+
+msgid "Tool"
+msgstr ""
+
+msgid "What it is"
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "`rekarel`"
+msgstr ""
+
+msgid "Compiler for the Karel programming language (Node.js CLI)"
+msgstr ""
+
+msgid "[@rekarel/cli](https://github.com/kishtarn555/rekarel-js)"
+msgstr ""
+
+msgid "`karel`"
+msgstr ""
+
+msgid "Karel interpreter written in C++ (statically linked binary)"
+msgstr ""
+
+msgid ""
+"[rekarel-cpp-interpreter v2.3.1](https://github.com/kishtarn555/rekarel-"
+"cpp-interpreter)"
+msgstr ""
+
+msgid ""
+"Both tools are in PATH inside the container and are available to CMS "
+"workers when evaluating Karel submissions."
+msgstr ""
+
+msgid "Verifying the tools are available"
+msgstr ""
+
+msgid "Run a shell inside the running container and check both tools:"
+msgstr ""
+
+msgid ""
+"Expected output: the rekarel version string followed by the karel "
+"interpreter usage message."
+msgstr ""
+
+msgid "Using Karel as a task type"
+msgstr ""
+
+msgid ""
+"Karel tasks are evaluated using the standard **Batch** task type in CMS. "
+"The task checker or manager calls `rekarel` (to compile the contestant's "
+"`.kp` source) and `karel` (to run the compiled program against each test "
+"case)."
+msgstr ""
+
+msgid ""
+"Refer to the CMS documentation on [task "
+"types](https://cms.readthedocs.io/en/latest/Task%20types.html) for the "
+"full configuration."
+msgstr ""
+
+msgid "Versions bundled"
+msgstr ""
+
+msgid "Version"
+msgstr ""
+
+msgid "`@rekarel/cli`"
+msgstr ""
+
+msgid "latest at image build time (npm latest)"
+msgstr ""
+
+msgid "`rekarel-cpp-interpreter`"
+msgstr ""
+
+msgid "v2.3.1"
+msgstr ""
+
+msgid ""
+"To pin `@rekarel/cli` to a specific version, modify the `RUN npm install "
+"-g` line in the `rekarel-builder` stage of `Dockerfile` and rebuild."
+msgstr ""
+

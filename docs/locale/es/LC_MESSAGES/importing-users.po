@@ -1,0 +1,571 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Importing users and participations"
+msgstr ""
+
+msgid ""
+"The Admin Web Server (AWS) can load the contestants of a contest from one"
+" CSV file. For each row it creates the user if it does not exist and "
+"registers the user in the contest with that day's password. It replaces "
+"[CMS-Loader](cms-loader.md), which will be removed after 2026-10-10."
+msgstr ""
+
+msgid ""
+"The import page is in Spanish. The texts below are quoted as they appear "
+"on the page."
+msgstr ""
+
+msgid "Where"
+msgstr ""
+
+msgid "**Contest → Users → \"Importar CSV\"**"
+msgstr ""
+
+msgid ""
+"The link is only shown to admins with full permission. Other admins do "
+"not see it and cannot open the page."
+msgstr ""
+
+msgid "The file"
+msgstr ""
+
+msgid ""
+"The **first row must be the header row**, with the name of each column. "
+"Without one, no selector is filled in and \"Solo validar\" usually "
+"answers \"falta asignar la columna para …\". If you then pick the columns"
+" by hand, the first contestant is taken as the header and silently not "
+"imported, so check the counts of **\"Solo validar\"**."
+msgstr ""
+
+msgid "**UTF-8**, with commas or semicolons between the cells. Both work."
+msgstr ""
+
+msgid ""
+"In Excel, save it as **\"CSV UTF-8\"**. A plain \"CSV\" saves accented "
+"letters in another encoding, and the page then answers \"el archivo no "
+"está en UTF-8\". This only happens when the file has accented or other "
+"non-ASCII characters."
+msgstr ""
+
+msgid ""
+"At most **2 MB** (2 MiB, 2 × 1024 × 1024 bytes) and **5000 rows** of data"
+" per file. The header and completely blank rows do not count. For more "
+"contestants, use several files."
+msgstr ""
+
+msgid "One file per contest, imported from that contest's page."
+msgstr ""
+
+msgid "Field"
+msgstr ""
+
+msgid "Required"
+msgstr ""
+
+msgid "What it holds"
+msgstr ""
+
+msgid "Headers recognised automatically"
+msgstr ""
+
+msgid "`username`"
+msgstr ""
+
+msgid "yes"
+msgstr ""
+
+msgid ""
+"The login. It is unique in the whole of CMS. Only letters A-Z a-z, "
+"digits, `_` and `-` (no spaces, dots, accents or `@`). Capitals matter: "
+"`Ana01` and `ana01` are different users."
+msgstr ""
+
+msgid "`username`, `usuario`, `user`"
+msgstr ""
+
+msgid "`first_name`"
+msgstr ""
+
+msgid "First name"
+msgstr ""
+
+msgid "`first_name`, `nombre`, `nombres`"
+msgstr ""
+
+msgid "`last_name`"
+msgstr ""
+
+msgid "Last name"
+msgstr ""
+
+msgid "`last_name`, `apellido`, `apellidos`"
+msgstr ""
+
+msgid "`password`"
+msgstr ""
+
+msgid "The day password (see below). At most 72 bytes."
+msgstr ""
+
+msgid "`password`, `contraseña`, `contrasena`, `clave`"
+msgstr ""
+
+msgid "`team`"
+msgstr ""
+
+msgid "no"
+msgstr ""
+
+msgid "The team code, for example `JAL`."
+msgstr ""
+
+msgid "`team`, `equipo`, `estado`"
+msgstr ""
+
+msgid "`group`"
+msgstr ""
+
+msgid "The name of a group of this contest."
+msgstr ""
+
+msgid "`group`, `grupo`"
+msgstr ""
+
+msgid ""
+"Headers are matched without capitals or accents. When you choose the "
+"file, the page shows one selector per field, filled in with the matching "
+"column. Each selector is labelled in Spanish with the name of the field "
+"in brackets, for example \"Usuario (username)\" for `username` and "
+"\"Contraseña del día (password)\" for `password`. If your headers are "
+"different, pick the right column yourself. Required fields are marked "
+"with `*`, and the page explains it with the legend \"* obligatorio\". "
+"**\"(sin asignar)\"** means no column. A column cannot be used for two "
+"fields."
+msgstr ""
+
+msgid ""
+"Cells are stripped of surrounding spaces, the password included, because "
+"CWS strips what the contestant types at the login. A password may have "
+"spaces inside, but no control characters, not even a tab or a line break."
+" The 72-byte limit counts the bytes left after stripping, not letters: a "
+"letter with an accent takes two."
+msgstr ""
+
+msgid "Example:"
+msgstr ""
+
+msgid "The day password"
+msgstr ""
+
+msgid ""
+"In OMI contests each contest day has its own password. In CMS that is the"
+" **participation password**: the password a contestant has in one "
+"contest, which takes priority over their account password there."
+msgstr ""
+
+msgid ""
+"The `password` column is the participation password of this contest. "
+"Upload **one file per contest day**, with that day's passwords."
+msgstr ""
+
+msgid ""
+"New accounts get a random account password that nobody knows, so only the"
+" day password logs in. If you later add these users to another contest by"
+" hand, set a participation password there, because the account password "
+"is not meant to be used."
+msgstr ""
+
+msgid "Import step by step"
+msgstr ""
+
+msgid ""
+"Open **Contest → Users → \"Importar CSV\"** and choose the file. Check "
+"that every selector has the right column."
+msgstr ""
+
+msgid ""
+"Press **\"Solo validar\"**. It reads the whole file and writes nothing. "
+"If the file is fine, the page says \"El archivo es válido. Al "
+"importarlo:\" and counts the new and updated users and the new and "
+"updated participations. Check that the numbers are what you expect. On a "
+"fresh contest, \"Usuarios actualizados\" above 0 means those usernames "
+"already exist in CMS, and their first and last names will be overwritten."
+msgstr ""
+
+msgid ""
+"If the import would also clear teams or change groups, a highlighted "
+"warning follows the counts, one line for each thing that would happen: "
+"\"N participaciones perderán su equipo\" and \"N participaciones pasarán "
+"al grupo principal\" (with one participation: \"1 participación perderá "
+"su equipo\" and \"1 participación pasará al grupo principal\"). A line "
+"shows only when its number is above 0. The first counts the "
+"participations that are already in this contest with a team, whose row "
+"has an empty `team` cell or \"(sin asignar)\". The second counts those "
+"that are in a group other than the main one, whose row has an empty "
+"`group` cell or \"(sin asignar)\". See the warning about empty cells "
+"below. If it is not what you want, fix the file before importing."
+msgstr ""
+
+msgid ""
+"**Choose the file again.** The browser cannot keep the file between the "
+"two steps, so the page asks: \"Vuelve a elegir el archivo para "
+"importarlo. Se conservan las columnas asignadas, salvo la de la "
+"contraseña: revísala.\" Your column choices are kept, except the password"
+" column, which is guessed again from the headers in the table above. "
+"**Check it before going on.**"
+msgstr ""
+
+msgid ""
+"Press **\"Importar\"**. A progress bar shows \"Procesando X de N\". Both "
+"buttons are disabled after the first click, so a double click does not "
+"send the file twice."
+msgstr ""
+
+msgid ""
+"It ends with **\"Listo.\"**, in bold, and the counts: \"Usuarios nuevos: "
+"…, actualizados: …. Participaciones nuevas: …, actualizadas: ….\". If the"
+" import cleared teams or moved participations to the main group, the same"
+" lines as in the validation follow, in the past tense: \"N "
+"participaciones perdieron su equipo\" and \"N participaciones pasaron al "
+"grupo principal\" (with one participation: \"1 participación perdió su "
+"equipo\" and \"1 participación pasó al grupo principal\"). Two links "
+"close the page: \"Lista de usuarios\", the Users list of the contest, and"
+" \"Importar otro archivo\", the import page again with no file chosen. "
+"\"Procesando N de N\" can show before \"Listo.\", because saving comes "
+"after the hashing. Wait for \"Listo.\"; only then is everything saved."
+msgstr ""
+
+msgid ""
+"Passwords are hashed, which is slow. A new user needs two hashes and an "
+"existing user one. On a 4-core server, 300 new users take about **40 s** "
+"and 300 existing users about **20 s**. A 5000-row file of new users takes"
+" about 10 minutes, and fewer cores are slower. You can close the tab. The"
+" import keeps running, and the same progress link shows where it is."
+msgstr ""
+
+msgid ""
+"**Avoid importing during a running contest.** The hashing keeps 4 cores "
+"busy for a while (about **25 s for 190 new users**) on the server that "
+"also runs the contestants' submissions and logins. Import before the "
+"contest starts."
+msgstr ""
+
+msgid "What the import does"
+msgstr ""
+
+msgid ""
+"**New user:** created with the names of the row and a random account "
+"password."
+msgstr ""
+
+msgid ""
+"**Existing user** (same `username`): the first and last names are "
+"replaced by the file's. Nothing else about the user changes, and the "
+"account password is kept."
+msgstr ""
+
+msgid ""
+"**Participation:** if the user is not yet in the contest, they are added."
+" If they are already in it, their participation is updated. In both cases"
+" the password, the team and the group are those of the row."
+msgstr ""
+
+msgid ""
+"Nothing else changes. The other participations of the user, and the users"
+" or participations that are not in the file, are left as they are. So are"
+" the other settings of a participation: Hidden participation, "
+"Unrestricted participation, IP address or subnet, Delay and Extra time."
+msgstr ""
+
+msgid ""
+"To fix a mistake, correct the file and import it again: what already "
+"exists is updated. Nothing is ever deleted. A contestant whose password "
+"in the file did not change stays logged in to CWS. A contestant whose "
+"password changed is logged out, and only that contestant: they log in "
+"again with the new password."
+msgstr ""
+
+msgid ""
+"**Warning: empty cells replace.** An empty `team` cell **removes** the "
+"team of that participation, and an empty `group` cell puts it in the "
+"contest's **main group**. The same happens when `team` or `group` is left"
+" on \"(sin asignar)\", for example because the file has no such column. "
+"So uploading again a file **without the team column** clears the team of "
+"every contestant in it. Include the team and group columns in every file "
+"you upload."
+msgstr ""
+
+msgid ""
+"The page warns about it in three places: a note beside the \"Equipo "
+"(team)\" and \"Grupo (group)\" selectors (\"Vacío o sin asignar: la "
+"participación se queda sin equipo / en el grupo principal.\"), and the "
+"lines \"N participaciones perderán su equipo\" and \"N participaciones "
+"pasarán al grupo principal\" after \"Solo validar\", which are repeated "
+"in the past tense after \"Listo.\"."
+msgstr ""
+
+msgid "Teams and groups must exist first"
+msgstr ""
+
+msgid "The import does not create teams or groups. Create them before importing:"
+msgstr ""
+
+msgid ""
+"Teams: click **Administration** (top of the sidebar), then **Teams** → "
+"\"(create new team...)\". Inside a contest the sidebar shows the contest "
+"menu, so the main menu only appears after that click. The `team` cell "
+"holds the team code."
+msgstr ""
+
+msgid ""
+"Groups: **Contest → Groups**, \"Add a new group named\" and \"Add "
+"group\". The `group` cell holds the name of a group of this contest."
+msgstr ""
+
+msgid ""
+"Both must be written exactly as they are in AWS, capitals included. An "
+"unknown team or group is an error."
+msgstr ""
+
+msgid "When there are errors"
+msgstr ""
+
+msgid ""
+"**All or nothing.** If anything is wrong, nothing is written, and the "
+"page says \"No se aplicó nada. Corrige estos errores y vuelve a subir el "
+"archivo:\" with the list of errors. Errors about one row start with "
+"\"fila N:\", where N is the position of the row in the file, counting the"
+" header as row 1. Other errors are about the file as a whole. No error "
+"shows the contents of the password column."
+msgstr ""
+
+msgid ""
+"The list starts with the number of errors (\"N errores\", or \"1 error\" "
+"when there is one) and shows only the **first 50**. If there are more, it"
+" ends with \"y N más\". Fix those and validate again to see the next "
+"ones."
+msgstr ""
+
+msgid ""
+"Fix the file, choose it again and press **\"Solo validar\"** until it is "
+"valid. Some errors only show once the others are fixed: for example, "
+"unknown teams and groups are checked after the rest of the file."
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "What to do"
+msgstr ""
+
+msgid "\"el archivo no está en UTF-8\""
+msgstr ""
+
+msgid "Save the file as \"CSV UTF-8\"."
+msgstr ""
+
+msgid "\"el archivo pasa de 2 MB\", \"el archivo pasa de 5000 filas\""
+msgstr ""
+
+msgid "Split the file."
+msgstr ""
+
+msgid "\"elige un archivo CSV\""
+msgstr ""
+
+msgid "Choose the file."
+msgstr ""
+
+msgid "\"el archivo está vacío\""
+msgstr ""
+
+msgid "The file has no content. Check that you chose the right file."
+msgstr ""
+
+msgid "\"el archivo no tiene filas de datos\""
+msgstr ""
+
+msgid "The file has no contestants below the header row. Blank rows do not count."
+msgstr ""
+
+msgid "\"el archivo no es un CSV válido\""
+msgstr ""
+
+msgid "The file cannot be read as CSV. Save it again as \"CSV UTF-8\"."
+msgstr ""
+
+msgid "\"falta asignar la columna para …\" (followed by the field)"
+msgstr ""
+
+msgid "Pick the column in the selector of that field."
+msgstr ""
+
+msgid ""
+"\"la columna X está asignada a más de un campo\" (for the password "
+"column: \"la columna de la contraseña está asignada a más de un campo\")"
+msgstr ""
+
+msgid "Give each field its own column."
+msgstr ""
+
+msgid ""
+"\"la columna X no está en el archivo\" (for the password column: \"la "
+"columna asignada a la contraseña no está en el archivo\")"
+msgstr ""
+
+msgid ""
+"Pick the column again in the selector of that field, using the file you "
+"are uploading."
+msgstr ""
+
+msgid ""
+"\"fila N: el usuario está vacío\", \"fila N: el nombre está vacío\", "
+"\"fila N: el apellido está vacío\", \"fila N: la contraseña está vacía\""
+msgstr ""
+
+msgid "Fill in the cell."
+msgstr ""
+
+msgid "\"fila N: el usuario X está repetido (fila M)\""
+msgstr ""
+
+msgid "Each username may appear only once per file."
+msgstr ""
+
+msgid ""
+"\"fila N: el usuario X tiene caracteres no permitidos (solo letras sin "
+"acentos, números, _ y -)\""
+msgstr ""
+
+msgid "Change the username to use only those characters."
+msgstr ""
+
+msgid "\"fila N: el equipo X no existe\""
+msgstr ""
+
+msgid "Create the team in **Teams**, or fix the code."
+msgstr ""
+
+msgid "\"fila N: el grupo X no existe en este concurso\""
+msgstr ""
+
+msgid "Create the group in **Contest → Groups**, or fix the name."
+msgstr ""
+
+msgid "\"fila N: la contraseña pasa de 72 bytes\""
+msgstr ""
+
+msgid "Use a shorter password."
+msgstr ""
+
+msgid "\"fila N: la contraseña tiene caracteres no permitidos\""
+msgstr ""
+
+msgid ""
+"The password has a control character, which is usually invisible and "
+"comes from a pasted cell. Type the password again."
+msgstr ""
+
+msgid ""
+"\"fila N: la celda del usuario tiene caracteres no permitidos\" (or \"del"
+" nombre\", \"del apellido\", \"del equipo\", \"del grupo\")"
+msgstr ""
+
+msgid "The cell has a NUL character, which is invisible. Type the cell again."
+msgstr ""
+
+msgid "Progress problems"
+msgstr ""
+
+msgid ""
+"**Only one import per contest can run at once.** If you press "
+"\"Importar\" while an import of that contest that you started is still "
+"running (for example, after you left its progress page, or from another "
+"tab), the page takes you to the progress of that running import and says:"
+" \"Ya tenías una importación en curso en este concurso; este es su "
+"progreso. El archivo que acabas de enviar no se importó.\" **The file you"
+" just sent was not imported**, and it may not be the one that is running."
+" When that import shows \"Listo.\", import the file you sent. If the "
+"running import was started by another admin, the page says \"Hay una "
+"importación en curso para este concurso; espera a que termine.\" This is "
+"a notice, not an error: the file is fine and nothing was applied by this "
+"request, so wait for the other import to end and import the file again. "
+"Choose the file again, as the page asks."
+msgstr ""
+
+msgid ""
+"**Import one contest at a time when the files share users**, for example "
+"day 1 and day 2 of the same contestants. Imports into different contests "
+"can run at once, and they save one after the other, so no user is created"
+" twice. But if both files bring the same new users, the second import may"
+" count them in \"Usuarios nuevos\" although the first one created them: "
+"it only updates them."
+msgstr ""
+
+msgid ""
+"**A progress page lives 1 hour**, counted from the start of the import. "
+"After that, or if the link is not yours (only the admin who started an "
+"import can see its progress), the page says \"No se encontró la "
+"importación: no existe o ya expiró. Revisa la lista de usuarios para ver "
+"si se aplicó.\" The import may or may not have been applied. **Check the "
+"contest's Users list.** Do **not** re-run the import blindly: it would "
+"overwrite any change made since."
+msgstr ""
+
+msgid ""
+"**If AWS restarts during an import**, AWS no longer knows the import: its"
+" status request answers 404, so the page shows \"No se pudo consultar el "
+"progreso; recarga la página.\", and after a reload it shows the \"No se "
+"encontró la importación: …\" notice above. Normally nothing from that "
+"import is saved, because the database is only written at the very end, in"
+" a single step. But if the restart came at that very end, the import may "
+"already be saved, so check the contest's Users list. If the users are not"
+" there, run the import again. Re-running the same file rewrites the same "
+"values and keeps the passwords that did not change, so it logs nobody out"
+" of CWS. It is harmless unless someone changed those users or "
+"participations since."
+msgstr ""
+
+msgid ""
+"\"Error: …\" instead of \"Listo.\" means the import failed and nothing "
+"was saved. The same two links follow it: \"Lista de usuarios\" and "
+"\"Importar otro archivo\". Run it again, and if it fails again, ask "
+"whoever manages the server to look at the AWS log."
+msgstr ""
+
+msgid ""
+"\"No se pudo consultar el progreso; recarga la página.\" means the page "
+"lost contact with AWS. The page retries first, so the message only "
+"appears after several failed attempts in a row. Reload the page. If AWS "
+"was restarted, see the bullet above."
+msgstr ""
+
+msgid "Keep the original file"
+msgstr ""
+
+msgid ""
+"Passwords are stored hashed, so they cannot be read back, and AWS has "
+"**no download or export**. Keep the original file safe: nothing in AWS "
+"can give the day passwords back."
+msgstr ""
+

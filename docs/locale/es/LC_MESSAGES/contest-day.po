@@ -1,0 +1,350 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Contest day"
+msgstr ""
+
+msgid ""
+"A checklist for the people who run a contest on a Docker deployment of "
+"this fork, from the week before to the backup afterwards. It does not "
+"repeat the other guides: each step links to the page that explains it."
+msgstr ""
+
+msgid ""
+"The commands run on the server, from the repository root. Where a command"
+" needs Docker Compose directly, `<project>` is `CMS_PROJECT_NAME` from "
+"`.env` (`cms-prod` if it is unset)."
+msgstr ""
+
+msgid "The week before"
+msgstr ""
+
+msgid "Size the deployment"
+msgstr ""
+
+msgid ""
+"All the simultaneous contests share one queue and the same workers. The "
+"numbers below come from a load test with 250 simulated contestants on one"
+" server; use them as a starting point, not as a limit."
+msgstr ""
+
+msgid ""
+"**Workers:** `CMS_WORKER_COUNT` (default 1). The load test used 8. With "
+"fewer, the queue takes longer to drain after the contest ends (see \"At "
+"the end\")."
+msgstr ""
+
+msgid ""
+"**Contest Web Server processes:** `CMS_CWS_COUNT` (default 1). With 2, a "
+"server under heavy load rejected some submissions made in the last "
+"seconds; with 4, none (see \"At the end\" for why)."
+msgstr ""
+
+msgid ""
+"**Ports:** process *i* listens on `CMS_CWS_HTTP_PORT` + *i*. Nothing "
+"checks that this range stays clear of `CMS_AWS_HTTP_PORT` and "
+"`CMS_RWS_HTTP_PORT`, and with the defaults (8888, 8889, 8890) a second "
+"process lands on the Admin port. Move the Admin and Ranking ports above "
+"the range, and balance the processes with `ip_hash` in the reverse proxy."
+" See \"Scaling Contest Web Server\" in [docker-scripts.md](docker-"
+"scripts.md)."
+msgstr ""
+
+msgid ""
+"**Clock:** keep the server's clock synced with NTP. Set `CMS_TIMEZONE` to"
+" the contest's time zone, so the Admin Web Server shows the local "
+"equivalent of the ranking schedule (see \"Windows\" in [multi-contest.md"
+"](multi-contest.md))."
+msgstr ""
+
+msgid "Changes to `.env` apply when the containers are recreated (`./up.sh`)."
+msgstr ""
+
+msgid "Set up the contests"
+msgstr ""
+
+msgid ""
+"Import the contests and their tasks. A contest imported from a backup "
+"with `./import.sh` arrives **inactive**, unless you chose to drop the "
+"database first (see `import.sh` in [docker-scripts.md](docker-"
+"scripts.md))."
+msgstr ""
+
+msgid ""
+"Create the ranking groups, assign the contests, tick **Active** and set "
+"the hide and freeze windows: follow \"Before an exam day\" in [multi-"
+"contest.md](multi-contest.md). Create a hidden group **before** assigning"
+" a contest to it."
+msgstr ""
+
+msgid ""
+"Create the teams and the contest's groups, then import the contestants: "
+"[importing-users.md](importing-users.md)."
+msgstr ""
+
+msgid ""
+"For every task that uses `depends_on`, follow \"Before the contest\" in "
+"[subtask-dependencies.md](subtask-dependencies.md)."
+msgstr ""
+
+msgid ""
+"For every task, submit a correct solution and a wrong one from a test "
+"user, in each language the contestants will use, and check the scores."
+msgstr ""
+
+msgid "Rehearse"
+msgstr ""
+
+msgid ""
+"Run a rehearsal on a deployment with the same version and the same `.env`"
+" as the real one, with the same steps as on the day."
+msgstr ""
+
+msgid ""
+"Note the commit you deployed and the last known-good one, in case you "
+"have to roll back (see \"Rollback\" in [multi-contest.md](multi-"
+"contest.md))."
+msgstr ""
+
+msgid "Take a backup with `./export.sh` once the contests are set up."
+msgstr ""
+
+msgid "Before the start"
+msgstr ""
+
+msgid "Do not rebuild or update the deployment on the day."
+msgstr ""
+
+msgid ""
+"`./status.sh`: every container is `Up`, and every program in the "
+"supervisor list is `RUNNING`."
+msgstr ""
+
+msgid ""
+"In the Admin Web Server, open **Overview**. The **Workers status** title "
+"reads \"(N connected, M configured)\": N must equal M."
+msgstr ""
+
+msgid ""
+"On **Ranking groups**, the **State** column says what you expect for each"
+" group, and its \"next:\" times match the contest (see \"Checking a "
+"schedule\" in [multi-contest.md](multi-contest.md))."
+msgstr ""
+
+msgid ""
+"Ask the contestants to **log in before the start**. Checking a password "
+"costs about 0.2 seconds of CPU, and each Contest Web Server process "
+"checks at most 4 at a time, so a whole room logging in at the start time "
+"makes everyone wait."
+msgstr ""
+
+msgid "During the contest"
+msgstr ""
+
+msgid ""
+"Keep the contest's **Overview** page open in the Admin Web Server. It "
+"refreshes every 5 seconds:"
+msgstr ""
+
+msgid ""
+"**Submissions status** (only on a contest's Overview): how many "
+"submissions of this contest are scored, failed to compile, or are still "
+"compiling, evaluating or scoring. **Scored** is always shown; any other "
+"row is hidden while its count is 0. Watch for **Cannot compile (please "
+"check)** and **Cannot evaluate (please check)**."
+msgstr ""
+
+msgid ""
+"**Queue status:** the jobs waiting for a worker, for all the contests "
+"together; a submission can have more than one. Jobs already running on a "
+"worker are not listed here."
+msgstr ""
+
+msgid "**Workers status:** whether each worker is connected and what it is doing."
+msgstr ""
+
+msgid ""
+"**Logs:** the last 100 warnings and errors of the CMS services (not of "
+"the Ranking Web Server)."
+msgstr ""
+
+msgid ""
+"For the full logs, `./logs.sh -f cms` follows the CMS services (press "
+"`Ctrl+C` to stop) and `./logs.sh --tail 2000 cms` shows the last 2000 "
+"lines."
+msgstr ""
+
+msgid "Common problems:"
+msgstr ""
+
+msgid ""
+"**A scoreboard does not match the database:** press **Regenerate** on its"
+" ranking group (see \"When a scoreboard is wrong\" in [multi-contest.md"
+"](multi-contest.md))."
+msgstr ""
+
+msgid ""
+"**A worker shows Connected: No:** its job goes back to the queue by "
+"itself within seconds. Restart that worker, numbered from 0 as in the "
+"**Shard** column:"
+msgstr ""
+
+msgid ""
+"**A worker was disabled:** a worker that stays busy with one job for more"
+" than 10 minutes is disabled and its job goes back to the queue "
+"(`./logs.sh cms` says \"put again in the queue because of worker "
+"timeout\"; this message is not in the Overview **Logs** table). It gets "
+"no more jobs, even after a restart, until someone presses **Enable** on "
+"its row of **Workers status**."
+msgstr ""
+
+msgid ""
+"**`QueuePool limit … reached` in the logs:** the Contest Web Server ran "
+"out of database connections (see [Troubleshooting](Troubleshooting.rst))."
+msgstr ""
+
+msgid ""
+"**Extending a contest:** the hide and freeze times of a ranking group are"
+" absolute. Move them by hand to match the new end."
+msgstr ""
+
+msgid "At the end"
+msgstr ""
+
+msgid ""
+"**Last-second submissions.** There is no grace period. A submission "
+"counts by the time the server processes it, not the time the contestant "
+"pressed the button: a busy server can judge a submission sent just before"
+" the end as late. A late submission is not accepted (unless the contest "
+"allows unofficial submissions before the analysis mode), and the form "
+"only sends the contestant back to the contest page, which says \"The "
+"contest has already ended.\" (\"La competencia ya finalizó.\" in "
+"Spanish). Tell the contestants beforehand not to leave their submissions "
+"for the last seconds."
+msgstr ""
+
+msgid ""
+"**Wait for the evaluation to finish.** The submissions made before the "
+"end are still being evaluated after it. In the load test the queue took 1"
+" to 5 minutes to drain with 8 workers. It is done when, on each contest's"
+" **Overview**, **Queue status** reads \"Queue empty.\" and **Submissions "
+"status** has no **Compiling...**, **Evaluating...** or **Scoring...** row"
+" left. **Scored** and **Compilation failed** are final. Deal with any "
+"**Cannot compile** or **Cannot evaluate** row first."
+msgstr ""
+
+msgid ""
+"**Only then publish the final ranking:** press **Descongelar ahora** or "
+"**Mostrar ahora** on the ranking group (see 'The \"now\" buttons' in "
+"[multi-contest.md](multi-contest.md)). If the unfreeze or show time is "
+"scheduled, put it late enough after the end for the queue to drain."
+msgstr ""
+
+msgid ""
+"Check the published scoreboard against the scores in the Admin Web "
+"Server. If they differ, press **Regenerate**."
+msgstr ""
+
+msgid ""
+"Untick **Active** on each contest to close it to the contestants. Its "
+"scoreboard stays published."
+msgstr ""
+
+msgid "After the contest"
+msgstr ""
+
+msgid ""
+"Take a backup with `./export.sh` and copy the file from `dumps/` off the "
+"server."
+msgstr ""
+
+msgid ""
+"If a ranking group was renamed or deleted, remove its old scoreboard (see"
+" \"Removing an old scoreboard\" in [multi-contest.md](multi-contest.md))."
+msgstr ""
+
+msgid "When something goes wrong"
+msgstr ""
+
+msgid "Symptom"
+msgstr ""
+
+msgid "What to do"
+msgstr ""
+
+msgid "Details"
+msgstr ""
+
+msgid "A scoreboard is missing scores or shows a contest it should not"
+msgstr ""
+
+msgid "**Regenerate** on its ranking group"
+msgstr ""
+
+msgid "[multi-contest.md](multi-contest.md)"
+msgstr ""
+
+msgid ""
+"A scoreboard stopped updating and ProxyService logs \"rejected the "
+"visibility\""
+msgstr ""
+
+msgid "Follow \"Failure mode\""
+msgstr ""
+
+msgid "A page does not load"
+msgstr ""
+
+msgid "`./status.sh`, then `./logs.sh`"
+msgstr ""
+
+msgid "[docker-scripts.md](docker-scripts.md)"
+msgstr ""
+
+msgid "A submission stays in **Cannot compile** or **Cannot evaluate**"
+msgstr ""
+
+msgid "Read the **Logs** table on **Overview** and the submission's page"
+msgstr ""
+
+msgid "[Troubleshooting](Troubleshooting.rst)"
+msgstr ""
+
+msgid ""
+"In a task with `depends_on`, dependent subtasks are not zeroed as "
+"expected, or submissions finish late"
+msgstr ""
+
+msgid ""
+"Search the Evaluation Service log for \"cannot be used\" and \"gates are "
+"holding each other\""
+msgstr ""
+
+msgid "[subtask-dependencies.md](subtask-dependencies.md)"
+msgstr ""
+
+msgid "A contest is not listed for the contestants"
+msgstr ""
+
+msgid "Tick **Active** on it"
+msgstr ""
+

@@ -1,0 +1,346 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Ranking: Mexican State Flags and Auto-Team Registration"
+msgstr ""
+
+msgid ""
+"This fork ships two enhancements to the Ranking Web Server targeted at "
+"the OMI:"
+msgstr ""
+
+msgid ""
+"**Bundled flags** — real flag images for all 32 Mexican states, served "
+"automatically by the ranking server."
+msgstr ""
+
+msgid ""
+"**Auto-team registration** — teams are created from the flag images found"
+" in `lib_dir/flags/` every time the ranking server starts."
+msgstr ""
+
+msgid "How auto-team registration works"
+msgstr ""
+
+msgid "On startup, `cmsRankingWebServer` calls `seed_flags_and_teams`, which:"
+msgstr ""
+
+msgid ""
+"Copies the 32 bundled state flag PNG files into `lib_dir/flags/` "
+"(default: `.venv/lib/ranking/flags/`), overwriting any existing copies of"
+" those bundled files."
+msgstr ""
+
+msgid ""
+"Scans `lib_dir/flags/` for image files (`.png`, `.jpg`, `.gif`, `.bmp`) "
+"and creates a **team** entry for each filename stem not yet registered."
+msgstr ""
+
+msgid ""
+"The team name is resolved from the filename stem: if it matches a known "
+"Mexican state code (e.g. `JAL`) the full state name is used (`Jalisco`); "
+"otherwise the stem itself becomes the team name."
+msgstr ""
+
+msgid ""
+"Teams are only *created*, never automatically updated or deleted. Once a "
+"team exists it can be renamed or modified through the admin interface "
+"without losing changes on the next restart."
+msgstr ""
+
+msgid "State codes"
+msgstr ""
+
+msgid "Code"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "AGU"
+msgstr ""
+
+msgid "Aguascalientes"
+msgstr ""
+
+msgid "MOR"
+msgstr ""
+
+msgid "Morelos"
+msgstr ""
+
+msgid "BCN"
+msgstr ""
+
+msgid "Baja California"
+msgstr ""
+
+msgid "NAY"
+msgstr ""
+
+msgid "Nayarit"
+msgstr ""
+
+msgid "BCS"
+msgstr ""
+
+msgid "Baja California Sur"
+msgstr ""
+
+msgid "NLE"
+msgstr ""
+
+msgid "Nuevo León"
+msgstr ""
+
+msgid "CAM"
+msgstr ""
+
+msgid "Campeche"
+msgstr ""
+
+msgid "OAX"
+msgstr ""
+
+msgid "Oaxaca"
+msgstr ""
+
+msgid "CHP"
+msgstr ""
+
+msgid "Chiapas"
+msgstr ""
+
+msgid "PUE"
+msgstr ""
+
+msgid "Puebla"
+msgstr ""
+
+msgid "CHH"
+msgstr ""
+
+msgid "Chihuahua"
+msgstr ""
+
+msgid "QUE"
+msgstr ""
+
+msgid "Querétaro"
+msgstr ""
+
+msgid "CMX"
+msgstr ""
+
+msgid "Ciudad de México"
+msgstr ""
+
+msgid "ROO"
+msgstr ""
+
+msgid "Quintana Roo"
+msgstr ""
+
+msgid "COA"
+msgstr ""
+
+msgid "Coahuila"
+msgstr ""
+
+msgid "SLP"
+msgstr ""
+
+msgid "San Luis Potosí"
+msgstr ""
+
+msgid "COL"
+msgstr ""
+
+msgid "Colima"
+msgstr ""
+
+msgid "SIN"
+msgstr ""
+
+msgid "Sinaloa"
+msgstr ""
+
+msgid "DUR"
+msgstr ""
+
+msgid "Durango"
+msgstr ""
+
+msgid "SON"
+msgstr ""
+
+msgid "Sonora"
+msgstr ""
+
+msgid "GUA"
+msgstr ""
+
+msgid "Guanajuato"
+msgstr ""
+
+msgid "TAB"
+msgstr ""
+
+msgid "Tabasco"
+msgstr ""
+
+msgid "GRO"
+msgstr ""
+
+msgid "Guerrero"
+msgstr ""
+
+msgid "TAM"
+msgstr ""
+
+msgid "Tamaulipas"
+msgstr ""
+
+msgid "HID"
+msgstr ""
+
+msgid "Hidalgo"
+msgstr ""
+
+msgid "TLA"
+msgstr ""
+
+msgid "Tlaxcala"
+msgstr ""
+
+msgid "JAL"
+msgstr ""
+
+msgid "Jalisco"
+msgstr ""
+
+msgid "VER"
+msgstr ""
+
+msgid "Veracruz"
+msgstr ""
+
+msgid "MEX"
+msgstr ""
+
+msgid "Estado de México"
+msgstr ""
+
+msgid "YUC"
+msgstr ""
+
+msgid "Yucatán"
+msgstr ""
+
+msgid "MIC"
+msgstr ""
+
+msgid "Michoacán"
+msgstr ""
+
+msgid "ZAC"
+msgstr ""
+
+msgid "Zacatecas"
+msgstr ""
+
+msgid "Replacing a bundled state flag"
+msgstr ""
+
+msgid ""
+"Replace the file at `lib_dir/flags/<CODE>.png` while the server is "
+"running. The new image is served immediately — no restart required."
+msgstr ""
+
+msgid ""
+"To make the replacement permanent across server restarts, also replace "
+"the source file inside the package installation:"
+msgstr ""
+
+msgid "Adding a custom team with a flag"
+msgstr ""
+
+msgid "Place an image file at `lib_dir/flags/<YOUR_CODE>.png`."
+msgstr ""
+
+msgid "Restart `cmsRankingWebServer`."
+msgstr ""
+
+msgid ""
+"A team with key `YOUR_CODE` is created automatically. To set a friendlier"
+" display name, edit the team from the admin interface."
+msgstr ""
+
+msgid "Regenerating flag images from Wikimedia Commons"
+msgstr ""
+
+msgid ""
+"If you want to refresh the bundled flags from their original Wikimedia "
+"Commons sources, use the contrib script:"
+msgstr ""
+
+msgid ""
+"The script downloads each flag at 160 px width, resizes to exactly "
+"160×100 px, and overwrites `cmsranking/flags/<CODE>.png`. Requires the "
+"optional `Pillow` dependency:"
+msgstr ""
+
+msgid "Custom logo"
+msgstr ""
+
+msgid ""
+"To permanently change the ranking server logo, replace "
+"`cmsranking/static/img/logo.png` in the package. On every server startup,"
+" this file is copied automatically to `lib_dir/logo.png` and served at "
+"`/logo`."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"To use a temporary logo without modifying the package, place a file "
+"directly at `lib_dir/logo.{png,jpg,gif,bmp}` while the server is running "
+"— it is served immediately. It will be overwritten on the next restart."
+msgstr ""
+
+msgid "Participant faces"
+msgstr ""
+
+msgid ""
+"Place participant face images in `cmsranking/faces/` (e.g., "
+"`JAL001.png`). On every server startup, all images in that directory are "
+"copied to `lib_dir/faces/` and served at `/faces/<filename>`. Files "
+"already in `lib_dir/faces/` that are not in the bundle are preserved."
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"To use a temporary face without modifying the package, place a file "
+"directly at `lib_dir/faces/<code>.{png,jpg,gif,bmp}` while the server is "
+"running — it is served immediately. It will be overwritten on the next "
+"restart if a bundled image with the same name exists."
+msgstr ""
+

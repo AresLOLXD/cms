@@ -1,0 +1,118 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Task versioning"
+msgstr ""
+
+msgid "Introduction"
+msgstr ""
+
+msgid ""
+"Task versioning allows admins to store several sets of parameters for "
+"each task at the same time, to decide which are graded and among these "
+"the one that is shown to the contestants. This is useful before the "
+"contest, to test different possibilities, but especially during the "
+"contest to investigate the impact of an error in the task preparation."
+msgstr ""
+
+msgid ""
+"For example, it is quite common to realize that one input file is wrong. "
+"With task versioning, admins can clone the original dataset (the set of "
+"parameters describing the behavior of the task), change the wrong input "
+"file with another one, or delete it, launch the evaluation on the new "
+"dataset, see which contestants have been affected by the problem, and "
+"finally swap the two datasets to make the new one live and visible by the"
+" contestants."
+msgstr ""
+
+msgid "The advantages over the situation without task versioning are several:"
+msgstr ""
+
+msgid ""
+"there is no need to take down scores during the re-evaluation with the "
+"new input;"
+msgstr ""
+
+msgid ""
+"it is possible to make sure that the new input works well without showing"
+" anything to the contestants;"
+msgstr ""
+
+msgid ""
+"if the problem affects just a few contestants, it is possible to notify "
+"just them, and the others will be completely unaffected."
+msgstr ""
+
+msgid "Datasets"
+msgstr ""
+
+msgid ""
+"A dataset is a version of the sets of parameters of a task that can be "
+"changed and tested in background. These parameters are:"
+msgstr ""
+
+msgid "time and memory limits;"
+msgstr ""
+
+msgid "input and output files;"
+msgstr ""
+
+msgid "libraries and graders;"
+msgstr ""
+
+msgid "task type and score type."
+msgstr ""
+
+msgid ""
+"Datasets can be viewed and edited in the task page. They can be created "
+"from scratch or cloned from existing ones. Of course, during a contest "
+"cloning the live dataset is the most used way of creating a new one."
+msgstr ""
+
+msgid ""
+"Submissions are evaluated as they arrive against the live dataset and all"
+" other datasets with background judging enabled, or on demand when the "
+"admins require it."
+msgstr ""
+
+msgid ""
+"Each task has exactly one live dataset, whose evaluations and scores are "
+"shown to the contestants. To change the live dataset, just click on "
+"\"Make live\" on the desired dataset. Admins will then be prompted with a"
+" summary of what changed between the new dataset and the previously "
+"active, and can decide to cancel or go ahead, possibly notifying the "
+"contestants with a message."
+msgstr ""
+
+msgid ""
+"Remember that the summary looks at the scores currently stored for each "
+"submission. This means that if you cloned a dataset and changed an input,"
+" the scores will still be the old ones: you need to launch a "
+"recompilation, reevaluation, or rescoring, depending on what you changed,"
+" before seeing the new scores."
+msgstr ""
+
+msgid ""
+"After switching live dataset, scores will be resent to RankingWebServer "
+"automatically."
+msgstr ""
+
