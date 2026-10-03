@@ -31,6 +31,7 @@ from cms.db import ActivityInterval, Participation
 from cms.server.admin.handlers.contestactivity import \
     ContestActivityHandler, find_multiple_devices, \
     find_simultaneous_activity, parse_activity_filters, select_intervals
+from cms.server.admin.handlers.contestuser import ParticipationHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cms.server.util import Url
 
@@ -220,3 +221,25 @@ class TestContestActivityPage(PageTestBase):
         with self.assertRaises(tornado.web.HTTPError) as error:
             self.make_handler()._get_sync("999999")
         self.assertEqual(error.exception.status_code, 404)
+
+
+class TestParticipationPage(PageTestBase):
+    """The participation page shows its own intervals and alerts."""
+
+    def test_shows_only_this_participation(self):
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 0, 60)
+        self.add_interval(self.participation, PHONE, "189.1.1.1", 30, 90)
+        other = self.add_participation(contest=self.contest)
+        self.session.flush()
+        self.add_interval(other, LAPTOP, "172.16.0.9", 0, 60)
+        self.session.commit()
+        handler = self.make_handler(ParticipationHandler)
+
+        handler._get_sync(str(self.contest.id),
+                          str(self.participation.user_id))
+
+        page = "".join(handler.chunks)
+        self.assertIn("189.1.1.1", page)
+        self.assertNotIn("172.16.0.9", page)
+        self.assertEqual(len(handler.r_params["activity_intervals"]), 2)
+        self.assertEqual(len(handler.r_params["activity_flagged_ids"]), 2)

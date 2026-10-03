@@ -4,6 +4,7 @@
 {% import 'macro/submission.html' as macro_submission %}
 {% import 'macro/question.html' as macro_question with context %}
 {% import 'macro/markdown_input.html' as macro_markdown %}
+{% import 'macro/activity.html' as macro_activity with context %}
 
 {% block core %}
 <h1>
@@ -129,6 +130,18 @@
     <input type="submit" value="Update" />
     <input type="reset" value="Reset" />
   </form>
+  <div class="hr"></div>
+</div>
+
+
+<h2 id="title_activity" class="toggling_on">Activity</h2>
+<div id="activity">
+  <p>Times are in the contest's timezone. The whole contest's log is under <a href="{{ url("contest", contest.id, "activity") }}">Activity</a>.</p>
+  {% if activity_simultaneous %}
+  <p><strong>Simultaneous activity</strong> (its intervals are highlighted below):</p>
+  {{ macro_activity.simultaneous_table(url, contest, activity_simultaneous) }}
+  {% endif %}
+  {{ macro_activity.intervals_table(url, contest, activity_intervals, activity_end_reason, activity_flagged_ids, false) }}
   <div class="hr"></div>
 </div>
 
