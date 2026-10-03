@@ -43,16 +43,15 @@ Docker-based deployment workflow and several OMI-specific integrations on top
 of the upstream CMS project, so you can go from a fresh machine to a running
 contest without manually installing dependencies.
 
-**`main` stays closely aligned with [upstream](#upstream-project)** and is
-what real contests should run. Larger, in-progress experiments — new
-features and deeper modernization work (e.g. updating long-pinned
-dependencies) that we don't want to wait on upstream for — happen on the
-**`beta`** branch instead, before they're considered stable enough to land
-here.
+**`main` is the only line of this fork** and is what real contests should
+run. It merges [upstream](#upstream-project) regularly (`./sync-upstream.sh`)
+and keeps the fork's own features and modernization work on top. The former
+`beta` branch, where that work used to happen, was merged into `main` on
+2026-09-30 and deleted.
 
-### Beta-line modernization
+### Modernization
 
-The main effort on `beta` right now is retiring gevent in favor of Python's
+The main modernization effort is retiring gevent in favor of Python's
 native `asyncio`, one layer of the system at a time:
 
 | Stage | Status | What it does |
@@ -66,7 +65,7 @@ native `asyncio`, one layer of the system at a time:
 | ContestWebServer handlers | Planned | Same migration for the contestant-facing server |
 
 Each stage (except Service migration, which was coordinated per-service) has a written design spec under
-[`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `beta`
+[`docs/superpowers/specs/`](docs/superpowers/specs/) and lands on `main`
 once implemented, reviewed, and its tests pass. `docker/_cms-test-internal.sh`
 also gained a gevent/asyncio-aware test split so both the legacy and
 migrated code can be tested in CI without the two colliding.
