@@ -232,7 +232,7 @@ Then restart with `./restart.sh`.
 
 ### The system starts but "There is no contest with the specified id"
 
-`CMS_CONTEST_ID` is required — without it, `supervisord.conf` is not generated and no services start at all. On a fresh install the contest does not exist in the database yet, so `cmsContestWebServer`, `cmsEvaluationService` and `cmsProxyService` stop with this message. This is normal.
+`CMS_CONTEST_ID` is required — without it, `supervisord.conf` is not generated and no services start at all. On a fresh install the contest does not exist in the database yet, so `cmsContestWebServer`, `cmsEvaluationService` and `cmsProxyService` (and the Telegram bot, if configured) stop with this message. This is normal.
 
 The admin server (`cmsAdminWebServer`) still starts and is available at port 8889. Use it to create or import your first contest. The generated `supervisord.conf` sets `autorestart=true` on every service but leaves `startretries` at the supervisord default (3), so supervisord may give up on a service that keeps exiting right after it starts. Once the contest exists, run `./restart.sh` instead of waiting for the failed services to recover.
 

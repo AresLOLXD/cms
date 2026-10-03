@@ -208,9 +208,11 @@ Check the logs with `./logs.sh`. The most common causes are:
 - `CMS_SECRET_KEY` is still set to the example value. The container keeps
   running, but the Admin Web Server crashes with "Non-hexadecimal digit found"
   and `./up.sh` gives up waiting after 90 seconds — generate a real one with
-  `openssl rand -hex 16`. The Contest Web Server fails the same way once its
-  contest exists; on a fresh install it stops earlier, on the missing contest
-  (see the next entry).
+  `openssl rand -hex 16`. The Contest Web Server fails the same way. With a
+  numeric `CMS_CONTEST_ID` it gets that far only once its contest exists: on a
+  fresh install it stops earlier, on the missing contest (see the next entry).
+  With `CMS_CONTEST_ID=ALL` there is no contest lookup, so it fails with the key
+  error right away.
 - `CMS_DB_URL` is wrong or the database is unreachable.
 - cgroups are not available on your machine — check that you are on a modern
   Linux kernel (5.10+) with `cat /sys/fs/cgroup/cgroup.controllers`.
