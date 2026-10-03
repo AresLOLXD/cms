@@ -57,11 +57,6 @@ devel = [
     "coverage>=4.5,<7.10",
     "pytest",
     "pytest-cov",
-
-    # Only for building documentation
-    # XXX: The version of Sphinx needed to build our documentation
-    # is incompatible with the old version of babel we need.
-    # "Sphinx>=1.8,<1.9",
 ]
 contrib = [
     # Only for cmscontrib scripts that process images

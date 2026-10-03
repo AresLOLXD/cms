@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # Día del concurso
 
 Una lista de verificación para quienes operan un concurso en un despliegue

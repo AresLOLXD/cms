@@ -57,7 +57,7 @@ accent takes two.
 
 Example:
 
-```csv
+```text
 username,first_name,last_name,password,team,group
 ana01,Ana,Pérez,Q7m2xKp9,JAL,
 beto02,Beto,López,Zt4wR8nc,JAL,

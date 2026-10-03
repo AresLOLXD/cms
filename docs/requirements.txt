@@ -1,0 +1,6 @@
+# Toolchain for the manual. It does not install CMS: the docs use no
+# autodoc, so the build never imports it.
+sphinx==9.1.0
+myst-parser==5.1.0
+furo==2025.12.19
+sphinx-intl==2.4.0
