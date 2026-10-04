@@ -8,8 +8,9 @@ POT_DIR holds the templates written by `sphinx-build -b gettext`; PO_DIR
 holds one language's catalogs (docs/locale/<lang>/LC_MESSAGES). Print every
 problem and exit 1 if a page has no catalog, a catalog has no page, a
 message is missing, untranslated or fuzzy, a catalog header is fuzzy (Sphinx
-then ignores the whole catalog without a warning), or a translation lost an
-inline code span of its source.
+then ignores the whole catalog without a warning), a translation lost an
+inline code span of its source, or a translation has a line that starts like
+a list item, heading or quote (Sphinx then keeps the English, silently).
 
 """
 
@@ -20,17 +21,26 @@ from pathlib import Path
 from babel.messages.catalog import Catalog
 from babel.messages.pofile import read_po
 
-# Translatable roles (:doc:, :ref:, :numref:, :term:, :abbr: and their MyST
-# equivalents {doc}, {ref}, {numref}, {term}, {abbr}) and reST links
-# (`text <url>`_): their text may be translated, so they are removed before
-# looking for code. Other roles (:file:, :samp:, etc.) must NOT be stripped,
-# so their backticked content is checked like code. A link's text never starts
-# with a space, which keeps "`-` or `_`" two code spans.
+# Translatable roles (:doc:, :ref:, :numref:, :term:, :abbr:, the fork's
+# :gh_download: whose text is only a label, and the MyST equivalents {doc},
+# {ref}, {numref}, {term}, {abbr}) and reST links (`text <url>`_): their text
+# may be translated, so they are removed before looking for code. Other roles
+# (:file:, :samp:, :gh_blob:, :gh_tree:, etc.) must NOT be stripped, so their
+# backticked content is checked like code. A link's text never starts with a
+# space, which keeps "`-` or `_`" two code spans.
 ROLE_OR_LINK = re.compile(
-    r"(?::(?:doc|ref|numref|term|abbr):|\{(?:doc|ref|numref|term|abbr)\})"
+    r"(?::(?:doc|ref|numref|term|abbr|gh_download):"
+    r"|\{(?:doc|ref|numref|term|abbr)\})"
     r"`[^`]+`|(?<!`)`[^`\s][^`]*`__?")
 # Inline code in reStructuredText (``x``) and Markdown (`x`).
 CODE_SPAN = re.compile(r"``[^`]+``|`[^`]+`")
+# A line that starts like a list item, heading or quote. Sphinx parses the
+# translation on its own, so "1. Respalda" becomes a list instead of the
+# heading or paragraph it translates and Sphinx keeps the English without a
+# warning. This holds even when the English starts the same way (the
+# numbered headings of migrating-to-multi-contest): escape it as 1\. (written
+# 1\\. inside the quotes of a .po file).
+BLOCK_START = re.compile(r"(?:^|\n)\s*(?:\d+[.)]|[-*+>]|#{1,6})\s")
 
 
 def read_catalog(path: Path) -> Catalog:
@@ -84,6 +94,10 @@ def check(pot_dir: Path, po_dir: Path) -> list[str]:
             elif message.fuzzy:
                 problems.append(f"{label}: fuzzy")
             else:
+                if BLOCK_START.search(message.string):
+                    problems.append(
+                        f"{label}: starts like a list/heading/quote, so "
+                        f"Sphinx keeps the English; escape it (e.g. 1\\.)")
                 code = CODE_SPAN.findall(ROLE_OR_LINK.sub(" ", source.id))
                 for span in code:
                     if span not in message.string:
@@ -101,7 +115,7 @@ def main() -> int:
     if not po_dir.exists():
         print(f"Error: PO_DIR '{po_dir}' does not exist", file=sys.stderr)
         return 2
-    if not list(pot_dir.glob("*.pot")):
+    if not list(pot_dir.rglob("*.pot")):
         print(f"Error: POT_DIR '{pot_dir}' has no .pot files", file=sys.stderr)
         return 2
     problems = check(pot_dir, po_dir)
