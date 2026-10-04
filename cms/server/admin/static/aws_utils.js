@@ -21,6 +21,8 @@
 
 "use strict";
 
+/* global cmsrpc_request */
+
 /**
  * Utility functions needed by AWS front-end.
  */
@@ -43,6 +45,9 @@ CMS.AWSUtils = function(url_root, timestamp,
     this.file_asked_name = "";
     this.file_asked_url = "";
     this.notifications_pending = false;
+    // Maps "service/shard/method" to whether a poll of that RPC is
+    // still waiting for its reply (see poll_rpc_request).
+    this.rpc_polls_pending = {};
 
     // Ask permission for desktop notifications
     if ("Notification" in window) {
@@ -821,6 +826,59 @@ CMS.AWSUtils.prototype.ajax_request = function(url, args, callback) {
     jqxhr.fail(function() {
         callback(null, jqxhr.status);
     });
+};
+
+
+/**
+ * How long (in milliseconds) a polling RPC request is waited for
+ * before being abandoned.
+ */
+CMS.AWSUtils.RPC_POLL_TIMEOUT = 20000;
+
+
+/**
+ * Call a RPC method (see cmsrpc_request) on behalf of a periodic poll.
+ *
+ * Differently from cmsrpc_request, it does nothing if the previous
+ * poll of the same RPC (same service, shard and method) is still
+ * pending, so that a slow service is not piled up with requests. A
+ * request that gets no reply within RPC_POLL_TIMEOUT is abandoned and
+ * callback is called with a "fail" status, as for any other failure.
+ * If the server rejects the request as not authorized (HTTP 403, for
+ * example because the admin session expired), on_unauthorized is
+ * called first, so that the page can stop polling, and then callback
+ * is called as usual, with a "not authorized" status.
+ *
+ * service, shard, method, args: as in cmsrpc_request.
+ * callback (function): called with the response, as in cmsrpc_request.
+ * on_unauthorized (function): called, without arguments, on HTTP 403.
+ * return (object|null): the XHR object, or null if no request was sent.
+ */
+CMS.AWSUtils.prototype.poll_rpc_request = function(
+    service, shard, method, args, callback, on_unauthorized) {
+    var key = service + "/" + shard + "/" + method;
+    if (this.rpc_polls_pending[key]) {
+        return null;
+    }
+    this.rpc_polls_pending[key] = true;
+    var self = this;
+    var timer = null;
+    var jqxhr = cmsrpc_request(
+        service, shard, method, args,
+        function(response) {
+            clearTimeout(timer);
+            self.rpc_polls_pending[key] = false;
+            if (response["status"] === "not authorized") {
+                // Stop first, so that a failing callback cannot prevent it.
+                on_unauthorized();
+            }
+            callback(response);
+        });
+    // Aborting makes the request fail, which runs the function above.
+    timer = setTimeout(function() {
+        jqxhr.abort();
+    }, CMS.AWSUtils.RPC_POLL_TIMEOUT);
+    return jqxhr;
 };
 
 
