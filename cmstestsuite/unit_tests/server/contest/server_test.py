@@ -20,7 +20,9 @@
 
 """
 
+import asyncio
 import unittest
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 from cms import config
@@ -60,6 +62,27 @@ class TestActivityFlush(unittest.IsolatedAsyncioTestCase):
                           AsyncMock(return_value=True)):
             self.assertTrue(await server._async_run())
         server.activity_recorder.flush.assert_awaited_once_with()
+
+    async def test_shutdown_flush_gives_up_after_a_timeout(self):
+        async def hanging_write(session, pending, inactivity_threshold):
+            await asyncio.Event().wait()
+
+        server = ContestWebServer(0)
+        timestamp = datetime(2026, 10, 12, 10, 0, 0)
+        server.activity_recorder.record(1, None, "10.0.0.5", timestamp)
+        server.activity_recorder.record(2, None, "10.0.0.5", timestamp)
+        with patch.object(WebService, "_async_run",
+                          AsyncMock(return_value=True)), \
+                patch("cms.server.contest.server.SHUTDOWN_FLUSH_TIMEOUT",
+                      0.1), \
+                patch("cms.server.contest.activity.write_pending_activity",
+                      side_effect=hanging_write), \
+                self.assertLogs("cms.server.contest.server",
+                                "ERROR") as logs:
+            self.assertTrue(await server._async_run())
+
+        self.assertIn("2 participation(s)", logs.output[0])
+        self.assertEqual(len(server.activity_recorder.pending()), 2)
 
 
 if __name__ == "__main__":

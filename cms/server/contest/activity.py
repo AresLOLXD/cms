@@ -17,18 +17,20 @@
 
 Handlers report each authenticated request, login and logout to an
 ActivityRecorder, which only updates an in-memory buffer. A periodic
-flush writes the buffer to the activity_intervals table in one
-transaction, on the async session, so that no request ever waits for
-the database because of this log.
+flush writes the buffer to the activity_intervals table, on the async
+session, in chunks of participations with one transaction each, so
+that no request ever waits for the database because of this log.
 
 """
 
+import asyncio
 import dataclasses
+import ipaddress
 import logging
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cms.db import ActivityInterval, AsyncSessionGen, Participation
@@ -37,6 +39,25 @@ from cms.db.activity import ACTIVITY_STARTED_BY_LOGIN, \
 
 
 logger = logging.getLogger(__name__)
+
+
+# Key space of this log's advisory locks: the first key of the
+# two-key form of pg_advisory_xact_lock (an int32), the participation
+# id being the second, so that the log does not claim every lock key.
+ACTIVITY_LOCK_NAMESPACE = 0x41435456  # "ACTV" in ASCII.
+
+# How many participations a flush writes per transaction. It bounds
+# the advisory locks a transaction holds (they live in PostgreSQL's
+# shared lock table, of about max_locks_per_transaction *
+# max_connections entries) and how long it holds them.
+FLUSH_CHUNK_SIZE = 500
+
+# Lock the participations :ids, in ascending order to avoid deadlocks.
+# pg_advisory_xact_lock is volatile, so PostgreSQL evaluates it after
+# the sort, one row at a time.
+LOCK_PARTICIPATIONS = text(
+    "SELECT pg_advisory_xact_lock(CAST(:namespace AS integer), id) "
+    "FROM unnest(CAST(:ids AS integer[])) AS id ORDER BY id")
 
 
 # (participation id, device id, IP address) of a stream of requests.
@@ -58,6 +79,50 @@ class PendingSegment:
     logged_out_at: datetime | None = None
 
 
+PendingActivity = dict[ActivityKey, list[PendingSegment]]
+
+
+def normalize_ip(ip: str) -> str | None:
+    """Return an IP address in the form stored in the database.
+
+    Since Python 3.12 ipaddress accepts the scope of an IPv6 address
+    (fe80::1%eth0), which PostgreSQL's inet rejects, so the scope is
+    dropped; the address is then written in its canonical form.
+
+    ip: the address the request came from.
+
+    return: the address to store, or None if ip is not an address.
+
+    """
+    try:
+        return str(ipaddress.ip_address(ip.partition("%")[0]))
+    except ValueError:
+        return None
+
+
+def split_into_chunks(pending: PendingActivity) -> list[PendingActivity]:
+    """Split buffered activity by participation, for a flush.
+
+    pending: the buffered activity, by key.
+
+    return: the activity of up to FLUSH_CHUNK_SIZE participations per
+        chunk, by ascending participation id.
+
+    """
+    by_participation: dict[int, PendingActivity] = {}
+    for key, segments in pending.items():
+        by_participation.setdefault(key[0], {})[key] = segments
+    participation_ids = sorted(by_participation)
+    chunks: list[PendingActivity] = []
+    for start in range(0, len(participation_ids), FLUSH_CHUNK_SIZE):
+        chunk: PendingActivity = {}
+        for participation_id in \
+                participation_ids[start:start + FLUSH_CHUNK_SIZE]:
+            chunk.update(by_participation[participation_id])
+        chunks.append(chunk)
+    return chunks
+
+
 class ActivityRecorder:
     """Buffer the participants' activity and write it periodically.
 
@@ -74,7 +139,11 @@ class ActivityRecorder:
 
         """
         self.inactivity_threshold = inactivity_threshold
-        self._pending: dict[ActivityKey, list[PendingSegment]] = {}
+        self._pending: PendingActivity = {}
+        # Built before the service's event loop runs: since Python
+        # 3.10 a Lock binds to the running loop only when a flush first
+        # has to wait for it, not at construction.
+        self._flush_lock = asyncio.Lock()
 
     def record(
         self,
@@ -86,6 +155,9 @@ class ActivityRecorder:
     ):
         """Buffer one authenticated request (or a login).
 
+        A request from something that is not an IP address is logged
+        and not recorded.
+
         participation_id: the participation that made the request.
         device_id: the device it came from, or None if unknown.
         ip: the real IP address it came from.
@@ -94,14 +166,7 @@ class ActivityRecorder:
             starts a new interval.
 
         """
-        segments = self._pending.setdefault(
-            (participation_id, device_id, ip), [])
-        last = segments[-1] if segments else None
-        if (login or last is None or last.logged_out_at is not None
-                or timestamp - last.last_seen > self.inactivity_threshold):
-            segments.append(PendingSegment(timestamp, timestamp, login))
-        else:
-            last.last_seen = max(last.last_seen, timestamp)
+        self._record(participation_id, device_id, ip, timestamp, login)
 
     def record_logout(
         self,
@@ -115,11 +180,41 @@ class ActivityRecorder:
         See record() for the arguments.
 
         """
-        self.record(participation_id, device_id, ip, timestamp)
-        self._pending[(participation_id, device_id, ip)][-1] \
-            .logged_out_at = timestamp
+        segment = self._record(
+            participation_id, device_id, ip, timestamp, login=False)
+        if segment is not None:
+            segment.logged_out_at = timestamp
 
-    def pending(self) -> dict[ActivityKey, list[PendingSegment]]:
+    def _record(
+        self,
+        participation_id: int,
+        device_id: UUID | None,
+        ip: str,
+        timestamp: datetime,
+        login: bool,
+    ) -> PendingSegment | None:
+        """Buffer a request, see record().
+
+        return: the segment the request went to, or None if it was not
+            recorded.
+
+        """
+        stored_ip = normalize_ip(ip)
+        if stored_ip is None:
+            logger.warning("Activity of participation %d not recorded: "
+                           "%r is not an IP address.", participation_id, ip)
+            return None
+        segments = self._pending.setdefault(
+            (participation_id, device_id, stored_ip), [])
+        last = segments[-1] if segments else None
+        if (login or last is None or last.logged_out_at is not None
+                or timestamp - last.last_seen > self.inactivity_threshold):
+            segments.append(PendingSegment(timestamp, timestamp, login))
+        else:
+            last.last_seen = max(last.last_seen, timestamp)
+        return segments[-1]
+
+    def pending(self) -> PendingActivity:
         """Return the buffered activity (for tests and diagnostics)."""
         return self._pending
 
@@ -127,39 +222,75 @@ class ActivityRecorder:
         """Write the buffered activity to the database.
 
         The buffer is swapped out first, so requests served while the
-        flush waits on the database go to a fresh one. If writing
-        fails, the swapped-out activity is put back in front of the
-        new one and the next flush retries it.
+        flush waits on the database go to a fresh one. It is written in
+        chunks of FLUSH_CHUNK_SIZE participations, one transaction
+        each. If a chunk fails, it is logged and its activity is put
+        back in front of the new one, for the next flush to retry; the
+        other chunks are still written. If the flush is cancelled,
+        everything not committed yet is put back the same way.
+
+        Flushes run one at a time, so the one at shutdown waits for a
+        periodic one in flight.
 
         """
-        pending, self._pending = self._pending, {}
-        if not pending:
+        async with self._flush_lock:
+            pending, self._pending = self._pending, {}
+            chunks = split_into_chunks(pending)
+            unwritten: list[PendingActivity] = []
+            index, committed = 0, False
+            try:
+                for index, chunk in enumerate(chunks):
+                    committed = False
+                    try:
+                        async with AsyncSessionGen() as session:
+                            await write_pending_activity(
+                                session, chunk, self.inactivity_threshold)
+                            await session.commit()
+                            committed = True
+                    except Exception:
+                        logger.error(
+                            "Could not store the activity of %d "
+                            "participation(s); the next flush retries it.",
+                            len({key[0] for key in chunk}), exc_info=True)
+                        if not committed:
+                            unwritten.append(chunk)
+            except BaseException:
+                # Cancelled (e.g. at shutdown): keep what is not
+                # committed yet.
+                unwritten.extend(chunks[index + committed:])
+                raise
+            finally:
+                self._put_back(unwritten)
+
+    def _put_back(self, chunks: list[PendingActivity]):
+        """Put unwritten activity back in front of the newer one.
+
+        chunks: activity swapped out by a flush and not written.
+
+        """
+        if not chunks:
             return
-        try:
-            async with AsyncSessionGen() as session:
-                await write_pending_activity(
-                    session, pending, self.inactivity_threshold)
-                await session.commit()
-        except Exception:
-            logger.error("Could not store the participants' activity; "
-                         "the next flush retries it.", exc_info=True)
-            for key, segments in self._pending.items():
-                pending.setdefault(key, []).extend(segments)
-            self._pending = pending
+        restored: PendingActivity = {}
+        for chunk in chunks:
+            restored.update(chunk)
+        for key, segments in self._pending.items():
+            restored.setdefault(key, []).extend(segments)
+        self._pending = restored
 
 
 async def write_pending_activity(
     session: AsyncSession,
-    pending: dict[ActivityKey, list[PendingSegment]],
+    pending: PendingActivity,
     inactivity_threshold: timedelta,
 ):
     """Merge buffered activity into the activity_intervals table.
 
-    Each participation is locked first (a transaction-level advisory
-    lock, taken in ascending order to avoid deadlocks), so that two
-    CWS shards flushing the same participation at the same time do not
-    open the same interval twice. Activity of participations deleted in
-    the meantime is dropped.
+    Meant for one chunk of a flush. Its participations are locked
+    first, in one statement, with transaction-level advisory locks in
+    ACTIVITY_LOCK_NAMESPACE taken in ascending order (to avoid
+    deadlocks), so that two CWS shards flushing the same participation
+    at the same time do not open the same interval twice. Activity of
+    participations deleted in the meantime is dropped.
 
     session: the session to write with; the caller commits.
     pending: the buffered activity, by key.
@@ -168,36 +299,52 @@ async def write_pending_activity(
 
     """
     participation_ids = sorted({key[0] for key in pending})
-    for participation_id in participation_ids:
-        await session.execute(
-            select(func.pg_advisory_xact_lock(participation_id)))
+    await session.execute(LOCK_PARTICIPATIONS, {
+        "namespace": ACTIVITY_LOCK_NAMESPACE, "ids": participation_ids})
     existing_ids = set((await session.execute(
         select(Participation.id)
         .where(Participation.id.in_(participation_ids))
     )).scalars().all())
 
+    # The latest interval of every key of these participations. The IP
+    # is compared as an address: PostgreSQL and Python do not always
+    # spell it the same way (e.g. ::ffff:10.0.0.5).
+    latest: dict[tuple[int, UUID | None,
+                       ipaddress.IPv4Address | ipaddress.IPv6Address],
+                 ActivityInterval] = {}
+    for interval, host in (await session.execute(
+        select(ActivityInterval, func.host(ActivityInterval.ip))
+        .where(ActivityInterval.participation_id.in_(existing_ids))
+        .distinct(ActivityInterval.participation_id,
+                  ActivityInterval.device_id,
+                  ActivityInterval.ip)
+        .order_by(ActivityInterval.participation_id,
+                  ActivityInterval.device_id,
+                  ActivityInterval.ip,
+                  ActivityInterval.last_seen_at.desc())
+    )).all():
+        latest[(interval.participation_id, interval.device_id,
+                ipaddress.ip_address(host))] = interval
+
     for (participation_id, device_id, ip), segments in pending.items():
         if participation_id not in existing_ids:
             continue
-        interval: ActivityInterval | None = (await session.execute(
-            select(ActivityInterval)
-            .where(ActivityInterval.participation_id == participation_id)
-            .where(ActivityInterval.device_id == device_id)
-            .where(ActivityInterval.ip == ip)
-            .order_by(ActivityInterval.last_seen_at.desc())
-            .limit(1)
-        )).scalars().first()
+        interval: ActivityInterval | None = latest.get(
+            (participation_id, device_id, ipaddress.ip_address(ip)))
         for segment in segments:
             if (interval is not None
                     and interval.logged_out_at is None
                     and not segment.login
                     and segment.first_seen - interval.last_seen_at
                     <= inactivity_threshold):
-                # Another shard may have written later activity first.
+                # Another shard may have written later activity first;
+                # a logout ends the interval all the same.
                 interval.started_at = min(
                     interval.started_at, segment.first_seen)
-                interval.last_seen_at = max(
-                    interval.last_seen_at, segment.last_seen)
+                interval.last_seen_at = (
+                    segment.logged_out_at
+                    if segment.logged_out_at is not None
+                    else max(interval.last_seen_at, segment.last_seen))
                 interval.logged_out_at = segment.logged_out_at
             else:
                 interval = ActivityInterval(

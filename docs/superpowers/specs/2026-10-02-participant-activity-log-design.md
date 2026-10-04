@@ -133,6 +133,12 @@ value is a short list of pending segments
 segment with `logged_out_at`, appends a new segment. The buffer is bounded by
 the number of active participants.
 
+The IP is stored as PostgreSQL's `inet` accepts it: the scope of an IPv6
+address (`fe80::1%eth0`, which Python 3.12's `ipaddress` accepts and `inet`
+rejects) is dropped and the address is kept in canonical form. A request whose
+IP is still not a valid address is logged as a WARNING and not recorded, so
+one bad value cannot make every flush of its chunk fail.
+
 ### 3.3 Hook points
 
 1. **`get_current_user`** (`cms/server/contest/handlers/contest.py`, around
@@ -153,26 +159,39 @@ the number of active participants.
 
 - An asyncio task flushes every `activity_flush_interval` seconds (default 60)
   with the async session (`cms/db/async_session.py`), one transaction per
-  batch, so the event loop never blocks on it. Each key is written at most
-  once per interval: about 1,700 rows/s in batches with 100,000 active
-  participants.
+  batch, so the event loop never blocks on it. A batch is a chunk of up to
+  `FLUSH_CHUNK_SIZE = 500` participations (with all their keys), by ascending
+  participation id. Each key is written at most once per interval: about
+  1,700 rows/s in batches with 100,000 active participants.
 - The buffer is swapped out at the start of a flush, so requests keep writing
-  into a fresh one.
-- For each key, sorted by `participation_id`: take
-  `pg_advisory_xact_lock(participation_id)` (ascending order avoids deadlocks;
-  this stops two CWS shards from opening the same interval twice), then load
-  the latest interval for the key. For each pending segment in order:
+  into a fresh one. Flushes of one process run one at a time (an
+  `asyncio.Lock`).
+- For each chunk, in its transaction: take the advisory locks of all its
+  participations in one statement, in ascending order (avoids deadlocks;
+  this stops two CWS shards from opening the same interval twice), with the
+  two-key form and a fixed namespace, so the log does not claim the whole
+  lock key space and a transaction holds at most 500 of them:
+  `SELECT pg_advisory_xact_lock(ACTIVITY_LOCK_NAMESPACE, id) FROM unnest(:ids)
+  AS id ORDER BY id`. Then drop the participations deleted meanwhile and load
+  the latest interval of every key of the chunk in one query (`DISTINCT ON
+  (participation_id, device_id, ip) ... ORDER BY ..., last_seen_at DESC`).
+  For each pending segment of a key, in order:
   - if that interval exists, has no `logged_out_at`, the segment is not a
     login, and `segment.first_seen - interval.last_seen_at <=
-    activity_inactivity_threshold`: set `last_seen_at = max(...)` and
-    `logged_out_at` if the segment has one;
+    activity_inactivity_threshold`: set `started_at = min(...)`,
+    `last_seen_at = max(...)` (another shard may have written later activity
+    first) and `logged_out_at` if the segment has one, in which case
+    `last_seen_at = logged_out_at`;
   - otherwise insert a new interval with `started_by = login` if the segment
     is a login, else `resumed`.
-- **Failure:** if the flush raises (e.g. DB unavailable), log it and merge the
-  swapped-out buffer back into the current one (keeping the earliest
-  `first_seen` and latest `last_seen` per segment); the next tick retries.
-  Nothing is lost while the process lives.
-- **Shutdown:** one last flush when the service stops. A hard crash loses at
+- **Failure:** if a chunk fails (e.g. DB unavailable), log it and merge that
+  chunk's keys back in front of the current buffer; the other chunks are
+  still written, and the next tick retries. Nothing is lost while the
+  process lives. A cancelled flush also merges back everything not committed
+  yet.
+- **Shutdown:** one last flush when the service stops, after any flush in
+  flight, bounded by `SHUTDOWN_FLUSH_TIMEOUT = 30` s (on timeout, log ERROR
+  with how many participations' activity is lost). A hard crash loses at
   most one interval of `last_seen` (about 60 s).
 
 ### 3.5 Configuration

@@ -37,6 +37,7 @@
 
 """
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 
@@ -53,6 +54,12 @@ from .handlers.main import MainHandler
 
 
 logger = logging.getLogger(__name__)
+
+
+# How long the last flush of the activity log may take at shutdown
+# (seconds), so that an unreachable database does not stop the service
+# from exiting.
+SHUTDOWN_FLUSH_TIMEOUT = 30
 
 
 class ContestWebServer(WebService):
@@ -134,7 +141,16 @@ class ContestWebServer(WebService):
             return await super()._async_run()
         finally:
             # The HTTP server has stopped: store what is left.
-            await self.activity_recorder.flush()
+            try:
+                await asyncio.wait_for(self.activity_recorder.flush(),
+                                       timeout=SHUTDOWN_FLUSH_TIMEOUT)
+            except TimeoutError:
+                logger.error(
+                    "The participants' activity could not be stored "
+                    "within %s seconds at shutdown; the activity of %d "
+                    "participation(s) is lost.", SHUTDOWN_FLUSH_TIMEOUT,
+                    len({key[0] for key
+                         in self.activity_recorder.pending()}))
 
     def add_notification(
         self, username: str, timestamp: datetime, subject: str, text: str, level: str
