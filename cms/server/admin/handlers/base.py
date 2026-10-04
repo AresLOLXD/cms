@@ -49,7 +49,7 @@ except:
     collections.MutableMapping = collections.abc.MutableMapping
 
 import tornado.web
-from sqlalchemy import select, func, Select
+from sqlalchemy import select, func, inspect, Select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -67,6 +67,38 @@ if typing.TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+# The most requests AWS serves at once. Each of them keeps a database
+# connection from prepare() until the request is finished, and the
+# SQLAlchemy pool has 5 connections plus an overflow of 10, 15 in all:
+# 10 requests leave 5 connections to the RPC handlers and the
+# background jobs. The requests over the limit wait on the event loop,
+# holding no connection.
+MAX_IN_FLIGHT_REQUESTS = 10
+
+# How long (in seconds) a request waits for a slot before giving up with
+# a 503. It is a safety net: a request that never gives its slot back
+# would otherwise make all the others wait forever.
+REQUEST_SLOT_TIMEOUT = 30
+
+_request_slots: asyncio.Semaphore | None = None
+
+
+def _get_request_slots() -> asyncio.Semaphore:
+    """Return the semaphore that limits the requests served at once.
+
+    It is created by the first request, in the event loop that serves
+    them, and not when this module is imported.
+
+    return: the semaphore, with a slot for each request that can be in
+        flight.
+
+    """
+    global _request_slots
+    if _request_slots is None:
+        _request_slots = asyncio.Semaphore(MAX_IN_FLIGHT_REQUESTS)
+    return _request_slots
 
 
 def argument_reader(func: Callable[[str], typing.Any], empty: object = None):
@@ -300,6 +332,9 @@ class BaseHandler(CommonRequestHandler):
     current_user: Admin | None
     service: "AdminWebServer"
 
+    # Whether this request holds one of the slots of _get_request_slots().
+    _holds_request_slot = False
+
     def try_commit(self) -> bool:
         """Try to commit the current session.
 
@@ -416,8 +451,20 @@ class BaseHandler(CommonRequestHandler):
         check, render_params()) hits Tornado's own cache instead of
         re-running a blocking DB query on the event loop thread.
 
+        First it waits for a free slot (see MAX_IN_FLIGHT_REQUESTS), so
+        that the requests over the limit hold no database connection
+        while they wait. finish() gives the slot back. If no slot gets
+        free in REQUEST_SLOT_TIMEOUT seconds, the request fails with a
+        503.
+
         """
         await super().prepare()
+        try:
+            async with asyncio.timeout(REQUEST_SLOT_TIMEOUT):
+                await _get_request_slots().acquire()
+        except TimeoutError:
+            raise tornado.web.HTTPError(503)
+        self._holds_request_slot = True
         self.contest = None
         loop = asyncio.get_running_loop()
         self._current_user = await loop.run_in_executor(
@@ -428,17 +475,19 @@ class BaseHandler(CommonRequestHandler):
         for chunk in t.generate(**params):
             self.write(chunk)
 
-    def render_params(self) -> dict:
-        """Return the default render params used by almost all handlers.
+    def _base_render_params(self, contest: Contest | None) -> dict:
+        """Return the render params that need no database query.
 
-        return: default render params
+        contest: the contest the page is about, if any.
+
+        return: the render params that all the pages have.
 
         """
         params = {}
         params["rtd_version"] = "latest" if "dev" in __version__ \
                                 else "v" + __version__[:3]
         params["timestamp"] = make_datetime()
-        params["contest"] = self.contest
+        params["contest"] = contest
         params["url"] = self.url
         params["static_url"] = self.static_url_helper
         params["xsrf_form_html"] = self.xsrf_form_html()
@@ -446,6 +495,39 @@ class BaseHandler(CommonRequestHandler):
         # should be extracted into with narrower-scoped parameters.
         params["config"] = config
         params["handler"] = self
+        return params
+
+    def error_render_params(self) -> dict:
+        """Return the render params of an error page, with no queries.
+
+        An error page may be needed because the database is not usable
+        (e.g. the pool has no free connection), and the handler would
+        wait for it in the event loop thread, stalling the whole
+        server. So the sidebar has no lists (base.html leaves them out),
+        and the admin is there only if prepare() already loaded it and
+        its attributes are not expired, as reading an expired one
+        queries.
+
+        return: the render params of an error page.
+
+        """
+        # Not self.current_user: if prepare() didn't resolve the admin,
+        # Tornado would query for it. That is also what the XSRF token
+        # does, so settle the admin first: as none, if it is not there.
+        admin = getattr(self, "_current_user", None)
+        self._current_user = admin
+        params = self._base_render_params(None)
+        if admin is not None and not inspect(admin).expired:
+            params["admin"] = admin
+        return params
+
+    def render_params(self) -> dict:
+        """Return the default render params used by almost all handlers.
+
+        return: default render params
+
+        """
+        params = self._base_render_params(self.contest)
         if self.current_user is not None:
             params["admin"] = self.current_user
         if self.contest is not None:
@@ -488,7 +570,18 @@ class BaseHandler(CommonRequestHandler):
             if chunk is not None:
                 self.write(chunk)
             return None
-        return super().finish(chunk)
+        try:
+            return super().finish(chunk)
+        finally:
+            # Even if the client is gone: then CommonRequestHandler
+            # swallows the error, and Tornado doesn't call on_finish().
+            self._release_request_slot()
+
+    def _release_request_slot(self):
+        """Give back the slot taken in prepare(), unless already done."""
+        if self._holds_request_slot:
+            self._holds_request_slot = False
+            _get_request_slots().release()
 
     def write_error(self, status_code, **kwargs):
         if "exc_info" in kwargs and \
@@ -500,10 +593,11 @@ class BaseHandler(CommonRequestHandler):
 
         # Most of the handlers raise a 404 HTTP error before r_params
         # is defined. If r_params is not defined we try to define it
-        # here, and if it fails we simply return a basic textual error notice.
+        # here, without querying the database, and if it fails we
+        # simply return a basic textual error notice.
         if self.r_params is None:
             try:
-                self.r_params = self.render_params()
+                self.r_params = self.error_render_params()
             except:
                 self.write("A critical error has occurred :-(")
                 self.finish()
@@ -821,7 +915,24 @@ class BaseHandler(CommonRequestHandler):
         g.set_attrs(attrs)
 
 class FileHandler(BaseHandler, FileHandlerMixin):
-    pass
+
+    async def fetch(
+        self,
+        digest: str,
+        content_type: str,
+        filename: str | None = None,
+        disposition: str | None = None,
+    ):
+        """Serve the file with the given digest, holding no slot.
+
+        See FileHandlerMixin.fetch() for the arguments.
+
+        """
+        # Streaming needs no database connection, so it must not hold a
+        # request slot either: a client that stops reading would keep it.
+        self.sql_session.close()
+        self._release_request_slot()
+        await super().fetch(digest, content_type, filename, disposition)
 
 
 class FileFromDigestHandler(FileHandler):

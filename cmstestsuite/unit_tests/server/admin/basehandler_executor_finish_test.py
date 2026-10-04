@@ -26,6 +26,7 @@ the real finish to Tornado's auto-finish on the loop thread.
 
 import asyncio
 import unittest
+from unittest import mock
 from unittest.mock import MagicMock
 
 import tornado.web
@@ -33,6 +34,7 @@ from tornado.httpclient import AsyncHTTPClient
 from tornado.httpserver import HTTPServer
 from tornado.netutil import bind_sockets
 
+from cms.server.admin.handlers import base
 from cms.server.admin.handlers.base import BaseHandler
 
 
@@ -62,23 +64,35 @@ class _NotFoundHandler(_ExecutorHandler):
     def _get_sync(self):
         raise tornado.web.HTTPError(404)
 
-    def render_params(self):
-        # Keep the test DB-free: send BaseHandler.write_error down its
-        # "can't build render params" fallback.
+
+class _NoErrorParamsHandler(_NotFoundHandler):
+    def error_render_params(self):
+        # Send BaseHandler.write_error down its "can't build render
+        # params" fallback.
         raise RuntimeError("no render params in this test")
 
 
 class TestBaseHandlerExecutorFinish(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
+        # Don't share the semaphore that limits the requests with the
+        # other tests (these handlers skip prepare(), so they don't
+        # take a slot at all).
+        slots_patch = mock.patch.object(base, "_request_slots", None)
+        slots_patch.start()
+        self.addCleanup(slots_patch.stop)
         app = tornado.web.Application([
             (r"/redirect", _RedirectHandler),
             (r"/finish", _FinishHandler),
             (r"/notfound", _NotFoundHandler),
+            (r"/noerrorparams", _NoErrorParamsHandler),
         ])
         # As WebService sets it: the handlers need it when created, for
-        # the static file hasher.
+        # the static file hasher. The error page is rendered from a
+        # stub template; building its params needs no database.
         app.service = MagicMock()
+        app.service.jinja2_environment.get_template.return_value \
+            .generate.return_value = ["the error page"]
         sockets = bind_sockets(0, "127.0.0.1")
         self.port = sockets[0].getsockname()[1]
         self.server = HTTPServer(app)
@@ -109,6 +123,11 @@ class TestBaseHandlerExecutorFinish(unittest.IsolatedAsyncioTestCase):
         response = await self._fetch("/notfound")
         self.assertEqual(response.code, 404)
         # BaseHandler.write_error's body, not Tornado's default page.
+        self.assertEqual(response.body, b"the error page")
+
+    async def test_error_without_render_params_gets_a_text_notice(self):
+        response = await self._fetch("/noerrorparams")
+        self.assertEqual(response.code, 404)
         self.assertEqual(response.body, b"A critical error has occurred :-(")
 
 
