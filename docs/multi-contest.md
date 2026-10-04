@@ -130,7 +130,7 @@ the **Root ranking** row for "(root)".
   time, or answered with a server error (5xx). Nothing is lost: the data stays
   in the queue and is sent again, after 1 second, then twice as long after
   each failure in a row, up to 60 seconds. Each group waits on its own: the
-  other groups keep getting their data without delay. The warning just before
+  other groups keep getting their data. The warning just before
   says what failed ("Status … while …" or "… while …: …"). If it keeps
   repeating, check the ranking container with `./status.sh` and
   `./logs.sh ranking`. Once the Ranking Web Server answers, the data goes

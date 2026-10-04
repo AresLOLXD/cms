@@ -147,9 +147,9 @@ most recent are shown". The participation page lists all of its pairs, and
 the CSV has every interval.
 
 A pair means the account was used from two browsers (or two IP addresses) at
-the same time. It does not say who used them: a contestant with two browsers open, or a private
-window, gives a pair too. Look at the participation page, the IP addresses
-and the times before drawing a conclusion.
+the same time. It does not say who used them: a contestant with two browsers
+open, or a private window, gives a pair too. Look at the participation page,
+the IP addresses and the times before drawing a conclusion.
 
 ### More than one device
 
@@ -207,12 +207,15 @@ the database every `activity_flush_interval` seconds (60 by default). So:
 - If a Contest Web Server process crashes, the activity it has not written
   yet is lost: up to a minute by default.
 - When it stops normally, it writes what it has first, for at most 30
-  seconds. If that fails, its log says `The participants' activity could
-  not be stored within 30 seconds at shutdown; the activity of N
-  participation(s) is lost.`
+  seconds. If that takes too long, its log says `The participants' activity
+  could not be stored within 30 seconds at shutdown; the activity of N
+  participation(s) is lost.` In Docker it may be stopped sooner: Docker and
+  supervisord each wait 10 seconds by default before they kill a process,
+  and this deployment changes neither.
 - If the database cannot be reached, the activity stays in memory and the
   next write tries again. The log says `Could not store the activity of N
-  participation(s); the next flush retries it.`
+  participation(s); the next flush retries it.` At shutdown there is no next
+  write: that activity is lost.
 
 ## Settings
 
@@ -237,15 +240,20 @@ the generated `cms.toml` does not include them, so the defaults always apply.
 - Removing a user from a contest, or deleting the user or the contest,
   deletes the intervals of that participation. Nothing else deletes them:
   there is no automatic clean-up.
-- The CSV is the only way to keep it.
+- Besides a full `pg_dump` of the database, the CSV is the only way to keep
+  it.
 
 ## After the contest
 
 1. Wait at least one minute after the last contestant leaves, so the last
    activity is written.
 2. On each contest's **Activity** page, press **Clear**, then download the
-   **csv**. Copy the files off the server with the `./export.sh` backup.
+   **csv**. Keep the files with the `./export.sh` backup.
 3. Read the **Simultaneous activity** block. If the heading shows more than
-   200, open the participation page of each user concerned.
+   200, the other pairs are not listed on that page. A pair between two
+   devices belongs to a user listed under **More than one device**: open the
+   participation page of each of them. A pair where one interval has no
+   device is not covered by that list: look for it in the CSV, as
+   overlapping intervals of one user from two IP addresses.
 4. Only then remove participations, users or contests, or restore a backup
    with `./import.sh`.

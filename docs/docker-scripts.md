@@ -132,6 +132,7 @@ The backup does **not** contain:
 For a complete copy of the database, ranking groups and activity log
 included, also keep a `pg_dump` of it, as in "1. Back up everything" in
 [Migrating from one deployment per contest to a single multi-contest deployment](migrating-to-multi-contest.md).
+Restoring a `pg_dump` is not covered in this manual.
 
 ### import.sh
 
