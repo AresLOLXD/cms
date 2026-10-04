@@ -63,12 +63,19 @@ CMS_TWO_PHASE_EVALUATION=true
 
 - The values are `true` and `false`, in any case (`TRUE` works too). Unset or
   empty means `false`.
-- Any other value stops the CMS containers at startup, before CMS starts. Their
-  log shows, here for `yes`:
+- Any other value stops CMS. The `db-init` container exits with this error
+  (here for `yes`), which `./logs.sh db-init` shows:
 
   ```
   ERROR: CMS_TWO_PHASE_EVALUATION must be 'true' or 'false', got 'yes'.
   ```
+
+  The `cms` container does not start, and `./up.sh` fails with
+  `service "db-init" didn't complete successfully: exit 1`.
+- **A wrong value takes a running CMS down.** When `.env` changes, `./up.sh`
+  recreates the `cms` container: it stops the running one and does not start
+  the new one. Check the value before you run `./up.sh`, above all on the day
+  of the contest.
 
 - It applies to the whole deployment: every contest, task and dataset. It
   cannot be turned on for one contest or one task only.
@@ -86,11 +93,14 @@ it is the only service that uses it.
 
 ### Tasks that do not follow the naming
 
-Turning it on is safe for tasks whose codenames do not follow the naming below.
-A codename without `-`, such as `000`, belongs to the group `""` (empty) and
-is never a screening testcase. A group without screening testcases is never
-held, so such a task is graded as without two-phase grading: all its testcases
-at once, none skipped.
+A task with no screening testcase is graded as without two-phase grading: all
+its testcases at once, none skipped. A codename with fewer than two `-`, such
+as `000` (group `""`, empty), is never a screening testcase.
+
+Other codenames can be screening testcases by accident. Any codename with at
+least two `-` is read with the naming below, so `sub1-big-discrete` is a
+screening testcase: its tag, `discrete`, contains `scr`. Before turning it on, check the
+codenames of every task (step 2 of "Before the contest").
 
 ## Naming the testcases
 
@@ -211,9 +221,9 @@ With `depends_on`, a subtask also waits for its dependencies (see "Latency" in
 4. Submit a correct solution. It gets the full score, and its page in AWS has
    no "Skipped after screening phase failure" row.
 5. Submit a solution that fails a screening testcase of one subtask, for
-   example a wrong answer on its `scr-wa` testcase. That subtask scores 0, the
-   rest of its testcases show "Skipped after screening phase failure", and the
-   other subtasks are scored as usual.
+   example a wrong answer on its `scr-wa` testcase. That subtask scores 0, its
+   page in AWS shows "Skipped after screening phase failure" on the rest of the
+   testcases of that subtask, and the other subtasks are scored as usual.
 6. `./logs.sh --tail 2000 cms` shows "Two-phase: synthesized" for the second
    submission.
 

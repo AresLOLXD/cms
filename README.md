@@ -106,10 +106,10 @@ operations and the helper scripts — is in
 CMS was originally created by the cms-dev community and is used in IOI and
 many other programming contests worldwide. This fork adds to the database
 schema only what serving several contests at once needs (a `ranking_groups`
-table and a few columns on `contests`, added by `cmsSetupDB`), and its one
-change to the evaluation engine — two-phase fail-fast grading — is opt-in and
-off by default, so grading behaves identically to upstream unless
-`CMS_TWO_PHASE_EVALUATION` is explicitly set.
+table and a few columns on `contests`, added by `cmsSetupDB`), and its
+changes to the evaluation engine — two-phase fail-fast grading and subtask
+dependencies — are opt-in, so grading behaves identically to upstream unless
+`CMS_TWO_PHASE_EVALUATION` is explicitly set or a dataset declares `depends_on`.
 
 - **Upstream repository:** <https://github.com/cms-dev/cms>
 - **Upstream documentation:** <https://cms.readthedocs.org/>

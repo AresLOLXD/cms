@@ -217,7 +217,7 @@ testcases.
 ## Two-phase screening
 
 [Two-phase grading](two-phase-grading.md) explains how two-phase screening
-(`CMS_TWO_PHASE_EVALUATION`) works. It is still declared by testcase codenames
+(`CMS_TWO_PHASE_EVALUATION`) works. It is declared by testcase codenames
 (`sN-nn-sample`, `sN-nn-scr-wa`, …), and the group of a testcase is the part of
 its codename before the first `-`.
 
