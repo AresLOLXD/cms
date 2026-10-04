@@ -35,14 +35,17 @@ jobs:
         run: sphinx-build -W --keep-going -b html docs docs/_build/html/en
 
       - name: Test the translation checker
+        if: ${{ !cancelled() }}
         run: |
-          pip install pytest
+          pip install pytest==9.1.1
           python -m pytest docs/tests -q
 
       - name: Check the Spanish translation
+        if: ${{ !cancelled() }}
         run: |
           sphinx-build -W --keep-going -b gettext docs docs/_build/gettext
           python docs/check_translations.py docs/_build/gettext docs/locale/es/LC_MESSAGES
 
       - name: Build the Spanish manual
+        if: ${{ !cancelled() }}
         run: sphinx-build -W --keep-going -b html -D language=es docs docs/_build/html/es

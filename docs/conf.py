@@ -260,3 +260,14 @@ locale_dirs = ['locale/']
 gettext_compact = False
 # Without source locations a .po only changes when its text changes.
 gettext_location = False
+
+
+# html_title is not a translatable message: set the Spanish one here, after
+# -D language=es has been applied.
+def _localize_html_title(app, config):
+    if config.language == "es":
+        config.html_title = "CMS (fork de la OMI) " + version
+
+
+def setup(app):
+    app.connect("config-inited", _localize_html_title)
