@@ -83,10 +83,11 @@ migrated code can be tested in CI without the two colliding.
 | CMS-Loader | Bulk-import users and participations via CSV from the browser | [docs/cms-loader.md](docs/cms-loader.md) |
 | AWS user import | Bulk-import users and participations via CSV from the Admin Web Server, one file per contest | [docs/importing-users.md](docs/importing-users.md) |
 | Subtask dependencies | A subtask whose prerequisite scored 0 is worth 0 and is not graded | [docs/subtask-dependencies.md](docs/subtask-dependencies.md) |
+| Two-phase grading | Opt-in (`CMS_TWO_PHASE_EVALUATION`): grade a few screening testcases of each subtask first, and skip the rest of the subtask if one fails | [docs/two-phase-grading.md](docs/two-phase-grading.md) |
 | Rekarel | Karel compiler and interpreter bundled in the Docker image | [docs/rekarel.md](docs/rekarel.md) |
 | Ranking: flags and teams | Real Mexican state flags + automatic team registration on startup | [docs/ranking-mexico.md](docs/ranking-mexico.md) |
 | Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
-| External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it, plus optional two-phase fail-fast grading (`CMS_TWO_PHASE_EVALUATION`) that screens a few testcases per subtask before running the rest | [.env.example](.env.example) |
+| External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it | [.env.example](.env.example) |
 | Several contests at once | `CMS_CONTEST_ID=ALL` serves every active contest; each ranking group gets its own scoreboard at `/<group>/`, managed and regenerated from the Admin Web Server | [docs/multi-contest.md](docs/multi-contest.md), [migration guide](docs/migrating-to-multi-contest.md) |
 | Contest-day checklist | What to check the week before, at the start, during and at the end of a contest, and what to do when something goes wrong | [docs/contest-day.md](docs/contest-day.md), [en español](https://cms-omi.readthedocs.io/es/latest/contest-day.html) |
 
@@ -105,10 +106,10 @@ operations and the helper scripts — is in
 CMS was originally created by the cms-dev community and is used in IOI and
 many other programming contests worldwide. This fork adds to the database
 schema only what serving several contests at once needs (a `ranking_groups`
-table and a few columns on `contests`, added by `cmsSetupDB`), and its one
-change to the evaluation engine — two-phase fail-fast grading — is opt-in and
-off by default, so grading behaves identically to upstream unless
-`CMS_TWO_PHASE_EVALUATION` is explicitly set.
+table and a few columns on `contests`, added by `cmsSetupDB`), and its
+changes to the evaluation engine — two-phase fail-fast grading and subtask
+dependencies — are opt-in, so grading behaves identically to upstream unless
+`CMS_TWO_PHASE_EVALUATION` is explicitly set or a dataset declares `depends_on`.
 
 - **Upstream repository:** <https://github.com/cms-dev/cms>
 - **Upstream documentation:** <https://cms.readthedocs.org/>

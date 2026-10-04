@@ -88,6 +88,7 @@ When you change the translation of a heading, grep its old text in every
 | `ranking-mexico` | Ranking: Mexican State Flags and Auto-Team Registration | Ranking: banderas de los estados mexicanos y registro automático de equipos |
 | `rekarel` | Rekarel | Rekarel |
 | `subtask-dependencies` | Subtask dependencies | Dependencias entre subtareas |
+| `two-phase-grading` | Two-phase grading | Evaluación en dos fases |
 
 The captions of the table of contents (`index`): Primeros pasos / Preparar
 una competencia / Ejecutar una competencia / Referencia / Desarrollo.
