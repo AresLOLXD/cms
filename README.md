@@ -77,7 +77,7 @@ migrated code can be tested in CI without the two colliding.
 | Feature | Description | Doc |
 |---------|-------------|-----|
 | Docker deployment | Stand up the full system with `./up.sh` | [docs/docker-deployment.md](docs/docker-deployment.md) |
-| Helper scripts | `up`, `down`, `logs`, `restart`, `contest`, `sync-upstream` | [docs/docker-scripts.md](docs/docker-scripts.md) |
+| Helper scripts | `up`, `down`, `status`, `logs`, `restart`, `contest`, `export`, `import` (plus `sync-upstream`, for the fork's maintainers) | [docs/docker-scripts.md](docs/docker-scripts.md) |
 | CMS-Loader | Bulk-import users and participations via CSV from the browser | [docs/cms-loader.md](docs/cms-loader.md) |
 | AWS user import | Bulk-import users and participations via CSV from the Admin Web Server, one file per contest | [docs/importing-users.md](docs/importing-users.md) |
 | Subtask dependencies | A subtask whose prerequisite scored 0 is worth 0 and is not graded | [docs/subtask-dependencies.md](docs/subtask-dependencies.md) |
