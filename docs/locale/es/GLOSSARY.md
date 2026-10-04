@@ -55,8 +55,12 @@ When you change the translation of a heading, grep its old text in every
 `multi-contest`, `subtask-dependencies` and `docker-scripts` ("Ventanas",
 "Reversión", "Verificar una programación", "Cuando un ranking está mal",
 "Eliminar un ranking antiguo", 'Los botones "ahora"', "Modo de fallo",
-"Escalar el Contest Web Server"); `docker-deployment.po` quotes "Despliegue"
-(a heading of `multi-contest`) and "Scripts auxiliares" (its own heading).
+"Escalar el Contest Web Server", "Avisos de ProxyService que necesitan a un
+operador"); `docker-deployment.po` quotes "Despliegue" (a heading of
+`multi-contest`) and "Scripts auxiliares" (its own heading);
+`docker-scripts.po` quotes "Antes de un día de examen" (`multi-contest`) and
+"1. Respalda todo" (`migrating-to-multi-contest`); `importing-users.po`
+quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`).
 
 | Page | English title | Spanish title |
 |------|---------------|---------------|
