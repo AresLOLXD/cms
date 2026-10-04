@@ -4,7 +4,6 @@
 # package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
@@ -22,295 +21,331 @@ msgstr ""
 
 msgid "Ranking: Mexican State Flags and Auto-Team Registration"
 msgstr ""
+"Ranking: banderas de los estados mexicanos y registro automático de "
+"equipos"
 
 msgid ""
 "This fork ships two enhancements to the Ranking Web Server targeted at "
 "the OMI:"
-msgstr ""
+msgstr "Este fork incluye dos mejoras al Ranking Web Server dirigidas a la OMI:"
 
 msgid ""
 "**Bundled flags** — real flag images for all 32 Mexican states, served "
 "automatically by the ranking server."
 msgstr ""
+"**Banderas incluidas** — imágenes reales de las banderas de los 32 "
+"estados de México, que el servidor de ranking sirve automáticamente."
 
 msgid ""
 "**Auto-team registration** — teams are created from the flag images found"
 " in `lib_dir/flags/` every time the ranking server starts."
 msgstr ""
+"**Registro automático de equipos** — los equipos se crean a partir de las"
+" imágenes de banderas que hay en `lib_dir/flags/` cada vez que se inicia "
+"el servidor de ranking."
 
 msgid "How auto-team registration works"
-msgstr ""
+msgstr "Cómo funciona el registro automático de equipos"
 
 msgid "On startup, `cmsRankingWebServer` calls `seed_flags_and_teams`, which:"
-msgstr ""
+msgstr "Al iniciar, `cmsRankingWebServer` llama a `seed_flags_and_teams`, que:"
 
 msgid ""
 "Copies the 32 bundled state flag PNG files into `lib_dir/flags/` "
 "(default: `.venv/lib/ranking/flags/`), overwriting any existing copies of"
 " those bundled files."
 msgstr ""
+"Copia los 32 archivos PNG de las banderas de los estados incluidos en el "
+"paquete a `lib_dir/flags/` (de forma predeterminada, "
+"`.venv/lib/ranking/flags/`), sobrescribiendo cualquier copia existente de"
+" esos archivos."
 
 msgid ""
 "Scans `lib_dir/flags/` for image files (`.png`, `.jpg`, `.gif`, `.bmp`) "
 "and creates a **team** entry for each filename stem not yet registered."
 msgstr ""
+"Revisa `lib_dir/flags/` en busca de archivos de imagen (`.png`, `.jpg`, "
+"`.gif`, `.bmp`) y crea un **equipo** por cada nombre de archivo, sin "
+"extensión, que aún no esté registrado."
 
 msgid ""
 "The team name is resolved from the filename stem: if it matches a known "
 "Mexican state code (e.g. `JAL`) the full state name is used (`Jalisco`); "
 "otherwise the stem itself becomes the team name."
 msgstr ""
+"El nombre del equipo se obtiene del nombre de archivo sin extensión: si "
+"coincide con una clave de estado mexicano conocida (por ejemplo, `JAL`), "
+"se usa el nombre completo del estado (`Jalisco`). En caso contrario, ese "
+"mismo nombre se convierte en el nombre del equipo."
 
 msgid ""
 "Teams are only *created*, never automatically updated or deleted. Once a "
 "team exists it can be renamed or modified through the admin interface "
 "without losing changes on the next restart."
 msgstr ""
+"Los equipos solo se *crean*; nunca se actualizan ni se eliminan "
+"automáticamente. Una vez que existe un equipo, se puede renombrar o "
+"modificar desde la interfaz de administración sin perder los cambios en "
+"el siguiente reinicio."
 
 msgid "State codes"
-msgstr ""
+msgstr "Códigos de estado"
 
 msgid "Code"
-msgstr ""
+msgstr "Código"
 
 msgid "State"
-msgstr ""
+msgstr "Estado"
 
 msgid "AGU"
-msgstr ""
+msgstr "AGU"
 
 msgid "Aguascalientes"
-msgstr ""
+msgstr "Aguascalientes"
 
 msgid "MOR"
-msgstr ""
+msgstr "MOR"
 
 msgid "Morelos"
-msgstr ""
+msgstr "Morelos"
 
 msgid "BCN"
-msgstr ""
+msgstr "BCN"
 
 msgid "Baja California"
-msgstr ""
+msgstr "Baja California"
 
 msgid "NAY"
-msgstr ""
+msgstr "NAY"
 
 msgid "Nayarit"
-msgstr ""
+msgstr "Nayarit"
 
 msgid "BCS"
-msgstr ""
+msgstr "BCS"
 
 msgid "Baja California Sur"
-msgstr ""
+msgstr "Baja California Sur"
 
 msgid "NLE"
-msgstr ""
+msgstr "NLE"
 
 msgid "Nuevo León"
-msgstr ""
+msgstr "Nuevo León"
 
 msgid "CAM"
-msgstr ""
+msgstr "CAM"
 
 msgid "Campeche"
-msgstr ""
+msgstr "Campeche"
 
 msgid "OAX"
-msgstr ""
+msgstr "OAX"
 
 msgid "Oaxaca"
-msgstr ""
+msgstr "Oaxaca"
 
 msgid "CHP"
-msgstr ""
+msgstr "CHP"
 
 msgid "Chiapas"
-msgstr ""
+msgstr "Chiapas"
 
 msgid "PUE"
-msgstr ""
+msgstr "PUE"
 
 msgid "Puebla"
-msgstr ""
+msgstr "Puebla"
 
 msgid "CHH"
-msgstr ""
+msgstr "CHH"
 
 msgid "Chihuahua"
-msgstr ""
+msgstr "Chihuahua"
 
 msgid "QUE"
-msgstr ""
+msgstr "QUE"
 
 msgid "Querétaro"
-msgstr ""
+msgstr "Querétaro"
 
 msgid "CMX"
-msgstr ""
+msgstr "CMX"
 
 msgid "Ciudad de México"
-msgstr ""
+msgstr "Ciudad de México"
 
 msgid "ROO"
-msgstr ""
+msgstr "ROO"
 
 msgid "Quintana Roo"
-msgstr ""
+msgstr "Quintana Roo"
 
 msgid "COA"
-msgstr ""
+msgstr "COA"
 
 msgid "Coahuila"
-msgstr ""
+msgstr "Coahuila"
 
 msgid "SLP"
-msgstr ""
+msgstr "SLP"
 
 msgid "San Luis Potosí"
-msgstr ""
+msgstr "San Luis Potosí"
 
 msgid "COL"
-msgstr ""
+msgstr "COL"
 
 msgid "Colima"
-msgstr ""
+msgstr "Colima"
 
 msgid "SIN"
-msgstr ""
+msgstr "SIN"
 
 msgid "Sinaloa"
-msgstr ""
+msgstr "Sinaloa"
 
 msgid "DUR"
-msgstr ""
+msgstr "DUR"
 
 msgid "Durango"
-msgstr ""
+msgstr "Durango"
 
 msgid "SON"
-msgstr ""
+msgstr "SON"
 
 msgid "Sonora"
-msgstr ""
+msgstr "Sonora"
 
 msgid "GUA"
-msgstr ""
+msgstr "GUA"
 
 msgid "Guanajuato"
-msgstr ""
+msgstr "Guanajuato"
 
 msgid "TAB"
-msgstr ""
+msgstr "TAB"
 
 msgid "Tabasco"
-msgstr ""
+msgstr "Tabasco"
 
 msgid "GRO"
-msgstr ""
+msgstr "GRO"
 
 msgid "Guerrero"
-msgstr ""
+msgstr "Guerrero"
 
 msgid "TAM"
-msgstr ""
+msgstr "TAM"
 
 msgid "Tamaulipas"
-msgstr ""
+msgstr "Tamaulipas"
 
 msgid "HID"
-msgstr ""
+msgstr "HID"
 
 msgid "Hidalgo"
-msgstr ""
+msgstr "Hidalgo"
 
 msgid "TLA"
-msgstr ""
+msgstr "TLA"
 
 msgid "Tlaxcala"
-msgstr ""
+msgstr "Tlaxcala"
 
 msgid "JAL"
-msgstr ""
+msgstr "JAL"
 
 msgid "Jalisco"
-msgstr ""
+msgstr "Jalisco"
 
 msgid "VER"
-msgstr ""
+msgstr "VER"
 
 msgid "Veracruz"
-msgstr ""
+msgstr "Veracruz"
 
 msgid "MEX"
-msgstr ""
+msgstr "MEX"
 
 msgid "Estado de México"
-msgstr ""
+msgstr "Estado de México"
 
 msgid "YUC"
-msgstr ""
+msgstr "YUC"
 
 msgid "Yucatán"
-msgstr ""
+msgstr "Yucatán"
 
 msgid "MIC"
-msgstr ""
+msgstr "MIC"
 
 msgid "Michoacán"
-msgstr ""
+msgstr "Michoacán"
 
 msgid "ZAC"
-msgstr ""
+msgstr "ZAC"
 
 msgid "Zacatecas"
-msgstr ""
+msgstr "Zacatecas"
 
 msgid "Replacing a bundled state flag"
-msgstr ""
+msgstr "Reemplazar una bandera de estado incluida en el paquete"
 
 msgid ""
 "Replace the file at `lib_dir/flags/<CODE>.png` while the server is "
 "running. The new image is served immediately — no restart required."
 msgstr ""
+"Reemplaza el archivo `lib_dir/flags/<CODE>.png` mientras el servidor está"
+" en ejecución. La nueva imagen se sirve de inmediato, sin necesidad de "
+"reiniciar."
 
 msgid ""
 "To make the replacement permanent across server restarts, also replace "
 "the source file inside the package installation:"
 msgstr ""
+"Para que el reemplazo se conserve después de reiniciar el servidor, "
+"reemplaza también el archivo de origen dentro de la instalación del "
+"paquete:"
 
 msgid "Adding a custom team with a flag"
-msgstr ""
+msgstr "Agregar un equipo personalizado con una bandera"
 
 msgid "Place an image file at `lib_dir/flags/<YOUR_CODE>.png`."
-msgstr ""
+msgstr "Coloca un archivo de imagen en `lib_dir/flags/<YOUR_CODE>.png`."
 
 msgid "Restart `cmsRankingWebServer`."
-msgstr ""
+msgstr "Reinicia `cmsRankingWebServer`."
 
 msgid ""
 "A team with key `YOUR_CODE` is created automatically. To set a friendlier"
 " display name, edit the team from the admin interface."
 msgstr ""
+"Se crea automáticamente un equipo con la clave `YOUR_CODE`. Para ponerle "
+"un nombre más amigable, edita el equipo desde la interfaz de "
+"administración."
 
 msgid "Regenerating flag images from Wikimedia Commons"
-msgstr ""
+msgstr "Regenerar las imágenes de las banderas desde Wikimedia Commons"
 
 msgid ""
 "If you want to refresh the bundled flags from their original Wikimedia "
 "Commons sources, use the contrib script:"
 msgstr ""
+"Si quieres actualizar las banderas incluidas a partir de sus fuentes "
+"originales en Wikimedia Commons, usa el script de contrib:"
 
 msgid ""
 "The script downloads each flag at 160 px width, resizes to exactly "
 "160×100 px, and overwrites `cmsranking/flags/<CODE>.png`. Requires the "
 "optional `Pillow` dependency:"
 msgstr ""
+"El script descarga cada bandera con un ancho de 160 px, la redimensiona a"
+" exactamente 160×100 px y sobrescribe `cmsranking/flags/<CODE>.png`. "
+"Requiere la dependencia opcional `Pillow`:"
 
 msgid "Custom logo"
-msgstr ""
+msgstr "Logo personalizado"
 
 msgid ""
 "To permanently change the ranking server logo, replace "
@@ -318,6 +353,10 @@ msgid ""
 " this file is copied automatically to `lib_dir/logo.png` and served at "
 "`/logo`."
 msgstr ""
+"Para cambiar de forma permanente el logo del servidor de ranking, "
+"reemplaza `cmsranking/static/img/logo.png` en el paquete. En cada inicio "
+"del servidor, este archivo se copia automáticamente a `lib_dir/logo.png` "
+"y se sirve en `/logo`."
 
 #, python-brace-format
 msgid ""
@@ -325,9 +364,13 @@ msgid ""
 "directly at `lib_dir/logo.{png,jpg,gif,bmp}` while the server is running "
 "— it is served immediately. It will be overwritten on the next restart."
 msgstr ""
+"Para usar un logo temporal sin modificar el paquete, coloca un archivo "
+"directamente en `lib_dir/logo.{png,jpg,gif,bmp}` mientras el servidor "
+"está en ejecución: se sirve de inmediato. Se sobrescribirá en el "
+"siguiente reinicio."
 
 msgid "Participant faces"
-msgstr ""
+msgstr "Fotos de los participantes"
 
 msgid ""
 "Place participant face images in `cmsranking/faces/` (e.g., "
@@ -335,6 +378,11 @@ msgid ""
 "copied to `lib_dir/faces/` and served at `/faces/<filename>`. Files "
 "already in `lib_dir/faces/` that are not in the bundle are preserved."
 msgstr ""
+"Coloca las fotos de los participantes en `cmsranking/faces/` (por "
+"ejemplo, `JAL001.png`). En cada inicio del servidor, todas las imágenes "
+"de ese directorio se copian a `lib_dir/faces/` y se sirven en "
+"`/faces/<filename>`. Los archivos que ya estén en `lib_dir/faces/` y no "
+"estén en el paquete se conservan."
 
 #, python-brace-format
 msgid ""
@@ -343,4 +391,9 @@ msgid ""
 "running — it is served immediately. It will be overwritten on the next "
 "restart if a bundled image with the same name exists."
 msgstr ""
+"Para usar una foto temporal sin modificar el paquete, coloca un archivo "
+"directamente en `lib_dir/faces/<code>.{png,jpg,gif,bmp}` mientras el "
+"servidor está en ejecución: se sirve de inmediato. Se sobrescribirá en el"
+" siguiente reinicio si existe una imagen incluida en el paquete con el "
+"mismo nombre."
 

@@ -4,7 +4,6 @@
 # package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
@@ -21,60 +20,70 @@ msgstr ""
 "Generated-By: Babel 2.18.0\n"
 
 msgid "Rekarel"
-msgstr ""
+msgstr "Rekarel"
 
 msgid ""
 "This fork bundles two Karel tools directly inside the Docker image — no "
 "installation required."
 msgstr ""
+"Este fork incluye dos herramientas de Karel directamente en la imagen de "
+"Docker, sin necesidad de instalar nada."
 
 msgid "Tool"
-msgstr ""
+msgstr "Herramienta"
 
 msgid "What it is"
-msgstr ""
+msgstr "Qué es"
 
 msgid "Source"
-msgstr ""
+msgstr "Fuente"
 
 msgid "`rekarel`"
-msgstr ""
+msgstr "`rekarel`"
 
 msgid "Compiler for the Karel programming language (Node.js CLI)"
-msgstr ""
+msgstr "Compilador del lenguaje de programación Karel (CLI de Node.js)"
 
 msgid "[@rekarel/cli](https://github.com/kishtarn555/rekarel-js)"
-msgstr ""
+msgstr "[@rekarel/cli](https://github.com/kishtarn555/rekarel-js)"
 
 msgid "`karel`"
-msgstr ""
+msgstr "`karel`"
 
 msgid "Karel interpreter written in C++ (statically linked binary)"
-msgstr ""
+msgstr "Intérprete de Karel escrito en C++ (binario enlazado estáticamente)"
 
 msgid ""
 "[rekarel-cpp-interpreter v2.3.1](https://github.com/kishtarn555/rekarel-"
 "cpp-interpreter)"
 msgstr ""
+"[rekarel-cpp-interpreter v2.3.1](https://github.com/kishtarn555/rekarel-"
+"cpp-interpreter)"
 
 msgid ""
 "Both tools are in PATH inside the container and are available to CMS "
 "workers when evaluating Karel submissions."
 msgstr ""
+"Ambas herramientas están en el PATH dentro del contenedor y los workers "
+"de CMS pueden usarlas al evaluar envíos de Karel."
 
 msgid "Verifying the tools are available"
-msgstr ""
+msgstr "Verificar que las herramientas estén disponibles"
 
 msgid "Run a shell inside the running container and check both tools:"
 msgstr ""
+"Ejecuta un shell dentro del contenedor en ejecución y verifica ambas "
+"herramientas:"
 
 msgid ""
 "Expected output: the rekarel version string followed by the karel "
 "interpreter usage message."
 msgstr ""
+"Salida esperada: la cadena de versión de rekarel seguida del mensaje de "
+"uso del intérprete karel."
 
 msgid "Using Karel as a task type"
-msgstr ""
+msgstr "Usar Karel como tipo de problema"
 
 msgid ""
 "Karel tasks are evaluated using the standard **Batch** task type in CMS. "
@@ -82,33 +91,43 @@ msgid ""
 "`.kp` source) and `karel` (to run the compiled program against each test "
 "case)."
 msgstr ""
+"Los problemas de Karel se evalúan con el tipo de problema estándar "
+"**Batch** de CMS. El checker o el manager del problema llama a `rekarel` "
+"(para compilar el código fuente `.kp` del concursante) y a `karel` (para "
+"ejecutar el programa compilado con cada caso de prueba)."
 
 msgid ""
 "Refer to the CMS documentation on [task "
 "types](https://cms.readthedocs.io/en/latest/Task%20types.html) for the "
 "full configuration."
 msgstr ""
+"Consulta la documentación de CMS sobre los [tipos de "
+"problema](https://cms.readthedocs.io/en/latest/Task%20types.html) para "
+"ver la configuración completa."
 
 msgid "Versions bundled"
-msgstr ""
+msgstr "Versiones incluidas"
 
 msgid "Version"
-msgstr ""
+msgstr "Versión"
 
 msgid "`@rekarel/cli`"
-msgstr ""
+msgstr "`@rekarel/cli`"
 
 msgid "latest at image build time (npm latest)"
-msgstr ""
+msgstr "la más reciente al momento de construir la imagen (npm latest)"
 
 msgid "`rekarel-cpp-interpreter`"
-msgstr ""
+msgstr "`rekarel-cpp-interpreter`"
 
 msgid "v2.3.1"
-msgstr ""
+msgstr "v2.3.1"
 
 msgid ""
 "To pin `@rekarel/cli` to a specific version, modify the `RUN npm install "
 "-g` line in the `rekarel-builder` stage of `Dockerfile` and rebuild."
 msgstr ""
+"Para fijar `@rekarel/cli` en una versión específica, modifica la línea "
+"`RUN npm install -g` de la etapa `rekarel-builder` del `Dockerfile` y "
+"reconstruye la imagen."
 
