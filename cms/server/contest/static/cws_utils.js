@@ -41,6 +41,7 @@ CMS.CWSUtils = function(url_root, contest_root, contest_name, timestamp, timezon
     this.current_phase_end = current_phase_end;
     this.phase = phase;
     this.remaining_div = null;
+    this.notifications_timer = null;
     this.unread_count = localStorage.getItem(this.contest_name + "_unread_count");
     this.unread_count = this.unread_count !== null ? parseInt(this.unread_count) : 0;
 
@@ -67,7 +68,7 @@ CMS.CWSUtils.create_url_builder = function(url_root) {
 
 CMS.CWSUtils.prototype.update_notifications = function(hush) {
     var self = this;
-    $.get(
+    var jqxhr = $.get(
         this.contest_url("notifications"),
         this.last_notification !== null ? {"last_notification": this.last_notification} : {},
         function(data) {
@@ -85,6 +86,13 @@ CMS.CWSUtils.prototype.update_notifications = function(hush) {
                 }
             }
         }, "json");
+    jqxhr.fail(function() {
+        // The session has expired: stop polling, since every further
+        // request would be rejected as well.
+        if (jqxhr.status === 403) {
+            clearInterval(self.notifications_timer);
+        }
+    });
 };
 
 
