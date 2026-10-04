@@ -115,6 +115,62 @@ The **Root ranking** row is the scoreboard at `/`. It is only used when a
 single contest is served (`CMS_CONTEST_ID=<id>`). After switching to
 `CMS_CONTEST_ID=ALL`, regenerate it once to clear the old data.
 
+### ProxyService warnings that need an operator
+
+ProxyService sends the contests, their tasks and users, and the scores to the
+Ranking Web Server. These messages of its log (`./logs.sh cms`) need someone
+to act. In the texts below, "…" stands for the parts that change: the ranking
+URL (without its password), the group name ("(root)" for the root ranking),
+the contest, or the data type ("the users", "the submissions", …). "Group" is
+the ranking group: **Regenerate** is on its row of **Ranking groups**, or on
+the **Root ranking** row for "(root)".
+
+- **"Could not send … operation(s) of group … to ranking …, trying again in …
+  seconds."** The Ranking Web Server could not be reached, did not answer in
+  time, or answered with a server error (5xx). Nothing is lost: the data stays
+  in the queue and is sent again, after 1 second, then twice as long after
+  each failure in a row, up to 60 seconds. Each group waits on its own: the
+  other groups keep getting their data without delay. The warning just before
+  says what failed ("Status … while …" or "… while …: …"). If it keeps
+  repeating, check the ranking container with `./status.sh` and
+  `./logs.sh ranking`. Once the Ranking Web Server answers, the data goes
+  through by itself.
+- **"Ranking … rejected … of group …. It will not be sent again: use
+  Regenerate for this group in AWS (Ranking groups) to send its data
+  again."** The Ranking Web Server refused that data (an answer 4xx), so the
+  scoreboard is missing it. The rest of the group's data is still sent. The
+  warning just before, "Status … while …", gives the status. Fix the cause,
+  then press **Regenerate** on the group.
+- **"… of group … cannot be encoded for ranking …, and would fail the same way
+  again. Fix the data, then use Regenerate for this group in AWS (Ranking
+  groups) to send it."** The data cannot be written as JSON. The warning just
+  before, "Cannot encode the data as JSON while …: …", gives the error.
+  Regenerate alone would build the same data again: fix the data first, then
+  press **Regenerate** on the group.
+- **"Contest … (…) still cannot be sent to the rankings: …"**, every 6
+  minutes or so. It follows an error, "Cannot build the ranking data of
+  contest … (…), not sending it until fixed: the sweeper will try again.",
+  with a traceback. ProxyService cannot build the data of that contest (for
+  example, a task with invalid score type parameters), so nothing of it,
+  scores included, reaches the scoreboard. The other contests are not
+  affected. Fix what the error names. At the next try, within about 6
+  minutes, the log says "Contest … (…) can be sent to the rankings again."
+  and the contest is sent with all its scores, without a Regenerate.
+- **"Reinitializing the rankings failed. The ranking groups that lost
+  contests (…) were being reset and may be left empty: once the cause is
+  fixed, use Regenerate for them in AWS (Ranking groups)."**, with a
+  traceback. AWS asks ProxyService to send the rankings again after changes
+  such as saving a contest, a task, a user or a ranking group, and that
+  failed. The groups listed may now be empty. Fix the cause shown in the
+  traceback, then press **Regenerate** on each group listed. Without a list
+  ("Reinitializing the rankings failed." alone), press **Regenerate** on the
+  groups of what you changed once the cause is fixed.
+- **"Ranking … rejected the visibility of group …, so its data is held
+  back."** See "Failure mode: RWS rejects the visibility setting" below.
+- **"Ranking … accepted the visibility of group …: its data is sent again,
+  but not the data held back meanwhile. Use Regenerate for this group in AWS
+  (Ranking groups) to send that too."** Press **Regenerate** on the group.
+
 ## Removing an old scoreboard
 
 Renaming or deleting a ranking group leaves its old scoreboard on the
