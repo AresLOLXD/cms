@@ -309,8 +309,6 @@ class NotificationsHandler(ContestHandler):
 
     """
 
-    refresh_cookie = False
-
     @api_login_required
     @multi_contest
     def get(self):

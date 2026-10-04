@@ -203,8 +203,6 @@ class SubmissionStatusHandler(ContestHandler):
         SubmissionResult.SCORED: N_("Evaluated"),
     }
 
-    refresh_cookie = False
-
     def add_task_score(self, participation: Participation, task: Task, data: dict):
         """Add the task score information to the dict to be returned.
 
@@ -295,8 +293,6 @@ class SubmissionStatusHandler(ContestHandler):
 
 
 class SubmissionDetailsHandler(ContestHandler):
-
-    refresh_cookie = False
 
     @api_login_required
     @actual_phase_required(0, 1, 2, 3, 4)

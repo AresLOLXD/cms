@@ -120,8 +120,6 @@ class UserTestInterfaceHandler(ContestHandler):
 
 class UserTestHandler(ContestHandler):
 
-    refresh_cookie = False
-
     @tornado.web.authenticated
     @actual_phase_required(0)
     @multi_contest
@@ -165,8 +163,6 @@ class UserTestHandler(ContestHandler):
 
 
 class UserTestStatusHandler(ContestHandler):
-
-    refresh_cookie = False
 
     @api_login_required
     @actual_phase_required(0)
@@ -220,8 +216,6 @@ class UserTestStatusHandler(ContestHandler):
 
 
 class UserTestDetailsHandler(ContestHandler):
-
-    refresh_cookie = False
 
     @api_login_required
     @actual_phase_required(0)
