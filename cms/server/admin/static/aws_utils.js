@@ -42,6 +42,7 @@ CMS.AWSUtils = function(url_root, timestamp,
     this.analysis_enabled = analysis_enabled;
     this.file_asked_name = "";
     this.file_asked_url = "";
+    this.notifications_pending = false;
 
     // Ask permission for desktop notifications
     if ("Notification" in window) {
@@ -295,15 +296,22 @@ CMS.AWSUtils.prototype.update_unread_counts = function(delta_public, delta_priva
 
 /**
  * Ask CWS (via ajax, not rpc) to send to the user the new
- * notifications.
+ * notifications. Does nothing if the previous request is still pending,
+ * so that a slow server is not piled up with requests.
  */
 CMS.AWSUtils.prototype.update_notifications = function() {
+    if (this.notifications_pending) {
+        return;
+    }
+    this.notifications_pending = true;
+    var self = this;
     var display_notification = this.bind_func(this, this.display_notification);
     var update_unread_counts = this.bind_func(this, this.update_unread_counts);
     this.ajax_request(
         this.url("notifications"),
         "last_notification=" + this.last_notification,
         function(response, error) {
+            self.notifications_pending = false;
             if (error == null) {
                 response = JSON.parse(response);
                 var msgs_public = 0;
