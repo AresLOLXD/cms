@@ -47,6 +47,21 @@ class LoginHandler(SimpleHandler("login.html", authenticated=False)):
     """Login handler.
 
     """
+    def render_params(self) -> dict:
+        """Return the render params of the login page.
+
+        The page doesn't use the lists of the sidebar, and the health
+        check of the container requests it every few seconds, so they
+        are not loaded.
+
+        return: the render params of the login page.
+
+        """
+        params = self._base_render_params(None)
+        if self.current_user is not None:
+            params["admin"] = self.current_user
+        return params
+
     async def post(self):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._post_sync)

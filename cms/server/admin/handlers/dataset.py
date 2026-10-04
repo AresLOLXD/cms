@@ -414,7 +414,16 @@ class AddManagerHandler(BaseHandler):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
 
-        manager = self.request.files["manager"][0]
+        try:
+            manager = self.request.files["manager"][0]
+        except KeyError:
+            self.service.add_notification(
+                make_datetime(),
+                "Invalid data",
+                "Please choose a manager file.")
+            self.redirect(fallback_page)
+            return
+
         task_name = task.name
         self.sql_session.close()
 

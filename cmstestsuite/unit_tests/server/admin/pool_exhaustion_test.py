@@ -28,8 +28,11 @@ the connections. These tests use a real AdminWebServer with a tiny pool
 to check that:
 
 - the error page never queries the database, so it can't block the loop;
+- the login page, which the health check of the container requests
+  all the time, loads none of the lists of the sidebar;
 - AWS caps the requests it serves at once below the pool size, and
-  every request gives its slot back, however it ends.
+  every request gives its slot back, however it ends, and the ones that
+  stream a long response give it back before streaming.
 
 """
 
@@ -41,6 +44,7 @@ import socket
 import time
 import unittest
 from collections.abc import Iterator
+from datetime import datetime
 from unittest import mock
 from urllib.parse import urlencode
 
@@ -58,9 +62,9 @@ from cmstestsuite.unit_tests.server.admin.admin_session_test import \
     session_payload, sign
 
 from cms import config
-from cms.db import engine
+from cms.db import ActivityInterval, engine
 from cms.db.session import Session
-from cms.server.admin.handlers import base
+from cms.server.admin.handlers import base, contestactivity
 from cms.server.admin.handlers.base import BaseHandler, require_permission
 from cms.server.admin.server import AdminWebServer
 
@@ -70,6 +74,11 @@ POOL_TIMEOUT = 1.0
 
 # A download that can't fit in the buffers of a client that doesn't read.
 DOWNLOAD_SIZE = 32 * 1024 * 1024
+
+# The size of the ip field of each row of the activity export, and the
+# number of rows of each batch: the first batch can't fit in the buffers.
+ACTIVITY_ROW_SIZE = DOWNLOAD_SIZE // 4
+ACTIVITY_BATCH_SIZE = 2
 
 # An XSRF cookie Tornado accepts. Without one, Tornado makes a token
 # when the error page asks for the form, and then looks at the current
@@ -207,6 +216,20 @@ class _AwsServerMixin(DatabaseMixin):
             self.limit = limit
             yield
 
+    @contextlib.contextmanager
+    def recorded_statements(self) -> Iterator[list[str]]:
+        """Record the statements executed in the block."""
+        statements = []
+
+        def record(conn, cursor, statement, *unused):
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            yield statements
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
     @staticmethod
     async def free_slots() -> int:
         """Count the free slots, without any request in flight."""
@@ -288,16 +311,8 @@ class ErrorPageTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
             xsrf_cookie=False)
 
     async def test_error_page_does_not_load_the_sidebar_lists(self):
-        statements = []
-
-        def record(conn, cursor, statement, *unused):
-            statements.append(statement)
-
-        event.listen(engine, "before_cursor_execute", record)
-        try:
+        with self.recorded_statements() as statements:
             response = await self.get("/contest/999999")
-        finally:
-            event.remove(engine, "before_cursor_execute", record)
 
         self.assertEqual(response.code, 404)
         for table in ("tasks", "users", "teams", "ranking_groups"):
@@ -322,6 +337,53 @@ class ErrorPageTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
         body = response.body.decode()
         self.assertIn("Error 404", body)
         self.assertNotIn("Hello", body)
+
+
+class LoginPageTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
+    """The login page doesn't use the lists that the sidebar shows."""
+
+    SIDEBAR_TABLES = ("contests", "tasks", "users", "teams", "ranking_groups")
+
+    def assert_sidebar_lists_not_queried(self, statements: list[str]):
+        for table in self.SIDEBAR_TABLES:
+            self.assertFalse(
+                any(re.search(r"FROM %s\b" % table, s) for s in statements),
+                "the login page queried %s" % table)
+
+    async def test_login_page_does_not_load_the_sidebar_lists(self):
+        with self.recorded_statements() as statements:
+            response = await self.get(
+                "/login", authenticated=False, xsrf_cookie=True)
+
+        self.assertEqual(response.code, 200)
+        self.assert_sidebar_lists_not_queried(statements)
+        body = response.body.decode()
+        self.assertIn("Please log in:", body)
+        self.assertIn('<input type="text" name="username"', body)
+        self.assertIn('<input type="password" name="password"', body)
+        self.assertIn('name="_xsrf"', body)
+        self.assertNotIn("Failed to log in.", body)
+
+    async def test_login_error_and_next_page_are_shown(self):
+        response = await self.get(
+            "/login?login_error=true&next=%2Fcontests",
+            authenticated=False, xsrf_cookie=True)
+
+        self.assertEqual(response.code, 200)
+        body = response.body.decode()
+        self.assertIn("Failed to log in.", body)
+        self.assertIn(
+            '<input type="hidden" name="next" value="/contests">', body)
+
+    async def test_logged_in_admin_is_told_so_without_the_lists(self):
+        with self.recorded_statements() as statements:
+            response = await self.get("/login", xsrf_cookie=True)
+
+        self.assertEqual(response.code, 200)
+        self.assert_sidebar_lists_not_queried(statements)
+        body = response.body.decode()
+        self.assertIn("You are already logged in.", body)
+        self.assertNotIn("Please log in:", body)
 
 
 class RequestLimitTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
@@ -429,6 +491,56 @@ class RequestLimitTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.code, 200)
             finally:
                 writer.transport.abort()
+
+    async def test_client_that_stops_reading_the_activity_export_holds_no_slot(
+        self,
+    ):
+        contest = self.add_contest()
+        participation = self.add_participation(contest=contest)
+        self.session.flush()
+        now = datetime.now()
+        for _ in range(2 * ACTIVITY_BATCH_SIZE):
+            interval = ActivityInterval(
+                ip="10.0.0.1", started_at=now, last_seen_at=now,
+                started_by="login")
+            interval.participation_id = participation.id
+            self.session.add(interval)
+        self.session.commit()
+
+        csv_row = contestactivity.csv_row
+
+        def fat_csv_row(row, now):
+            fields = csv_row(row, now)
+            fields[4] = "x" * ACTIVITY_ROW_SIZE
+            return fields
+
+        with self.request_limit(1), \
+                mock.patch.object(contestactivity, "csv_row", fat_csv_row), \
+                mock.patch.object(contestactivity, "CSV_BATCH_SIZE",
+                                  ACTIVITY_BATCH_SIZE):
+            reader, writer = await asyncio.open_connection(
+                "127.0.0.1", self.port)
+            try:
+                writer.get_extra_info("socket").setsockopt(
+                    socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+                writer.write((
+                    "GET /contest/%d/activity/csv HTTP/1.1\r\n"
+                    "Host: localhost\r\nCookie: %s\r\n\r\n"
+                    % (contest.id, self.cookie_header)).encode())
+                await writer.drain()
+                # Once the headers are here the server is streaming the
+                # export, and the client stops reading it.
+                await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 5)
+
+                try:
+                    response = await asyncio.wait_for(
+                        self.get("/notifications"), 3)
+                except asyncio.TimeoutError:
+                    self.fail("the stalled export holds the only slot")
+                self.assertEqual(response.code, 200)
+            finally:
+                writer.transport.abort()
+            await self.assert_all_slots_free("after the export was cut")
 
     async def test_request_that_gets_no_slot_in_time_gets_a_503(self):
         _ProbeHandler.body_time = 1.5
