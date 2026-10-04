@@ -826,8 +826,15 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             self._loop.call_soon_threadsafe(
                 self.enqueue, operation, priority, timestamp)
 
-    def _is_sent(self, contest: Contest) -> bool:
-        """Return whether the data of contest goes to a ranking."""
+    def _is_sent(self, contest: Contest | None) -> bool:
+        """Return whether the data of contest goes to a ranking.
+
+        contest: a contest, or None for what is in no contest (a task
+            that is not assigned to one, and the submissions to it).
+
+        """
+        if contest is None:
+            return False
         if self.contest_id is not None:
             return contest.id == self.contest_id
         return contest.ranking_group is not None
@@ -1306,7 +1313,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
             # The submission's contest is not sent to any ranking.
             if not self._is_sent(submission.task.contest):
-                logger.debug("Ignoring submission %d of contest %d "
+                logger.debug("Ignoring submission %d of contest %s "
                              "(not sent to any ranking).",
                              submission.id, submission.task.contest_id)
                 return
@@ -1358,7 +1365,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
             # The submission's contest is not sent to any ranking.
             if not self._is_sent(submission.task.contest):
-                logger.debug("Ignoring submission %d of contest %d "
+                logger.debug("Ignoring submission %d of contest %s "
                              "(not sent to any ranking).",
                              submission.id, submission.task.contest_id)
                 return
@@ -1411,7 +1418,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             # The task's contest is not sent to any ranking.
             if not self._is_sent(task.contest):
                 logger.debug("Ignoring dataset change for task %d of "
-                             "contest %d (not sent to any ranking).",
+                             "contest %s (not sent to any ranking).",
                              task_id, task.contest_id)
                 return
 

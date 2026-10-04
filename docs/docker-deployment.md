@@ -38,7 +38,8 @@ in the values marked `CHANGE_ME`:
 | `POSTGRES_PASSWORD` | Password for the Docker-managed PostgreSQL database (required for Option A in `.env.example`: PostgreSQL run by Docker, the `y` answer in Step 3). Must match the password in `CMS_DB_URL`. |
 | `CMS_ADMIN_USER` | Username for the initial admin account created on first run. Can be removed after the first deploy. |
 | `CMS_ADMIN_PASSWORD` | Password for the initial admin account created on first run. Can be removed after the first deploy. |
-| `CMS_RWS_PASSWORD` | Password CMS uses to send scores to the Ranking Web Server. Its port is published, so anyone who knows this password can change the public scoreboard: never keep `CHANGE_ME`. |
+| `CMS_RWS_PASSWORD` | Password CMS uses to send scores to the Ranking Web Server. The Ranking Web Server port is only accessible through the reverse proxy (TLS, rate limiting): never keep `CHANGE_ME`. |
+| `CMS_CWS_COOKIE_DURATION` | Contestant session lifetime in seconds (default `18000` = 5 hours). Every authenticated request renews the session cookie, including background polls (notifications, submission status), so the session only expires after this long without any request. Must be a positive integer. An open contest page keeps its session alive, so on shared computers contestants must log out and close the tab. |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
@@ -78,8 +79,11 @@ It accepts only a numeric ID and replaces whatever was set before, including
 
 ## Ports
 
-By default the following ports are exposed. You can change all of them in
-`.env`.
+By default the following ports are bound to `127.0.0.1` (loopback only). A
+reverse proxy on the host (Caddy, nginx) is the only way in from outside; it
+must proxy to `127.0.0.1:<port>` or `localhost:<port>`. This prevents
+Docker-published ports from bypassing host firewalls (such as ufw) and reaching
+plain HTTP. You can change all port numbers in `.env`.
 
 | Port | Service |
 |------|---------|
@@ -87,6 +91,14 @@ By default the following ports are exposed. You can change all of them in
 | `8889` | Admin Web Server (contest administration) |
 | `8890` | Ranking Web Server (public scoreboard) |
 | `9995` | CMS-Loader (bulk user import; runs only when `CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER` and `CMS_LOADER_ADMIN_PASSWORD` are set, see [CMS-Loader](cms-loader.md)) |
+
+## Container resource limits
+
+The `cms` container is configured with `ulimits nofile 65536` to allow many
+concurrent database connections. It also has a `stop_grace_period: 180s` to let
+supervisord stop the ContestWebServer shards one after another, each waiting up
+to 40 seconds to flush the participant activity log. The `ranking` container
+gets `ulimits nofile 65536` as well.
 
 ## Common operations
 

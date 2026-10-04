@@ -138,6 +138,12 @@ class ContestHandler(BaseHandler):
             if self.contest is None:
                 self.contest = Contest(
                     name=contest_name, description=contest_name)
+                # Nobody is logged in to a contest that does not exist.
+                # Deciding it here keeps get_current_user() from using
+                # the name, which comes straight from the URL, as the
+                # name of a cookie: scanners ask for contests such as
+                # "../../etc/passwd", which is not a valid cookie name.
+                self.current_user = None
                 # render_params in this class assumes the contest is loaded,
                 # so we cannot call it without a fully defined contest. Luckily
                 # the one from the base class is enough to display a 404 page.

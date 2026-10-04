@@ -72,8 +72,14 @@ services:
       CMS_RANKING_ONLY: "true"
       TZ: ${CMS_TIMEZONE:-UTC}
     command: ["cmsRankingWebServer"]
+    # Published on the host's loopback only (see the ports note in the cms
+    # service below).
     ports:
-      - "${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
+      - "127.0.0.1:${CMS_RWS_HTTP_PORT:-8890}:${CMS_RWS_HTTP_PORT:-8890}"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     restart: unless-stopped
     volumes:
       - cms-ranking-data:/home/cmsuser/cms/lib/ranking
@@ -112,10 +118,27 @@ services:
       - /home/cmsuser/cms/run
     privileged: true
     cgroup: host
+    # Ports are published on the host's loopback only: Docker-published ports
+    # bypass the host firewall (ufw), so binding them to all interfaces would
+    # expose plain-HTTP CWS/AWS/loader to the internet, skipping the reverse
+    # proxy (TLS, crowdsec) and letting clients spoof X-Forwarded-For. The
+    # reverse proxy running on the host (reaching them via localhost) must be
+    # the only entry point.
     ports:
-      - "${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}:${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}"
-      - "${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
-      - "${CMS_LOADER_PORT:-9995}:${CMS_LOADER_PORT:-9995}"
+      - "127.0.0.1:${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}:${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}"
+      - "127.0.0.1:${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
+      - "127.0.0.1:${CMS_LOADER_PORT:-9995}:${CMS_LOADER_PORT:-9995}"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # Docker SIGKILLs the container once this expires (default 10 s).
+    # supervisord stops its programs one after another, and each
+    # ContestWebServer may wait up to 40 s (stopwaitsecs, see
+    # docker/generate_config.py) for its activity log flush, so the worst case
+    # is the SUM of those waits: 4 ContestWebServers = 160 s, plus the other
+    # programs. Normal shutdowns take seconds; this is only the upper bound.
+    stop_grace_period: 180s
     healthcheck:
       test: ["CMD-SHELL", "curl -sfL --max-time 4 http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]
       interval: 15s

@@ -180,7 +180,7 @@ consecutive port starting from `CMS_CWS_HTTP_PORT`:
 | 1 | `CMS_CWS_HTTP_PORT + 1` (e.g. 8889) |
 | 2 | `CMS_CWS_HTTP_PORT + 2` (e.g. 8890) |
 
-All shard ports are automatically exposed on the host when you start with `./up.sh`.
+All shard ports are bound to `127.0.0.1` (loopback only) when you start with `./up.sh`. The reverse proxy must be configured to access them there.
 
 ### Port conflict warning
 

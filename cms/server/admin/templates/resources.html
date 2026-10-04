@@ -4,6 +4,15 @@
 
 
 var getters = [];
+var update_intervals = [];
+
+// Called when the server rejects a poll as not authorized (e.g., the
+// admin session expired): there is no point in asking again.
+function stop_updating_resources()
+{
+    for (var i = 0; i < update_intervals.length; i++)
+        clearInterval(update_intervals[i]);
+}
 
 (function() {
 
@@ -203,10 +212,11 @@ var getters = [];
         update_resources: function()
         {
             var f = utils.bind_func(this, this.update_resources_cb);
-            cmsrpc_request("ResourceService", this.shard,
-                           "get_resources",
-                           {"last_time": this.last_time},
-                           f);
+            utils.poll_rpc_request("ResourceService", this.shard,
+                                   "get_resources",
+                                   {"last_time": this.last_time},
+                                   f,
+                                   stop_updating_resources);
         },
 
         kill_service: function(s, link)
@@ -270,7 +280,7 @@ for (var i in shards)
 {
     getters[i] = new RSgetter(i, plotOptions);
     var f = utils.bind_func(getters[i], getters[i].update_resources);
-    setInterval(f, 10000);
+    update_intervals.push(setInterval(f, 10000));
     getters[i].update_resources()
 
 }

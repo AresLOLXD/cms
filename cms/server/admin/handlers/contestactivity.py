@@ -433,6 +433,13 @@ class ContestActivityCsvHandler(BaseHandler):
         # Nothing is flushed before the first batch is read, so a
         # failure there is still answered with a normal error page.
         rows = await fetch_batch(0)
+        # From here on the response is streamed, and a client that stops
+        # reading it would keep the slot of this request until it
+        # disconnects (see FileHandler.fetch), so give it back. The
+        # export may keep using its database connection outside the cap
+        # on the requests in flight: it only checks one out to read a
+        # batch, and gives it back before sending it.
+        self._release_request_slot()
         try:
             while rows:
                 self.write(

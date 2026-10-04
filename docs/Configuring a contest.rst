@@ -158,7 +158,7 @@ Logging in with credentials
 
 If the autologin is not enabled, users can log in with username and password, which have to be specified in the user configuration (in cleartext, for the moment). The password can also be overridden for a specific contest in the participation configuration. These credentials need to be inserted by the admins (i.e. there's no way to sign up, of log in as a "guest", etc.).
 
-A successfully logged in user needs to reauthenticate after ``cookie_duration`` seconds (specified in the :file:`cms.toml` file) from when they last visited a page.
+A successfully logged in user needs to reauthenticate after ``cookie_duration`` seconds (specified in the :file:`cms.toml` file) from any authenticated request, including background polls (notifications, submission status). Set this value via the `CMS_CWS_COOKIE_DURATION` environment variable (default 18000 seconds = 5 hours) in Docker deployments.
 
 Even without autologin, it is possible to restrict the IP address or subnet that the user is using for accessing CWS, using the "IP-based login restriction" option in the contest configuration (in which case, admins need to set ``num_proxies_used`` as before). If this is set, then the login will fail if the IP address that attempted it does not match at least one of the addresses or subnets specified in the participation settings. If the participation IP address is not set, then no restriction applies.
 

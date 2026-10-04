@@ -25,6 +25,7 @@
 
 """
 
+import asyncio
 from datetime import datetime
 import logging
 import threading
@@ -57,6 +58,28 @@ logger = logging.getLogger(__name__)
 # serves admins, not contestants, so a higher limit is an acceptable
 # risk there.
 MAX_MULTIPART_PARTS = 10_000
+
+# Serializes the queries of AdminWebServer.submissions_status: the
+# Overview page asks for them from every open tab, and a query that
+# takes too long is not cancelled when the browser gives up on it, so
+# the queries could pile up in the executor threads, holding database
+# connections beyond the cap on the requests in flight.
+_submissions_status_slot: asyncio.Semaphore | None = None
+
+
+def _get_submissions_status_slot() -> asyncio.Semaphore:
+    """Return the semaphore that lets one status query run at a time.
+
+    It is created by the first call, in the event loop that serves the
+    RPCs, and not when this module is imported.
+
+    return: the semaphore, with one slot.
+
+    """
+    global _submissions_status_slot
+    if _submissions_status_slot is None:
+        _submissions_status_slot = asyncio.Semaphore(1)
+    return _submissions_status_slot
 
 
 class AdminWebServer(WebService):
@@ -162,7 +185,37 @@ class AdminWebServer(WebService):
 
     @staticmethod
     @rpc_method
-    def submissions_status(contest_id: int | None) -> dict:
+    async def submissions_status(contest_id: int | None) -> dict:
+        """Count the submissions on each status, off the event loop.
+
+        The RPC server runs RPC methods in the event loop thread, so
+        the queries run in an executor thread: they scan all the
+        submissions, and the Overview page asks for them every few
+        seconds. See compute_submissions_status() for what is counted.
+
+        Only one call at a time runs the queries; the others wait
+        for their turn in the event loop, holding no thread and no
+        database connection.
+
+        contest_id: counts are restricted to this contest,
+            or None for no restrictions.
+
+        return: statistics on the submissions.
+
+        """
+        slot = _get_submissions_status_slot()
+        await slot.acquire()
+        loop = asyncio.get_running_loop()
+        job = loop.run_in_executor(
+            None, AdminWebServer.compute_submissions_status, contest_id)
+        # The thread can't be cancelled, so the next call has to wait for
+        # it to end even if this call is cancelled (e.g., because the
+        # connection of the RPC was closed) in the meantime.
+        job.add_done_callback(lambda _: slot.release())
+        return await asyncio.shield(job)
+
+    @staticmethod
+    def compute_submissions_status(contest_id: int | None) -> dict:
         """Returns a dictionary of statistics about the number of
         submissions on a specific status in the given contest.
 

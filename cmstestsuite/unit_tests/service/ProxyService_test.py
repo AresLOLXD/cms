@@ -449,6 +449,82 @@ class ProxyServiceTest(
         self.assertTrue(
             any(u.endswith("submissions/") for u in self._put_urls()))
 
+    async def test_dataset_updated_for_a_task_without_contest_is_ignored(self):
+        # An admin changes the active dataset of a task that is in no
+        # contest: no ranking is concerned, and nothing can be sent.
+        task = self.add_task(score_precision=0)
+        dataset = self.add_dataset(
+            task=task, score_type="Sum", score_type_parameters=1)
+        task.active_dataset = dataset
+        self.session.commit()
+        task_id = task.id
+        service = self._build_service(contest_id=None)
+        self.requests_put.reset_mock()
+
+        with self.assertLogs("cms.service.ProxyService", "DEBUG") as logs:
+            await asyncio.wait_for(
+                service.dataset_updated(task_id), timeout=5)
+        await asyncio.sleep(0.1)
+
+        self.requests_put.assert_not_called()
+        self.assertTrue(any("Ignoring dataset change for task %d" % task_id
+                            in line for line in logs.output))
+
+    async def test_dataset_updated_for_a_task_without_contest_in_legacy_mode(
+        self,
+    ):
+        # The same, in legacy mode, where the contest to send exists.
+        contest, task, dataset, submission, result = \
+            self._build_scored_submission()
+        task.contest = None
+        self.session.commit()
+        task_id = task.id
+        service = self._build_service(contest_id=contest.id)
+        await self._wait_until_put("contests/")
+        self.requests_put.reset_mock()
+
+        await asyncio.wait_for(service.dataset_updated(task_id), timeout=5)
+        await asyncio.sleep(0.1)
+
+        self.requests_put.assert_not_called()
+
+    async def test_submission_scored_for_a_task_without_contest_is_ignored(
+        self,
+    ):
+        # The task was taken out of its contest after the submission was
+        # made: the submission is not sent to any ranking.
+        contest, task, dataset, submission, result = \
+            self._build_scored_submission()
+        task.contest = None
+        self.session.commit()
+        submission_id = submission.id
+        service = self._build_service(contest_id=None)
+        self.requests_put.reset_mock()
+
+        await asyncio.wait_for(
+            service.submission_scored(submission_id), timeout=5)
+        await asyncio.sleep(0.1)
+
+        self.requests_put.assert_not_called()
+
+    async def test_submission_tokened_for_a_task_without_contest_is_ignored(
+        self,
+    ):
+        contest, task, dataset, submission, result = \
+            self._build_scored_submission()
+        self.add_token(submission=submission)
+        task.contest = None
+        self.session.commit()
+        submission_id = submission.id
+        service = self._build_service(contest_id=None)
+        self.requests_put.reset_mock()
+
+        await asyncio.wait_for(
+            service.submission_tokened(submission_id), timeout=5)
+        await asyncio.sleep(0.1)
+
+        self.requests_put.assert_not_called()
+
     async def test_threadsafe_enqueue_from_worker_thread_reaches_executor(
         self,
     ):

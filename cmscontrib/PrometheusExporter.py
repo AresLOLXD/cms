@@ -100,7 +100,7 @@ class PrometheusExporter(Service, Collector):
     def _collect_submissions(self, session: Session):
         # compiling / max_compilations / compilation_fail / evaluating /
         # max_evaluations / scoring / scored / total
-        stats = AdminWebServer.submissions_status(None)
+        stats = AdminWebServer.compute_submissions_status(None)
         metric = GaugeMetricFamily(
             "cms_submissions",
             "Number of submissions per category",

@@ -202,42 +202,47 @@ function update_logs(response)
     table.replaceWith(new_table);
 }
 
+var statuses_interval = null;
+
+// Called when the server rejects a poll as not authorized (e.g., the
+// admin session expired): there is no point in asking again.
+function stop_updating_statuses()
+{
+    clearInterval(statuses_interval);
+}
+
 function update_statuses()
 {
 
     {% if contest is not none %}
-    if (!update_statuses.submissions_request
-            || update_statuses.submissions_request.state() != "pending") {
-        update_statuses.submissions_request =
-            cmsrpc_request("AdminWebServer", 0,
+    utils.poll_rpc_request("AdminWebServer", 0,
                            "submissions_status",
                            {"contest_id": {{ contest.id }}},
-                           update_submissions_status);
-    }
+                           update_submissions_status,
+                           stop_updating_statuses);
     {% endif %}
-    if (!update_statuses.queue_request
-            || update_statuses.queue_request.state() != "pending") {
-        update_statuses.queue_request =
-            cmsrpc_request("EvaluationService", 0,
+    utils.poll_rpc_request("EvaluationService", 0,
                            "queue_status",
                            {},
-                           update_queue_status);
-    }
-    cmsrpc_request("EvaluationService", 0,
-                   "workers_status",
-                   {},
-                   update_workers_status);
-    cmsrpc_request("LogService", 0,
-                   "last_messages",
-                   {},
-                   update_logs);
+                           update_queue_status,
+                           stop_updating_statuses);
+    utils.poll_rpc_request("EvaluationService", 0,
+                           "workers_status",
+                           {},
+                           update_workers_status,
+                           stop_updating_statuses);
+    utils.poll_rpc_request("LogService", 0,
+                           "last_messages",
+                           {},
+                           update_logs,
+                           stop_updating_statuses);
 }
 
 {% endblock js %}
 
 {% block js_init %}
 
-setInterval(update_statuses, 5000);
+statuses_interval = setInterval(update_statuses, 5000);
 update_statuses();
 
 {% endblock js_init %}
