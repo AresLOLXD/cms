@@ -223,6 +223,13 @@ contest)`; the rest of AWS prints raw UTC).
   `[started_at, last_seen_at]`: on logout `last_seen_at` equals
   `logged_out_at`, and while active it lags at most one flush. Each row:
   user, the two devices/IPs, the overlap window, link to the participation.
+  The overlap test is written without `least()`/`greatest()` (each
+  `last_seen_at` is greater than each `started_at` plus the margin), with
+  `last_seen_at` bare so the `(participation_id, last_seen_at)` index can
+  bound a lookup. This page shows at most `SIMULTANEOUS_LIMIT = 200` pairs,
+  the most recent overlap first, with the true total in the heading (a
+  `count(*) OVER ()` of the same query); when capped it says so and points to
+  the participation pages (uncapped) and the CSV.
 - **More than one device:** participations with more than one distinct
   non-null `device_id`, and the count. Informational only.
 

@@ -8,9 +8,12 @@
 </div>
 <p>Times are in the contest's timezone.</p>
 
-<h2 id="title_simultaneous_activity" class="toggling_on">Simultaneous activity ({{ activity_simultaneous|length }})</h2>
+<h2 id="title_simultaneous_activity" class="toggling_on">Simultaneous activity ({{ activity_simultaneous_count }})</h2>
 <div id="simultaneous_activity">
   <p>The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than {{ simultaneous_margin.total_seconds()|int }} seconds. A dynamic IP change on one device is not reported.</p>
+  {% if activity_simultaneous|length < activity_simultaneous_count %}
+  <p><strong>Only the {{ activity_simultaneous|length }} most recent are shown</strong> (and highlighted in the intervals below). Each participation's page shows all of its own, and the csv below has every interval.</p>
+  {% endif %}
   {{ macro_activity.simultaneous_table(url, contest, activity_simultaneous) }}
   <div class="hr"></div>
 </div>

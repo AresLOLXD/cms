@@ -21,7 +21,7 @@ import ipaddress
 import unittest
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import tornado.web
 
@@ -139,6 +139,56 @@ class TestSimultaneousActivity(ActivityTestBase):
         self.add_interval(self.participation, PHONE, "10.0.0.6", 59, 90)
         self.assertEqual(self.simultaneous(), [])
 
+    def test_overlap_equal_to_the_margin_is_not_reported(self):
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 0, 60)
+        self.add_interval(self.participation, PHONE, "10.0.0.6", 58, 90)
+        self.assertEqual(self.simultaneous(), [])
+
+    def test_overlap_just_over_the_margin_is_reported(self):
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 0, 60)
+        self.add_interval(self.participation, PHONE, "10.0.0.6", 57.99, 90)
+        self.assertEqual(len(self.simultaneous()), 1)
+
+    def test_overlap_is_found_whatever_the_order_of_the_ids(self):
+        # The later interval in time has the lower id.
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 30, 90)
+        self.add_interval(self.participation, PHONE, "10.0.0.6", 0, 60)
+        # An interval inside another one.
+        other = self.add_participation(contest=self.contest)
+        self.session.flush()
+        self.add_interval(other, LAPTOP, "10.0.0.7", 0, 60)
+        self.add_interval(other, PHONE, "10.0.0.8", 10, 20)
+
+        self.assertEqual(
+            sorted((row.overlap_start, row.overlap_end)
+                   for row in self.simultaneous()),
+            [(minutes(10), minutes(20)), (minutes(30), minutes(60))])
+
+    def test_interval_shorter_than_the_margin_is_not_reported(self):
+        # Inside a longer interval: it overlaps it only for 1 minute.
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 10, 11)
+        self.add_interval(self.participation, PHONE, "10.0.0.6", 0, 60)
+        self.assertEqual(self.simultaneous(), [])
+
+    def test_intervals_apart_in_time_are_not_reported(self):
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 50, 90)
+        self.add_interval(self.participation, PHONE, "10.0.0.6", 0, 30)
+        self.assertEqual(self.simultaneous(), [])
+
+    def test_limit_keeps_the_most_recent_and_count_tells_all(self):
+        for start in (0, 100, 200):
+            self.add_interval(self.participation, LAPTOP, "10.0.0.5",
+                              start, start + 60)
+            self.add_interval(self.participation, PHONE, "10.0.0.6",
+                              start, start + 60)
+
+        rows = find_simultaneous_activity(
+            self.session, self.contest.id, limit=2)
+
+        self.assertEqual([row.overlap_start for row in rows],
+                         [minutes(200), minutes(100)])
+        self.assertEqual([row.total for row in rows], [3, 3])
+
     def test_without_device_different_ips_are_reported(self):
         self.add_interval(self.participation, None, "10.0.0.5", 0, 60)
         self.add_interval(self.participation, LAPTOP, "10.0.0.6", 0, 60)
@@ -217,6 +267,37 @@ class TestContestActivityPage(PageTestBase):
         self.assertNotIn(">10.0.0.5<", page)  # Filtered out of the table.
         self.assertIn("activity/csv?ip=189.1.1.0%2F24", page)
 
+    def test_simultaneous_activity_is_capped_with_its_total(self):
+        for start in (0, 100):
+            self.add_interval(self.participation, LAPTOP, "10.0.0.5",
+                              start, start + 60)
+            self.add_interval(self.participation, PHONE, "10.0.0.6",
+                              start, start + 60)
+        self.session.commit()
+        handler = self.make_handler()
+
+        with patch("cms.server.admin.handlers.contestactivity."
+                   "SIMULTANEOUS_LIMIT", 1):
+            handler._get_sync(str(self.contest.id))
+
+        page = "".join(handler.chunks)
+        self.assertIn("Simultaneous activity (2)", page)
+        self.assertIn("Only the 1 most recent are shown", page)
+        self.assertEqual(
+            [row.overlap_start
+             for row in handler.r_params["activity_simultaneous"]],
+            [minutes(100)])
+
+    def test_uncapped_simultaneous_activity_has_no_cap_notice(self):
+        self.add_interval(self.participation, LAPTOP, "10.0.0.5", 0, 60)
+        self.add_interval(self.participation, PHONE, "10.0.0.6", 0, 60)
+        self.session.commit()
+        handler = self.make_handler()
+
+        handler._get_sync(str(self.contest.id))
+
+        self.assertNotIn("most recent are shown", "".join(handler.chunks))
+
     def test_unknown_contest_is_a_404(self):
         with self.assertRaises(tornado.web.HTTPError) as error:
             self.make_handler()._get_sync("999999")
@@ -243,3 +324,19 @@ class TestParticipationPage(PageTestBase):
         self.assertNotIn("172.16.0.9", page)
         self.assertEqual(len(handler.r_params["activity_intervals"]), 2)
         self.assertEqual(len(handler.r_params["activity_flagged_ids"]), 2)
+
+    def test_simultaneous_activity_is_not_capped(self):
+        for start in (0, 100):
+            self.add_interval(self.participation, LAPTOP, "10.0.0.5",
+                              start, start + 60)
+            self.add_interval(self.participation, PHONE, "10.0.0.6",
+                              start, start + 60)
+        self.session.commit()
+        handler = self.make_handler(ParticipationHandler)
+
+        with patch("cms.server.admin.handlers.contestactivity."
+                   "SIMULTANEOUS_LIMIT", 1):
+            handler._get_sync(str(self.contest.id),
+                              str(self.participation.user_id))
+
+        self.assertEqual(len(handler.r_params["activity_simultaneous"]), 2)

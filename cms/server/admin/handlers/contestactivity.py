@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 
 ACTIVITY_PAGE_SIZE = 100
+# Most pairs of simultaneous activity shown on the contest page.
+SIMULTANEOUS_LIMIT = 200
 CSV_BATCH_SIZE = 1000
 CSV_HEADER = ["username", "first_name", "last_name", "device_id", "ip",
               "started_at", "last_seen_at", "ended_at", "end_reason",
@@ -138,6 +140,7 @@ def find_simultaneous_activity(
     session: Session,
     contest_id: int,
     participation_id: int | None = None,
+    limit: int | None = None,
 ) -> list[Row]:
     """Return the pairs of intervals active at the same time.
 
@@ -150,12 +153,16 @@ def find_simultaneous_activity(
     session: the session to query with.
     contest_id: the contest.
     participation_id: only this participation's pairs, if not None.
+    limit: return at most this many pairs, if not None.
 
-    return: one row per pair, most recent overlap first.
+    return: one row per pair, most recent overlap first; each row's
+        total is the number of pairs without the limit (computed in
+        the same scan, as the sort reads them all anyway).
 
     """
     first = aliased(ActivityInterval)
     second = aliased(ActivityInterval)
+    margin = simultaneous_margin()
     overlap_start = func.greatest(
         first.started_at, second.started_at, type_=DateTime)
     overlap_end = func.least(
@@ -170,7 +177,8 @@ def find_simultaneous_activity(
                second.device_id.label("second_device_id"),
                func.host(second.ip).label("second_ip"),
                overlap_start.label("overlap_start"),
-               overlap_end.label("overlap_end"))
+               overlap_end.label("overlap_end"),
+               func.count().over().label("total"))
         .select_from(first)
         .join(second, and_(second.participation_id == first.participation_id,
                            second.id > first.id))
@@ -181,10 +189,19 @@ def find_simultaneous_activity(
                    and_(or_(first.device_id.is_(None),
                             second.device_id.is_(None)),
                         first.ip != second.ip)))
-        .where(overlap_end - overlap_start > simultaneous_margin())
+        # overlap_end - overlap_start > margin, i.e. each end minus each
+        # start is over the margin, spelled with last_seen_at bare so
+        # that ix_activity_intervals_participation_id_last_seen_at can
+        # bound a lookup of either interval.
+        .where(first.last_seen_at > second.started_at + margin)
+        .where(second.last_seen_at > first.started_at + margin)
+        .where(first.last_seen_at > first.started_at + margin)
+        .where(second.last_seen_at > second.started_at + margin)
         .order_by(overlap_start.desc()))
     if participation_id is not None:
         query = query.where(first.participation_id == participation_id)
+    if limit is not None:
+        query = query.limit(limit)
     return session.execute(query).all()
 
 
@@ -220,18 +237,25 @@ def activity_render_params(
 ) -> dict:
     """Return the render parameters shared by the activity views.
 
+    The contest-wide simultaneous activity is capped at
+    SIMULTANEOUS_LIMIT pairs; a participation's is not.
+
     session: the session to query with.
     contest: the contest.
     participation_id: only this participation's alerts, if not None.
 
-    return: the simultaneous activity, the ids of the intervals in it,
-        the end reason function for the templates and the timezone.
+    return: the simultaneous activity (most recent first) and its
+        total, the ids of the intervals in it, the end reason function
+        for the templates and the timezone.
 
     """
     simultaneous = find_simultaneous_activity(
-        session, contest.id, participation_id)
+        session, contest.id, participation_id,
+        SIMULTANEOUS_LIMIT if participation_id is None else None)
     return {
         "activity_simultaneous": simultaneous,
+        "activity_simultaneous_count":
+            simultaneous[0].total if simultaneous else 0,
         "activity_flagged_ids":
             {row.first_id for row in simultaneous}
             | {row.second_id for row in simultaneous},
