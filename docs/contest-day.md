@@ -48,7 +48,10 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
    [importing-users.md](importing-users.md).
 4. For every task that uses `depends_on`, follow "Before the contest" in
    [subtask-dependencies.md](subtask-dependencies.md).
-5. For every task, submit a correct solution and a wrong one from a test
+5. If `CMS_TWO_PHASE_EVALUATION` is on, check the testcase codenames of every
+   task and follow "Before the contest" in
+   [Two-phase grading](two-phase-grading.md).
+6. For every task, submit a correct solution and a wrong one from a test
    user, in each language the contestants will use, and check the scores.
 
 ### Rehearse

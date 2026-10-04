@@ -216,9 +216,10 @@ testcases.
 
 ## Two-phase screening
 
-Two-phase screening (`CMS_TWO_PHASE_EVALUATION`) is unchanged. It is still
-declared by testcase codenames (`sN-nn-sample`, `sN-nn-scr-wa`, …), and the
-group of a testcase is the part of its codename before the first `-`.
+[Two-phase grading](two-phase-grading.md) explains how two-phase screening
+(`CMS_TWO_PHASE_EVALUATION`) works. It is still declared by testcase codenames
+(`sN-nn-sample`, `sN-nn-scr-wa`, …), and the group of a testcase is the part of
+its codename before the first `-`.
 
 - A subtask that its dependencies release runs its screening testcases first,
   and the rest of its testcases only if the screening passes.

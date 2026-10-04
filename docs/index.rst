@@ -29,6 +29,7 @@ users from the Admin Web Server.
    cms-loader
    multi-contest
    migrating-to-multi-contest
+   two-phase-grading
    subtask-dependencies
 
 .. toctree::
