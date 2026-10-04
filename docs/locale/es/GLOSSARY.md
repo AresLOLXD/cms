@@ -85,6 +85,7 @@ When you change the translation of a heading, grep its old text in every
 | `importing-users` | Importing users and participations | Importar usuarios y participaciones |
 | `migrating-to-multi-contest` | Migrating from one deployment per contest to a single multi-contest deployment | Migrar de un despliegue por competencia a un único despliegue de varias competencias |
 | `multi-contest` | Running several contests at once | Ejecutar varias competencias a la vez |
+| `participant-activity` | Participant activity | Actividad de los participantes |
 | `ranking-mexico` | Ranking: Mexican State Flags and Auto-Team Registration | Ranking: banderas de los estados mexicanos y registro automático de equipos |
 | `rekarel` | Rekarel | Rekarel |
 | `subtask-dependencies` | Subtask dependencies | Dependencias entre subtareas |
