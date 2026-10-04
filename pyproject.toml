@@ -47,7 +47,7 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://cms.readthedocs.io/"
+Documentation = "https://cms-omi.readthedocs.io/"
 Repository = "https://github.com/cms-dev/cms"
 
 [project.optional-dependencies]

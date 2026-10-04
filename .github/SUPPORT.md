@@ -1,7 +1,8 @@
 # Support resources
 
-To learn how to install and use CMS, please read the **documentation**,
-available at <https://cms.readthedocs.org/>.
+To learn how to install and use this fork of CMS, please read its
+**documentation**, available at <https://cms-omi.readthedocs.io/>. The
+upstream CMS documentation is at <https://cms.readthedocs.io/>.
 
 If you have questions or need help troubleshooting some problem,
 contact us in the **chat** on [Telegram](https://t.me/contestms),
