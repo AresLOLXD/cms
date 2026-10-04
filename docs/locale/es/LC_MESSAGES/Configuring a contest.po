@@ -688,7 +688,7 @@ msgstr ""
 "IP de la participación, no se aplica ninguna restricción."
 
 msgid "Failure to login"
-msgstr "Fallos al iniciar sesión"
+msgstr "Fallas al iniciar sesión"
 
 msgid ""
 "The following are some common reasons for login failures, all of them "
