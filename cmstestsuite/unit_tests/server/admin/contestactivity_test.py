@@ -298,6 +298,19 @@ class TestContestActivityPage(PageTestBase):
 
         self.assertNotIn("most recent are shown", "".join(handler.chunks))
 
+    def test_missing_device_is_explained(self):
+        self.add_interval(self.participation, None, "10.0.0.5", 0, 60)
+        self.session.commit()
+        handler = self.make_handler()
+
+        handler._get_sync(str(self.contest.id))
+
+        page = "".join(handler.chunks)
+        self.assertIn('title="No device: an API client, or a browser that '
+                      'did not present the device cookie"', page)
+        self.assertIn("A missing device is not evidence of an API script",
+                      page)
+
     def test_unknown_contest_is_a_404(self):
         with self.assertRaises(tornado.web.HTTPError) as error:
             self.make_handler()._get_sync("999999")

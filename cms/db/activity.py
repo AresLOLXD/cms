@@ -64,8 +64,12 @@ class ActivityInterval(Base):
                    onupdate="CASCADE", ondelete="CASCADE"),
         nullable=False)
 
-    # Anonymous id of the browser (the cms_device cookie), or None for
-    # clients authenticated by the X-CMS-Authorization header.
+    # Anonymous id of the browser (the cms_device cookie), or None when
+    # the request presented no valid device cookie: an API client
+    # authenticated by the X-CMS-Authorization header, or a browser
+    # without the cookie (first request after an IP autologin, cleared
+    # cookies, a cookie-less client), which gets it for its next
+    # requests.
     device_id: PythonUUID | None = Column(
         UUID(as_uuid=True),
         nullable=True)

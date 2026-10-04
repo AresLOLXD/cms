@@ -10,7 +10,7 @@
 
 <h2 id="title_simultaneous_activity" class="toggling_on">Simultaneous activity ({{ activity_simultaneous_count }})</h2>
 <div id="simultaneous_activity">
-  <p>The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than {{ simultaneous_margin.total_seconds()|int }} seconds. A dynamic IP change on one device is not reported.</p>
+  <p>The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than {{ simultaneous_margin.total_seconds()|int }} seconds. A dynamic IP change on one device is not reported. A missing device is not evidence of an API script: a browser that did not present the device cookie (the first request after an IP autologin, cleared cookies, a cookie-less client) has none either.</p>
   {% if activity_simultaneous|length < activity_simultaneous_count %}
   <p><strong>Only the {{ activity_simultaneous|length }} most recent are shown</strong> (and highlighted in the intervals below). Each participation's page shows all of its own, and the csv below has every interval.</p>
   {% endif %}

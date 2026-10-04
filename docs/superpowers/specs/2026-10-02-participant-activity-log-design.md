@@ -57,7 +57,7 @@ IP**.
 |---|---|---|
 | `id` | integer PK | |
 | `participation_id` | FK `participations.id`, `ON DELETE CASCADE`, not null | |
-| `device_id` | `UUID`, nullable | Anonymous device id from the `cms_device` cookie; `NULL` for clients authenticated by the `X-CMS-Authorization` header |
+| `device_id` | `UUID`, nullable | Anonymous device id from the `cms_device` cookie; `NULL` when the request presented no valid device cookie: a client authenticated by the `X-CMS-Authorization` header, or a browser without the cookie (first request after an IP autologin, cleared cookies, a cookie-less client). A `NULL` device is not evidence of an API script |
 | `ip` | `INET`, not null | Real client IP (already resolved behind the proxy) |
 | `started_at` | timestamp, not null | First request of the interval |
 | `last_seen_at` | timestamp, not null | Last flushed activity |
@@ -109,9 +109,12 @@ is updated for the new table.
   recognized across all contests of a multi-contest CWS.
 - Value: a random UUID, written with `set_secure_cookie` so arbitrary values
   cannot be injected; lifetime one year.
-- Read in `get_current_user`; created there when a request authenticates
-  without one. A missing or badly signed cookie is treated as absent (a new
-  UUID is issued).
+- Read in `get_current_user`. A missing or badly signed cookie is treated as
+  absent: that request is recorded with device `None`, and a new UUID is
+  issued in the cookie for the next ones (so the first request after an IP
+  autologin, after cleared cookies, or from a cookie-less client has no
+  device). A login records its request with the device directly, issuing it
+  if needed.
 - When authentication came from the `X-CMS-Authorization` header, the device
   is `None` and no cookie is set, so header-only API clients that keep no
   cookies do not create a new device per request.

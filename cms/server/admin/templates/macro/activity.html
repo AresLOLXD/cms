@@ -1,5 +1,5 @@
 {% macro device(device_id) -%}
-{% if device_id is none %}<span title="Authenticated by header: no device">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
+{% if device_id is none %}<span title="No device: an API client, or a browser that did not present the device cookie">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
 {%- endmacro %}
 
 
