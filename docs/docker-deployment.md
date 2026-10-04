@@ -155,6 +155,14 @@ deletes nothing, so it is safe to re-run, and `./up.sh` already runs it on
 every start. It does not reset the database: to start over with an empty
 Docker-managed database, use the `down -v` command above, then `./up.sh`.
 
+Run from a terminal, `cmsSetupDB` may ask questions. When the database has no
+admin yet and `CMS_ADMIN_USER` and `CMS_ADMIN_PASSWORD` are not set, it asks for
+an admin username and a password, and asks you to confirm the password. When
+the database has no contests, it asks
+`No contests found. Create a sample contest? [y/N]`: press Enter to skip it.
+`./up.sh` does not ask these questions, because it starts `db-init` detached,
+without a terminal.
+
 **Upgrading a deployment that was started before the `cms-data` volume moved:**
 
 The `cms-data` volume used to be mounted on `/home/cmsuser/cms/lib`, which is
@@ -198,9 +206,13 @@ directory was deleted it cannot start at all.
 **A container exits or `./up.sh` times out:**
 Check the logs with `./logs.sh`. The most common causes are:
 - `CMS_SECRET_KEY` is still set to the example value. The container keeps
-  running, but the Admin and Contest Web Servers crash with "Non-hexadecimal digit found" and `./up.sh`
-  gives up waiting after 90 seconds — generate a real one with
-  `openssl rand -hex 16`.
+  running, but the Admin Web Server crashes with "Non-hexadecimal digit found"
+  and `./up.sh` gives up waiting after 90 seconds — generate a real one with
+  `openssl rand -hex 16`. The Contest Web Server fails the same way. With a
+  numeric `CMS_CONTEST_ID` it gets that far only once its contest exists: on a
+  fresh install it stops earlier, on the missing contest (see the next entry).
+  With `CMS_CONTEST_ID=ALL` there is no contest lookup, so it fails with the key
+  error right away.
 - `CMS_DB_URL` is wrong or the database is unreachable.
 - cgroups are not available on your machine — check that you are on a modern
   Linux kernel (5.10+) with `cat /sys/fs/cgroup/cgroup.controllers`.
@@ -208,10 +220,12 @@ Check the logs with `./logs.sh`. The most common causes are:
 **"There is no contest with the specified id" in the logs:**
 On a fresh install `CMS_CONTEST_ID=1` points to a contest that does not exist
 yet, so the Contest Web Server, ProxyService and EvaluationService stop with
-this message. This is expected: the Admin interface
-still works. Create the contest there, set its ID with `./contest.sh` (or set
-`CMS_CONTEST_ID=ALL` in `.env`) and restart with `./restart.sh`. Do not remove
-`CMS_CONTEST_ID` to silence the message: without it no CMS service starts.
+this message, and so does the Telegram bot if you configured it
+(`CMS_TELEGRAM_BOT_TOKEN` and `CMS_TELEGRAM_CHAT_ID`). This is expected: the
+Admin interface still works. Create the contest there, set its ID with
+`./contest.sh` (or set `CMS_CONTEST_ID=ALL` in `.env`) and restart with
+`./restart.sh`. Do not remove `CMS_CONTEST_ID` to silence the message: without
+it no CMS service starts.
 
 **Port already in use:**
 Change the corresponding `CMS_*_HTTP_PORT` variable in `.env` and restart.

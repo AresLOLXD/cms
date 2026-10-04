@@ -2,7 +2,7 @@
 
 ## Introduction
 
-These six scripts handle everything needed to start, stop, and manage the contest system. Instead of typing one very long command with confusing flags (easy to mistype and hard to remember), you run a simple script. Each script does one thing and gives you clear feedback about what's happening.
+These eight scripts handle everything needed to start, stop, and manage the contest system. Instead of typing one very long command with confusing flags (easy to mistype and hard to remember), you run a simple script. Each script does one thing and gives you clear feedback about what's happening.
 
 ## Before you start
 
@@ -32,7 +32,7 @@ Follow these steps to start the contest system for the first time:
 4. **Answer the second question:** `Rebuild?` is a menu from 1 to 7.
    - Choose **`1`** (No, the default and the fastest) on the first run or when nothing has changed.
    - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`3`** and then **`4`**, see below.
-   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update, see [multi-contest.md](multi-contest.md).
+   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update, see [Running several contests at once](multi-contest.md).
 
 5. **Wait for startup.** You'll see output like:
    ```
@@ -108,7 +108,7 @@ Changes which contest is currently active. It shows you the list of contests alr
 ```
 
 > `clear-ranking.sh` was removed: use **Ranking groups → Regenerate** in the
-> Admin Web Server instead (see [multi-contest.md](multi-contest.md)).
+> Admin Web Server instead (see [Running several contests at once](multi-contest.md)).
 
 ### export.sh
 
@@ -232,9 +232,9 @@ Then restart with `./restart.sh`.
 
 ### The system starts but "There is no contest with the specified id"
 
-`CMS_CONTEST_ID` is required — without it, `supervisord.conf` is not generated and no services start at all. On a fresh install the contest does not exist in the database yet, so `cmsContestWebServer` and `cmsProxyService` will crash-loop. This is normal.
+`CMS_CONTEST_ID` is required — without it, `supervisord.conf` is not generated and no services start at all. On a fresh install the contest does not exist in the database yet, so `cmsContestWebServer`, `cmsEvaluationService` and `cmsProxyService` (and the Telegram bot, if configured) stop with this message. This is normal.
 
-The admin server (`cmsAdminWebServer`) still starts and is available at port 8889. Use it to create or import your first contest. Once the contest exists, supervisord retries the failed services automatically. If they do not recover within a minute, run `./restart.sh`.
+The admin server (`cmsAdminWebServer`) still starts and is available at port 8889. Use it to create or import your first contest. The generated `supervisord.conf` sets `autorestart=true` on every service but leaves `startretries` at the supervisord default (3), so supervisord may give up on a service that keeps exiting right after it starts. Once the contest exists, run `./restart.sh` instead of waiting for the failed services to recover.
 
 Afterwards, run `./contest.sh` to confirm the ID is correct.
 

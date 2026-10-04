@@ -77,7 +77,7 @@ migrated code can be tested in CI without the two colliding.
 | Feature | Description | Doc |
 |---------|-------------|-----|
 | Docker deployment | Stand up the full system with `./up.sh` | [docs/docker-deployment.md](docs/docker-deployment.md) |
-| Helper scripts | `up`, `down`, `logs`, `restart`, `contest`, `sync-upstream` | [docs/docker-scripts.md](docs/docker-scripts.md) |
+| Helper scripts | `up`, `down`, `status`, `logs`, `restart`, `contest`, `export`, `import` (plus `sync-upstream`, for the fork's maintainers) | [docs/docker-scripts.md](docs/docker-scripts.md) |
 | CMS-Loader | Bulk-import users and participations via CSV from the browser | [docs/cms-loader.md](docs/cms-loader.md) |
 | AWS user import | Bulk-import users and participations via CSV from the Admin Web Server, one file per contest | [docs/importing-users.md](docs/importing-users.md) |
 | Subtask dependencies | A subtask whose prerequisite scored 0 is worth 0 and is not graded | [docs/subtask-dependencies.md](docs/subtask-dependencies.md) |
@@ -86,7 +86,7 @@ migrated code can be tested in CI without the two colliding.
 | Ranking: custom logo | Replace the ranking server logo without touching source code | [docs/RankingWebServer.rst](docs/RankingWebServer.rst) |
 | External judge/bridge integration | Configurable `EvaluationService` bind host (`CMS_ES_BIND_HOST`) so a sibling container can reach it, plus optional two-phase fail-fast grading (`CMS_TWO_PHASE_EVALUATION`) that screens a few testcases per subtask before running the rest | [.env.example](.env.example) |
 | Several contests at once | `CMS_CONTEST_ID=ALL` serves every active contest; each ranking group gets its own scoreboard at `/<group>/`, managed and regenerated from the Admin Web Server | [docs/multi-contest.md](docs/multi-contest.md), [migration guide](docs/migrating-to-multi-contest.md) |
-| Contest-day checklist | What to check the week before, at the start, during and at the end of a contest, and what to do when something goes wrong (English and Spanish) | [docs/contest-day.md](docs/contest-day.md), [español](docs/contest-day.es.md) |
+| Contest-day checklist | What to check the week before, at the start, during and at the end of a contest, and what to do when something goes wrong | [docs/contest-day.md](docs/contest-day.md) |
 
 ---
 

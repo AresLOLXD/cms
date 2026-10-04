@@ -259,7 +259,7 @@ The public sees:
   the button was pressed. A score that the public saw live in those seconds
   disappears from the page when it reloads.
 - A bar at the bottom of the page: "Ranking congelado desde las HH:MM
-  (<zone>)", with the freeze time in the server's time zone, and an "Acceso
+  (\<zone>)", with the freeze time in the server's time zone, and an "Acceso
   staff" link.
 - No live score updates. A late evaluation of a submission made before the
   freeze appears when the public reloads the page.
@@ -313,7 +313,7 @@ After saving a schedule, on the group's page:
 2. Read the **Now** row: it must say what you expect at this moment.
 3. Open the public URL (`http://<server>:<CMS_RWS_HTTP_PORT>/<group>/`) in a
    private browser window. It shows the notice if the group is hidden, the
-   scoreboard with the bar "Ranking congelado desde las HH:MM (<zone>)" if
+   scoreboard with the bar "Ranking congelado desde las HH:MM (\<zone>)" if
    frozen (the time must be the freeze time you intended), and the plain
    scoreboard if visible.
 4. Log in as staff (from the notice or the "Acceso staff" link) and check the

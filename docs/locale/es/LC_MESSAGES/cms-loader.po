@@ -1,0 +1,208 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) 2011-2026, The CMS development team
+# This file is distributed under the same license as the CMS (OMI fork)
+# package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: CMS (OMI fork) 1.6.dev0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-03 01:43-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "CMS-Loader"
+msgstr "CMS-Loader"
+
+msgid ""
+"**Being retired.** The Admin Web Server now imports users and "
+"participations itself; see [Importing users and participations"
+"](importing-users.md). CMS-Loader will be removed after 2026-10-10 "
+"([#18](https://github.com/AresLOLXD/cms/issues/18))."
+msgstr ""
+"**En proceso de retiro.** El Admin Web Server ya importa por sí mismo los"
+" usuarios y las participaciones; consulta [Importar usuarios y "
+"participaciones](importing-users.md). CMS-Loader se eliminará después del"
+" 2026-10-10 ([#18](https://github.com/AresLOLXD/cms/issues/18))."
+
+msgid ""
+"[CMS-Loader](https://github.com/AresLOLXD/CMS-Loader) is a browser-based "
+"tool for bulk-importing users and contest participations via CSV. It is "
+"bundled directly inside the CMS Docker image and managed by supervisord "
+"alongside the other CMS services."
+msgstr ""
+"[CMS-Loader](https://github.com/AresLOLXD/CMS-Loader) es una herramienta "
+"basada en el navegador para importar usuarios y participaciones en "
+"competencias de forma masiva mediante CSV. Viene integrada directamente "
+"en la imagen de Docker de CMS y supervisord la administra junto con los "
+"demás servicios de CMS."
+
+msgid "Enabling CMS-Loader"
+msgstr "Habilitar CMS-Loader"
+
+msgid ""
+"CMS-Loader is **opt-in** — it only starts if the three required "
+"credentials are set in `.env`. If any of them is missing the service is "
+"silently skipped and no error is raised."
+msgstr ""
+"CMS-Loader es **opcional** y está desactivado de forma predeterminada: "
+"solo se inicia si las tres credenciales necesarias están definidas en "
+"`.env`. Si falta alguna, el servicio se omite en silencio y no se produce"
+" ningún error."
+
+msgid "Open `.env` and fill in:"
+msgstr "Abre `.env` y completa:"
+
+msgid "Rebuild and restart the container after changing these values:"
+msgstr "Reconstruye y reinicia el contenedor después de cambiar estos valores:"
+
+msgid "Accessing CMS-Loader"
+msgstr "Acceder a CMS-Loader"
+
+msgid ""
+"Once running, open `http://your-server:9995` in your browser and log in "
+"with the credentials you set above."
+msgstr ""
+"Una vez en ejecución, abre `http://your-server:9995` en tu navegador e "
+"inicia sesión con las credenciales que definiste arriba."
+
+msgid "Importing users"
+msgstr "Importar usuarios"
+
+msgid ""
+"CMS-Loader expects a CSV file with **one row per user**. The required "
+"columns are:"
+msgstr ""
+"CMS-Loader espera un archivo CSV con **una fila por usuario**. Las "
+"columnas obligatorias son:"
+
+msgid "Column"
+msgstr "Columna"
+
+msgid "Description"
+msgstr "Descripción"
+
+msgid "`username`"
+msgstr "`username`"
+
+msgid "Login username (no spaces)"
+msgstr "Nombre de usuario para iniciar sesión (sin espacios)"
+
+msgid "`password`"
+msgstr "`password`"
+
+msgid "Initial password"
+msgstr "Contraseña inicial"
+
+msgid "`first_name`"
+msgstr "`first_name`"
+
+msgid "First name"
+msgstr "Nombre"
+
+msgid "`last_name`"
+msgstr "`last_name`"
+
+msgid "Last name"
+msgstr "Apellidos"
+
+msgid ""
+"Save your spreadsheet as CSV (UTF-8), then use the **Import Users** form "
+"in the CMS-Loader UI to upload it."
+msgstr ""
+"Guarda tu hoja de cálculo como CSV (UTF-8) y luego usa el formulario "
+"**Import Users** de la interfaz de CMS-Loader para subirla."
+
+msgid "Importing participations"
+msgstr "Importar participaciones"
+
+msgid "A participation links a user to a contest. The required columns are:"
+msgstr ""
+"Una participación vincula a un usuario con una competencia. Las columnas "
+"obligatorias son:"
+
+msgid "Must match an existing user"
+msgstr "Debe coincidir con un usuario existente"
+
+msgid "`contest_id`"
+msgstr "`contest_id`"
+
+msgid "Numeric ID shown in the Admin interface"
+msgstr "ID numérico que se muestra en la interfaz de administración"
+
+msgid "`team`"
+msgstr "`team`"
+
+msgid "Team code (e.g. `JAL`). Must match an existing team."
+msgstr ""
+"Código del equipo (por ejemplo, `JAL`). Debe coincidir con un equipo "
+"existente."
+
+msgid ""
+"Teams are managed in the Admin interface (`http://your-server:8889`). "
+"Find the team codes there before preparing your participation CSV."
+msgstr ""
+"Los equipos se administran en la interfaz de administración (`http"
+"://your-server:8889`). Busca ahí los códigos de equipo antes de preparar "
+"tu CSV de participaciones."
+
+msgid "Use the **Import Participations** form in the UI to upload the CSV."
+msgstr ""
+"Usa el formulario **Import Participations** de la interfaz para subir el "
+"CSV."
+
+msgid ""
+"On success, a confirmation message is shown in the UI. Users can then log"
+" in immediately via the Contest Web Server at `http://your-server:8888`."
+msgstr ""
+"Si todo sale bien, la interfaz muestra un mensaje de confirmación. Los "
+"usuarios pueden iniciar sesión de inmediato en el Contest Web Server, en "
+"`http://your-server:8888`."
+
+msgid "Version pinning"
+msgstr "Fijar la versión"
+
+msgid ""
+"By default the image is built from the `main` branch of CMS-Loader. To "
+"pin to a specific release, set `CMS_LOADER_VERSION` in `.env` before "
+"building:"
+msgstr ""
+"De forma predeterminada, la imagen se construye a partir de la rama "
+"`main` de CMS-Loader. Para fijarla a una versión específica, define "
+"`CMS_LOADER_VERSION` en `.env` antes de construir:"
+
+msgid ""
+"This is a **build-time argument** — changing it requires a full image "
+"rebuild (`./restart.sh` → answer `y` to \"Rebuild image?\")."
+msgstr ""
+"Este es un **argumento de construcción** (build-time): cambiarlo requiere"
+" reconstruir la imagen por completo (`./restart.sh` → responde `y` a "
+"\"Rebuild image?\")."
+
+msgid "Troubleshooting"
+msgstr "Solución de problemas"
+
+msgid ""
+"**CMS-Loader is not accessible on port 9995:** Check that "
+"`CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER`, and "
+"`CMS_LOADER_ADMIN_PASSWORD` are all set in `.env`. If any is missing the "
+"service does not start. Verify with:"
+msgstr ""
+"**CMS-Loader no está accesible en el puerto 9995:** Verifica que "
+"`CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER` y "
+"`CMS_LOADER_ADMIN_PASSWORD` estén definidos en `.env`. Si falta alguno, "
+"el servicio no se inicia. Compruébalo con:"
+
+msgid "**Port conflict:** Change `CMS_LOADER_PORT` in `.env` and rebuild."
+msgstr ""
+"**Conflicto de puertos:** Cambia `CMS_LOADER_PORT` en `.env` y "
+"reconstruye."
+

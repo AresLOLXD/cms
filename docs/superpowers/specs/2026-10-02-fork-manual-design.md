@@ -150,7 +150,7 @@ links to the fork's page. Expected notes:
 - Score types: `depends_on`.
 
 Any other upstream edit is limited to what Sphinx 9.1 needs to build without
-warnings, and is listed in the PR.
+warnings, and is listed in the phase's merge commit message.
 
 ### Fork pages
 
