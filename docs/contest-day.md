@@ -99,6 +99,10 @@ For the full logs, `./logs.sh -f cms` follows the CMS services (press
 `Ctrl+C` to stop) and `./logs.sh --tail 2000 cms` shows the last 2000
 lines.
 
+The contest's **Activity** page, in its menu, lists under **Simultaneous
+activity** the accounts in use from two browsers at the same time (see
+[Participant activity](participant-activity.md)).
+
 Common problems:
 
 - **A scoreboard does not match the database:** press **Regenerate** on its
@@ -155,6 +159,9 @@ Common problems:
 
 - Take a backup with `./export.sh` and copy the file from `dumps/` off the
   server.
+- Download the activity CSV of each contest before you remove
+  participations or restore a backup: the backup does not include it (see
+  "After the contest" in [Participant activity](participant-activity.md)).
 - If a ranking group was renamed or deleted, remove its old scoreboard (see
   "Removing an old scoreboard" in [multi-contest.md](multi-contest.md)).
 
