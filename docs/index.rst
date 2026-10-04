@@ -37,6 +37,7 @@ users from the Admin Web Server.
    :caption: Running a contest
 
    contest-day
+   participant-activity
    Running CMS
    Troubleshooting
 

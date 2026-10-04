@@ -61,6 +61,10 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 - Note the commit you deployed and the last known-good one, in case you have
   to roll back (see "Rollback" in [multi-contest.md](multi-contest.md)).
 - Take a backup with `./export.sh` once the contests are set up.
+- That backup does not contain the ranking groups (their windows and staff
+  passwords included) nor which contest goes to which group. Note them down,
+  or keep a `pg_dump` too (see `export.sh` in
+  [Docker Scripts Guide](docker-scripts.md)).
 
 ## Before the start
 
@@ -98,6 +102,10 @@ refreshes every 5 seconds:
 For the full logs, `./logs.sh -f cms` follows the CMS services (press
 `Ctrl+C` to stop) and `./logs.sh --tail 2000 cms` shows the last 2000
 lines.
+
+The contest's **Activity** page, in its menu, lists under **Simultaneous
+activity** the accounts in use from two browsers at the same time (see
+[Participant activity](participant-activity.md)).
 
 Common problems:
 
@@ -155,6 +163,13 @@ Common problems:
 
 - Take a backup with `./export.sh` and copy the file from `dumps/` off the
   server.
+- Download the activity CSV of each contest before you remove
+  participations or restore a backup: the backup does not include it (see
+  "After the contest" in [Participant activity](participant-activity.md)).
+- The backup does not contain the ranking groups either. After restoring it
+  with `./import.sh`, even with `-d`, create the ranking groups again and
+  assign the contests (see `import.sh` in
+  [Docker Scripts Guide](docker-scripts.md)).
 - If a ranking group was renamed or deleted, remove its old scoreboard (see
   "Removing an old scoreboard" in [multi-contest.md](multi-contest.md)).
 
@@ -168,3 +183,9 @@ Common problems:
 | A submission stays in **Cannot compile** or **Cannot evaluate** | Read the **Logs** table on **Overview** and the submission's page | [Troubleshooting](Troubleshooting.rst) |
 | In a task with `depends_on`, dependent subtasks are not zeroed as expected, or submissions finish late | Search the Evaluation Service log for "cannot be used" and "gates are holding each other" | [subtask-dependencies.md](subtask-dependencies.md) |
 | A contest is not listed for the contestants | Tick **Active** on it | [multi-contest.md](multi-contest.md) |
+| ProxyService keeps logging "Could not send … trying again in … seconds." | Check the ranking container with `./status.sh` and `./logs.sh ranking`; the data goes through by itself once it answers | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "rejected … It will not be sent again" | Fix the cause, then **Regenerate** on the group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "cannot be encoded for ranking" | Fix the data, then **Regenerate** on the group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "Contest … still cannot be sent to the rankings" | Fix what the error names; the contest is sent again within about 6 minutes | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "Reinitializing the rankings failed." | Fix the cause, then **Regenerate** on the groups it lists, or on those of what you changed | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "accepted the visibility of group" | **Regenerate** on that group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |

@@ -55,8 +55,15 @@ When you change the translation of a heading, grep its old text in every
 `multi-contest`, `subtask-dependencies` and `docker-scripts` ("Ventanas",
 "Reversión", "Verificar una programación", "Cuando un ranking está mal",
 "Eliminar un ranking antiguo", 'Los botones "ahora"', "Modo de fallo",
-"Escalar el Contest Web Server"); `docker-deployment.po` quotes "Despliegue"
-(a heading of `multi-contest`) and "Scripts auxiliares" (its own heading).
+"Escalar el Contest Web Server", "Avisos de ProxyService que necesitan a un
+operador"); `docker-deployment.po` quotes "Despliegue" (a heading of
+`multi-contest`) and "Scripts auxiliares" (its own heading);
+`docker-scripts.po` quotes "Antes de un día de examen" (`multi-contest`) and
+"1. Respalda todo" (`migrating-to-multi-contest`); `importing-users.po`
+quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`);
+`participant-activity.po` quotes "Configuración de nginx" (`docker-scripts`);
+`contest-day.po` also quotes "Después de la competencia" (a heading of
+`participant-activity`).
 
 | Page | English title | Spanish title |
 |------|---------------|---------------|
@@ -85,6 +92,7 @@ When you change the translation of a heading, grep its old text in every
 | `importing-users` | Importing users and participations | Importar usuarios y participaciones |
 | `migrating-to-multi-contest` | Migrating from one deployment per contest to a single multi-contest deployment | Migrar de un despliegue por competencia a un único despliegue de varias competencias |
 | `multi-contest` | Running several contests at once | Ejecutar varias competencias a la vez |
+| `participant-activity` | Participant activity | Actividad de los participantes |
 | `ranking-mexico` | Ranking: Mexican State Flags and Auto-Team Registration | Ranking: banderas de los estados mexicanos y registro automático de equipos |
 | `rekarel` | Rekarel | Rekarel |
 | `subtask-dependencies` | Subtask dependencies | Dependencias entre subtareas |
