@@ -61,6 +61,10 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 - Note the commit you deployed and the last known-good one, in case you have
   to roll back (see "Rollback" in [multi-contest.md](multi-contest.md)).
 - Take a backup with `./export.sh` once the contests are set up.
+- That backup does not contain the ranking groups (their windows and staff
+  passwords included) nor which contest goes to which group. Note them down,
+  or keep a `pg_dump` too (see `export.sh` in
+  [Docker Scripts Guide](docker-scripts.md)).
 
 ## Before the start
 
@@ -162,6 +166,10 @@ Common problems:
 - Download the activity CSV of each contest before you remove
   participations or restore a backup: the backup does not include it (see
   "After the contest" in [Participant activity](participant-activity.md)).
+- The backup does not contain the ranking groups either. After restoring it
+  with `./import.sh`, even with `-d`, create the ranking groups again and
+  assign the contests (see `import.sh` in
+  [Docker Scripts Guide](docker-scripts.md)).
 - If a ranking group was renamed or deleted, remove its old scoreboard (see
   "Removing an old scoreboard" in [multi-contest.md](multi-contest.md)).
 

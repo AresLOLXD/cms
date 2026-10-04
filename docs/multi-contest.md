@@ -49,6 +49,11 @@ changing staff passwords also apply immediately.
 4. Open `http://<server>:<CMS_RWS_HTTP_PORT>/<group>/` to check each
    scoreboard.
 
+The ranking groups are not in the `./export.sh` backups. A contest restored
+with `./import.sh`, even with `-d`, has no ranking group: do these steps
+again after a restore (see `import.sh` in
+[Docker Scripts Guide](docker-scripts.md)).
+
 ## On the exam day
 
 The step-by-step checklist is [contest-day.md](contest-day.md). The points

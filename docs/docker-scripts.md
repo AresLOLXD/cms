@@ -120,6 +120,19 @@ Creates a backup of contest data as a `.tar.gz` file in the `dumps/` folder. Ask
 
 The backup file is saved to `dumps/` at the project root and is ready to use immediately after the script finishes.
 
+The backup does **not** contain:
+
+- **The ranking groups**: neither the groups themselves (name, description,
+  hide and freeze windows, staff password) nor which contest is assigned to
+  which group.
+- **The participant activity log.** Download its CSV from each contest's
+  **Activity** page and keep it with the backup (see
+  [Participant activity](participant-activity.md)).
+
+For a complete copy of the database, ranking groups and activity log
+included, also keep a `pg_dump` of it, as in "1. Back up everything" in
+[Migrating from one deployment per contest to a single multi-contest deployment](migrating-to-multi-contest.md).
+
 ### import.sh
 
 Restores contest data from a backup file created by `export.sh`. Lists the available backups in `dumps/`, lets you pick one, and walks you through the options — including whether to wipe the database first (useful for a full restore from scratch).
@@ -134,6 +147,16 @@ Imported contests arrive **inactive** unless you choose to wipe the
 database first (`-d`), which restores each contest's active flag from the
 backup. After a normal import, activate the contests from the Admin Web
 Server when they are ready.
+
+Imported contests also arrive **without a ranking group**, even with `-d`,
+because the backup does not contain the groups (see `export.sh` above). With
+`-d`, the ranking groups that were in the database are deleted with
+everything else. After a restore, create the ranking groups again, with their
+windows and staff passwords, and assign the contests: follow "Before an exam
+day" in [Running several contests at once](multi-contest.md).
+
+The activity log is not restored either, and `-d` deletes the one in the
+database.
 
 ## Configuring the project name
 
