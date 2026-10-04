@@ -78,3 +78,6 @@ def setup_roles(app):
 
 def setup(app):
     app.connect('builder-inited', setup_roles)
+    # The roles keep no state, so Read the Docs' parallel build (-j auto)
+    # can use them; undeclared, Sphinx warns and -W fails the build.
+    return {'parallel_read_safe': True, 'parallel_write_safe': True}
