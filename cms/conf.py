@@ -133,6 +133,11 @@ class CWSConfig:
 
     contest_admin_token: str | None = None
 
+    # Participant activity log: seconds between writes of the buffered
+    # activity, and seconds without requests that end an interval.
+    activity_flush_interval: float = 60.0
+    activity_inactivity_threshold: int = 30 * 60  # 30 minutes
+
 
 @dataclass()
 class AWSConfig:

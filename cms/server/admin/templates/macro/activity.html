@@ -1,0 +1,78 @@
+{% macro device(device_id) -%}
+{% if device_id is none %}<span title="No device: an API client, or a browser that did not present the device cookie">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
+{%- endmacro %}
+
+
+{% macro intervals_table(url, contest, intervals, end_reason, flagged_ids, show_user) -%}
+{#
+Show intervals of activity, as returned by select_intervals.
+
+end_reason (function): activity_end_reason bound to now and the threshold.
+flagged_ids (set): ids of the intervals in simultaneous activity.
+show_user (bool): whether to add a username column.
+#}
+{% if intervals %}
+<table class="bordered">
+  <thead>
+    <tr>
+      {% if show_user %}<th>Username</th>{% endif %}
+      <th>Device</th>
+      <th>IP address</th>
+      <th>Start</th>
+      <th>Last activity</th>
+      <th>End</th>
+      <th>Started by</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in intervals %}
+    <tr{% if row.id in flagged_ids %} style="background-color: #fdd;"{% endif %}>
+      {% if show_user %}<td><a href="{{ url("contest", contest.id, "user", row.user_id, "edit") }}">{{ row.username }}</a></td>{% endif %}
+      <td>{{ device(row.device_id) }}</td>
+      <td>{{ row.ip }}</td>
+      <td>{{ row.started_at|format_datetime }}</td>
+      <td>{{ row.last_seen_at|format_datetime }}</td>
+      <td>{{ end_reason(row.logged_out_at, row.last_seen_at) }}</td>
+      <td>{{ row.started_by }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+No activity recorded.
+{% endif %}
+{%- endmacro %}
+
+
+{% macro simultaneous_table(url, contest, rows) -%}
+{#
+Show pairs of intervals active at the same time, as returned by
+find_simultaneous_activity.
+#}
+{% if rows %}
+<table class="bordered">
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>First device / IP</th>
+      <th>Second device / IP</th>
+      <th>Overlap from</th>
+      <th>Overlap to</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><a href="{{ url("contest", contest.id, "user", row.user_id, "edit") }}">{{ row.username }}</a></td>
+      <td>{{ device(row.first_device_id) }} / {{ row.first_ip }}</td>
+      <td>{{ device(row.second_device_id) }} / {{ row.second_ip }}</td>
+      <td>{{ row.overlap_start|format_datetime }}</td>
+      <td>{{ row.overlap_end|format_datetime }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+None.
+{% endif %}
+{%- endmacro %}

@@ -74,16 +74,16 @@ utc = babel.dates.UTC
 local_tz = babel.dates.LOCALTZ
 
 
-def get_timezone(user: "User", contest: "Contest") -> tzinfo:
+def get_timezone(user: "User | None", contest: "Contest") -> tzinfo:
     """Return the timezone for the given user and contest
 
-    user: the user owning the timezone.
+    user: the user owning the timezone, or None for the contest's own.
     contest: the contest in which the user is competing.
 
     return: the timezone information for the user.
 
     """
-    if user.timezone is not None:
+    if user is not None and user.timezone is not None:
         try:
             return babel.dates.get_timezone(user.timezone)
         except LookupError:

@@ -20,8 +20,13 @@
 
 """
 
+import asyncio
 import unittest
+from datetime import datetime
+from unittest.mock import AsyncMock, patch
 
+from cms import config
+from cms.io import WebService
 from cms.server.contest.server import ContestWebServer
 
 
@@ -38,6 +43,46 @@ class TestConstruction(unittest.TestCase):
     def test_constructs_without_raising(self):
         server = ContestWebServer(0)
         self.assertIsNone(server.contest_id)
+
+
+class TestActivityFlush(unittest.IsolatedAsyncioTestCase):
+    """The activity log is flushed periodically and at shutdown."""
+
+    def test_flush_is_scheduled_every_flush_interval(self):
+        with patch.object(ContestWebServer, "add_timeout") as add_timeout:
+            server = ContestWebServer(0)
+        add_timeout.assert_any_call(
+            server.activity_recorder.flush, None,
+            config.contest_web_server.activity_flush_interval)
+
+    async def test_shutdown_flushes_what_is_left(self):
+        server = ContestWebServer(0)
+        server.activity_recorder.flush = AsyncMock()
+        with patch.object(WebService, "_async_run",
+                          AsyncMock(return_value=True)):
+            self.assertTrue(await server._async_run())
+        server.activity_recorder.flush.assert_awaited_once_with()
+
+    async def test_shutdown_flush_gives_up_after_a_timeout(self):
+        async def hanging_write(session, pending, inactivity_threshold):
+            await asyncio.Event().wait()
+
+        server = ContestWebServer(0)
+        timestamp = datetime(2026, 10, 12, 10, 0, 0)
+        server.activity_recorder.record(1, None, "10.0.0.5", timestamp)
+        server.activity_recorder.record(2, None, "10.0.0.5", timestamp)
+        with patch.object(WebService, "_async_run",
+                          AsyncMock(return_value=True)), \
+                patch("cms.server.contest.server.SHUTDOWN_FLUSH_TIMEOUT",
+                      0.1), \
+                patch("cms.server.contest.activity.write_pending_activity",
+                      side_effect=hanging_write), \
+                self.assertLogs("cms.server.contest.server",
+                                "ERROR") as logs:
+            self.assertTrue(await server._async_run())
+
+        self.assertIn("2 participation(s)", logs.output[0])
+        self.assertEqual(len(server.activity_recorder.pending()), 2)
 
 
 if __name__ == "__main__":

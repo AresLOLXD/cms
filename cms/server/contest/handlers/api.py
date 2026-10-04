@@ -21,7 +21,7 @@
 import ipaddress
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
 from cms import FEEDBACK_LEVEL_FULL
 from cms.db.submission import Submission
@@ -96,6 +96,14 @@ class ApiLoginHandler(ApiContestHandler):
             ip_address,
             admin_token=admin_token,
         )
+
+        if participation is not None and admin_token == "":
+            # API clients authenticate with the X-CMS-Authorization
+            # header, which carries no device. The login expired the
+            # participation: read its id from the identity key.
+            self.service.activity_recorder.record(
+                inspect(participation).identity[0], None,
+                self.request.remote_ip, self.timestamp, login=True)
 
         if participation is None:
             self.json({"error": "Login failed"}, 403)

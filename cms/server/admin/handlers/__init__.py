@@ -44,6 +44,9 @@ from .contestquestion import \
     QuestionClaimHandler
 from .contestranking import \
     RankingHandler
+from .contestactivity import \
+    ContestActivityHandler, \
+    ContestActivityCsvHandler
 from .contestsubmission import \
     ContestSubmissionsHandler, \
     ContestUserTestsHandler
@@ -187,6 +190,11 @@ HANDLERS = [
 
     (r"/contest/([0-9]+)/ranking", RankingHandler),
     (r"/contest/([0-9]+)/ranking/([a-z]+)", RankingHandler),
+
+    # Contest's participant activity
+
+    (r"/contest/([0-9]+)/activity", ContestActivityHandler),
+    (r"/contest/([0-9]+)/activity/csv", ContestActivityCsvHandler),
 
     # Tasks
 

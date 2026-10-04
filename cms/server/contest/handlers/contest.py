@@ -35,6 +35,7 @@ import ipaddress
 import json
 import logging
 import typing
+import uuid
 
 import collections
 
@@ -67,6 +68,11 @@ NOTIFICATION_ERROR = "error"
 NOTIFICATION_WARNING = "warning"
 NOTIFICATION_SUCCESS = "success"
 
+# Anonymous id of the browser, for the participant activity log. It is
+# global (not per contest), so a computer is recognized in every contest.
+DEVICE_COOKIE_NAME = "cms_device"
+DEVICE_COOKIE_DAYS = 365
+
 
 class ContestHandler(BaseHandler):
     """A handler that has a contest attached.
@@ -81,6 +87,12 @@ class ContestHandler(BaseHandler):
         self.contest_url: Url = None
         self.contest: Contest
         self.impersonated_by_admin = False
+        # Device of the current request for the activity log: None
+        # until get_current_user() authenticates it, for clients
+        # authenticated by the X-CMS-Authorization header and for
+        # browsers that present no valid cms_device cookie.
+        self.activity_device_id: uuid.UUID | None = None
+        self._device_id: uuid.UUID | None = None
 
     async def prepare(self):
         await self.choose_contest()
@@ -196,7 +208,57 @@ class ContestHandler(BaseHandler):
             )
 
         self.impersonated_by_admin = impersonated
+        if participation is not None and not impersonated:
+            if authorization_header is None:
+                # Only a login mints a device: a client that keeps no
+                # cookies (a polling script, an IP autologin health
+                # check) would otherwise get a new device, and so a new
+                # row in the log, on every request. Without a valid
+                # cookie the request is recorded with no device, and
+                # the cookie is issued for the next ones.
+                self.activity_device_id = self.get_presented_device_id()
+                if self.activity_device_id is None:
+                    self.get_device_id()
+            self.service.activity_recorder.record(
+                participation.id, self.activity_device_id,
+                self.request.remote_ip, self.timestamp)
         return participation
+
+    def get_presented_device_id(self) -> uuid.UUID | None:
+        """Return the anonymous id of the browser, if it presents one.
+
+        The id lives in the signed cms_device cookie. This only reads
+        and validates the cookie, it never issues one.
+
+        return: the device id, or None if the cookie is missing,
+            expired, badly signed or not an id.
+
+        """
+        value = self.get_secure_cookie(
+            DEVICE_COOKIE_NAME, max_age_days=DEVICE_COOKIE_DAYS)
+        try:
+            return uuid.UUID(value.decode("ascii"))
+        except (AttributeError, UnicodeDecodeError, ValueError):
+            return None
+
+    def get_device_id(self) -> uuid.UUID:
+        """Return the anonymous id of the browser, issuing it if needed.
+
+        If the browser presents no valid cms_device cookie (see
+        get_presented_device_id), a new random id is generated and sent
+        to it in the cookie. The id is the same for the whole request.
+
+        return: the device id.
+
+        """
+        if self._device_id is None:
+            self._device_id = self.get_presented_device_id()
+            if self._device_id is None:
+                self._device_id = uuid.uuid4()
+                self.set_secure_cookie(
+                    DEVICE_COOKIE_NAME, str(self._device_id),
+                    expires_days=DEVICE_COOKIE_DAYS, httponly=True)
+        return self._device_id
 
     def render_params(self):
         ret = super().render_params()

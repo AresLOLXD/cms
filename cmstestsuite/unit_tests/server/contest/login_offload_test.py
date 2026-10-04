@@ -32,6 +32,8 @@ import os
 import threading
 import time
 import unittest
+import uuid
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -40,6 +42,7 @@ from cms import config
 from cms.db import Contest, Participation, Session, engine
 from cms.server import Url
 from cms.server.contest import authentication
+from cms.server.contest.activity import ActivityRecorder, PendingSegment
 from cms.server.contest.authentication import validate_login
 from cms.server.contest.handlers.api import ApiLoginHandler
 from cms.server.contest.handlers.main import LoginHandler
@@ -52,6 +55,8 @@ VALIDATE_PASSWORD = "cms.server.contest.authentication.validate_password"
 # How long a fake password check waits to be released before giving up;
 # it is only reached if the test fails.
 CHECK_TIMEOUT = 2.0
+
+DEVICE = uuid.UUID("00000000-0000-4000-8000-000000000001")
 
 
 class BlockingCheck:
@@ -157,8 +162,15 @@ class LoginHandlerOffloadTests:
         handler.is_multi_contest = lambda: False
         handler.get_argument = \
             lambda name, default=None: arguments.get(name, default)
+        handler.application = MagicMock()
+        handler.application.service.activity_recorder = \
+            ActivityRecorder(timedelta(minutes=30))
+        handler.get_device_id = lambda: DEVICE
         self.stub_response(handler)
         return handler
+
+    def recorded_activity(self, handler) -> dict:
+        return handler.service.activity_recorder.pending()
 
     @staticmethod
     async def run_post(handler):
@@ -177,11 +189,16 @@ class LoginHandlerOffloadTests:
         handler = self.make_handler()
         await self.run_post(handler)
         self.assert_login_succeeded(handler)
+        self.assertEqual(self.recorded_activity(handler), {
+            (self.participation_id, self.login_device_id, "127.0.0.1"):
+                [PendingSegment(self.timestamp, self.timestamp, True)],
+        })
 
     async def test_failed_login(self):
         handler = self.make_handler(password="wrong")
         await self.run_post(handler)
         self.assert_login_failed(handler)
+        self.assertEqual(self.recorded_activity(handler), {})
 
     async def test_check_does_not_block_the_event_loop(self):
         handler = self.make_handler()
@@ -328,6 +345,7 @@ class TestLoginHandlerOffload(LoginHandlerOffloadTests, LoginTestBase):
     """LoginHandler, the login of the contestants' web page."""
 
     handler_class = LoginHandler
+    login_device_id = DEVICE
 
     def stub_response(self, handler):
         handler.url = Url(".")
@@ -358,6 +376,8 @@ class TestApiLoginHandlerOffload(LoginHandlerOffloadTests, LoginTestBase):
     """ApiLoginHandler, the login of the API (which skips the XSRF check)."""
 
     handler_class = ApiLoginHandler
+    # API clients authenticate with a header, which carries no device.
+    login_device_id = None
 
     def stub_response(self, handler):
         handler.get_current_user = MagicMock(return_value=None)
@@ -387,6 +407,8 @@ class TestApiLoginHandlerOffload(LoginHandlerOffloadTests, LoginTestBase):
             ["myuser", "", make_timestamp(self.timestamp), True])
         handler.json.assert_called_once_with(
             {"login_data": "signed:%s_login:%s" % (self.contest_name, cookie)})
+        # An admin impersonating the user is not the user's activity.
+        self.assertEqual(self.recorded_activity(handler), {})
 
     async def test_wrong_admin_token_fails(self):
         handler = self.make_handler(password="", admin_token="wrong")

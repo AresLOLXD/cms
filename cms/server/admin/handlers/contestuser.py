@@ -46,12 +46,13 @@ except:
 import tornado.web
 from sqlalchemy import select
 
-from cms.db import Contest, Group, Message, Participation, Submission, User, \
-    Team
+from cms.db import ActivityInterval, Contest, Group, Message, Participation, \
+    Submission, User, Team
 from cms.server.admin.bulkimport import FIELDS, plan_import, read_rows
 from cms.server.admin.importjobs import IMPORT_JOBS, ImportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
+from .contestactivity import activity_render_params, select_intervals
 
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,13 @@ class ParticipationHandler(BaseHandler):
         self.r_params["selected_user"] = participation.user
         self.r_params["teams"] = self.sql_session.execute(
             select(Team)).scalars().all()
+        self.r_params.update(activity_render_params(
+            self.sql_session, self.contest, participation.id))
+        self.r_params["activity_intervals"] = self.sql_session.execute(
+            select_intervals(self.contest.id)
+            .where(ActivityInterval.participation_id == participation.id)
+            .order_by(ActivityInterval.started_at.desc(),
+                      ActivityInterval.id.desc())).all()
         self.render("participation.html", **self.r_params)
 
     @require_permission(BaseHandler.AUTHENTICATED)

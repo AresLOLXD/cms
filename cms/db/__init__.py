@@ -70,6 +70,8 @@ __all__ = [
     # usertest
     "UserTest", "UserTestFile", "UserTestManager", "UserTestResult",
     "UserTestExecutable",
+    # activity
+    "ActivityInterval",
     # init
     "init_db",
     # drop
@@ -107,6 +109,7 @@ from .submission import Submission, File, Token, SubmissionResult, \
     Executable, Evaluation
 from .usertest import UserTest, UserTestFile, UserTestManager, \
     UserTestResult, UserTestExecutable
+from .activity import ActivityInterval
 
 from .init import init_db
 from .drop import drop_db
