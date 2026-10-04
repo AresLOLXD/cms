@@ -60,7 +60,10 @@ operador"); `docker-deployment.po` quotes "Despliegue" (a heading of
 `multi-contest`) and "Scripts auxiliares" (its own heading);
 `docker-scripts.po` quotes "Antes de un día de examen" (`multi-contest`) and
 "1. Respalda todo" (`migrating-to-multi-contest`); `importing-users.po`
-quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`).
+quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`);
+`participant-activity.po` quotes "Configuración de nginx" (`docker-scripts`);
+`contest-day.po` also quotes "Después de la competencia" (a heading of
+`participant-activity`).
 
 | Page | English title | Spanish title |
 |------|---------------|---------------|
