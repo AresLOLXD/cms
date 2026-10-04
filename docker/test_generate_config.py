@@ -1,5 +1,6 @@
 """Unit tests for docker/generate_config.py."""
 
+import configparser
 import os
 import re
 import sys
@@ -87,6 +88,45 @@ def test_prod_compose_mounts_cms_data_on_the_configured_data_dir(monkeypatch):
         assert target != install_lib and not target.startswith(install_lib + "/")
 
 
+def _prod_compose_services():
+    with open(os.path.join(os.path.dirname(__file__), "docker-compose.prod.yml")) as f:
+        return yaml.safe_load(f)["services"]
+
+
+@pytest.mark.parametrize("service", ["cms", "ranking"])
+def test_prod_compose_publishes_ports_on_localhost_only(service):
+    # Docker-published ports bypass ufw. The reverse proxy on the host is the
+    # only entry point, so nothing may be reachable on the public address.
+    ports = _prod_compose_services()[service]["ports"]
+    assert ports
+    for port in ports:
+        assert port.startswith("127.0.0.1:"), port
+
+
+@pytest.mark.parametrize("service", ["cms", "ranking"])
+def test_prod_compose_raises_the_open_files_limit(service):
+    nofile = _prod_compose_services()[service]["ulimits"]["nofile"]
+    assert nofile == {"soft": 65536, "hard": 65536}
+
+
+def test_prod_compose_gives_cms_time_to_stop_gracefully(monkeypatch):
+    # Docker SIGKILLs the container after stop_grace_period. supervisord stops
+    # its programs one after another (each [program] is its own group, waited
+    # for in priority order), so the worst case is the SUM of the stop times,
+    # not the longest one: every ContestWebServer may use its full stopwaitsecs.
+    _set(monkeypatch, {"CMS_CWS_COUNT": "4"})
+    grace = _prod_compose_services()["cms"]["stop_grace_period"]
+    assert grace.endswith("s")
+    programs = _supervisord_programs(gc.generate_supervisord_conf())
+    cws_stop_total = sum(
+        int(program["stopwaitsecs"])
+        for name, program in programs.items()
+        if name.startswith("cmscontestwebserver")
+    )
+    assert cws_stop_total == 4 * 40
+    assert int(grace[:-1]) > cws_stop_total
+
+
 def test_dockerfile_creates_the_data_dir_as_cmsuser(monkeypatch):
     # A named volume inherits the ownership of the image's directory the first
     # time it is created, so the directory must belong to cmsuser (the user
@@ -131,6 +171,36 @@ def test_cms_toml_custom_aws_port(monkeypatch):
     _set(monkeypatch, {"CMS_AWS_HTTP_PORT": "9000"})
     toml = gc.generate_cms_toml()
     assert "listen_port = 9000" in toml
+
+
+def test_cms_toml_cookie_duration_default(monkeypatch):
+    # The code default (30 minutes) logs contestants out in the middle of a
+    # contest; the deployment default is 5 hours.
+    _set(monkeypatch)
+    cws = tomllib.loads(gc.generate_cms_toml())["contest_web_server"]
+    assert cws["cookie_duration"] == 18000
+
+
+def test_cms_toml_cookie_duration_custom(monkeypatch):
+    _set(monkeypatch, {"CMS_CWS_COOKIE_DURATION": "7200"})
+    cws = tomllib.loads(gc.generate_cms_toml())["contest_web_server"]
+    assert cws["cookie_duration"] == 7200
+
+
+def test_cms_toml_cookie_duration_empty_uses_default(monkeypatch):
+    # An empty "CMS_CWS_COOKIE_DURATION=" line in .env must behave as unset,
+    # like every other optional variable.
+    _set(monkeypatch, {"CMS_CWS_COOKIE_DURATION": ""})
+    cws = tomllib.loads(gc.generate_cms_toml())["contest_web_server"]
+    assert cws["cookie_duration"] == 18000
+
+
+@pytest.mark.parametrize("value", ["abc", "1.5", "0", "-60"])
+def test_cms_toml_cookie_duration_invalid(monkeypatch, capsys, value):
+    _set(monkeypatch, {"CMS_CWS_COOKIE_DURATION": value})
+    with pytest.raises(SystemExit):
+        gc.generate_cms_toml()
+    assert "CMS_CWS_COOKIE_DURATION" in capsys.readouterr().err
 
 
 def test_cms_toml_proxy_url_contains_rws_creds(monkeypatch):
@@ -182,6 +252,28 @@ def test_supervisord_multiple_workers(monkeypatch):
     conf = gc.generate_supervisord_conf()
     assert "cmsWorker 0" in conf
     assert "cmsWorker 1" in conf
+
+
+def _supervisord_programs(conf):
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(conf)
+    return {name[len("program:"):]: parser[name]
+            for name in parser.sections() if name.startswith("program:")}
+
+
+def test_supervisord_contest_web_servers_wait_for_the_activity_log_flush(monkeypatch):
+    # ContestWebServer flushes the participant activity log on shutdown, for
+    # up to SHUTDOWN_FLUSH_TIMEOUT (30 s); supervisord's default stopwaitsecs
+    # (10 s) would SIGKILL it in the middle of the flush.
+    _set(monkeypatch, {"CMS_CWS_COUNT": "3"})
+    programs = _supervisord_programs(gc.generate_supervisord_conf())
+    cws_names = {f"cmscontestwebserver{i}" for i in range(3)}
+    assert cws_names <= set(programs)
+    for name, program in programs.items():
+        if name in cws_names:
+            assert program["stopwaitsecs"] == "40"
+        else:
+            assert "stopwaitsecs" not in program
 
 
 def test_cms_toml_no_telegram_by_default(monkeypatch):

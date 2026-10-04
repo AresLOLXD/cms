@@ -82,6 +82,19 @@ def generate_cms_toml() -> str:
         )
         sys.exit(1)
 
+    raw_cookie_duration = _get("CMS_CWS_COOKIE_DURATION", "18000")
+    try:
+        cookie_duration = int(raw_cookie_duration)
+    except ValueError:
+        cookie_duration = 0
+    if cookie_duration <= 0:
+        print(
+            f"ERROR: CMS_CWS_COOKIE_DURATION must be a positive integer "
+            f"(seconds), got {raw_cookie_duration!r}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
     cws_http_port = _get_int("CMS_CWS_HTTP_PORT", 8888)
@@ -139,6 +152,7 @@ tornado_debug = false
 listen_address = {cws_addrs}
 listen_port = {cws_ports}
 num_proxies_used = {num_proxies}
+cookie_duration = {cookie_duration}
 
 [admin_web_server]
 listen_address = "{listen_addr}"
@@ -186,13 +200,18 @@ def generate_supervisord_conf() -> str:
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
     telegram_configured = bool(bot_token and chat_id)
 
-    def program(name: str, command: str, priority: int) -> str:
+    def program(name: str, command: str, priority: int,
+                stop_wait_secs: int | None = None) -> str:
+        stop_wait = (
+            f"stopwaitsecs={stop_wait_secs}\n" if stop_wait_secs is not None else ""
+        )
         return (
             f"[program:{name}]\n"
             f"priority={priority}\n"
             f"command={command}\n"
             "autostart=true\n"
             "autorestart=true\n"
+            f"{stop_wait}"
             "stdout_logfile=/dev/stdout\n"
             "stdout_logfile_maxbytes=0\n"
             "stderr_logfile=/dev/stderr\n"
@@ -224,9 +243,13 @@ def generate_supervisord_conf() -> str:
 
     blocks.append(program("cmsproxyservice", f"cmsProxyService 0{contest_flag}", 50))
 
+    # ContestWebServer flushes the participant activity log on shutdown, for up
+    # to SHUTDOWN_FLUSH_TIMEOUT (30 s, cms/server/contest/server.py): leave it
+    # that long plus a margin before supervisord escalates to SIGKILL.
     for i in range(cws_count):
         blocks.append(
-            program(f"cmscontestwebserver{i}", f"cmsContestWebServer {i} -c {contest_id}", 60)
+            program(f"cmscontestwebserver{i}", f"cmsContestWebServer {i} -c {contest_id}", 60,
+                    stop_wait_secs=40)
         )
 
     blocks.append(program("cmsadminwebserver", "cmsAdminWebServer 0", 60))
