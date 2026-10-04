@@ -265,3 +265,120 @@ groups are checked after the rest of the file.
 Passwords are stored hashed, so they cannot be read back, and AWS has **no
 download or export**. Keep the original file safe: nothing in AWS can give the
 day passwords back.
+
+## Removing users and participations
+
+AWS can remove many users, or many participations, at once, for example to
+clean up after a rehearsal or after importing the wrong file. Like the import
+page, these pages are in Spanish, and their texts are quoted as they appear.
+
+**A removal cannot be undone.** Before you remove anything:
+
+- Take a backup with `./export.sh` (see [Docker Scripts Guide](docker-scripts.md)).
+- Download the activity CSV of the contests concerned. Removing a
+  participation deletes its activity log, and the backup does not include it
+  (see [Participant activity](participant-activity.md)).
+- Do not remove anything while a contest is running: the submissions made
+  during the contest are lost with it.
+
+Only admins with full permission can remove. For the others, the buttons are
+disabled.
+
+### Two scopes
+
+| Page | What it removes |
+|------|-----------------|
+| **Users** in the main menu (the "Users list" page) | The users, from the whole platform: each account, with its participations in every contest. |
+| A contest's **Users** page (**Contest → Users**) | Only the participations in that contest. The users stay, with their participations in other contests. |
+
+To reach the main menu from inside a contest, click **Administration** at the
+top of the sidebar.
+
+### Choosing the users
+
+Both pages offer two ways:
+
+- **Checkboxes.** Tick the users in the table, or tick the checkbox in the
+  table header (its tooltip says "Seleccionar todo") to tick them all. Then
+  press **"Borrar seleccionados"** on the Users list, or **"Quitar
+  seleccionados del concurso"** on a contest.
+- **A list of usernames.** Under **"Borrar por lista"** (Users list) or
+  **"Quitar por lista"** (contest), paste the usernames in the text box,
+  choose a file, or both, and press **"Revisar lista"**. The usernames of the
+  box come first, then those of the file.
+
+The list, in the box or in the file:
+
+- One username per line, or a CSV whose first column is the username, with
+  commas, semicolons or tabs between the cells. The file of a user import
+  works as it is when `username` is its first column.
+- A first line whose first cell is `username`, in any case, is taken as the
+  header and skipped. Any other header, such as `usuario`, is read as a
+  username.
+- UTF-8, with or without BOM. Spaces and double quotes around a username are
+  removed, blank lines are skipped, and a username that appears twice counts
+  once.
+- Capitals matter, as in the import: `Ana01` and `ana01` are different users.
+- At most 1 MB (1024 × 1024 bytes) for the box and the file together.
+
+When the list cannot be read, the list page comes back with a "No se leyó la
+lista" notification that says "la lista pasa de 1 MB" or "la lista no está en
+UTF-8", and nothing is removed. With nothing ticked or listed, the
+notification is "No elegiste ningún usuario.".
+
+### The confirmation page
+
+These buttons remove nothing yet. They open a page, "Borrar usuarios" (or
+"Quitar participaciones de" and the contest name), that shows what would be
+removed:
+
+- "Se borrarán N usuarios, S envíos y T user tests." or "Se quitarán N
+  participaciones de este concurso, con S envíos y T user tests.", followed by
+  "Esta operación no se puede deshacer." On a contest, only the submissions and
+  user tests of that contest are counted.
+- A table with **Username**, **Nombre**, **Apellido**, **Envíos** and **User
+  tests**. On the Users list it also has **Concursos**, the contests each user
+  takes part in.
+- **"Ignorados:"**, what is left out, each with its reason: "no existe" (no
+  user has that username) or, on a contest, "no participa en el concurso" (the
+  user exists but is not in this contest). They do not stop the rest.
+- In red, when any participation concerned belongs to a contest that is
+  running now: "Atención: hay un concurso en curso entre los afectados. Se
+  perderán envíos hechos durante el concurso y el ranking se recalculará."
+- "No hay nada que borrar." when nobody is left to remove. The page then has
+  no button.
+
+To confirm, type the number of users in "Escribe N para confirmar:" and press
+**"Borrar"** (or **"Quitar"** on a contest). **"Cancelar"** goes back to the
+list.
+
+The page comes back, with nothing removed, when:
+
+- the number typed is wrong: "El número escrito no coincide con el número de
+  usuarios. No se borró nada.";
+- the selection changed since the page was opened, for example because
+  another admin removed one of those users: "La selección cambió desde la
+  vista previa: revisa la lista y confirma otra vez. No se borró nada." It
+  then shows the selection as it is now.
+
+### What is removed
+
+- **All or nothing.** Everything is removed in one database transaction. If
+  it fails, nothing is removed and a notification says so ("No se borró
+  nada" or "Operation failed.").
+- With each participation go its submissions (with their files, results,
+  evaluations and tokens), its user tests (with their files and results), its
+  questions and messages, and its activity log. On the Users list, that is
+  every participation of each user, and the account too.
+- Teams and groups stay.
+- On success, AWS goes back to the list with the notification "Se borraron N
+  usuarios" ("Se borró 1 usuario") or "Se quitaron N participaciones" ("Se
+  quitó 1 participación"). The AWS log records who removed which usernames.
+
+**Then press Regenerate on the ranking group of each contest concerned**, or
+on the **Root ranking** row when a single contest is served (see "When a
+scoreboard is wrong: Regenerate" in
+[Running several contests at once](multi-contest.md)). After a removal AWS
+asks ProxyService to send the rankings again, but a scoreboard only adds and
+updates what it receives: the removed contestants stay on it, with their
+scores, until the group is regenerated.
