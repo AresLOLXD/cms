@@ -27,6 +27,7 @@ from unittest.mock import patch, PropertyMock
 from cms.conf import Address
 from cms.service.ProxyService import ProxyService
 from cmscommon.constants import SCORE_MODE_MAX
+from cmstestsuite.unit_tests.asyncwait import wait_until
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
@@ -108,24 +109,6 @@ class TestProxyService(
         result.ranking_score_details = ["100"]
         return result
 
-    async def _wait_until(self, predicate, attempts: int = 50) -> None:
-        """Poll predicate() until it is true, or give up.
-
-        The background executor.run() task (spawned by
-        ProxyService.__init__'s add_executor, since a running loop
-        already exists when the service is constructed here) processes
-        enqueued operations asynchronously, so assertions on their
-        effects (the mocked HTTP calls) need to wait for it.
-
-        predicate: a zero-argument callable to poll.
-        attempts: how many times to poll, sleeping 0.05s between tries.
-
-        """
-        for _ in range(attempts):
-            if predicate():
-                return
-            await asyncio.sleep(0.05)
-
     async def _build_service(self) -> ProxyService:
         """Build a ProxyService safe to drive from a running loop.
 
@@ -154,10 +137,13 @@ class TestProxyService(
         """Test that data is sent in the right order at startup."""
         await self._build_service()
 
-        await self._wait_until(
-            lambda: len(self.requests_put.call_args_list) >= 6)
+        def put_urls():
+            return [args[0] for args, _ in self.requests_put.call_args_list]
 
-        urls = [args[0] for args, _ in self.requests_put.call_args_list]
+        # The executor sends the operations from a background task.
+        await wait_until(lambda: len(put_urls()) >= 6, describe=put_urls)
+
+        urls = put_urls()
 
         self.assertTrue(urls[0].endswith("contests/"))
         self.assertTrue(any(urls[i].endswith("users/") for i in [1, 2, 3]))
