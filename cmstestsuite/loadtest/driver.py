@@ -91,6 +91,7 @@ class Driver:
         self.start = data["start"]
         self.stop = data["stop"]
         self.users = data["users"]
+        self.profile = data["profile"]
         self.bases = [b.rstrip("/") for b in args.cws]
         self.rr = itertools.cycle(range(len(self.bases)))
         self.rec = Recorder(args.out, self.start, self.stop, args.end_burst)
@@ -211,7 +212,8 @@ class Driver:
         entry = dict(user=user["username"], contest=user["contest"],
                      task=task, kind=kind, t_submit=t_submit,
                      phase=self.rec.phase(t_submit), accepted=accepted,
-                     expected=scenario.expected_score(task, kind))
+                     expected=scenario.expected_score(
+                         task, kind, self.profile))
         if not accepted:
             entry["location"] = location
             entry["status"] = status

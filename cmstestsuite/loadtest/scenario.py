@@ -71,17 +71,50 @@ SOLUTIONS = {
 }
 
 
-def task_spec(task_name: str) -> dict:
+PROFILES = ("portable", "full")
+
+# Contests published to RWS per profile, with the scores path relative to
+# the RWS base URL. Upstream ProxyService ranks one contest at the root.
+RANKED = {
+    "portable": {"loada": "scores"},
+    "full": {"loada": "loada/scores", "loadb": "loadb/scores"},
+}
+
+
+def _check_profile(profile: str) -> None:
+    if profile not in PROFILES:
+        raise ValueError("unknown profile %r (expected one of %s)"
+                         % (profile, ", ".join(PROFILES)))
+
+
+def two_phase(profile: str) -> bool:
+    """Return whether two-phase evaluation is on in the profile."""
+    _check_profile(profile)
+    return profile == "full"
+
+
+def task_spec(task_name: str, profile: str) -> dict:
+    """Return the task's spec as the profile uses it.
+
+    The portable profile drops every depends_on, since upstream CMS has
+    no subtask dependencies.
+
+    """
+    _check_profile(profile)
     for tasks in TASKS.values():
         for spec in tasks:
             if spec["name"] == task_name:
-                return spec
+                if profile == "full":
+                    return spec
+                return dict(spec, subtasks=[
+                    {k: v for k, v in sub.items() if k != "depends_on"}
+                    for sub in spec["subtasks"]])
     raise KeyError(task_name)
 
 
-def expected_score(task_name: str, kind: str) -> float:
-    """Score the solution kind must get on the task (dependencies applied)."""
-    spec = task_spec(task_name)
+def expected_score(task_name: str, kind: str, profile: str) -> float:
+    """Return the score the solution kind must get on the task."""
+    spec = task_spec(task_name, profile)
     passes = SOLUTIONS[kind][3]
     ok: list[bool] = []
     for sub in spec["subtasks"]:
