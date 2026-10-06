@@ -75,7 +75,7 @@ numbers behind #5 and #6.
 | L1 | Where the harness lives | `cmstestsuite/loadtest/`, with a README. It is not part of the pytest suite: no `*_test.py` names, and it must stay pyflakes-clean. |
 | L2 | Baseline | Upstream `cc9dfafb`, the merge-base of the fork and upstream (the last upstream commit merged, 2026-09-26). Only our changes differ. *(autonomous)* |
 | L3 | Builds | Each **target** is built from a git ref with `git archive <ref>` and that ref's own `Dockerfile`: fork `beta` (or any fork ref) and upstream `cc9dfafb`. |
-| L4 | Service start | The same start script for both targets, bypassing supervisord and the fork entrypoint: `cmsLogService 0`, `cmsResourceService -a ALL 0`, then `cmsProxyService` once the contests exist. Both builds are then supervised the same way. *(autonomous)* |
+| L4 | Service start | The same start script for both targets, bypassing supervisord, the fork entrypoint and ResourceService: every service is started explicitly as `cms<Service> <shard> -c ALL` (each script accepts `-c`, ignored where unused), then `cmsProxyService` once the contests exist. `cmsResourceService -a ALL` was rejected because it starts ProxyService on the fork but skips it upstream. No autorestart: a crash under load is a finding. *(autonomous)* |
 | L5 | Config | One hand-written `cms.toml` template rendered by the runner for both targets: the same ports, workers and CWS count, `cookie_duration = 18000`, AWS on 8898 (upstream's 8889 default clashes with CWS shard 1). Fork-only keys (`two_phase_evaluation`) are harmless upstream. The same goes for `cms_ranking.toml`. |
 | L6 | Profiles | **`portable`:** both contests without `depends_on`, two-phase off, only `loada` ranked at the RWS root (ProxyService `-c <loada id>`), driver polls `/scores`, analyzer compares RWS for `loada` only. **`full`:** the recovered scenario (dependencies, two-phase, groups), fork target only. |
 | L7 | Readiness | HTTP probes of the CWS/RWS ports plus an RPC `echo` to each service replace the `supervisorctl` checks. |
@@ -106,7 +106,9 @@ numbers behind #5 and #6.
   (with `-c <loada id>` for `portable`, none for `full`), runs the monitor,
   the stats sampler and the driver, then exports and collects. The
   readiness probes of L7 replace `supervisorctl`.
-- **`driver.py`:** a `--rws-path` option (`/scores` or `/<group>/scores`).
+- **`driver.py`:** polls the RWS scores paths listed in `users.json`
+  (`ranked`, written by `setup_contest.py`): `scores` for `portable`,
+  `<group>/scores` for `full`.
 - **`analyze.py`:** the profile-aware RWS check and the project filter.
 - **`db_export.py`:** the `rounded=` fix.
 - **`flushstats.py`:** a pattern that matches both builds.
