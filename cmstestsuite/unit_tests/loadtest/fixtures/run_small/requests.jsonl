@@ -1,0 +1,5 @@
+{"t": 990.0, "kind": "login", "dur": 0.5, "status": 302, "ok": true, "user": "a001", "shard": "cms:8888", "phase": "login_burst"}
+{"t": 991.0, "kind": "login", "dur": 0.7, "status": 302, "ok": true, "user": "a002", "shard": "cms:8889", "phase": "login_burst"}
+{"t": 992.0, "kind": "login", "dur": 1.2, "status": 500, "ok": false, "user": "b001", "shard": "cms:8888", "phase": "login_burst", "body": "Internal Server Error"}
+{"t": 1550.0, "kind": "submit", "dur": 0.2, "status": 302, "ok": true, "user": "a001", "shard": "cms:8888", "phase": "end_burst"}
+{"t": 1560.0, "kind": "submit", "dur": 0.4, "status": 302, "ok": true, "user": "a002", "shard": "cms:8889", "phase": "end_burst"}

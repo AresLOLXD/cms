@@ -18,7 +18,8 @@ Simulates contestants with a browser-like behaviour against CWS:
 5. Drain: after the stop, the pending polls continue until every submission
    is terminal or --drain-timeout passes.
 
-A ranking watcher polls RWS /<group>/scores every 2 s.
+A ranking watcher polls the RWS scores path of every ranked contest (the
+"ranked" map of users.json; it depends on the profile) every 2 s.
 
 Every request goes to the CWS shards round-robin (like an nginx upstream).
 Output (in --out): requests.jsonl, submissions.jsonl, ranking.jsonl,
@@ -92,6 +93,7 @@ class Driver:
         self.stop = data["stop"]
         self.users = data["users"]
         self.profile = data["profile"]
+        self.ranked = data["ranked"]
         self.bases = [b.rstrip("/") for b in args.cws]
         self.rr = itertools.cycle(range(len(self.bases)))
         self.rec = Recorder(args.out, self.start, self.stop, args.end_burst)
@@ -322,13 +324,12 @@ class Driver:
         last: dict[tuple, float] = {}
         deadline = self.stop + self.args.drain_timeout + 60
         while time.time() < deadline and not self.finished:
-            for group in ("loada", "loadb"):
+            for contest, path in self.ranked.items():
                 t = time.time()
                 t0 = time.monotonic()
                 try:
                     async with session.get(
-                            "%s/%s/scores" % (self.args.rws.rstrip("/"),
-                                              group),
+                            "%s/%s" % (self.args.rws.rstrip("/"), path),
                             headers={"Accept": "application/json"}) as resp:
                         scores = await resp.json(content_type=None)
                         status = resp.status
@@ -345,7 +346,7 @@ class Driver:
                         if last.get((u, task)) != score:
                             last[(u, task)] = score
                             self.rec.ranking(t=t, user=u, task=task,
-                                             score=score)
+                                             score=score, contest=contest)
             await asyncio.sleep(2)
 
     async def progress(self):

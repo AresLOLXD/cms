@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
-"""Summarize one run directory (out/<run>) into out/<run>/summary.md.
+"""Summarize one run directory (out/<run>) into summary.md and metrics.json.
 
 Stdlib only. Inputs: requests.jsonl, submissions.jsonl, ranking.jsonl
 (driver), monitor.jsonl (monitor.py), db_export.json (db_export.py),
 users.json, cmslog/ (CMS log files), db.log (PostgreSQL), docker_stats.log.
+Only users.json is required: a run that crashed still gets a summary, and
+metrics.json holds null for every value its missing inputs would feed.
+
+metrics.json is one flat dict with the headline numbers of the run, the
+same ones summary.md prints, for comparing runs (fork against upstream).
 """
 
+import argparse
 import collections
 import glob
 import json
 import os
 import re
-import sys
 
 PHASES = ["login_burst", "start_burst", "steady", "end_burst", "drain"]
+
+METRIC_KEYS = (
+    "run", "target", "profile", "users", "submissions_sent",
+    "submissions_rejected", "login_failures", "http_errors",
+    "score_mismatches", "rws_pairs", "rws_mismatches", "login_p50",
+    "login_p95", "submit_p50", "submit_p95", "submit_end_p95", "scored_p50",
+    "scored_p95", "scored_max", "drain_after_stop_s", "peak_pg_connections",
+    "cpu_mean_by_container", "mem_last_by_container")
 
 
 def pct(values, p):
@@ -32,6 +45,13 @@ def fmt(x, digits=3):
     return ("%%.%df" % digits) % x
 
 
+def metric(x, digits):
+    """Return x rounded to digits for metrics.json, or None if x is NaN."""
+    if x is None or x != x:
+        return None
+    return round(x, digits)
+
+
 def load_jsonl(path):
     out = []
     if os.path.exists(path):
@@ -46,7 +66,41 @@ def load_jsonl(path):
     return out
 
 
-def main(run_dir):
+def rws_mismatches(task_scores, ranking, ranked):
+    """Compare the final RWS scores with the CMS task scores.
+
+    task_scores: db_export task_scores entries (contest, user, task, score).
+    ranking: driver ranking.jsonl entries (user, task, score, in time order).
+    ranked: names of the contests the RWS publishes; the others are skipped.
+
+    return: the number of (user, task) pairs checked and the list of
+        (task_score, rws_score) pairs that differ.
+
+    """
+    final_rws = {}
+    for r in ranking:
+        final_rws[(r["user"], r["task"])] = r["score"]
+    pairs = 0
+    diff = []
+    for ts in task_scores:
+        if ts["contest"] not in ranked:
+            continue
+        pairs += 1
+        cms_score = round(ts["score"], 6)
+        rws_score = round(final_rws.get((ts["user"], ts["task"]), 0.0), 6)
+        if abs(cms_score - rws_score) > 1e-6:
+            diff.append((ts, rws_score))
+    return pairs, diff
+
+
+def main(run_dir, project_prefix="cmsload-"):
+    """Write summary.md and metrics.json for the run in run_dir.
+
+    run_dir: the run directory (out/<run>).
+    project_prefix: only docker_stats.log containers whose name starts
+        with it are reported (the compose project name).
+
+    """
     lines = []
     w = lines.append
     users = json.load(open(os.path.join(run_dir, "users.json")))
@@ -55,9 +109,23 @@ def main(run_dir):
     subs = load_jsonl(os.path.join(run_dir, "submissions.jsonl"))
     ranking = load_jsonl(os.path.join(run_dir, "ranking.jsonl"))
     mon = load_jsonl(os.path.join(run_dir, "monitor.jsonl"))
-    db = json.load(open(os.path.join(run_dir, "db_export.json")))
+    db_path = os.path.join(run_dir, "db_export.json")
+    have_db = os.path.exists(db_path)
+    if have_db:
+        with open(db_path) as f:
+            db = json.load(f)
+    else:  # the run crashed before the export
+        db = {"submissions": [], "task_scores": []}
 
-    w("# Run %s\n" % os.path.basename(run_dir.rstrip("/")))
+    # Every value of metrics.json is set next to where summary.md prints it.
+    metrics = dict.fromkeys(METRIC_KEYS)
+    metrics["run"] = os.path.basename(run_dir.rstrip("/"))
+    metrics["target"] = users.get("target")
+    metrics["profile"] = users.get("profile")
+    metrics["users"] = len(users["users"])
+
+    w("# Run %s\n" % metrics["run"])
+    w("Target %s, profile %s." % (metrics["target"], metrics["profile"]))
     w("Users: %d (loada %d, loadb %d). Contest %.0f s; start %s."
       % (len(users["users"]),
          sum(1 for u in users["users"] if u["contest"] == "loada"),
@@ -86,6 +154,21 @@ def main(run_dir):
             w("| %s | %s | %d | %d | %s | %s | %s | %s |" % (
                 kind, phase, len(d), errors[(kind, phase)], fmt(pct(d, 50)),
                 fmt(pct(d, 95)), fmt(pct(d, 99)), fmt(max(d))))
+    metrics["http_errors"] = sum(errors.values())
+    login_d = [r["dur"] for r in reqs if r["kind"] == "login"]
+    submit_d = [r["dur"] for r in reqs if r["kind"] == "submit"]
+    submit_end_d = [r["dur"] for r in reqs
+                    if r["kind"] == "submit" and r["phase"] == "end_burst"]
+    head = {"login_p50": pct(login_d, 50), "login_p95": pct(login_d, 95),
+            "submit_p50": pct(submit_d, 50), "submit_p95": pct(submit_d, 95),
+            "submit_end_p95": pct(submit_end_d, 95)}
+    for key, value in head.items():
+        metrics[key] = metric(value, 3)
+    w("\nAll phases: login p50 %s s, p95 %s s; submit p50 %s s, p95 %s s; "
+      "submit in end_burst p95 %s s." % (
+          fmt(head["login_p50"]), fmt(head["login_p95"]),
+          fmt(head["submit_p50"]), fmt(head["submit_p95"]),
+          fmt(head["submit_end_p95"])))
     if status_counts:
         w("\nFailed requests by (kind, status, error):\n")
         for (kind, status, err), n in status_counts.most_common(30):
@@ -101,10 +184,16 @@ def main(run_dir):
     by_opaque = {s["opaque_id"]: s for s in db["submissions"]}
     driver_subs = [s for s in subs if "kind" in s]
     login_failed = [s for s in subs if s.get("login_failed")]
+    if not have_db:
+        w("db_export.json is missing: nothing below can be checked "
+          "against the database.\n")
     w("Login failures (gave up after 5 tries): %d" % len(login_failed))
     rejected = [s for s in driver_subs if not s.get("accepted")]
     w("Submissions sent: %d; rejected by CWS: %d; DB rows: %d."
       % (len(driver_subs), len(rejected), len(db["submissions"])))
+    metrics["login_failures"] = len(login_failed)
+    metrics["submissions_sent"] = len(driver_subs)
+    metrics["submissions_rejected"] = len(rejected)
     for s in rejected[:10]:
         w("  - rejected %s %s status=%s location=%s" % (
             s["user"], s["task"], s.get("status"), s.get("location")))
@@ -148,13 +237,19 @@ def main(run_dir):
             phase, n, fmt(pct(a, 50), 1), fmt(pct(a, 95), 1),
             fmt(max(a) if a else float("nan"), 1), fmt(pct(b, 50), 1),
             fmt(pct(b, 95), 1), fmt(max(b) if b else float("nan"), 1)))
+    scored = {"scored_p50": pct(all_srv, 50), "scored_p95": pct(all_srv, 95),
+              "scored_max": max(all_srv) if all_srv else float("nan")}
+    for key, value in scored.items():
+        metrics[key] = metric(value, 1)
     w("\nAll: server submit->scored p50 %s s, p95 %s s, max %s s."
-      % (fmt(pct(all_srv, 50), 1), fmt(pct(all_srv, 95), 1),
-         fmt(max(all_srv) if all_srv else float("nan"), 1)))
-    if db["submissions"]:
-        last_scored = max((s["scored_at"] or 0) for s in db["submissions"])
+      % (fmt(scored["scored_p50"], 1), fmt(scored["scored_p95"], 1),
+         fmt(scored["scored_max"], 1)))
+    scored_times = [s["scored_at"] for s in db["submissions"]
+                    if s.get("scored_at")]
+    if scored_times:
+        metrics["drain_after_stop_s"] = metric(max(scored_times) - stop, 0)
         w("Last submission scored %.0f s after the contest stop."
-          % (last_scored - stop))
+          % metrics["drain_after_stop_s"])
     w("\nNever scored (stuck): %d" % len(stuck))
     for s, server in stuck[:20]:
         w("  - %s %s %s opaque=%s server=%s" % (
@@ -162,6 +257,8 @@ def main(run_dir):
             json.dumps(server)))
     w("Rows not identified on the submissions page: %d" % len(unidentified))
     w("Score mismatches vs expected: %d" % len(mismatches))
+    if have_db:
+        metrics["score_mismatches"] = len(mismatches)
     for s, server in mismatches[:20]:
         w("  - %s %s %s expected %s got %s (id %s, evaluations %s)" % (
             s["user"], s["task"], s["kind"], s["expected"], server["score"],
@@ -175,17 +272,14 @@ def main(run_dir):
 
     # ---- ranking ------------------------------------------------------------
     w("\n## Ranking (RWS)\n")
-    final_rws = {}
-    for r in ranking:
-        final_rws[(r["user"], r["task"])] = r["score"]
-    diff = []
-    for ts in db["task_scores"]:
-        cms_score = round(ts["score"], 6)
-        rws_score = round(final_rws.get((ts["user"], ts["task"]), 0.0), 6)
-        if abs(cms_score - rws_score) > 1e-6:
-            diff.append((ts, rws_score))
-    w("Final RWS vs CMS task scores: %d (user, task) pairs, %d differ."
-      % (len(db["task_scores"]), len(diff)))
+    ranked = set(users["ranked"])
+    pairs, diff = rws_mismatches(db["task_scores"], ranking, ranked)
+    if have_db:
+        metrics["rws_pairs"] = pairs
+        metrics["rws_mismatches"] = len(diff)
+    w("Final RWS vs CMS task scores in the ranked contests (%s): "
+      "%d (user, task) pairs, %d differ."
+      % (", ".join(sorted(ranked)), pairs, len(diff)))
     for ts, rws_score in diff[:20]:
         w("  - %s %s CMS %s RWS %s partial=%s" % (
             ts["user"], ts["task"], ts["score"], rws_score, ts["partial"]))
@@ -253,7 +347,9 @@ def main(run_dir):
                 p, max(s["pg"] for s in samples),
                 samples[-1]["cpu"] - samples[0]["cpu"],
                 max(s["rss_mb"] for s in samples)))
-        pg_total = [sum(m.get("pg_states", {}).values()) for m in mon]
+        pg_total = [sum(m["pg_states"].values()) for m in mon
+                    if "pg_states" in m]
+        metrics["peak_pg_connections"] = max(pg_total, default=None)
         w("\nPostgreSQL backends for cmsdb: max %d (max_connections 100); "
           "max 'active' %d; max lock waits %d; longest idle-in-transaction "
           "%s s." % (max(pg_total or [0]),
@@ -360,7 +456,7 @@ def main(run_dir):
                 d = json.loads(js)
             except ValueError:
                 continue
-            if not d.get("Name", "").startswith("cmsload-run"):
+            if not d.get("Name", "").startswith(project_prefix):
                 continue
             cpu[d["Name"]].append(float(d["CPUPerc"].rstrip("%")))
             mem[d["Name"]].append(d["MemUsage"].split("/")[0].strip())
@@ -369,11 +465,24 @@ def main(run_dir):
             w("- %s: CPU mean %.0f%% max %.0f%% (100%% = 1 core); last mem %s"
               % (name, sum(cpu[name]) / len(cpu[name]), max(cpu[name]),
                  mem[name][-1]))
+        if cpu:
+            metrics["cpu_mean_by_container"] = {
+                name: round(sum(v) / len(v), 1) for name, v in cpu.items()}
+            metrics["mem_last_by_container"] = {
+                name: v[-1] for name, v in mem.items()}
 
     with open(os.path.join(run_dir, "summary.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
+    with open(os.path.join(run_dir, "metrics.json"), "w") as f:
+        json.dump(metrics, f, indent=1, sort_keys=True)
     print("\n".join(lines))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("run_dir", help="the run directory (out/<run>)")
+    parser.add_argument("--project-prefix", default="cmsload-",
+                        help="report the docker stats of the containers "
+                        "whose name starts with this (compose project)")
+    cli = parser.parse_args()
+    main(cli.run_dir, cli.project_prefix)
