@@ -4,7 +4,9 @@ name: flaky
 # workflow in 20 identical parallel jobs. Start it by pushing the commit to
 # test to a flaky/ branch, e.g. `git push origin HEAD:flaky/<topic>`; push
 # it to another flaky/ branch (or re-run the workflow) for more samples.
-# A failure that shows up once in 5 runs almost surely appears in 20.
+# A failure that shows up once in 5 runs almost surely appears in 20, but
+# one that shows up once in 20 is missed about a third of the time by a
+# single batch (0.95^20 = 36%).
 # (workflow_dispatch would need this file on the default branch first.)
 on:
   push:

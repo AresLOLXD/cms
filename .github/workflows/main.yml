@@ -1,8 +1,16 @@
 name: ci
 
+# flaky/ branches only run the flaky workflow: its 20 parallel jobs fill
+# the 20 concurrent jobs GitHub Free allows, and this one would queue
+# behind them. Tags are listed so that they keep triggering the workflow,
+# as a bare `push` did: listing only branches-ignore would drop them.
 on:
-  - push
-  - pull_request
+  push:
+    branches-ignore:
+      - "flaky/**"
+    tags:
+      - "**"
+  pull_request:
 
 # The job only checks the repository out.
 permissions:
