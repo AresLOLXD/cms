@@ -6,7 +6,7 @@ installation required.
 | Tool | What it is | Source |
 |------|-----------|--------|
 | `rekarel` | Compiler for the Karel programming language (Node.js CLI) | [@rekarel/cli](https://github.com/kishtarn555/rekarel-js) |
-| `karel` | Karel interpreter written in C++ (statically linked binary) | [rekarel-cpp-interpreter v2.3.1](https://github.com/kishtarn555/rekarel-cpp-interpreter) |
+| `karel` | Karel interpreter written in C++ (statically linked binary) | [rekarel-cpp-interpreter v2.3.2](https://github.com/kishtarn555/rekarel-cpp-interpreter) |
 
 Both tools are in PATH inside the container and are available to CMS workers
 when evaluating Karel submissions.
@@ -38,7 +38,7 @@ full configuration.
 | Tool | Version |
 |------|---------|
 | `@rekarel/cli` | latest at image build time (npm latest) |
-| `rekarel-cpp-interpreter` | v2.3.1 |
+| `rekarel-cpp-interpreter` | v2.3.2 |
 
 To pin `@rekarel/cli` to a specific version, modify the `RUN npm install -g`
 line in the `rekarel-builder` stage of `Dockerfile` and rebuild.
