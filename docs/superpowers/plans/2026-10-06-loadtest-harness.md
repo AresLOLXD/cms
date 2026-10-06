@@ -436,7 +436,7 @@ class ContestExtraKwargsTest(unittest.TestCase):
 These import `cms.db` through `setup_contest`, which needs a parseable
 config but no DB connection at import time. If the import fails without
 `CMS_CONFIG`, export
-`CMS_CONFIG=/tmp/claude-1000/-var-home-areslolxd-Documentos-cms/14caaeb2-fee4-4df8-a9f8-351dae7a92f0/scratchpad/cms-test.toml`
+`CMS_CONFIG=/var/home/areslolxd/Documentos/cms/.worktrees/loadtest/.superpowers/sdd/2026-10-06-loadtest-harness/cms-test.toml`
 when running them, and say so in your report.
 
 - [ ] **Step 2: Run them to verify they fail**
