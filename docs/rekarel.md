@@ -17,11 +17,13 @@ Run a shell inside the running container and check both tools:
 
 ```bash
 docker compose -f docker/docker-compose.prod.yml --env-file .env \
-    exec cms bash -c "rekarel --version && karel"
+    exec cms bash -c "npm ls -g --depth=0 | grep rekarel && karel"
 ```
 
-Expected output: the rekarel version string followed by the karel interpreter
-usage message.
+Expected output: the installed `@rekarel/cli` package version followed by the
+karel interpreter usage message. Check the version with `npm ls` rather than
+`rekarel --version`, which can report an older number than the installed
+package.
 
 ## Using Karel as a task type
 
@@ -41,4 +43,28 @@ full configuration.
 | `rekarel-cpp-interpreter` | v2.3.2 |
 
 To pin `@rekarel/cli` to a specific version, modify the `RUN npm install -g`
-line in the `rekarel-builder` stage of `Dockerfile` and rebuild.
+line in the `rekarel-builder` stage of `Dockerfile`. To move to a new
+interpreter release, change the tag in the `rekarel-cpp-interpreter` download
+URL in the same stage. Commit the change, then deploy it as described below.
+
+## Updating rekarel on a running server
+
+`@rekarel/cli` (npm latest) and the `cms_rekarel` language plugin (installed
+with pip from its Git repository) are downloaded while the image is built, and
+Docker caches those build steps. A normal rebuild therefore keeps the old
+versions, so a new release needs a rebuild without cache:
+
+1. Get the latest code: `git pull`.
+2. Run `./up.sh` and, at the `Rebuild?` question, choose **`5`** (CMS only,
+   no cache).
+3. Run `./status.sh` and wait until every container says `Up`, then check the
+   versions as shown in *Verifying the tools are available* above.
+
+Don't choose **`4`** (CMS only): it reuses the cached steps and keeps the old
+compiler and plugin. If the interpreter tag changed too, the image would end
+up with a new interpreter and an old compiler.
+
+The same steps apply to single-contest and multi-contest deployments: rekarel
+lives only in the CMS image, so the ranking container doesn't need a rebuild.
+Rebuilding restarts the CMS services, so don't do it during a contest. See
+[Docker scripts](docker-scripts.md) for the other `./up.sh` options.
