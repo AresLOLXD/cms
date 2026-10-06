@@ -1,0 +1,45 @@
+name: flaky
+
+# Hunt for intermittent test failures: run the same full suite as the ci
+# workflow in 20 identical parallel jobs. Start it by pushing the commit to
+# test to a flaky/ branch, e.g. `git push origin HEAD:flaky/<topic>`; push
+# it to another flaky/ branch (or re-run the workflow) for more samples.
+# A failure that shows up once in 5 runs almost surely appears in 20.
+# (workflow_dispatch would need this file on the default branch first.)
+on:
+  push:
+    branches:
+      - "flaky/**"
+
+# The job only checks the repository out.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    strategy:
+      # Every run is a sample: one failure must not cancel the others.
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                  11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build docker image
+        run: |
+          docker compose -p cms -f docker/docker-compose.test.yml build \
+              --build-arg BASE_IMAGE=ubuntu:noble testcms
+
+      # See the same step in main.yml.
+      - name: Make the codecov directory writable
+        run: |
+          mkdir -p codecov && chmod 777 codecov
+
+      - name: Run tests
+        run: |
+          docker compose -p cms -f docker/docker-compose.test.yml run --rm testcms
