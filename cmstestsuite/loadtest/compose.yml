@@ -1,11 +1,21 @@
-# Contest-shaped CMS deployment for load testing (mirrors
-# docker/docker-compose.prod.yml of main: one "cms" container with every
-# service under supervisord, a local PostgreSQL and the standalone ranking).
+# Contest-shaped CMS deployment for load testing: one "cms" container
+# with every service (started by start.sh), a local PostgreSQL and the
+# standalone ranking web server, plus a driver container that generates
+# the load. The same file runs both targets: LOAD_TARGET selects the
+# image, cmsload-fork:latest or cmsload-upstream:latest, which build.sh
+# builds from a git ref with that ref's own Dockerfile.
 #
-# Run with the rootful engine and a project name starting with "cmsload-":
-#   sg docker -c "docker --context default compose -p cmsload-run \
-#       -f compose.yml --env-file .env.load up -d --build"
-# .env.load is written by run.sh (it holds the throwaway secret key).
+# Use run.sh, which writes .env.load and the rendered config in run/ and
+# runs this file with the rootful engine under the project name
+# cmsload-<target>:
+#   ./build.sh fork beta
+#   ./run.sh --target fork --profile full --name full1
+#
+# Both images define user cmsuser (uid 2000), put /home/cmsuser/cms/bin on
+# the PATH and read the config from CMS_CONFIG / CMS_RANKING_CONFIG. The
+# fork's image has an entrypoint that generates a config from the
+# environment, the upstream one has none, so "entrypoint: []" makes the
+# two behave alike and run.sh's rendered config is the only config.
 
 services:
   db:
@@ -26,53 +36,50 @@ services:
       retries: 30
 
   db-init:
-    image: cmsload-cms:latest
-    build:
-      context: ./src
-    environment: &cmsenv
-      CMS_DB_URL: postgresql+psycopg2://cms:${LOAD_DB_PASSWORD}@db:5432/cmsdb
-      CMS_SECRET_KEY: ${LOAD_SECRET_KEY}
-      CMS_CONTEST_ID: ALL
-      CMS_CWS_COUNT: ${LOAD_CWS_COUNT:-2}
-      CMS_WORKER_COUNT: ${LOAD_WORKER_COUNT:-8}
-      CMS_TWO_PHASE_EVALUATION: "true"
-      CMS_CWS_HTTP_PORT: 8888
-      CMS_AWS_HTTP_PORT: 8898
-      CMS_RWS_HTTP_PORT: 8890
-      CMS_RWS_HOST: ranking
-      CMS_RWS_USERNAME: rwsload
-      CMS_RWS_PASSWORD: ${LOAD_RWS_PASSWORD}
-      CMS_LOG_DEBUG: "false"
-      TZ: UTC
+    image: cmsload-${LOAD_TARGET}:latest
+    entrypoint: []
+    environment:
+      CMS_CONFIG: /loadtest/run/cms.toml
+    volumes:
+      - ./:/loadtest
     depends_on:
       db:
         condition: service_healthy
-    command: ["cmsSetupDB"]
+    command: ["cmsInitDB"]
     restart: "no"
 
+  # Both builds read CMS_RANKING_CONFIG (cmsranking/Config.py), so the
+  # rendered file is used as it is and no default path is overridden.
   ranking:
-    image: cmsload-ranking:latest
-    build:
-      context: ./src
-      dockerfile: docker/Dockerfile.ranking
+    image: cmsload-${LOAD_TARGET}:latest
+    entrypoint: []
     environment:
-      CMS_RANKING_ONLY: "true"
-      CMS_RWS_HTTP_PORT: 8890
-      CMS_RWS_USERNAME: rwsload
-      CMS_RWS_PASSWORD: ${LOAD_RWS_PASSWORD}
-      TZ: UTC
+      CMS_RANKING_CONFIG: /loadtest/run/cms_ranking.toml
+    volumes:
+      - ./:/loadtest
     command: ["cmsRankingWebServer"]
+    stop_grace_period: 5s
 
   cms:
-    image: cmsload-cms:latest
-    environment: *cmsenv
+    image: cmsload-${LOAD_TARGET}:latest
+    entrypoint: []
+    # start.sh is the container's main process: an init reaps the zombies
+    # of the services that died and forwards the stop signal.
+    init: true
+    environment:
+      CMS_CONFIG: /loadtest/run/cms.toml
+      LOAD_WORKER_COUNT: ${LOAD_WORKER_COUNT}
+      LOAD_CWS_COUNT: ${LOAD_CWS_COUNT}
+      TZ: UTC
     depends_on:
       db-init:
         condition: service_completed_successfully
+      ranking:
+        condition: service_started
     volumes:
       - ./:/loadtest
-    tmpfs:
-      - /home/cmsuser/cms/run
+    command: ["bash", "/loadtest/start.sh"]
+    stop_grace_period: 5s
     privileged: true
     cgroup: host
     ulimits:
@@ -80,6 +87,8 @@ services:
         soft: 65536
         hard: 65536
 
+  # The driver image is not a CMS build: compose builds it from ./driver
+  # the first time and reuses it for every target.
   driver:
     image: cmsload-driver:latest
     build:
@@ -87,6 +96,7 @@ services:
     volumes:
       - ./:/loadtest
     command: ["sleep", "infinity"]
+    stop_grace_period: 1s
     ulimits:
       nofile:
         soft: 65536
