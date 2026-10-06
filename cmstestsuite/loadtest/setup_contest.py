@@ -2,19 +2,22 @@
 """Create the two load-test contests inside the CMS container.
 
 Runs with the CMS venv python (inside the "cms" container, or on any host
-whose cms.toml points to the target database). It creates, from
-scenario.py:
+whose cms.toml points to the target database), on the fork and on stock
+upstream CMS. It creates, from scenario.py and per --profile:
 
-- ranking groups "loada" and "loadb" (one public scoreboard per contest);
-- contests "loada" and "loadb", active (served by CWS -c ALL), with the
-  start/stop given on the command line;
+- ranking groups "loada" and "loadb" (one public scoreboard per contest),
+  in the full profile only, since upstream has no ranking groups;
+- contests "loada" and "loadb", with the start/stop given on the command
+  line, and active (served by CWS -c ALL) where the build has that column;
 - the tasks, one dataset each, with testcases named "sN-nn-tag" so that
-  two-phase screening and subtask dependencies both apply;
+  two-phase screening and, in the full profile, subtask dependencies both
+  apply;
 - users with bcrypt passwords (like AWS/CMS-Loader imports) and their
   participations.
 
-It writes users.json (usernames, plaintext passwords, contest) for the
-driver. It refuses to run if a contest named "loada" already exists.
+It writes users.json (profile, ranked contests, contest ids, usernames,
+plaintext passwords, contest) for the driver. It refuses to run if a
+contest named "loada" already exists.
 
 """
 
@@ -24,8 +27,12 @@ import random
 import sys
 from datetime import datetime, timedelta, timezone
 
-from cms.db import (Contest, Dataset, Group, Participation, RankingGroup,
-                    SessionGen, Statement, Task, Testcase, User)
+from cms.db import (Contest, Dataset, Group, Participation, SessionGen,
+                    Statement, Task, Testcase, User)
+try:
+    from cms.db import RankingGroup
+except ImportError:  # upstream CMS has no ranking groups
+    RankingGroup = None
 from cms.db.filecacher import FileCacher
 from cmscommon.crypto import hash_password
 
@@ -59,6 +66,49 @@ def group_cases(category: str) -> list[tuple[str, int, int]]:
     raise ValueError(category)
 
 
+def score_parameters(spec: dict) -> list[dict]:
+    """Return the score type parameters of a task spec.
+
+    spec: a task spec as returned by scenario.task_spec().
+
+    return: one dict per subtask, with depends_on only if the spec has it.
+
+    """
+    parameters = []
+    for index, sub in enumerate(spec["subtasks"]):
+        entry = {"max_score": sub["max_score"],
+                 "testcases": "^s%d-" % (index + 1)}
+        if spec["score_type"] == "GroupThreshold":
+            entry["threshold"] = 1.0
+        if sub.get("depends_on"):
+            entry["depends_on"] = sub["depends_on"]
+        parameters.append(entry)
+    return parameters
+
+
+def contest_extra_kwargs(contest_name: str, profile: str,
+                         ranking_groups: dict, has_active: bool) -> dict:
+    """Return the Contest() arguments that only the fork knows.
+
+    The fork serves only active contests (CWS answers 404 otherwise) and
+    publishes a contest through its ranking group in the full profile.
+
+    contest_name: the contest being created.
+    profile: the scenario profile.
+    ranking_groups: contest name -> RankingGroup, for the full profile.
+    has_active: whether this build's Contest has the "active" column.
+
+    return: the extra keyword arguments for Contest().
+
+    """
+    if not has_active:
+        return {}
+    kwargs: dict = {"active": True}
+    if profile == "full":
+        kwargs["ranking_group"] = ranking_groups[contest_name]
+    return kwargs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-in", type=float, required=True,
@@ -67,8 +117,14 @@ def main() -> int:
                         help="contest length in seconds")
     parser.add_argument("--users-a", type=int, required=True)
     parser.add_argument("--users-b", type=int, required=True)
+    parser.add_argument("--profile", choices=scenario.PROFILES, required=True)
     parser.add_argument("--out", default="/loadtest/out/users.json")
     args = parser.parse_args()
+
+    if args.profile == "full" and RankingGroup is None:
+        print("The full profile needs ranking groups, "
+              "which this build lacks.")
+        return 1
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     start = now + timedelta(seconds=args.start_in)
@@ -80,6 +136,7 @@ def main() -> int:
         "load test statement")
 
     users_out = []
+    ranking_groups: dict = {}
     with SessionGen() as session:
         if session.query(Contest).filter(Contest.name == "loada").first():
             print("Contest loada already exists; reset the DB first.")
@@ -87,20 +144,25 @@ def main() -> int:
         digests: dict[tuple, tuple[str, str]] = {}
         for contest_name, user_count in (("loada", args.users_a),
                                          ("loadb", args.users_b)):
-            ranking_group = RankingGroup(
-                name=contest_name, description="Ranking %s" % contest_name)
-            session.add(ranking_group)
+            if args.profile == "full":
+                ranking_groups[contest_name] = RankingGroup(
+                    name=contest_name,
+                    description="Ranking %s" % contest_name)
+                session.add(ranking_groups[contest_name])
             contest = Contest(
                 name=contest_name, description="Load test %s" % contest_name,
                 languages=list(scenario.LANGUAGES.values()),
-                active=True, ranking_group=ranking_group,
-                allow_questions=True, allow_user_tests=False)
+                allow_questions=True, allow_user_tests=False,
+                **contest_extra_kwargs(contest_name, args.profile,
+                                       ranking_groups,
+                                       hasattr(Contest, "active")))
             group = Group(name="default", start=start, stop=stop)
             contest.groups.append(group)
             contest.main_group = group
             session.add(contest)
 
-            for num, spec in enumerate(scenario.TASKS[contest_name]):
+            for num, listed in enumerate(scenario.TASKS[contest_name]):
+                spec = scenario.task_spec(listed["name"], args.profile)
                 task = Task(
                     name=spec["name"], title=spec["name"].capitalize(),
                     num=num, contest=contest,
@@ -112,15 +174,6 @@ def main() -> int:
                 session.add(task)
                 task.statements["es"] = Statement(
                     language="es", digest=statement_digest)
-                parameters = []
-                for index, sub in enumerate(spec["subtasks"]):
-                    entry = {"max_score": sub["max_score"],
-                             "testcases": "^s%d-" % (index + 1)}
-                    if spec["score_type"] == "GroupThreshold":
-                        entry["threshold"] = 1.0
-                    if sub.get("depends_on"):
-                        entry["depends_on"] = sub["depends_on"]
-                    parameters.append(entry)
                 dataset = Dataset(
                     task=task, description="Default",
                     time_limit=scenario.TIME_LIMIT,
@@ -128,7 +181,7 @@ def main() -> int:
                     task_type="Batch",
                     task_type_parameters=["alone", ["", ""], "diff"],
                     score_type=spec["score_type"],
-                    score_type_parameters=parameters)
+                    score_type_parameters=score_parameters(spec))
                 session.add(dataset)
                 task.active_dataset = dataset
                 for index, sub in enumerate(spec["subtasks"]):
@@ -157,10 +210,16 @@ def main() -> int:
                 users_out.append({"username": username, "password": password,
                                   "contest": contest_name})
         session.commit()
+        contest_ids = {
+            c.name: c.id for c in session.query(Contest).filter(
+                Contest.name.in_(["loada", "loadb"]))}
 
     with open(args.out, "w") as f:
         json.dump({"start": start.replace(tzinfo=timezone.utc).timestamp(),
                    "stop": stop.replace(tzinfo=timezone.utc).timestamp(),
+                   "profile": args.profile,
+                   "ranked": scenario.RANKED[args.profile],
+                   "contest_ids": contest_ids,
                    "users": users_out}, f)
     print("Created contests; start %s UTC, stop %s UTC, %d users."
           % (start, stop, len(users_out)))
