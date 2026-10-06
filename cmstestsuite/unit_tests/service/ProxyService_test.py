@@ -16,6 +16,7 @@ from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.priorityqueue import QueueEntry
 from cms.service.ProxyService import \
     ProxyExecutor, ProxyOperation, ProxyService
+from cmstestsuite.unit_tests.asyncwait import wait_until
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
@@ -193,26 +194,21 @@ class ProxyServiceTest(
         self.addCleanup(service._disconnect_all)
         return service
 
-    async def _wait_until_put(
-        self, path_substring: str, timeout: float = 2
-    ) -> None:
-        """Poll until a PUT with the given URL fragment was recorded.
+    async def _wait_until_put(self, path_substring: str) -> None:
+        """Wait until a PUT with the given URL fragment was recorded.
 
         Used right after building a service (whose __init__ always
         enqueues an initial initialize() batch) to let that initial
         batch actually land before resetting the mocks, so later
         assertions only observe what the method under test itself did.
-        Like _wait_until, gives up silently on timeout and lets the
-        caller's own assertions report the failure.
 
         path_substring: a fragment expected in one of the PUT URLs.
-        timeout: how many seconds to poll for before giving up.
+
+        raise (AssertionError): if no such PUT arrives in time.
 
         """
-        attempts = max(1, int(timeout / 0.05))
         await self._wait_until(
-            lambda: any(path_substring in u for u in self._put_urls()),
-            attempts=attempts)
+            lambda: any(path_substring in u for u in self._put_urls()))
 
     def _build_scored_submission(self, contest=None):
         """Build a contest (or reuse one) with one already-scored submission.
@@ -283,8 +279,8 @@ class ProxyServiceTest(
     def _put_urls(self) -> list[str]:
         return [c.args[0] for c in self.requests_put.call_args_list]
 
-    async def _wait_until(self, predicate, attempts: int = 50):
-        """Poll predicate() until it is true, or give up.
+    async def _wait_until(self, predicate):
+        """Wait until predicate() is true, failing with the calls seen.
 
         The background executor.run() task (spawned by
         ProxyService.__init__'s add_executor, since a running loop
@@ -293,13 +289,14 @@ class ProxyServiceTest(
         their effects (the mocked HTTP calls) need to wait for it.
 
         predicate: a zero-argument callable to poll.
-        attempts: how many times to poll, sleeping 0.05s between tries.
+
+        raise (AssertionError): if predicate() is still false after the
+            timeout; the message lists the PUT and DELETE URLs seen.
 
         """
-        for _ in range(attempts):
-            if predicate():
-                return
-            await asyncio.sleep(0.05)
+        await wait_until(predicate, describe=lambda: "PUT %s, DELETE %s" % (
+            self._put_urls(),
+            [c.args[0] for c in self.requests_delete.call_args_list]))
 
     async def test_missing_operations_enqueues_scored_submission(self):
         contest, task, dataset, submission, result = \
