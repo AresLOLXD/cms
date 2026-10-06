@@ -10,7 +10,7 @@ run = sys.argv[1]
 ts = lambda l: datetime.datetime.strptime(l[:23], '%Y-%m-%d %H:%M:%S,%f').replace(tzinfo=datetime.timezone.utc).timestamp()
 job_re = re.compile(r'\[(evaluate|compile) submission (\d+)(?: on testcase (\S+?))?\] Finished job')
 finished = {}  # key -> worker group finish time
-for f in glob.glob(os.path.join(run, 'cmslog', 'Worker-*', '2026*.log')):
+for f in glob.glob(os.path.join(run, 'cmslog', 'Worker-*', '[0-9]*.log')):
     last = None
     for l in open(f, errors='replace'):
         m = job_re.search(l)
@@ -21,7 +21,7 @@ for f in glob.glob(os.path.join(run, 'cmslog', 'Worker-*', '2026*.log')):
             last = None
 es_re = re.compile(r"`(evaluate|compile) on (\d+) against dataset \d+(?:, testcase (\S+?))?, archiving sandbox \w+' succeeded")
 lags = []
-for f in glob.glob(os.path.join(run, 'cmslog', 'EvaluationService-0', '2026*.log')):
+for f in glob.glob(os.path.join(run, 'cmslog', 'EvaluationService-0', '[0-9]*.log')):
     for l in open(f, errors='replace'):
         m = es_re.search(l)
         if m:

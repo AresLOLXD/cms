@@ -24,7 +24,7 @@ def main():
         for contest in session.query(Contest).all():
             for p in contest.participations:
                 for task in contest.tasks:
-                    score, partial = task_score(p, task, rounded=True)
+                    score, partial = task_score(p, task)
                     out["task_scores"].append(
                         {"contest": contest.name, "user": p.user.username,
                          "task": task.name, "score": score,

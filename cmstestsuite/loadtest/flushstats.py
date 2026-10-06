@@ -6,19 +6,19 @@ which holds post_finish_lock. Gap = time between two flush starts: every
 two-phase / dependency stage of a submission waits for one flush.
 Usage: flushstats.py out/<run>
 """
-import collections, datetime, glob, json, os, sys
+import collections, datetime, glob, json, os, re, sys
 
 run = sys.argv[1]
 ts = lambda l: datetime.datetime.strptime(l[:23], '%Y-%m-%d %H:%M:%S,%f').replace(tzinfo=datetime.timezone.utc).timestamp()
 starts, durs, items = [], [], []
 cur = None
-for f in sorted(glob.glob(os.path.join(run, 'cmslog', 'EvaluationService-0', '2026*.log'))):
+for f in sorted(glob.glob(os.path.join(run, 'cmslog', 'EvaluationService-0', '[0-9]*.log'))):
     for l in open(f, errors='replace'):
         if 'Starting commit process' in l:
             cur, n = ts(l), 0
         elif 'Writing result to db' in l and cur:
             n += 1
-        elif '_write_results_sync] Done' in l and cur:
+        elif re.search(r'write_results(_sync)?\] Done', l) and cur:
             starts.append(cur); durs.append(ts(l) - cur); items.append(n); cur = None
 u = json.load(open(os.path.join(run, 'users.json')))
 
