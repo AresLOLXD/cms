@@ -194,21 +194,22 @@ class ProxyServiceTest(
         self.addCleanup(service._disconnect_all)
         return service
 
-    async def _wait_until_put(self, path_substring: str) -> None:
-        """Wait until a PUT with the given URL fragment was recorded.
+    async def _wait_for_initial_batch(self) -> None:
+        """Wait until the initial batch of the service was all sent.
 
-        Used right after building a service (whose __init__ always
-        enqueues an initial initialize() batch) to let that initial
-        batch actually land before resetting the mocks, so later
-        assertions only observe what the method under test itself did.
+        Used right after building a service in legacy mode (whose
+        __init__ always enqueues an initial initialize() batch) to let
+        that initial batch actually land before resetting the mocks, so
+        later assertions only observe what the method under test itself
+        did. The batch goes out in one go, one PUT per entity type, and
+        users/ is the last of them: waiting for the first PUT only would
+        let the others arrive after the reset.
 
-        path_substring: a fragment expected in one of the PUT URLs.
-
-        raise (AssertionError): if no such PUT arrives in time.
+        raise (AssertionError): if the batch does not arrive in time.
 
         """
         await self._wait_until(
-            lambda: any(path_substring in u for u in self._put_urls()))
+            lambda: any(u.endswith("/users/") for u in self._put_urls()))
 
     def _build_scored_submission(self, contest=None):
         """Build a contest (or reuse one) with one already-scored submission.
@@ -279,6 +280,18 @@ class ProxyServiceTest(
     def _put_urls(self) -> list[str]:
         return [c.args[0] for c in self.requests_put.call_args_list]
 
+    def _sent_entities(self, resource: str) -> dict[str, dict]:
+        """Return the entities PUT so far to a resource, by key.
+
+        resource: the resource name, e.g. "subchanges".
+
+        """
+        entities: dict[str, dict] = {}
+        for call in self.requests_put.call_args_list:
+            if call.args[0].endswith("/%s/" % resource):
+                entities.update(json.loads(call.args[1]))
+        return entities
+
     async def _wait_until(self, predicate):
         """Wait until predicate() is true, failing with the calls seen.
 
@@ -301,8 +314,9 @@ class ProxyServiceTest(
     async def test_missing_operations_enqueues_scored_submission(self):
         contest, task, dataset, submission, result = \
             self._build_scored_submission()
+        submission_id = str(submission.id)
         service = self._build_service(contest_id=contest.id)
-        await self._wait_until_put("contests/")
+        await self._wait_for_initial_batch()
         self.requests_put.reset_mock()
 
         count = await asyncio.wait_for(
@@ -311,13 +325,18 @@ class ProxyServiceTest(
         # operations_for_score() returns 2 operations (submission and
         # subchange); the submission has no token.
         self.assertEqual(count, 2)
-        await self._wait_until(
-            lambda: any(u.endswith("submissions/")
-                       for u in self._put_urls()))
-        self.assertTrue(
-            any(u.endswith("submissions/") for u in self._put_urls()))
-        self.assertTrue(
-            any(u.endswith("subchanges/") for u in self._put_urls()))
+
+        def score_sent() -> bool:
+            subchanges = self._sent_entities("subchanges")
+            return submission_id in self._sent_entities("submissions") \
+                and any(change["submission"] == submission_id
+                        for change in subchanges.values())
+
+        # The two operations are queued one after the other from a worker
+        # thread, so the executor may send the submission alone before
+        # the subchange is queued: wait for the subchange too.
+        await self._wait_until(score_sent)
+        self.assertTrue(score_sent())
 
     async def test_submission_scored_over_rpc_round_trip_for_sent_contest(
         self,
@@ -330,7 +349,7 @@ class ProxyServiceTest(
         contest, task, dataset, submission, result = \
             self._build_scored_submission()
         service = self._build_service(contest_id=contest.id)
-        await self._wait_until_put("contests/")
+        await self._wait_for_initial_batch()
         self.requests_put.reset_mock()
 
         port = await self._start_server(service)
@@ -370,7 +389,7 @@ class ProxyServiceTest(
         self.add_token(submission=submission)
         self.session.commit()
         service = self._build_service(contest_id=contest.id)
-        await self._wait_until_put("contests/")
+        await self._wait_for_initial_batch()
         self.requests_put.reset_mock()
 
         await asyncio.wait_for(
@@ -427,7 +446,7 @@ class ProxyServiceTest(
         contest, task, dataset, submission, result = \
             self._build_scored_submission()
         service = self._build_service(contest_id=contest.id)
-        await self._wait_until_put("contests/")
+        await self._wait_for_initial_batch()
         self.requests_put.reset_mock()
 
         # This is the nested reinitialize()/initialize() call chain,
@@ -477,7 +496,7 @@ class ProxyServiceTest(
         self.session.commit()
         task_id = task.id
         service = self._build_service(contest_id=contest.id)
-        await self._wait_until_put("contests/")
+        await self._wait_for_initial_batch()
         self.requests_put.reset_mock()
 
         await asyncio.wait_for(service.dataset_updated(task_id), timeout=5)
