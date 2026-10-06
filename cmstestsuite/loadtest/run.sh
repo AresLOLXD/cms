@@ -284,13 +284,18 @@ os.replace(path + ".tmp", path)
 ' "$OUT/users.json" "$TARGET"
 
 # ProxyService starts now that the contests exist. The portable profile has
-# one ranked contest; the full one serves every contest and ranking group.
-proxy_args=0
+# one ranked contest; the full one serves every contest and ranking group
+# ("-c ALL" is multi-contest mode; without -c ProxyService would ask for a
+# contest, or exit when it has no TTY).
 if [[ $PROFILE == portable ]]; then
   loada_id=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["contest_ids"]["loada"])' "$OUT/users.json")
   proxy_args="0 -c $loada_id"
+else
+  proxy_args="0 -c ALL"
 fi
-compose exec -d cms bash -c "cmsProxyService $proxy_args >>/loadtest/run/start.log 2>&1; echo \"\$(date -u +%FT%TZ) EXITED cmsProxyService $proxy_args (run.sh) status \$?\" >>/loadtest/run/start.log"
+# The status goes into a variable first: the date command substitution
+# would reset $?.
+compose exec -d cms bash -c "cmsProxyService $proxy_args >>/loadtest/run/start.log 2>&1; rc=\$?; echo \"\$(date -u +%FT%TZ) EXITED cmsProxyService $proxy_args (run.sh) status \$rc\" >>/loadtest/run/start.log"
 proxy_deadline=$((SECONDS + 60))
 until probe_rpc 28600 >/dev/null 2>&1; do
   if ((SECONDS >= proxy_deadline)); then
