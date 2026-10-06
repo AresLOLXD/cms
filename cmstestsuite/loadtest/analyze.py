@@ -45,7 +45,7 @@ def fmt(x, digits=3):
     return ("%%.%df" % digits) % x
 
 
-def metric(x, digits):
+def metric(x: float | None, digits: int) -> float | None:
     """Return x rounded to digits for metrics.json, or None if x is NaN."""
     if x is None or x != x:
         return None
@@ -66,7 +66,8 @@ def load_jsonl(path):
     return out
 
 
-def rws_mismatches(task_scores, ranking, ranked):
+def rws_mismatches(task_scores: list[dict], ranking: list[dict],
+                   ranked: set[str]) -> tuple[int, list]:
     """Compare the final RWS scores with the CMS task scores.
 
     task_scores: db_export task_scores entries (contest, user, task, score).
@@ -93,7 +94,7 @@ def rws_mismatches(task_scores, ranking, ranked):
     return pairs, diff
 
 
-def main(run_dir, project_prefix="cmsload-"):
+def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
     """Write summary.md and metrics.json for the run in run_dir.
 
     run_dir: the run directory (out/<run>).
