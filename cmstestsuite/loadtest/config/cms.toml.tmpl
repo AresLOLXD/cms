@@ -1,0 +1,72 @@
+# Rendered by render_config.py for one load-test run. Both targets
+# (fork and upstream cc9dfafb) read this same file.
+[global]
+backdoor = false
+file_log_debug = false
+stream_log_detailed = false
+temp_dir = "/tmp"
+two_phase_evaluation = @TWO_PHASE@
+
+[services]
+LogService = [["localhost", 29000]]
+ResourceService = [["localhost", 28000]]
+ScoringService = [["localhost", 28500]]
+Checker = [["localhost", 22000]]
+EvaluationService = [["localhost", 25000]]
+Worker = [
+@WORKERS@
+]
+ContestWebServer = [
+@CWS_RPC@
+]
+AdminWebServer = [["localhost", 21100]]
+ProxyService = [["localhost", 28600]]
+PrometheusExporter = []
+TelegramBot = []
+
+[database]
+url = "@DB_URL@"
+debug = false
+twophase_commit = false
+
+[worker]
+keep_sandbox = false
+
+[sandbox]
+max_file_size = 1_048_576
+compilation_sandbox_max_processes = 1000
+compilation_sandbox_max_time_s = 10.0
+compilation_sandbox_max_memory_kib = 524_288
+trusted_sandbox_max_processes = 1000
+trusted_sandbox_max_time_s = 10.0
+trusted_sandbox_max_memory_kib = 4_194_304
+
+[web_server]
+secret_key = "@SECRET_KEY@"
+tornado_debug = false
+
+[contest_web_server]
+listen_address = [@CWS_ADDRESSES@]
+listen_port = [@CWS_PORTS@]
+cookie_duration = 18000
+num_proxies_used = 0
+submit_local_copy = false
+submit_local_copy_path = "%s/submissions/"
+tests_local_copy = false
+tests_local_copy_path = "%s/tests/"
+max_submission_length = 100_000
+max_input_length = 5_000_000
+docs_path = "/usr/share/cms/docs"
+
+[admin_web_server]
+listen_address = "0.0.0.0"
+listen_port = 8898
+cookie_duration = 36000
+num_proxies_used = 0
+
+[proxy_service]
+rankings = ["http://rwsload:@RWS_PASSWORD@@ranking:8890/"]
+
+[prometheus]
+listen_address = "127.0.0.1"
+listen_port = 8811
