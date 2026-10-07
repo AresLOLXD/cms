@@ -278,8 +278,8 @@ class CommonRequestHandler(RequestHandler):
         if isinstance(header_name, str) and header_name:
             header_time = parse_request_time_header(
                 self.request.headers.get(header_name))
-            self.arrival_time, _ = request_arrival_time(
-                self.timestamp, None, header_time)
+            self.arrival_time = request_arrival_time(
+                self.timestamp, header_time)
             delay = (self.timestamp - self.arrival_time).total_seconds()
             if delay > 1:
                 note = ""

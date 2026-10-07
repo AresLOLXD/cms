@@ -204,7 +204,8 @@ class ArrivalTimeTest(CwsTestBase):
 
 
 # Tests of the handler, on its own. The time at which the handler was
-# built, and how long ago Tornado says the request was read.
+# built, and how long ago Tornado says the request was read (a time the
+# client controls, which must never move the arrival time).
 HANDLER_TIME = datetime(2026, 10, 10, 20, 0, 0)
 ELAPSED = 30.0
 HEADER = "X-Request-Start"

@@ -20,10 +20,9 @@
 
 Under load a request can wait seconds before ContestWebServer builds its
 handler, so the handler's own time can turn an in-time submission into a
-late one. The arrival time is the earliest of the handler time, the
-handler time minus Tornado's elapsed time for the request, and a time a
-trusted front proxy wrote in a header. It is never earlier than
-MAX_SKEW before the handler time.
+late one. Only a time that a trusted front proxy wrote in a header can
+move the arrival time: it is never later than the handler time and never
+earlier than MAX_SKEW before it.
 
 """
 
@@ -40,7 +39,7 @@ MAX_SKEW = timedelta(seconds=60)
 # A header value at or above this is in milliseconds, below it in seconds.
 _MILLISECONDS_THRESHOLD = 10 ** 11
 
-_HEADER_VALUE = re.compile(r"^\s*(?:t=)?(\d+(?:\.\d+)?)\s*$")
+_HEADER_VALUE = re.compile(r"^\s*(?:t=)?([0-9]+(?:\.[0-9]+)?)\s*$")
 
 
 def parse_request_time_header(value: str | None) -> datetime | None:
@@ -72,30 +71,20 @@ def parse_request_time_header(value: str | None) -> datetime | None:
 
 def request_arrival_time(
     handler_time: datetime,
-    elapsed: float | None,
     header_time: datetime | None,
     max_skew: timedelta = MAX_SKEW,
-) -> tuple[datetime, str]:
+) -> datetime:
     """Return when a request arrived, as early as can be trusted.
 
     handler_time (datetime): when the handler was built.
-    elapsed (float|None): seconds Tornado reports since it read the
-        request headers, or None.
     header_time (datetime|None): the time a trusted proxy wrote, or None.
     max_skew (timedelta): how far before handler_time the result can go.
 
-    return ((datetime, str)): the arrival time and its source, one of
-        "handler", "tornado" and "header".
+    return (datetime): header_time, unless it is missing or after
+        handler_time (then handler_time) or more than max_skew before
+        handler_time (then handler_time minus max_skew).
 
     """
-    candidates = [(handler_time, "handler")]
-    if elapsed is not None and elapsed > 0:
-        # Anything beyond max_skew is clamped below, so cap it here:
-        # a huge (or infinite) elapsed time must not overflow.
-        elapsed = min(elapsed, max_skew.total_seconds())
-        candidates.append(
-            (handler_time - timedelta(seconds=elapsed), "tornado"))
-    if header_time is not None and header_time <= handler_time:
-        candidates.append((header_time, "header"))
-    earliest, source = min(candidates, key=lambda candidate: candidate[0])
-    return max(earliest, handler_time - max_skew), source
+    if header_time is None or header_time > handler_time:
+        return handler_time
+    return max(header_time, handler_time - max_skew)

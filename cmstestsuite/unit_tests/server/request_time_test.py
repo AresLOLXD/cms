@@ -48,59 +48,46 @@ class ParseHeaderTest(unittest.TestCase):
             parse_request_time_header("t=%.3f" % unix(T)), T)
 
     def test_garbage_is_ignored(self):
+        # The last value is in Arabic-Indic digits, which float() reads.
         for value in (None, "", "   ", "abc", "t=", "-5", "1e12", "t=12,5",
-                      "99999999999999999999999"):
+                      "99999999999999999999999", "\u0661\u0662\u0663"):
             with self.subTest(value=value):
                 self.assertIsNone(parse_request_time_header(value))
 
 
 class ArrivalTimeTest(unittest.TestCase):
 
-    def test_handler_time_alone(self):
-        self.assertEqual(request_arrival_time(T, None, None), (T, "handler"))
+    def test_handler_time_without_a_header(self):
+        self.assertEqual(request_arrival_time(T, None), T)
 
-    def test_tornado_elapsed_moves_it_back(self):
-        self.assertEqual(request_arrival_time(T, 2.5, None),
-                         (T - timedelta(seconds=2.5), "tornado"))
-
-    def test_header_wins_when_earliest(self):
+    def test_header_moves_the_time_back(self):
         header = T - timedelta(seconds=9)
-        self.assertEqual(request_arrival_time(T, 2.5, header),
-                         (header, "header"))
+        self.assertEqual(request_arrival_time(T, header), header)
 
-    def test_tornado_wins_over_later_header(self):
-        header = T - timedelta(seconds=1)
-        self.assertEqual(request_arrival_time(T, 2.5, header),
-                         (T - timedelta(seconds=2.5), "tornado"))
+    def test_header_at_the_handler_time(self):
+        self.assertEqual(request_arrival_time(T, T), T)
 
     def test_future_header_ignored(self):
         self.assertEqual(
-            request_arrival_time(T, None, T + timedelta(seconds=30)),
-            (T, "handler"))
+            request_arrival_time(T, T + timedelta(seconds=30)), T)
 
     def test_clamped_to_max_skew(self):
         self.assertEqual(MAX_SKEW, timedelta(seconds=60))
-        header = T - timedelta(hours=1)
-        self.assertEqual(request_arrival_time(T, None, header),
-                         (T - MAX_SKEW, "header"))
-
-    def test_huge_elapsed_is_clamped(self):
-        # Neither an infinite elapsed time nor one longer than the
-        # datetime range can make the computation fail.
-        for elapsed in (float("inf"), 1e18):
-            with self.subTest(elapsed=elapsed):
-                self.assertEqual(request_arrival_time(T, elapsed, None),
-                                 (T - MAX_SKEW, "tornado"))
+        self.assertEqual(
+            request_arrival_time(T, T - timedelta(hours=1)), T - MAX_SKEW)
+        # The bound itself is allowed, and so is a custom one.
+        self.assertEqual(
+            request_arrival_time(T, T - MAX_SKEW), T - MAX_SKEW)
+        self.assertEqual(
+            request_arrival_time(T, T - timedelta(seconds=20),
+                                 max_skew=timedelta(seconds=5)),
+            T - timedelta(seconds=5))
 
     def test_zero_header_is_clamped(self):
         # "0" is the Unix epoch: far before the handler time.
         self.assertEqual(
-            request_arrival_time(T, None, parse_request_time_header("0")),
-            (T - MAX_SKEW, "header"))
-
-    def test_negative_or_zero_elapsed_ignored(self):
-        self.assertEqual(request_arrival_time(T, 0.0, None), (T, "handler"))
-        self.assertEqual(request_arrival_time(T, -1.0, None), (T, "handler"))
+            request_arrival_time(T, parse_request_time_header("0")),
+            T - MAX_SKEW)
 
 
 if __name__ == "__main__":
