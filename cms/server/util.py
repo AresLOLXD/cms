@@ -40,7 +40,7 @@ from tornado.web import HTTPError, RequestHandler
 
 from cms.db import Session
 from cms.db.filecacher import TombstoneError
-from cms.server.request_time import (parse_request_time_header,
+from cms.server.request_time import (MAX_SKEW, parse_request_time_header,
                                      request_arrival_time)
 from cmscommon.datetime import make_datetime
 
@@ -267,19 +267,28 @@ class CommonRequestHandler(RequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.handler_time = make_datetime()
+        # When the handler was built. This is the time of everything
+        # but the decisions taken at the stop (see arrival_time).
+        self.timestamp = make_datetime()
+        # When the request arrived, if a trusted proxy says so in the
+        # header the service names; else the same as the timestamp. Only
+        # the phase of the contest and the submissions and tests use it.
+        self.arrival_time = self.timestamp
         header_name = getattr(self.service, "request_time_header", "")
-        header_time = None
         if isinstance(header_name, str) and header_name:
             header_time = parse_request_time_header(
                 self.request.headers.get(header_name))
-        self.timestamp, source = request_arrival_time(
-            self.handler_time, self.request.request_time(), header_time)
-        delay = (self.handler_time - self.timestamp).total_seconds()
-        if delay > 1:
-            logger.info("Request %s %s arrived %.1f s before its handler "
-                        "ran (source: %s).", self.request.method,
-                        self.request.path, delay, source)
+            self.arrival_time, _ = request_arrival_time(
+                self.timestamp, None, header_time)
+            delay = (self.timestamp - self.arrival_time).total_seconds()
+            if delay > 1:
+                note = ""
+                if header_time < self.timestamp - MAX_SKEW:
+                    note = " (clamped to %d s)" % MAX_SKEW.total_seconds()
+                logger.info("Request %s %s arrived %.1f s before its handler "
+                            "ran, as its %s header says%s.",
+                            self.request.method, self.request.path, delay,
+                            header_name, note)
         self.sql_session = Session()
         self.r_params = None
         self.contest = None

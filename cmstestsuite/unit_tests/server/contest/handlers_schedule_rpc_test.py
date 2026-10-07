@@ -70,6 +70,7 @@ class TestHandlersAwaitTheirRpcs(unittest.IsolatedAsyncioTestCase):
         handler.is_multi_contest = lambda: False
         handler.r_params = {"actual_phase": 0, "testing_enabled": True}
         handler.timestamp = MagicMock()
+        handler.arrival_time = MagicMock()
         handler.application = MagicMock()
         handler.request = MagicMock()
         handler.request.arguments = {}

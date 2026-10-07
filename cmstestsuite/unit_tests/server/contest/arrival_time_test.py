@@ -18,19 +18,21 @@
 
 """Tests for the arrival time of a request in a real CWS.
 
-The phase of the contest, and the timestamp of a submission, are those
-of when the request arrived, not of when its handler was built: under
-load a request can wait seconds in between. A trusted front proxy can
-tell CWS when it received the request in a header. The first class sends
-real submissions, just after the end of the contest, through a real
-ContestWebServer; the second builds handlers directly to check the
-handler's times.
+Under load a request can wait seconds before its handler is built. A
+trusted front proxy can tell CWS when it received the whole request in a
+header; the contest phase, and the timestamp stored for a submission or
+a test, are then those of that arrival time. Everything else (tokens,
+questions, notifications, cookies...) keeps the time of the handler. The
+first class sends real requests, just after the end of the contest,
+through a real ContestWebServer; the second builds handlers directly to
+check their times.
 
 """
 
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlencode
 
 import tornado.web
 from tornado.httpclient import HTTPResponse
@@ -40,8 +42,9 @@ from cmstestsuite.unit_tests.server.contest.xsrf_error_page_test import \
     CwsTestBase
 
 from cms import config
-from cms.db import Contest, Submission
+from cms.db import Contest, Question, Submission
 from cms.server.contest.handlers.base import BaseHandler
+from cms.server.request_time import MAX_SKEW
 from cms.server.util import CommonRequestHandler
 from cmscommon.datetime import make_datetime
 
@@ -70,6 +73,7 @@ class ArrivalTimeTest(CwsTestBase):
         self.stop = self.now - timedelta(seconds=30)
         contest = self.session.get(Contest, self.contest_id)
         contest.languages = ["C++17 / g++"]
+        contest.allow_questions = True
         contest.main_group.start = self.now - timedelta(hours=1)
         contest.main_group.stop = self.stop
         task = self.add_task(
@@ -78,12 +82,10 @@ class ArrivalTimeTest(CwsTestBase):
         self.session.commit()
         self.session.close()
 
-    async def submit(self, headers: dict[str, str]) -> HTTPResponse:
-        """Log in and submit a solution to the task, with extra headers.
+    async def login(self) -> tuple[str, dict[str, str]]:
+        """Log in as a browser would.
 
-        headers: the headers to add to the request of the submission.
-
-        return: the response of the submission, not following redirects.
+        return: the XSRF token, and the cookies the browser then holds.
 
         """
         token = await self.fetch_xsrf_token()
@@ -94,6 +96,39 @@ class ArrivalTimeTest(CwsTestBase):
         self.assertEqual(login.code, 302)
         cookies = self.set_cookies(login)
         cookies["_xsrf"] = token
+        return token, cookies
+
+    async def ask(self, headers: dict[str, str]) -> HTTPResponse:
+        """Log in and ask a question, with extra headers.
+
+        headers: the headers to add to the request of the question.
+
+        return: the response of the question, not following redirects.
+
+        """
+        token, cookies = await self.login()
+        request_headers = {
+            "Accept-Language": "en",
+            "Cookie": "; ".join("%s=%s" % item for item in cookies.items()),
+            **headers,
+        }
+        return await self.client.fetch(
+            "http://127.0.0.1:%d%s/question" % (self.port, self.contest_path),
+            method="POST",
+            body=urlencode({"_xsrf": token, "question_subject": "Help",
+                            "question_text": "Is this the last minute?"}),
+            headers=request_headers, follow_redirects=False,
+            raise_error=False)
+
+    async def submit(self, headers: dict[str, str]) -> HTTPResponse:
+        """Log in and submit a solution to the task, with extra headers.
+
+        headers: the headers to add to the request of the submission.
+
+        return: the response of the submission, not following redirects.
+
+        """
+        token, cookies = await self.login()
 
         boundary = "arrival-time-test-boundary"
         parts = []
@@ -140,22 +175,44 @@ class ArrivalTimeTest(CwsTestBase):
     async def test_header_clamped_to_max_skew(self):
         # The stop was 30 s ago: a header 10 min old is clamped to
         # handler time - 60 s, which is still before the stop, so the
-        # submission is accepted with a timestamp about 60 s ago.
+        # submission is accepted with exactly that timestamp.
         self.cws.request_time_header = "X-Request-Start"
-        long_ago = self.now - timedelta(minutes=10)
+        long_ago = make_datetime() - timedelta(minutes=10)
+        before = make_datetime()
         resp = await self.submit(headers={
             "X-Request-Start": "%.3f" % unix(long_ago)})
+        after = make_datetime()
         self.assertIn("submission_id=", resp.headers["Location"])
         stored = self.session.query(Submission).one()
-        self.assertLess(
-            abs((self.now - stored.timestamp).total_seconds() - 60), 5)
+        self.assertGreaterEqual(stored.timestamp, before - MAX_SKEW)
+        self.assertLessEqual(stored.timestamp, after - MAX_SKEW)
+
+    async def test_other_stamps_keep_the_handler_time(self):
+        # The header only decides the phase and the stored submissions:
+        # a question is stamped with the time of the handler (so the
+        # popup that tells the admins about it is not skipped).
+        self.cws.request_time_header = "X-Request-Start"
+        arrival = self.stop - timedelta(seconds=5)
+        before = make_datetime()
+        resp = await self.ask(headers={
+            "X-Request-Start": "t=%d" % (unix(arrival) * 1000)})
+        after = make_datetime()
+        self.assertEqual(resp.code, 302)
+        stored = self.session.query(Question).one()
+        self.assertGreaterEqual(stored.question_timestamp, before)
+        self.assertLessEqual(stored.question_timestamp, after)
 
 
-# Tests of the handler, on its own. A request that was read 3 s before
-# its handler was built, as Tornado reports it, and the time at which
-# the handler was built.
-ELAPSED = 3.0
+# Tests of the handler, on its own. The time at which the handler was
+# built, and how long ago Tornado says the request was read.
 HANDLER_TIME = datetime(2026, 10, 10, 20, 0, 0)
+ELAPSED = 30.0
+HEADER = "X-Request-Start"
+
+
+def stamp(delay: float) -> dict[str, str]:
+    """Return the request headers of a proxy that stamped delay s ago."""
+    return {HEADER: "%.3f" % unix(HANDLER_TIME - timedelta(seconds=delay))}
 
 
 class HandlerTimesTest(unittest.TestCase):
@@ -183,33 +240,69 @@ class HandlerTimesTest(unittest.TestCase):
         self.addCleanup(handler.sql_session.close)
         return handler
 
-    def test_now_is_handler_time(self):
-        # The arrival time is what the phase and the timestamps use, but
-        # the clock and the countdown of the page show the real time.
-        service = MagicMock(request_time_header="")
-        handler = self.build_handler(BaseHandler, service)
+    def test_header_moves_only_the_arrival_time(self):
+        # The arrival time is what the phase and the stored submissions
+        # use; the timestamp, and so the clock and the countdown of the
+        # page, are those of the handler.
+        service = MagicMock(request_time_header=HEADER)
+        handler = self.build_handler(BaseHandler, service, stamp(3))
 
-        self.assertEqual(handler.handler_time, HANDLER_TIME)
-        self.assertEqual(handler.timestamp,
-                         HANDLER_TIME - timedelta(seconds=ELAPSED))
+        self.assertEqual(handler.arrival_time,
+                         HANDLER_TIME - timedelta(seconds=3))
+        self.assertEqual(handler.timestamp, HANDLER_TIME)
         self.assertEqual(handler.render_params()["now"], HANDLER_TIME)
+
+    def test_tornado_elapsed_time_is_ignored(self):
+        # The elapsed time of a request is up to the client (it can send
+        # the headers, and delay the body), so it never moves the time.
+        for header_name in ("", HEADER):
+            with self.subTest(request_time_header=header_name):
+                service = MagicMock(request_time_header=header_name)
+                handler = self.build_handler(BaseHandler, service)
+
+                self.assertEqual(handler.arrival_time, HANDLER_TIME)
+                self.assertEqual(handler.timestamp, HANDLER_TIME)
+                self.assertEqual(
+                    handler.render_params()["now"], HANDLER_TIME)
+
+    def test_header_ignored_when_not_configured(self):
+        service = MagicMock(request_time_header="")
+        with self.assertNoLogs("cms.server.util", "INFO"):
+            handler = self.build_handler(BaseHandler, service, stamp(3))
+
+        self.assertEqual(handler.arrival_time, HANDLER_TIME)
+        self.assertEqual(handler.timestamp, HANDLER_TIME)
 
     def test_service_without_header_attribute(self):
         # A service with no request_time_header, or one that is a
         # MagicMock: __init__ does not fail, and the header is not read.
-        header = {"X-Request-Start":
-                  "%.3f" % unix(HANDLER_TIME - timedelta(seconds=30))}
         no_attribute = MagicMock(spec=["static_file_hasher"])
         any_attribute = MagicMock()
         for name, service in (("no attribute", no_attribute),
                               ("MagicMock attribute", any_attribute)):
             with self.subTest(service=name):
                 handler = self.build_handler(
-                    CommonRequestHandler, service, header)
+                    CommonRequestHandler, service, stamp(30))
 
-                self.assertEqual(handler.handler_time, HANDLER_TIME)
-                self.assertEqual(handler.timestamp,
-                                 HANDLER_TIME - timedelta(seconds=ELAPSED))
+                self.assertEqual(handler.arrival_time, HANDLER_TIME)
+                self.assertEqual(handler.timestamp, HANDLER_TIME)
+
+    def test_log_says_when_the_header_moved_the_time(self):
+        service = MagicMock(request_time_header=HEADER)
+
+        with self.assertLogs("cms.server.util", "INFO") as logs:
+            self.build_handler(BaseHandler, service, stamp(5))
+        self.assertIn("5.0 s", logs.output[0])
+        self.assertNotIn("clamped", logs.output[0])
+
+        with self.assertLogs("cms.server.util", "INFO") as logs:
+            handler = self.build_handler(BaseHandler, service, stamp(600))
+        self.assertEqual(handler.arrival_time, HANDLER_TIME - MAX_SKEW)
+        self.assertIn("clamped to 60 s", logs.output[0])
+
+        with self.assertNoLogs("cms.server.util", "INFO"):
+            self.build_handler(BaseHandler, service, stamp(0.2))
+            self.build_handler(BaseHandler, service)
 
 
 del CwsTestBase

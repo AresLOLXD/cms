@@ -136,7 +136,7 @@ class UserTestHandler(ContestHandler):
         try:
             user_test = accept_user_test(
                 self.sql_session, self.service.file_cacher, self.current_user,
-                task, self.timestamp, self.request.files,
+                task, self.arrival_time, self.request.files,
                 self.get_argument("language", None))
             self.sql_session.commit()
         except TestingNotAllowed:

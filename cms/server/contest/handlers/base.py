@@ -134,9 +134,7 @@ class BaseHandler(CommonRequestHandler):
 
         """
         ret = {}
-        # The clock and the countdown shown to the contestant use the
-        # real time, not the arrival time.
-        ret["now"] = self.handler_time
+        ret["now"] = self.timestamp
         ret["utc"] = utc_tzinfo
         ret["url"] = self.url
         ret["static_url"] = self.static_url_helper

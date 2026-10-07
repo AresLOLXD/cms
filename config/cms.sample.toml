@@ -134,10 +134,13 @@ num_proxies_used = 0
 
 # Name of a header in which a front proxy writes when it received each
 # request, so that a submission that reached the proxy before the contest
-# stop is accepted even if CWS handles it later (e.g. Caddy:
-# header_up X-Request-Start "t={time.now.unix_ms}"). Set it only if every
+# stop is accepted even if CWS handles it later (e.g. nginx:
+# proxy_set_header X-Request-Start "t=${msec}";). Set it only if every
 # request reaches CWS through that proxy, which must overwrite the
-# header, and if the proxy and CWS share a clock. Empty: off.
+# header and write it after it holds the whole request body (nginx does
+# with proxy_request_buffering on, the default), and if the proxy and CWS
+# share a clock. Only the contest phase and the time stored for
+# submissions and tests use it. Empty: off.
 #request_time_header = "X-Request-Start"
 
 # If CWSs write submissions to disk before storing them in the DB, and
