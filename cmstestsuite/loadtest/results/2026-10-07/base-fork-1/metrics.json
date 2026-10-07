@@ -1,0 +1,35 @@
+{
+ "cpu_mean_by_container": {
+  "cmsload-fork-cms-1": 208.9,
+  "cmsload-fork-db-1": 11.2,
+  "cmsload-fork-driver-1": 2.6,
+  "cmsload-fork-ranking-1": 0.2
+ },
+ "drain_after_stop_s": 60.0,
+ "http_errors": 0,
+ "login_failures": 0,
+ "login_p50": 0.26,
+ "login_p95": 0.268,
+ "mem_last_by_container": {
+  "cmsload-fork-cms-1": "1.091GiB",
+  "cmsload-fork-db-1": "107.3MiB",
+  "cmsload-fork-driver-1": "1.137MiB",
+  "cmsload-fork-ranking-1": "28.5MiB"
+ },
+ "peak_pg_connections": 26,
+ "profile": "portable",
+ "run": "base-fork-1",
+ "rws_mismatches": 0,
+ "rws_pairs": 700,
+ "score_mismatches": 0,
+ "scored_max": 64.3,
+ "scored_p50": 12.1,
+ "scored_p95": 40.3,
+ "submissions_rejected": 0,
+ "submissions_sent": 1339,
+ "submit_end_p95": 0.094,
+ "submit_p50": 0.025,
+ "submit_p95": 0.055,
+ "target": "fork",
+ "users": 250
+}

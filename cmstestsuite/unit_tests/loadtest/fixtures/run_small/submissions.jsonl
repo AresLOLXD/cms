@@ -1,0 +1,4 @@
+{"user": "a001", "contest": "loada", "task": "suma", "kind": "ac", "t_submit": 1550.0, "phase": "end_burst", "accepted": true, "expected": 100.0, "opaque_id": 11, "t_terminal_seen": 1561.0, "final_status": 5, "public_score": 100.0, "polls": 4}
+{"user": "a002", "contest": "loada", "task": "libre", "kind": "wa_small", "t_submit": 1560.0, "phase": "end_burst", "accepted": true, "expected": 75.0, "opaque_id": 12, "t_terminal_seen": 1635.0, "final_status": 5, "public_score": 75.0, "polls": 9}
+{"user": "a002", "contest": "loada", "task": "suma", "kind": "ac", "t_submit": 1570.0, "phase": "end_burst", "accepted": false, "expected": 100.0, "location": "/loada/tasks/suma/submissions", "status": 302}
+{"user": "b001", "login_failed": true}
