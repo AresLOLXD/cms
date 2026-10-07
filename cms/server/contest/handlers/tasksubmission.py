@@ -59,7 +59,7 @@ from cms.server.contest.tokening import \
 from cmscommon.crypto import encrypt_number
 from cmscommon.mimetypes import get_type_for_file_name
 from .contest import ContestHandler, FileHandler, api_login_required
-from ..phase_management import actual_phase_required
+from ..phase_management import actual_phase_required, phase_refusal_text
 
 
 logger = logging.getLogger(__name__)
@@ -76,12 +76,16 @@ class SubmitHandler(ContestHandler):
     """
 
     @tornado.web.authenticated
-    @actual_phase_required(0, 1, 2, 3)
+    @actual_phase_required(0, 1, 2, 3,
+                           refusal_subject=N_("Submission not accepted"))
     @multi_contest
     def post(self, task_name):
         # Reject submission if the contest disallow unofficial submission outside of official window or analysis mode
         if 0 < self.r_params["actual_phase"] < 3 and \
                 not self.contest.allow_unofficial_submission_before_analysis_mode:
+            self.notify_error(
+                N_("Submission not accepted"),
+                phase_refusal_text(self.r_params["actual_phase"]))
             self.redirect(self.contest_url())
             return
 

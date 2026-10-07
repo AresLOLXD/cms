@@ -121,7 +121,7 @@ class UserTestInterfaceHandler(ContestHandler):
 class UserTestHandler(ContestHandler):
 
     @tornado.web.authenticated
-    @actual_phase_required(0)
+    @actual_phase_required(0, refusal_subject=N_("Test not accepted"))
     @multi_contest
     def post(self, task_name):
         if not self.r_params["testing_enabled"]:
