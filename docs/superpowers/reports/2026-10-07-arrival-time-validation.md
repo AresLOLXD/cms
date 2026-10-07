@@ -107,9 +107,13 @@ upstream runs have no such line.
 
 - The driver's `time < stop - 2` guard does not cover the statement GET that
   follows it, so the harness cannot make "rejected = 0" the acceptance on a
-  loaded runner. Follow-up for the harness (not done here): check the time
-  again just before the POST, and have `analyze.py` split the rejections by
-  `t_submit` as above.
+  loaded runner. The harness fix landed after these runs: the driver checks
+  the time again just before the POST and no longer sends POSTs created after
+  the stop, so `submissions_sent` falls by about 15-22 compared with these
+  runs; `analyze.py` has a new metric, `submissions_rejected_in_time`
+  (rejections whose `t_submit` is before the stop), which `metrics.json` and
+  `compare.py` include. The results in this report were not recomputed with
+  the fixed harness: that needs a new run (or the artifacts of these runs).
 - The fork's end-burst submit p95 is 11-17 s, against 2.1-9.0 s in the
   baseline. CWS event loop stalls (echo max 5.6-9.4 s, in both runs) dominate
   this tail and the runner-to-runner spread is large, so this run does not show

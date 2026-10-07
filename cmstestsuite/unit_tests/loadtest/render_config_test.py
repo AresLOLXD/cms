@@ -65,7 +65,6 @@ class RenderTest(unittest.TestCase):
             open(os.path.join(here, "cms_ranking.toml.tmpl")).read(),
             values))
 
-
     def test_request_time_header_rendered_only_when_given(self):
         import tomllib
         here = os.path.join(os.path.dirname(__file__), "..", "..",

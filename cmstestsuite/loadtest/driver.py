@@ -203,6 +203,11 @@ class Driver:
         if self.rng.random() < 0.3:
             await self.http(user, "GET", "/tasks/%s/description" % task,
                             "task_description")
+        # The description GET above can take time; do not send a POST that
+        # would be created after the stop (it is rejected by design and
+        # says nothing about the server).
+        if time.time() >= self.stop - 2:
+            return
         form = aiohttp.FormData()
         form.add_field("_xsrf", self.xsrf(user))
         form.add_field("language", scenario.LANGUAGES[lang_key])

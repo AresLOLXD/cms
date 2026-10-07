@@ -166,6 +166,15 @@ A healthy smoke run has 20 of 20 logins, 0 HTTP errors, 0 rejected, 0
 stuck and 0 mismatched submissions, `rws_mismatches` 0, and no `SHORT`
 line in `processes_end.txt`.
 
+The driver does not send a submit POST that would be created after the
+contest stop (it checks the time again right before the POST, after the
+optional task description GET). Runs made before that change sent 15-22
+such POSTs near the stop on a loaded runner, all refused by design, so
+their `submissions_sent` is higher by about that much and their
+`submissions_rejected` includes them; `submissions_rejected_in_time` counts
+only the rejections of POSTs created before the stop, and it is the number
+that says something about the server.
+
 Full run (250 users, 25-minute contest, the defaults; about 35 minutes):
 
 ```bash
@@ -229,8 +238,8 @@ Everything goes to `out/<name>/` (git-ignored):
   (`login_burst`, `start_burst`, `steady`, `end_burst`, `drain`); then
   the login and submit percentiles, the failed requests grouped by kind,
   status and error, and the peak and mean CWS request rate.
-- **Submissions:** login failures; submissions sent, rejected by CWS and
-  found in the DB; per phase, the server latency (`scored_at` minus the
+- **Submissions:** login failures; submissions sent, rejected by CWS (and
+  how many of those were created before the stop) and found in the DB; per phase, the server latency (`scored_at` minus the
   submission timestamp) and the perceived latency (the first poll that
   saw a final status, with the browser backoff); when the last one was
   scored after the stop; stuck submissions (never scored); rows the
@@ -258,7 +267,9 @@ Everything goes to `out/<name>/` (git-ignored):
 
 One flat object with the headline numbers, the ones `compare.py` reads.
 A value is `null` when its input is missing (for example `db_export.json`
-in a run that crashed).
+in a run that crashed). `compare.py` shows "-" for a key that an older
+`metrics.json` does not have (`submissions_rejected_in_time` was added
+later).
 
 | key | meaning |
 |---|---|
@@ -266,6 +277,7 @@ in a run that crashed).
 | `users` | users in both contests |
 | `submissions_sent` | submissions the driver sent |
 | `submissions_rejected` | submissions CWS did not accept (no `submission_id` in the redirect) |
+| `submissions_rejected_in_time` | the rejected submissions whose POST was created before the contest stop (`t_submit` < stop); these are the ones that point at the server |
 | `login_failures` | users who gave up after 5 login attempts |
 | `http_errors` | failed HTTP requests of every kind, `rws_scores` included |
 | `score_mismatches` | scored submissions whose score differs from `expected_score()` |
