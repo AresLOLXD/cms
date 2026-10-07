@@ -2,12 +2,15 @@ name: ci
 
 # flaky/ branches only run the flaky workflow: its 20 parallel jobs fill
 # the 20 concurrent jobs GitHub Free allows, and this one would queue
-# behind them. Tags are listed so that they keep triggering the workflow,
-# as a bare `push` did: listing only branches-ignore would drop them.
+# behind them. loadtest/ branches only run the loadtest workflow: they are
+# pushed to start a load test, not to test the commit again. Tags are
+# listed so that they keep triggering the workflow, as a bare `push` did:
+# listing only branches-ignore would drop them.
 on:
   push:
     branches-ignore:
       - "flaky/**"
+      - "loadtest/**"
     tags:
       - "**"
   pull_request:

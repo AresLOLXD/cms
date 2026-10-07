@@ -1,0 +1,256 @@
+name: loadtest
+
+# Run the load-test harness (cmstestsuite/loadtest/, see its README) on
+# GitHub-hosted runners: the pushed commit (target fork) against stock
+# upstream CMS at UPSTREAM_REF (target upstream). Start it by pushing the
+# commit to test to a loadtest/ branch, and delete the branch afterwards:
+#   git push origin <commit>:refs/heads/loadtest/<topic>
+#   git push origin --delete loadtest/<topic>
+# (workflow_dispatch would need this file on the default branch first.)
+#
+# The scenario is the env block below: the run.sh options of the same
+# names. Change it in the commit you push. Each "pair" job is one repeat
+# on its own runner (ubuntu-24.04: 4 vCPUs, 16 GB): it builds both images,
+# then runs fork and upstream one after the other, fork first in odd
+# repeats and upstream first in even ones (2 and 2), so that the shared
+# runner cancels the runner-to-runner variation. The full profile runs
+# the fork only. "compare" puts the metrics of every run side by side.
+#
+# Cost: standard runners are free on this public repository; the 4 pair
+# jobs take 4 of the 20 concurrent jobs GitHub Free allows. Duration:
+# about 30 min with the README's smoke values (measured); about 1.5 h
+# with the defaults below, estimated from the local runs (5 min of image
+# builds, then two runs of 30-40 min per job), not yet measured on a
+# runner.
+on:
+  push:
+    branches:
+      - "loadtest/**"
+
+# The jobs only check the repository out and pass artifacts to each other.
+permissions:
+  contents: read
+
+# The knob names must not reuse the variables compose.yml interpolates
+# (LOAD_TARGET, LOAD_DB_PASSWORD, LOAD_RWS_PASSWORD, LOAD_SECRET_KEY,
+# LOAD_WORKER_COUNT, LOAD_CWS_COUNT): shell variables override the
+# --env-file that run.sh writes.
+env:
+  LOAD_USERS_A: "175"
+  LOAD_USERS_B: "75"
+  LOAD_LOGIN_WINDOW: "150"
+  LOAD_CONTEST: "1500"
+  LOAD_END_BURST: "300"
+  LOAD_RATE: "45"
+  LOAD_END_BURST_FACTOR: "1.0"
+  LOAD_WORKERS: "8"
+  LOAD_CWS: "4"
+  # portable or full; full has no upstream counterpart.
+  LOAD_PROFILE: portable
+  # The merge-base of the fork and upstream, as in the README.
+  UPSTREAM_REF: cc9dfafb
+
+jobs:
+  pair:
+    runs-on: ubuntu-24.04
+    # Under the 6 h limit of a job. The Run step has its own, shorter
+    # timeout, so that a hung run fails that step and the summary and the
+    # upload still run.
+    timeout-minutes: 330
+
+    strategy:
+      # Every repeat is a sample: one failure must not cancel the others.
+      fail-fast: false
+      matrix:
+        repeat: [1, 2, 3, 4]
+
+    env:
+      REPEAT: ${{ matrix.repeat }}
+
+    defaults:
+      run:
+        # bash with pipefail, so that "run.sh | tee" fails when run.sh does.
+        shell: bash
+        working-directory: cmstestsuite/loadtest
+
+    steps:
+      # build.sh takes the source with "git archive <ref>": UPSTREAM_REF
+      # must be in the history.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Record the runner and the run order
+        run: |
+          if [[ $LOAD_PROFILE == full ]]; then
+            order=fork
+          elif ((REPEAT % 2)); then
+            order="fork upstream"
+          else
+            order="upstream fork"
+          fi
+          echo "ORDER=$order" >>"$GITHUB_ENV"
+          mkdir -p out
+          {
+            echo "repeat $REPEAT, run order: $order"
+            echo "nproc: $(nproc)"
+            lscpu | grep '^Model name'
+            echo "kernel: $(uname -r)"
+            free -g
+            df -h /
+            env | grep -E '^(LOAD_|UPSTREAM_REF=)' | sort
+          } | tee out/runner.txt
+
+      - name: Build the fork image
+        run: ./build.sh fork HEAD
+
+      - name: Build the upstream image
+        if: env.LOAD_PROFILE != 'full'
+        run: ./build.sh upstream "$UPSTREAM_REF"
+
+      # One target after the other, with a teardown in between: run.sh
+      # refuses to start while another target's stack is up. A failed run
+      # does not stop the other one.
+      - name: Run ${{ env.ORDER }}
+        timeout-minutes: 240
+        run: |
+          failed=0
+          for target in $ORDER; do
+            name=ci-$REPEAT-$target
+            echo "::group::$name"
+            began=$(date -u +%FT%TZ)
+            rc=0
+            ./run.sh --target "$target" --profile "$LOAD_PROFILE" \
+                --name "$name" --users-a "$LOAD_USERS_A" \
+                --users-b "$LOAD_USERS_B" \
+                --login-window "$LOAD_LOGIN_WINDOW" \
+                --contest "$LOAD_CONTEST" --end-burst "$LOAD_END_BURST" \
+                --rate "$LOAD_RATE" \
+                --end-burst-factor "$LOAD_END_BURST_FACTOR" \
+                --workers "$LOAD_WORKERS" --cws "$LOAD_CWS" 2>&1 |
+              tee "out/run-$name.log" || rc=$?
+            disk=$(df -h --output=used,avail / | tail -1)
+            ./teardown.sh "$target" 2>&1 | tee -a "out/run-$name.log" || rc=$?
+            echo "::endgroup::"
+            echo "$name: $began to $(date -u +%FT%TZ), exit $rc;" \
+                "disk used and free before the teardown:$disk" |
+              tee -a out/runner.txt
+            if ((rc != 0)); then
+              echo "::error::$name failed (exit $rc)"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Summarize the runs
+        if: always()
+        run: |
+          shopt -s nullglob
+          {
+            echo "## Repeat $REPEAT"
+            echo
+            echo '```'
+            cat out/runner.txt 2>/dev/null ||
+              echo "(no runner.txt: an early step failed)"
+            echo '```'
+            for dir in out/ci-*/; do
+              name=$(basename "$dir")
+              echo
+              echo "### $name"
+              echo
+              if [[ ! -f $dir/metrics.json ]]; then
+                echo "No metrics.json: the run did not finish, see" \
+                    "run-$name.log in the artifact."
+                continue
+              fi
+              {
+                sed -n '3,4p' "$dir/summary.md"
+                grep -e '^Login failures' -e '^Submissions sent' \
+                    -e '^Never scored' -e '^Rows not identified' \
+                    -e '^Score mismatches' -e '^Final RWS' "$dir/summary.md"
+                (cd "$dir" &&
+                  grep -s -H SHORT processes_start.txt processes_end.txt)
+              } | sed 's/^/- /' || true
+              echo
+              python3 compare.py "$dir" || echo "(compare.py failed)"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+          # The disk use at the end. The jobs need about 10 GB (the images
+          # and their build cache); the runners had 86 GB free in 2026-10.
+          df -h /
+          docker system df || true
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-${{ matrix.repeat }}
+          path: cmstestsuite/loadtest/out/
+          # A re-run of the job replaces the artifact of the failed attempt.
+          overwrite: true
+          retention-days: 30
+
+  compare:
+    needs: pair
+    # Compare what there is, even if a repeat failed.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    env:
+      # success, or failure if a repeat failed (its artifact may be
+      # missing or incomplete).
+      PAIR_RESULT: ${{ needs.pair.result }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: loadtest-*
+          path: results
+
+      # --median groups by target only: every run here has the same
+      # profile, LOAD_PROFILE.
+      - name: Compare the runs
+        run: |
+          shopt -s nullglob
+          runs=()
+          missing=()
+          for dir in results/*/ci-*-fork results/*/ci-*-upstream; do
+            if [[ -f $dir/metrics.json ]]; then
+              runs+=("$dir")
+            else
+              missing+=("${dir##*/}")
+            fi
+          done
+          if ((${#runs[@]} == 0)); then
+            echo "No run has a metrics.json (pair jobs: $PAIR_RESULT)" |
+              tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          {
+            echo "Pair jobs: $PAIR_RESULT; runs with a metrics.json:" \
+                "${#runs[@]}."
+            echo
+            echo "## Median per target, profile $LOAD_PROFILE"
+            echo
+            python3 cmstestsuite/loadtest/compare.py "${runs[@]}" --median
+            echo
+            echo "## Every run"
+            echo
+            python3 cmstestsuite/loadtest/compare.py "${runs[@]}"
+            if ((${#missing[@]})); then
+              echo
+              echo "No metrics.json (the run did not finish): ${missing[*]}"
+            fi
+          } >compare.md
+          cat compare.md >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the comparison
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-compare
+          path: compare.md
+          overwrite: true
+          retention-days: 30
