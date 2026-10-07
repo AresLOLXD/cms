@@ -312,6 +312,49 @@ volumes; `--images` also removes `cmsload-<target>:latest`. Tear down
 after every run: the next run of the other target refuses to start while
 this one is up.
 
+## Running on GitHub Actions
+
+The `loadtest` workflow (`.github/workflows/loadtest.yml`) runs the
+fork against upstream on GitHub-hosted runners, so that no workstation
+has to stay up for hours. Push the commit to test to a `loadtest/`
+branch to start it, and delete the branch when the run is over:
+
+```bash
+git push origin HEAD:refs/heads/loadtest/<topic>
+git push origin --delete loadtest/<topic>
+```
+
+- **Knobs:** the `env:` block at the top of the workflow holds the
+  `run.sh` options (`LOAD_USERS_A`, `LOAD_USERS_B`, `LOAD_LOGIN_WINDOW`,
+  `LOAD_CONTEST`, `LOAD_END_BURST`, `LOAD_RATE`,
+  `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`)
+  and `UPSTREAM_REF`; change them in the commit you push. The values in
+  the file are the `run.sh` defaults, except 4 CWS shards instead of 2.
+- **Jobs:** three `pair` jobs, repeats 1 to 3, each on its own runner
+  (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
+  full-size run asks for). Each one builds both images
+  (`./build.sh fork HEAD`, `./build.sh upstream $UPSTREAM_REF`), then
+  runs `ci-<repeat>-fork` and `ci-<repeat>-upstream` one after the other
+  with a teardown in between: the fork first in odd repeats, upstream
+  first in even ones. Because the fork and upstream of a repeat share a
+  runner, the variation from one runner to another (the CPU model
+  varies: the three runners of one smoke test had three different ones)
+  does not bias the comparison. With `LOAD_PROFILE: full` only the fork
+  runs. Then `compare` runs `compare.py --median` and the per-run table
+  over every run that has a `metrics.json`.
+- **Results:** the summary of each `pair` job shows the runner and the
+  headline of its runs, the summary of `compare` both tables. The
+  artifact `loadtest-<repeat>` is that job's `out/`: the two run
+  directories, `run-<name>.log` (the output of `run.sh` and
+  `teardown.sh`), `images/*.txt` and `runner.txt` (cores, CPU model,
+  kernel, memory, disk, the scenario, the run order and the start, end
+  and exit status of each run). The artifact `loadtest-compare` holds
+  `compare.md`.
+- **Cost and time:** standard runners are free on a public repository;
+  the `pair` jobs take 3 of the 20 concurrent jobs of GitHub Free. A job
+  takes about 1.5 hours with the defaults and about 30 minutes with the
+  smoke values; the two image builds take about 5 minutes of that.
+
 ## Limits
 
 - **One host:** the driver, the database, RWS and every CMS service share
