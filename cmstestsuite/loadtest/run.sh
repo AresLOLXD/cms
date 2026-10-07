@@ -197,6 +197,15 @@ print_census_warnings() {
 mkdir -p "$OUT"
 chmod 777 "$OUT"
 trap 'collect; print_census_warnings' EXIT
+# Ctrl-C, or kill -INT/-TERM of this script: stop the driver, whose
+# requests would go on in its container, and exit; the EXIT trap collects.
+# shellcheck disable=SC2329  # called from the INT and TERM traps
+on_signal() {
+  compose kill driver >/dev/null 2>&1 || true
+  exit "$1"
+}
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 compose down -v --remove-orphans >/dev/null 2>&1 || true
 compose up -d --wait db
@@ -319,13 +328,16 @@ compose exec -d cms bash -c "echo \$\$ >/loadtest/run/monitor.pid; exec python3 
 ) &
 STATS_PID=$!
 
+# The driver runs in the background so that a signal to this script runs
+# its trap at once: bash defers traps until a foreground command ends.
 driver_rc=0
 compose exec -T driver python3 /loadtest/driver.py \
   --users-file "/loadtest/out/$NAME/users.json" \
   --cws "${CWS_URLS[@]}" --rws http://ranking:8890 \
   --out "/loadtest/out/$NAME" --login-window "$LOGIN" --end-burst "$ENDB" \
   --steady-rate "$RATE" --end-burst-factor "$EBF" 2>&1 |
-  tee "$OUT/driver_stdout.log" || driver_rc=$?
+  tee "$OUT/driver_stdout.log" &
+wait $! || driver_rc=$?
 
 # analyze.py needs the DB export and the logs, so collect before it.
 sleep 15
