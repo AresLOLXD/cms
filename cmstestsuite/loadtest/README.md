@@ -330,18 +330,19 @@ git push origin --delete loadtest/<topic>
   `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`)
   and `UPSTREAM_REF`; change them in the commit you push. The values in
   the file are the `run.sh` defaults, except 4 CWS shards instead of 2.
-- **Jobs:** three `pair` jobs, repeats 1 to 3, each on its own runner
+- **Jobs:** four `pair` jobs, repeats 1 to 4, each on its own runner
   (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
   full-size run asks for). Each one builds both images
   (`./build.sh fork HEAD`, `./build.sh upstream $UPSTREAM_REF`), then
   runs `ci-<repeat>-fork` and `ci-<repeat>-upstream` one after the other
   with a teardown in between: the fork first in odd repeats, upstream
-  first in even ones. Because the fork and upstream of a repeat share a
-  runner, the variation from one runner to another (the CPU model
-  varies: the three runners of one smoke test had three different ones)
-  does not bias the comparison. With `LOAD_PROFILE: full` only the fork
+  first in even ones, two of each. Because the fork and upstream of a
+  repeat share a runner, the shared runner cancels the runner-to-runner
+  variation (the CPU model varies: the three runners of one smoke test
+  had three different ones). With `LOAD_PROFILE: full` only the fork
   runs. Then `compare` runs `compare.py --median` and the per-run table
-  over every run that has a `metrics.json`.
+  over every run that has a `metrics.json`; `--median` runs for the
+  `full` profile too, since one workflow run never mixes profiles.
 - **Results:** the summary of each `pair` job shows the runner and the
   headline of its runs, the summary of `compare` both tables. The
   artifact `loadtest-<repeat>` is that job's `out/`: the two run
@@ -349,11 +350,17 @@ git push origin --delete loadtest/<topic>
   `teardown.sh`), `images/*.txt` and `runner.txt` (cores, CPU model,
   kernel, memory, disk, the scenario, the run order and the start, end
   and exit status of each run). The artifact `loadtest-compare` holds
-  `compare.md`.
+  `compare.md`. A green job does not mean a clean run: it fails only
+  when `run.sh` or `teardown.sh` does, and HTTP errors, stuck
+  submissions and score mismatches show only in the summaries. The
+  artifacts of this public repository are public; they hold throwaway
+  data only (the test users' deterministic passwords and the config
+  without its secrets) and are kept 30 days.
 - **Cost and time:** standard runners are free on a public repository;
-  the `pair` jobs take 3 of the 20 concurrent jobs of GitHub Free. A job
-  takes about 1.5 hours with the defaults and about 30 minutes with the
-  smoke values; the two image builds take about 5 minutes of that.
+  the `pair` jobs take 4 of the 20 concurrent jobs of GitHub Free. A job
+  takes about 30 minutes with the smoke values, the two image builds
+  about 5 minutes of that. With the defaults it takes about 1.5 hours,
+  an estimate from the local runs, not yet measured on a runner.
 
 ## Limits
 

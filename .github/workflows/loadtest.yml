@@ -11,15 +11,17 @@ name: loadtest
 # The scenario is the env block below: the run.sh options of the same
 # names. Change it in the commit you push. Each "pair" job is one repeat
 # on its own runner (ubuntu-24.04: 4 vCPUs, 16 GB): it builds both images,
-# then runs fork and upstream one after the other, alternating which one
-# goes first, so that the variation between runners does not bias the
-# comparison. The full profile runs the fork only. "compare" puts the
-# metrics of every run side by side.
+# then runs fork and upstream one after the other, fork first in odd
+# repeats and upstream first in even ones (2 and 2), so that the shared
+# runner cancels the runner-to-runner variation. The full profile runs
+# the fork only. "compare" puts the metrics of every run side by side.
 #
-# Cost: standard runners are free on this public repository; the 3 pair
-# jobs take 3 of the 20 concurrent jobs GitHub Free allows. Duration:
-# about 1.5 h with the defaults below (5 min of image builds, then two
-# runs of 30-40 min per job), about 30 min with the README's smoke values.
+# Cost: standard runners are free on this public repository; the 4 pair
+# jobs take 4 of the 20 concurrent jobs GitHub Free allows. Duration:
+# about 30 min with the README's smoke values (measured); about 1.5 h
+# with the defaults below, estimated from the local runs (5 min of image
+# builds, then two runs of 30-40 min per job), not yet measured on a
+# runner.
 on:
   push:
     branches:
@@ -29,6 +31,10 @@ on:
 permissions:
   contents: read
 
+# The knob names must not reuse the variables compose.yml interpolates
+# (LOAD_TARGET, LOAD_DB_PASSWORD, LOAD_RWS_PASSWORD, LOAD_SECRET_KEY,
+# LOAD_WORKER_COUNT, LOAD_CWS_COUNT): shell variables override the
+# --env-file that run.sh writes.
 env:
   LOAD_USERS_A: "175"
   LOAD_USERS_B: "75"
@@ -47,14 +53,16 @@ env:
 jobs:
   pair:
     runs-on: ubuntu-24.04
-    # Under the 6 h limit of a job, so that the results are still uploaded.
+    # Under the 6 h limit of a job. The Run step has its own, shorter
+    # timeout, so that a hung run fails that step and the summary and the
+    # upload still run.
     timeout-minutes: 330
 
     strategy:
       # Every repeat is a sample: one failure must not cancel the others.
       fail-fast: false
       matrix:
-        repeat: [1, 2, 3]
+        repeat: [1, 2, 3, 4]
 
     env:
       REPEAT: ${{ matrix.repeat }}
@@ -104,6 +112,7 @@ jobs:
       # refuses to start while another target's stack is up. A failed run
       # does not stop the other one.
       - name: Run ${{ env.ORDER }}
+        timeout-minutes: 240
         run: |
           failed=0
           for target in $ORDER; do
@@ -126,7 +135,10 @@ jobs:
             echo "$name: $began to $(date -u +%FT%TZ), exit $rc;" \
                 "disk used and free before the teardown:$disk" |
               tee -a out/runner.txt
-            ((rc == 0)) || failed=1
+            if ((rc != 0)); then
+              echo "::error::$name failed (exit $rc)"
+              failed=1
+            fi
           done
           exit "$failed"
 
@@ -138,7 +150,8 @@ jobs:
             echo "## Repeat $REPEAT"
             echo
             echo '```'
-            cat out/runner.txt
+            cat out/runner.txt 2>/dev/null ||
+              echo "(no runner.txt: an early step failed)"
             echo '```'
             for dir in out/ci-*/; do
               name=$(basename "$dir")
@@ -155,16 +168,17 @@ jobs:
                 grep -e '^Login failures' -e '^Submissions sent' \
                     -e '^Never scored' -e '^Rows not identified' \
                     -e '^Score mismatches' -e '^Final RWS' "$dir/summary.md"
-                grep SHORT "$dir/processes_end.txt"
+                (cd "$dir" &&
+                  grep -s -H SHORT processes_start.txt processes_end.txt)
               } | sed 's/^/- /' || true
               echo
-              python3 compare.py "$dir"
+              python3 compare.py "$dir" || echo "(compare.py failed)"
             done
           } >>"$GITHUB_STEP_SUMMARY"
           # The disk use at the end. The jobs need about 10 GB (the images
           # and their build cache); the runners had 86 GB free in 2026-10.
           df -h /
-          docker system df
+          docker system df || true
 
       - name: Upload the results
         if: always()
@@ -174,13 +188,19 @@ jobs:
           path: cmstestsuite/loadtest/out/
           # A re-run of the job replaces the artifact of the failed attempt.
           overwrite: true
+          retention-days: 30
 
   compare:
     needs: pair
     # Compare what there is, even if a repeat failed.
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+
+    env:
+      # success, or failure if a repeat failed (its artifact may be
+      # missing or incomplete).
+      PAIR_RESULT: ${{ needs.pair.result }}
 
     steps:
       - uses: actions/checkout@v5
@@ -205,10 +225,14 @@ jobs:
             fi
           done
           if ((${#runs[@]} == 0)); then
-            echo "No run has a metrics.json" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "No run has a metrics.json (pair jobs: $PAIR_RESULT)" |
+              tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           {
+            echo "Pair jobs: $PAIR_RESULT; runs with a metrics.json:" \
+                "${#runs[@]}."
+            echo
             echo "## Median per target, profile $LOAD_PROFILE"
             echo
             python3 cmstestsuite/loadtest/compare.py "${runs[@]}" --median
@@ -229,3 +253,4 @@ jobs:
           name: loadtest-compare
           path: compare.md
           overwrite: true
+          retention-days: 30
