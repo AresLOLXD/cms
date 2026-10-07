@@ -18,8 +18,8 @@ name: loadtest
 #
 # Cost: standard runners are free on this public repository; the 3 pair
 # jobs take 3 of the 20 concurrent jobs GitHub Free allows. Duration:
-# about 2 h with the defaults below (two image builds and two runs of
-# 30-40 min per job), about 1 h with the README's smoke values.
+# about 1.5 h with the defaults below (5 min of image builds, then two
+# runs of 30-40 min per job), about 30 min with the README's smoke values.
 on:
   push:
     branches:
@@ -71,16 +71,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      # Two CMS images of about 4 GB each, their build cache and the
-      # database do not fit in what the runner's disk has free; these
-      # preinstalled toolchains are not used here.
-      - name: Free disk space
-        run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-              /opt/hostedtoolcache/CodeQL
-          df -h /
 
       - name: Record the runner and the run order
         run: |
@@ -171,7 +161,8 @@ jobs:
               python3 compare.py "$dir"
             done
           } >>"$GITHUB_STEP_SUMMARY"
-          # The disk use at the end, for sizing the "Free disk space" step.
+          # The disk use at the end. The jobs need about 10 GB (the images
+          # and their build cache); the runners had 86 GB free in 2026-10.
           df -h /
           docker system df
 
