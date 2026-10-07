@@ -21,7 +21,11 @@ server; use them as a starting point, not as a limit.
   end").
 - **Contest Web Server processes:** `CMS_CWS_COUNT` (default 1). With 2, a
   server under heavy load rejected some submissions made in the last seconds;
-  with 4, none (see "At the end" for why).
+  with 4, none (see "At the end" for why). With the request time header on
+  (see "Submissions at the contest stop" in
+  [docker-deployment.md](docker-deployment.md)), a busy server no longer
+  refuses a submission that reached the reverse proxy before the stop.
+  Without it, keep 4 processes.
 - **Ports:** process *i* listens on `CMS_CWS_HTTP_PORT` + *i*. Nothing checks
   that this range stays clear of `CMS_AWS_HTTP_PORT` and `CMS_RWS_HTTP_PORT`,
   and with the defaults (8888, 8889, 8890) a second process lands on the
@@ -135,14 +139,18 @@ Common problems:
 ## At the end
 
 1. **Last-second submissions.** There is no grace period. A submission
-   counts by the time the server processes it, not the time the contestant
-   pressed the button: a busy server can judge a submission sent just before
-   the end as late. A late submission is not accepted (unless the contest
-   allows unofficial submissions before the analysis mode), and the form
-   only sends the contestant back to the contest page, which says "The
-   contest has already ended." ("La competencia ya finalizó." in Spanish).
-   Tell the contestants beforehand not to leave their submissions for the
-   last seconds.
+   counts by the time its request reached the reverse proxy if the request
+   time header is on (see "Submissions at the contest stop" in
+   [docker-deployment.md](docker-deployment.md)), and by the time the server
+   processes it if not; never by the time the contestant pressed the button.
+   Without the header, a busy server can judge a submission sent just before
+   the end as late: set the contest stop about one minute after the end you
+   announce. A late submission is not accepted (unless the contest allows
+   unofficial submissions before the analysis mode): the form sends the
+   contestant back to the contest page with the error "Submission not
+   accepted" / "The contest has already ended." ("Envío no aceptado" / "La
+   competencia ya finalizó." in Spanish). Tell the contestants beforehand
+   not to leave their submissions for the last seconds.
 2. **Wait for the evaluation to finish.** The submissions made before the
    end are still being evaluated after it. In the load test the queue took 1
    to 5 minutes to drain with 8 workers. It is done when, on each contest's

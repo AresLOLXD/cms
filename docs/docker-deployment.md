@@ -40,6 +40,7 @@ in the values marked `CHANGE_ME`:
 | `CMS_ADMIN_PASSWORD` | Password for the initial admin account created on first run. Can be removed after the first deploy. |
 | `CMS_RWS_PASSWORD` | Password CMS uses to send scores to the Ranking Web Server. The Ranking Web Server port is only accessible through the reverse proxy (TLS, rate limiting): never keep `CHANGE_ME`. |
 | `CMS_CWS_COOKIE_DURATION` | Contestant session lifetime in seconds (default `18000` = 5 hours). Every authenticated request renews the session cookie, including background polls (notifications, submission status), so the session only expires after this long without any request. Must be a positive integer. An open contest page keeps its session alive, so on shared computers contestants must log out and close the tab. |
+| `CMS_CWS_REQUEST_TIME_HEADER` | Optional, empty by default (off). The header in which your reverse proxy writes when it received each request, so that a busy server still accepts the submissions sent before the contest stop. Set it only as explained in "Submissions at the contest stop" below. |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
@@ -91,6 +92,98 @@ plain HTTP. You can change all port numbers in `.env`.
 | `8889` | Admin Web Server (contest administration) |
 | `8890` | Ranking Web Server (public scoreboard) |
 | `9995` | CMS-Loader (bulk user import; runs only when `CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER` and `CMS_LOADER_ADMIN_PASSWORD` are set, see [CMS-Loader](cms-loader.md)) |
+
+## Submissions at the contest stop
+
+The Contest Web Server decides whether a submission is on time by the time it
+starts handling the request. On a busy server a request can wait several
+seconds before that, so a submission sent just before the contest stop can be
+refused as late. If your reverse proxy writes in a header when it received
+each request, the Contest Web Server can use that time instead. This is off by
+default (`CMS_CWS_REQUEST_TIME_HEADER` empty): the Contest Web Server then uses
+the time it handles the request, as before.
+
+- The time in the header decides the contest phase of the request, and it is
+  the time stored with submissions and user tests. Tokens, questions,
+  notifications and cookies keep the time the Contest Web Server handled the
+  request.
+- The header holds seconds or milliseconds since the Unix epoch, with an
+  optional `t=` prefix (`t=1696698123.456` or `t=1696698123456`). A value the
+  Contest Web Server cannot read, or one later than the time it handles the
+  request, is ignored.
+- It never moves a request more than 60 seconds back: an older time counts as
+  60 seconds before the request was handled.
+
+Turn it on only if all of these are true. Otherwise a contestant can write
+the header, or send the body late, and get a submission made after the stop
+accepted:
+
+- Every request reaches the Contest Web Server through that proxy. In this
+  deployment the Contest Web Server ports listen on `127.0.0.1` only (see
+  "Ports" above): keep it that way.
+- The proxy overwrites the header, replacing any value the client sent.
+- The proxy writes the header after it has received the whole request body.
+  A proxy that writes it when the request headers arrive lets a client send
+  the headers before the stop and the body after it.
+- The proxy and CMS share a clock: they run on the same host, or both are
+  synced with NTP.
+
+**nginx** meets these: `proxy_set_header` replaces the client's header, and
+nginx reads the whole body before it contacts the Contest Web Server
+(`proxy_request_buffering on`, the default). Add this line to the `location`
+block that proxies to the Contest Web Server (see "nginx configuration" in the
+[Docker Scripts Guide](docker-scripts.md)), and do not set
+`proxy_request_buffering off` there:
+
+```nginx
+proxy_set_header X-Request-Start "t=${msec}";
+```
+
+**Caddy** writes `header_up` values by default as soon as the request headers
+arrive, before the body, so the `header_up` line alone is not safe.
+`request_buffers` makes Caddy read the body first, but only up to that size: a
+larger body goes on with an early time. Set `max_size` in `request_body` to the
+same size, so that Caddy refuses larger requests (413) and the Contest Web
+Server never handles them. Pick a size above your largest request: a user test
+can carry up to 5 MB of input. In the site that proxies to the Contest Web
+Server (keep your upstreams and other options):
+
+```
+request_body {
+    max_size 10MB
+}
+reverse_proxy 127.0.0.1:8888 {
+    header_up X-Request-Start "t={time.now.unix_ms}"
+    request_buffers 10MB
+}
+```
+
+Once the proxy writes the header, put its name in `.env` and run
+`./restart.sh`:
+
+```
+CMS_CWS_REQUEST_TIME_HEADER=X-Request-Start
+```
+
+To check that it works, look at the Contest Web Server log (`./logs.sh cms`)
+under load, near the stop. It shows lines like this one:
+
+```
+Request POST /tasks/sum/submit arrived 3.2 s before its handler ran, as its X-Request-Start header says.
+```
+
+They appear only for requests that waited more than one second, so a quiet
+server shows none. A line that says "(clamped to 60 s)" means the header was
+more than 60 seconds old: check the proxy's clock, and that nothing else can
+reach the Contest Web Server.
+
+Two harmless effects near the stop:
+
+- A page that reached the proxy just before the stop, but was handled after
+  it, shows the contest as running with no time left, and reloads once more:
+  the phase uses the arrival time, the clock the time the page was handled.
+- A token used just before the stop is stored with the time the Contest Web
+  Server handled the request, at most 60 seconds after the stop.
 
 ## Container resource limits
 
