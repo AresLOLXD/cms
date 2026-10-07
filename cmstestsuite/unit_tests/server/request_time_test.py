@@ -84,6 +84,20 @@ class ArrivalTimeTest(unittest.TestCase):
         self.assertEqual(request_arrival_time(T, None, header),
                          (T - MAX_SKEW, "header"))
 
+    def test_huge_elapsed_is_clamped(self):
+        # Neither an infinite elapsed time nor one longer than the
+        # datetime range can make the computation fail.
+        for elapsed in (float("inf"), 1e18):
+            with self.subTest(elapsed=elapsed):
+                self.assertEqual(request_arrival_time(T, elapsed, None),
+                                 (T - MAX_SKEW, "tornado"))
+
+    def test_zero_header_is_clamped(self):
+        # "0" is the Unix epoch: far before the handler time.
+        self.assertEqual(
+            request_arrival_time(T, None, parse_request_time_header("0")),
+            (T - MAX_SKEW, "header"))
+
     def test_negative_or_zero_elapsed_ignored(self):
         self.assertEqual(request_arrival_time(T, 0.0, None), (T, "handler"))
         self.assertEqual(request_arrival_time(T, -1.0, None), (T, "handler"))

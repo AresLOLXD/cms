@@ -90,6 +90,9 @@ def request_arrival_time(
     """
     candidates = [(handler_time, "handler")]
     if elapsed is not None and elapsed > 0:
+        # Anything beyond max_skew is clamped below, so cap it here:
+        # a huge (or infinite) elapsed time must not overflow.
+        elapsed = min(elapsed, max_skew.total_seconds())
         candidates.append(
             (handler_time - timedelta(seconds=elapsed), "tornado"))
     if header_time is not None and header_time <= handler_time:
