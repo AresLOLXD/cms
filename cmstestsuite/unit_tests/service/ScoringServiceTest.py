@@ -21,13 +21,13 @@
 
 """
 
-import asyncio
 import unittest
 from unittest.mock import patch, PropertyMock
 
 from cms.conf import Address
 from cms.service.ScoringService import ScoringService
 from cmscommon.datetime import make_datetime
+from cmstestsuite.unit_tests.asyncwait import wait_until
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
@@ -74,6 +74,41 @@ class TestScoringService(
 
         self.service = ScoringService(0)
         self.addCleanup(self.service._disconnect_all)
+        self._wrap_executor_to_count_executions()
+
+    def _wrap_executor_to_count_executions(self):
+        """Count the operations the scoring executor has finished.
+
+        compute_score runs in a thread and the score is committed later,
+        so neither a sleep nor the calls to compute_score tell when the
+        score is in the database. An operation is finished when
+        execute() returns, after the commit; it is counted even if it
+        raised, so a failure shows in the assertions rather than as a
+        timeout.
+
+        """
+        self.finished_executions = 0
+        executor = self.service.get_executor()
+        execute = executor.execute
+
+        async def counting_execute(entry):
+            try:
+                await execute(entry)
+            finally:
+                self.finished_executions += 1
+
+        executor.execute = counting_execute
+
+    async def _wait_for_executions(self, count):
+        """Wait until the executor has finished count operations."""
+
+        def describe() -> str:
+            return ("%d of %d operations finished, "
+                    "compute_score called for %s" % (
+                        self.finished_executions, count, self.call_args))
+
+        await wait_until(
+            lambda: self.finished_executions >= count, describe=describe)
 
     def compute_score(self, sr):
         self.call_args.append((sr.submission_id, sr.dataset_id))
@@ -108,7 +143,7 @@ class TestScoringService(
 
         self.service.new_evaluation(sr.submission_id, sr.dataset_id)
 
-        await asyncio.sleep(0.1)  # Needed to trigger the score loop.
+        await self._wait_for_executions(1)
 
         # Asserts that compute_score was called.
         self.assertCountEqual(self.call_args,
@@ -131,7 +166,7 @@ class TestScoringService(
         self.service.new_evaluation(sr_a.submission_id, sr_a.dataset_id)
         self.service.new_evaluation(sr_b.submission_id, sr_b.dataset_id)
 
-        await asyncio.sleep(0.1)  # Needed to trigger the score loop.
+        await self._wait_for_executions(2)
 
         # Asserts that compute_score was called.
         self.assertCountEqual(self.call_args,
@@ -149,7 +184,9 @@ class TestScoringService(
 
         self.service.new_evaluation(sr.submission_id, sr.dataset_id)
 
-        await asyncio.sleep(0.1)  # Needed to trigger the score loop.
+        # Nothing happens to the result, so there is no effect to wait
+        # for: wait for the executor to finish the operation instead.
+        await self._wait_for_executions(1)
 
         # Asserts that compute_score was called.
         self.score_type.compute_score.assert_not_called()
