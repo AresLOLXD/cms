@@ -25,6 +25,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKER = re.compile(r"@([A-Z_]+)@")
+HEADER_NAME = re.compile(r"[A-Za-z0-9-]+")
 
 
 def render(template: str, values: dict[str, str]) -> str:
@@ -59,7 +60,8 @@ def worker_lines(count: int) -> str:
 
 
 def values(db_url: str, secret_key: str, rws_password: str, workers: int,
-           cws: int, two_phase: bool) -> dict[str, str]:
+           cws: int, two_phase: bool,
+           request_time_header: str = "") -> dict[str, str]:
     """Return the marker values of both templates.
 
     db_url: SQLAlchemy URL of the database.
@@ -68,10 +70,20 @@ def values(db_url: str, secret_key: str, rws_password: str, workers: int,
     workers: the number of Worker shards.
     cws: the number of ContestWebServer shards.
     two_phase: the value of the fork-only two_phase_evaluation flag.
+    request_time_header: name of the header in which a front proxy stamps
+        the arrival time of each request, or "" to leave the key unset.
 
     return: the replacement text of each marker.
 
+    raise (ValueError): if request_time_header is not a plain header name
+        (letters, digits and hyphens).
+
     """
+    if request_time_header and not HEADER_NAME.fullmatch(request_time_header):
+        raise ValueError("invalid request time header name: %r"
+                         % request_time_header)
+    cws_extra = ('request_time_header = "%s"' % request_time_header
+                 if request_time_header else "")
     return {
         "DB_URL": db_url,
         "SECRET_KEY": secret_key,
@@ -81,6 +93,7 @@ def values(db_url: str, secret_key: str, rws_password: str, workers: int,
                              for i in range(cws)),
         "CWS_ADDRESSES": ", ".join(['"0.0.0.0"'] * cws),
         "CWS_PORTS": ", ".join(str(8888 + i) for i in range(cws)),
+        "CWS_EXTRA": cws_extra,
         "TWO_PHASE": "true" if two_phase else "false",
     }
 
@@ -100,9 +113,11 @@ def main() -> int:
     parser.add_argument("--cws", type=int, required=True)
     parser.add_argument("--two-phase", choices=("true", "false"),
                         required=True)
+    parser.add_argument("--request-time-header", default="")
     args = parser.parse_args()
     vals = values(args.db_url, args.secret_key, args.rws_password,
-                  args.workers, args.cws, args.two_phase == "true")
+                  args.workers, args.cws, args.two_phase == "true",
+                  args.request_time_header)
     os.makedirs(args.out_dir, exist_ok=True)
     for name in ("cms.toml", "cms_ranking.toml"):
         with open(os.path.join(HERE, "config", name + ".tmpl")) as f:

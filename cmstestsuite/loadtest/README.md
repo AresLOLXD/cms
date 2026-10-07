@@ -140,6 +140,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--end-burst-factor` | 1.0 | multiplies the 1-3 submissions per user of the end burst |
 | `--workers` | 8 | Worker shards |
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
+| `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
 
 The defaults are the `full1` values of the 2026-09-30 run. `run.sh`
 brings the stack up with a fresh database, waits for every service
@@ -327,9 +328,11 @@ git push origin --delete loadtest/<topic>
 - **Knobs:** the `env:` block at the top of the workflow holds the
   `run.sh` options (`LOAD_USERS_A`, `LOAD_USERS_B`, `LOAD_LOGIN_WINDOW`,
   `LOAD_CONTEST`, `LOAD_END_BURST`, `LOAD_RATE`,
-  `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`)
+  `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`,
+  `LOAD_REQUEST_TIME_HEADER`)
   and `UPSTREAM_REF`; change them in the commit you push. The values in
-  the file are the `run.sh` defaults, except 4 CWS shards instead of 2.
+  the file are the `run.sh` defaults, except 4 CWS shards instead of 2
+  (`LOAD_REQUEST_TIME_HEADER` is empty, which leaves the option off).
 - **Jobs:** four `pair` jobs, repeats 1 to 4, each on its own runner
   (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
   full-size run asks for). Each one builds both images

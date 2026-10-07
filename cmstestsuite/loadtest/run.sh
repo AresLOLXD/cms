@@ -5,11 +5,15 @@
 #   ./run.sh --target fork|upstream --profile portable|full --name NAME \
 #            [--users-a N] [--users-b N] [--login-window S] [--contest S] \
 #            [--end-burst S] [--rate R] [--end-burst-factor F] \
-#            [--workers N] [--cws N]
+#            [--workers N] [--cws N] [--request-time-header NAME]
 #
 # The defaults are the 2026-09-30 full1 values: users-a 175, users-b 75,
 # login-window 150, contest 1500, end-burst 300, rate 45 (submissions per
-# minute), end-burst-factor 1.0, workers 8, cws 2.
+# minute), end-burst-factor 1.0, workers 8, cws 2, no request time header.
+# --request-time-header NAME simulates a front proxy that stamps the arrival
+# time of each submit in the header NAME (the driver sends "NAME: t=<ms>" and
+# the fork target is configured to read it); the upstream target ignores the
+# key with a warning.
 #   smoke: ./run.sh --target fork --profile portable --name smoke \
 #              --users-a 14 --users-b 6 --login-window 60 --contest 480 \
 #              --end-burst 120 --rate 10
@@ -22,7 +26,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-TARGET='' PROFILE='' NAME=''
+TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER=''
 UA=175 UB=75 LOGIN=150 CONTEST=1500 ENDB=300 RATE=45 EBF=1.0 WORKERS=8 CWS=2
 
 usage() {
@@ -43,6 +47,7 @@ while (($#)); do
     --end-burst-factor) EBF=${2:?--end-burst-factor needs a value}; shift 2 ;;
     --workers) WORKERS=${2:?--workers needs a value}; shift 2 ;;
     --cws) CWS=${2:?--cws needs a value}; shift 2 ;;
+    --request-time-header) REQUEST_TIME_HEADER=${2:?--request-time-header needs a value}; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage; exit 2 ;;
   esac
@@ -54,6 +59,8 @@ done
   { echo "--profile must be portable or full" >&2; exit 2; }
 [[ $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   { echo "--name is required: letters, digits, dot, dash and underscore, starting with a letter or digit" >&2; exit 2; }
+[[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9-]+$ ]] ||
+  { echo "--request-time-header must be a header name: letters, digits and dashes" >&2; exit 2; }
 if [[ $PROFILE == full && $TARGET == upstream ]]; then
   echo "The full profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
   exit 2
@@ -112,10 +119,15 @@ mkdir "$RUN_DIR"
 chmod 777 "$RUN_DIR"
 TWO_PHASE=false
 [[ $PROFILE == full ]] && TWO_PHASE=true
+# Handed to both render_config.py and the driver, only when it is set.
+REQUEST_TIME_ARGS=()
+[[ -n $REQUEST_TIME_HEADER ]] &&
+  REQUEST_TIME_ARGS=(--request-time-header "$REQUEST_TIME_HEADER")
 python3 "$HERE/render_config.py" --out-dir "$RUN_DIR" \
   --db-url "postgresql+psycopg2://cms:$DB_PASSWORD@db:5432/cmsdb" \
   --secret-key "$SECRET_KEY" --rws-password "$RWS_PASSWORD" \
-  --workers "$WORKERS" --cws "$CWS" --two-phase "$TWO_PHASE"
+  --workers "$WORKERS" --cws "$CWS" --two-phase "$TWO_PHASE" \
+  "${REQUEST_TIME_ARGS[@]}"
 
 # Process census: how many cms<Service> processes run in the cms container
 # against what start.sh and this script started. A service that dies stays
@@ -335,7 +347,8 @@ compose exec -T driver python3 /loadtest/driver.py \
   --users-file "/loadtest/out/$NAME/users.json" \
   --cws "${CWS_URLS[@]}" --rws http://ranking:8890 \
   --out "/loadtest/out/$NAME" --login-window "$LOGIN" --end-burst "$ENDB" \
-  --steady-rate "$RATE" --end-burst-factor "$EBF" 2>&1 |
+  --steady-rate "$RATE" --end-burst-factor "$EBF" \
+  "${REQUEST_TIME_ARGS[@]}" 2>&1 |
   tee "$OUT/driver_stdout.log" &
 wait $! || driver_rc=$?
 
