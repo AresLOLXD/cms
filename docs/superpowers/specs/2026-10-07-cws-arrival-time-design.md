@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-07
 **Issue:** #5 (wave 1 of `2026-10-06-post-10-10-roadmap-design.md`)
-**Status:** Designed and approved autonomously. The user asked for the
+**Status:** Designed and approved autonomously; revised on 2026-10-07 after the Task 2 review (see "Revision 1"). The user asked for the
 backlog to advance without stopping, always through brainstorming.
 Decisions marked *(autonomous)* took the recommended option and can be
 revisited.
@@ -212,3 +212,40 @@ CWS log.
   127.0.0.1 in the Docker deployment.
 - **Clock skew between the proxy and CWS** shifts times by the skew,
   bounded by the clamp. Documented.
+
+## Revision 1 (2026-10-07, after the Task 2 review)
+
+The Task 2 review found that the candidates were weaker than this design
+assumed:
+
+- **Tornado's start time is client-controlled.** Tornado records it when
+  the request headers arrive, and builds the handler only after the body is
+  complete. A client that sends the headers before the stop and finishes
+  the body up to 60 s after it would be treated as on time. The load tests
+  also showed that the real wait happens before Tornado reads the socket,
+  so this candidate helped little.
+- **A proxy that stamps when the headers arrive has the same hole.**
+
+Changes, which supersede the sections above where they differ:
+
+1. **Only the trusted proxy header can move the time.** There is no Tornado
+   candidate. Without a configured header, the behaviour is exactly the
+   previous one.
+2. **The proxy must stamp the header only after it holds the whole request
+   body.** With nginx, use `proxy_request_buffering on` (the default) and
+   `$msec`. Caddy is supported only if a test shows that its stamp comes
+   after the body. Otherwise the docs name nginx only.
+3. **The arrival time is used only for decisions taken at the stop:** the
+   contest phase (`phase`, `actual_phase` in `render_params`) and the
+   timestamp stored by `accept_submission` (web and API) and
+   `accept_user_test`. Everything else keeps the handler time
+   (`self.timestamp` keeps its old meaning; the new value is
+   `self.arrival_time`):
+   - tokens, whose accounting would otherwise allow over-spending when
+     requests are handled out of order;
+   - questions, notifications and the communications snapshot, whose
+     popups could otherwise be skipped;
+   - cookies, the activity log and the start button.
+4. **The INFO log line is written only when a header is configured.** It
+   says when the 60 s clamp was hit, which is the sign of a skewed proxy
+   clock or a forged value.
