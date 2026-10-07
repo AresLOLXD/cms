@@ -387,5 +387,69 @@ class TestTimeouts(unittest.TestCase):
         self.assertIsNone(self.pool._answered_at[self.shard])
 
 
+class TestReenableOnReconnect(unittest.TestCase):
+    """A worker the timeout disabled comes back when it reconnects."""
+
+    def setUp(self):
+        self.pool = _single_worker_pool()
+        self.coord = ServiceCoord("Worker", 0)
+
+    def _time_out(self) -> int:
+        shard = self.pool.acquire_worker([_operation("001")])
+        self.pool._start_time[shard] = \
+            make_datetime() - timedelta(seconds=601)
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.pool.check_timeouts()
+        self.assertEqual(self.pool._operations[shard],
+                         WorkerPool.WORKER_DISABLED)
+        return shard
+
+    def test_a_worker_disabled_by_the_timeout_is_enabled_on_reconnect(self):
+        shard = self._time_out()
+        self.assertTrue(self.pool._disabled_by_timeout[shard])
+
+        with self.assertLogs(
+                "cms.service.workerpool", level="WARNING") as logs:
+            self.pool.on_worker_connected(self.coord)
+
+        self.assertIs(self.pool._operations[shard],
+                      WorkerPool.WORKER_INACTIVE)
+        self.assertFalse(self.pool._disabled_by_timeout[shard])
+        self.assertIn("enabling it again", "\n".join(logs.output))
+
+    def test_a_worker_disabled_after_its_answer_waited_comes_back_too(self):
+        shard = self.pool.acquire_worker([_operation("001")])
+        self.pool._mark_answered(shard, self.pool._current_dispatch[shard])
+        self.pool._answered_at[shard] = (
+            make_datetime() - WorkerPool.ANSWER_HANDLING_TIMEOUT
+            - timedelta(seconds=1))
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.pool.check_timeouts()
+
+        with self.assertLogs("cms.service.workerpool", level="WARNING"):
+            self.pool.on_worker_connected(self.coord)
+
+        self.assertIs(self.pool._operations[shard],
+                      WorkerPool.WORKER_INACTIVE)
+
+    def test_a_worker_disabled_by_an_operator_stays_disabled(self):
+        self.pool.disable_worker(0)
+
+        self.pool.on_worker_connected(self.coord)
+
+        self.assertEqual(self.pool._operations[0], WorkerPool.WORKER_DISABLED)
+        self.assertFalse(self.pool._disabled_by_timeout[0])
+
+    def test_enabling_by_hand_clears_the_mark(self):
+        shard = self._time_out()
+        self.pool.enable_worker(shard)
+        self.assertFalse(self.pool._disabled_by_timeout[shard])
+
+    def test_the_first_connection_changes_nothing(self):
+        with self.assertNoLogs("cms.service.workerpool", level="WARNING"):
+            self.pool.on_worker_connected(self.coord)
+        self.assertIs(self.pool._operations[0], WorkerPool.WORKER_INACTIVE)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -152,6 +152,10 @@ class WorkerPool:
         # works on it), and how long it may take on it.
         self._answered_at: dict[int, datetime | None] = {}
         self._timeout: dict[int, timedelta] = {}
+        # Whether each disabled worker was disabled by check_timeouts
+        # (then it is enabled again when it reconnects) rather than by
+        # disable_worker.
+        self._disabled_by_timeout: dict[int, bool] = {}
 
         # TODO: given the number of pieces data associated to each
         # worker, this class could be simplified by creating a new
@@ -255,13 +259,16 @@ class WorkerPool:
         self._timeout[shard] = WorkerPool.WORKER_TIMEOUT
         self._schedule_disabling[shard] = False
         self._ignore[shard] = False
+        self._disabled_by_timeout[shard] = False
         self._threadsafe_set_workers_available()
         logger.debug("Worker %s added.", shard)
 
     def on_worker_connected(self, worker_coord: ServiceCoord):
         """To be called when a worker comes alive after being
         offline. We use this callback to instruct the worker to
-        precache all files concerning the contest.
+        precache all files concerning the contest. A worker
+        check_timeouts disabled is enabled again: it was told to quit,
+        and reconnecting means it restarted.
 
         worker_coord: the coordinates of the worker
                       that came online.
@@ -269,6 +276,13 @@ class WorkerPool:
         """
         shard = worker_coord.shard
         logger.info("Worker %s online again.", shard)
+        with self._operation_lock:
+            if self._operations[shard] == WorkerPool.WORKER_DISABLED and \
+                    self._disabled_by_timeout[shard]:
+                logger.warning("Worker %s reconnected after being disabled "
+                               "for not answering in time; enabling it "
+                               "again.", shard)
+                self.enable_worker(shard)
         if self._service.contest_id is not None:
             self._service._spawn(
                 self._fire_and_forget(
@@ -682,6 +696,7 @@ class WorkerPool:
                 # back to life.
                 self._schedule_disabling[shard] = True
                 self._ignore[shard] = True
+                self._disabled_by_timeout[shard] = True
                 self.release_worker(shard)
                 self._service._spawn(
                     self._fire_and_forget(
@@ -707,6 +722,7 @@ class WorkerPool:
                 logger.warning(err_msg)
                 raise ValueError(err_msg)
 
+            self._disabled_by_timeout[shard] = False
             lost_operations = []
             if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
                 self._operations[shard] = WorkerPool.WORKER_DISABLED
@@ -748,6 +764,7 @@ class WorkerPool:
 
             self._operations[shard] = WorkerPool.WORKER_INACTIVE
             self._operations_to_ignore[shard] = []
+            self._disabled_by_timeout[shard] = False
             self._threadsafe_set_workers_available()
             logger.info("Worker %s enabled.", shard)
 
