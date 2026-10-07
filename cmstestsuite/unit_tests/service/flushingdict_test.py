@@ -19,9 +19,11 @@
 """Tests for the flushing dict module."""
 
 import asyncio
+import time
 import unittest
 
 from cms.service.flushingdict import FlushingDict
+from cmstestsuite.unit_tests.asyncwait import wait_until
 
 
 class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
@@ -234,6 +236,203 @@ class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("key", d)
         self.assertEqual(d._flushing, [])
         self.assertEqual(d.fd, {})
+
+    # -- max age ----------------------------------------------------------
+
+    # With these, neither the size nor the quiet time can flush a dict
+    # within a test: only its max age can.
+    AGED_SIZE = 1000
+    AGED_FLUSH_LATENCY_SECONDS = 60
+
+    def _make_unstarted_aged_dict(self, callback, max_age_seconds):
+        """Build a dict that only its max age can flush, with no task.
+
+        callback: the callback to flush to.
+        max_age_seconds: the max age of the dict (None for no limit).
+
+        return: the dict, not started.
+
+        """
+        return FlushingDict(
+            TestFlushingDict.AGED_SIZE,
+            TestFlushingDict.AGED_FLUSH_LATENCY_SECONDS,
+            callback, max_age_seconds=max_age_seconds)
+
+    def _start_dict(self, d):
+        """Start the background flush loop of a dict, cancelled on teardown.
+
+        d: the dict to start.
+
+        """
+        d.start()
+        self._started_dicts.append(d)
+
+    def _make_aged_dict(self, callback, max_age_seconds):
+        """Build and start a dict that only its max age can flush.
+
+        callback: the callback to flush to.
+        max_age_seconds: the max age of the dict (None for no limit).
+
+        return: the dict.
+
+        """
+        d = self._make_unstarted_aged_dict(callback, max_age_seconds)
+        self._start_dict(d)
+        return d
+
+    async def test_max_age_flushes_a_single_entry(self):
+        d = self._make_aged_dict(self.callback, 0.3)
+
+        added_at = time.monotonic()
+        d.add("key", "value")
+        await wait_until(lambda: self.received_data,
+                         describe=lambda: repr(self.received_data))
+        waited = time.monotonic() - added_at
+
+        self.assertEqual(self.received_data, [[("key", "value")]])
+        # The flush came from the age, not before it.
+        self.assertGreaterEqual(waited, 0.3)
+
+    async def test_max_age_flushes_a_steady_stream(self):
+        max_age = 0.3
+        count = 30
+        inserted_at: dict[int, float] = {}
+        flushed_at: dict[int, float] = {}
+
+        async def callback(items):
+            now = time.monotonic()
+            for key, _ in items:
+                flushed_at[key] = now
+            self.received_data.append(items)
+
+        d = self._make_aged_dict(callback, max_age)
+
+        # An entry every 0.05 s: there is never a quiet period.
+        for i in range(count):
+            inserted_at[i] = time.monotonic()
+            d.add(i, i)
+            await asyncio.sleep(0.05)
+        flushes_during_stream = len(self.received_data)
+        await wait_until(
+            lambda: len(flushed_at) == count,
+            describe=lambda: "%d of %d entries flushed"
+            % (len(flushed_at), count))
+
+        self.assertGreaterEqual(flushes_during_stream, 1)
+        self.assertGreaterEqual(len(self.received_data), 2)
+        # Every entry reached the callback exactly once.
+        self.assertEqual(
+            sorted(key for items in self.received_data for key, _ in items),
+            list(range(count)))
+        # The background check runs every 0.05 s. The tolerance is
+        # generous so that a loaded machine does not fail the test, yet
+        # far from the 60 s the quiet time and the size would take.
+        longest_wait = max(flushed_at[i] - inserted_at[i]
+                           for i in range(count))
+        self.assertLess(longest_wait, max_age + 2.0)
+
+    async def test_no_max_age_keeps_the_old_behavior(self):
+        d = self._make_aged_dict(self.callback, None)
+
+        d.add("key", "value")
+        # Nothing to wait for: we check that nothing happens.
+        await asyncio.sleep(0.5)
+
+        self.assertEqual(self.received_data, [])
+        self.assertIn("key", d)
+        self.assertEqual(d.d, {"key": "value"})
+
+    async def test_max_age_restarts_after_a_flush(self):
+        d = self._make_aged_dict(self.callback, 0.3)
+        d.add("first", 1)
+        await wait_until(lambda: len(self.received_data) == 1)
+        self.assertIsNone(d.oldest_insert)
+
+        added_at = time.monotonic()
+        d.add("second", 2)
+        await wait_until(lambda: len(self.received_data) == 2,
+                         describe=lambda: repr(self.received_data))
+        waited = time.monotonic() - added_at
+
+        self.assertEqual(self.received_data, [[("first", 1)], [("second", 2)]])
+        # The age of the first entry did not flush the second at once.
+        self.assertGreaterEqual(waited, 0.3)
+
+    async def test_discard_emptying_the_dict_resets_the_age(self):
+        max_age = 0.5
+        d = self._make_unstarted_aged_dict(self.callback, max_age)
+        d.add("old", 1)
+        # The entry looks as if it had been waiting for a long time,
+        # so that a leftover age could not pass for a fresh one. What
+        # is pinned here is the invariant that oldest_insert is None
+        # exactly when the dict is empty.
+        d.oldest_insert = time.monotonic() - 10
+        d.discard(lambda key: True)
+        self.assertEqual(d.d, {})
+        self.assertIsNone(d.oldest_insert)
+
+        added_at = time.monotonic()
+        d.add("new", 2)
+        self._start_dict(d)
+        await wait_until(lambda: self.received_data,
+                         describe=lambda: repr(self.received_data))
+        waited = time.monotonic() - added_at
+
+        self.assertEqual(self.received_data, [[("new", 2)]])
+        self.assertGreaterEqual(waited, max_age)
+
+    async def test_entry_added_during_a_flush_gets_its_own_age(self):
+        max_age = 0.3
+        callback, calls, release = self._held_callback()
+        d = self._make_aged_dict(callback, max_age)
+        d.add("first", 1)
+        await wait_until(lambda: len(calls) == 1,
+                         describe=lambda: repr(calls))
+        # The first entry is in flight, held by the callback.
+        self.assertIn("first", d)
+        self.assertIsNone(d.oldest_insert)
+
+        added_at = time.monotonic()
+        d.add("second", 2)
+        self.assertGreaterEqual(d.oldest_insert, added_at)
+        release.set()
+        await wait_until(lambda: len(calls) == 2,
+                         describe=lambda: repr(calls))
+        waited = time.monotonic() - added_at
+
+        self.assertEqual(calls, [[("first", 1)], [("second", 2)]])
+        # The second entry waited for its own age, not for the age of
+        # the first one, which was already over when it was added.
+        self.assertGreaterEqual(waited, max_age)
+
+    async def test_oldest_insert_tracking(self):
+        d = self._make_unstarted_aged_dict(self.callback, 1)
+        self.assertIsNone(d.oldest_insert)
+
+        before = time.monotonic()
+        d.add("a", 1)
+        after = time.monotonic()
+        first_oldest = d.oldest_insert
+        self.assertIsNotNone(first_oldest)
+        self.assertTrue(before <= first_oldest <= after)
+
+        # Neither a new key nor an overwrite changes the oldest time.
+        d.add("b", 2)
+        self.assertEqual(d.oldest_insert, first_oldest)
+        d.add("a", 3)
+        self.assertEqual(d.oldest_insert, first_oldest)
+
+        # Removing only some entries keeps it (it can only flush early).
+        d.discard(lambda key: key == "a")
+        self.assertEqual(d.oldest_insert, first_oldest)
+
+        # Emptying the dict, by discard or by flush, resets it.
+        d.discard(lambda key: key == "b")
+        self.assertIsNone(d.oldest_insert)
+        d.add("c", 4)
+        self.assertGreaterEqual(d.oldest_insert, first_oldest)
+        await d.flush()
+        self.assertIsNone(d.oldest_insert)
 
     async def callback(self, data):
         self.received_data.append(data)

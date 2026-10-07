@@ -261,6 +261,12 @@ class EvaluationServiceTest(
                 return
             await asyncio.sleep(0.05)
 
+    # -- result cache -------------------------------------------------
+
+    async def test_result_cache_is_built_with_the_max_result_age(self):
+        self.assertEqual(self.service.result_cache.max_age_seconds,
+                         EvaluationService.MAX_RESULT_AGE_SECONDS)
+
     # -- new_submission / new_user_test -------------------------------
 
     async def test_new_submission_enqueues_compilation(self):

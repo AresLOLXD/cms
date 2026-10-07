@@ -36,7 +36,11 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
     """A dict that periodically flushes its content to a callback.
 
     The dict flushes after a specified time since the latest entry
-    was added, or when it has reached its maximum size.
+    was added, or when it has reached its maximum size. If a maximum
+    age is given, it also flushes once the oldest entry still waiting
+    is that old, even if entries keep arriving (a steady stream never
+    leaves the quiet time needed by the first rule, and may take long
+    to fill the dict).
 
     This dict is thread safe. Keys must be hashable. New values for an
     existing keys will overwrite the previous values.
@@ -48,6 +52,7 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         size: int,
         flush_latency_seconds: float,
         callback: Callable[[list[tuple[KeyT, ValueT]]], Awaitable[typing.Any]],
+        max_age_seconds: float | None = None,
     ):
         # Elements contained in the dict that force a flush.
         self.size = size
@@ -57,6 +62,11 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
 
         # Function to flush the data to.
         self.callback = callback
+
+        # The longest the oldest entry waits in the dict before a
+        # flush, even while other entries keep arriving. None means no
+        # limit: only size and latency flush the dict.
+        self.max_age_seconds = max_age_seconds
 
         # This contains all the key-values received and not yet
         # flushed.
@@ -81,6 +91,11 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         # Time when an item was last inserted in the dict
         self.last_insert = time.monotonic()
 
+        # Time when the oldest item still waiting in the dict was
+        # inserted, or None if the dict is empty. Overwriting an
+        # existing key keeps the original time.
+        self.oldest_insert: float | None = None
+
     def start(self):
         """Start the background flush loop.
 
@@ -95,14 +110,18 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
     def add(self, key: KeyT, value: ValueT):
         logger.debug("Adding item %s", key)
         with self.d_lock:
+            now = time.monotonic()
+            if len(self.d) == 0:
+                self.oldest_insert = now
             self.d[key] = value
-            self.last_insert = time.monotonic()
+            self.last_insert = now
 
     async def flush(self):
         logger.debug("Flushing items")
         with self.d_lock:
             batch = self.d
             self.d = dict()
+            self.oldest_insert = None
             self._flushing.append(batch)
             items = list(batch.items())
         try:
@@ -155,6 +174,12 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
             for mapping in [self.d, *self._flushing]:
                 for key in [key for key in mapping if predicate(key)]:
                     removed.append(mapping.pop(key))
+            # An emptied dict has no age. If only some of the pending
+            # entries were removed we keep the old time, even though
+            # the oldest entry left may be younger: the max age flush
+            # can then only come a little early, never late.
+            if len(self.d) == 0:
+                self.oldest_insert = None
         return removed
 
     def __contains__(self, key):
@@ -166,10 +191,14 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
         while True:
             while True:
                 with self.d_lock:
-                    since_last_insert = time.monotonic() - self.last_insert
+                    now = time.monotonic()
+                    since_last_insert = now - self.last_insert
                     if len(self.d) != 0 and (
                             len(self.d) >= self.size or
-                            since_last_insert > self.flush_latency_seconds):
+                            since_last_insert > self.flush_latency_seconds or
+                            (self.max_age_seconds is not None and
+                             self.oldest_insert is not None and
+                             now - self.oldest_insert > self.max_age_seconds)):
                         break
                 await asyncio.sleep(0.05)
             await self.flush()
