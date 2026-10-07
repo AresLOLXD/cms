@@ -295,6 +295,10 @@ prints a markdown table of the `metrics.json` keys, one column per run;
 with `--median`, one column per target, the median of its runs. Give it
 the runs of both targets, for example
 `python3 compare.py out/full-fork-portable-* out/full-upstream-* --median`.
+`--median` groups by target only, not by profile: pass the runs of one
+profile at a time, and never mix `full` runs into a `portable`
+comparison (`out/smoke-* --median` would blend the fork's `portable` and
+`full` smoke runs into one column).
 
 ## Teardown
 
