@@ -321,6 +321,9 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
     RESULT_CACHE_SIZE = 100
     # The maximum time since the last result before processing.
     MAX_FLUSHING_TIME_SECONDS = 2
+    # The maximum time the oldest result waits before processing, even
+    # while results keep arriving.
+    MAX_RESULT_AGE_SECONDS = 1
 
     def __init__(self, shard: int, contest_id: int | None = None):
         super().__init__(shard)
@@ -332,7 +335,8 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         self.result_cache = FlushingDict(
             EvaluationService.RESULT_CACHE_SIZE,
             EvaluationService.MAX_FLUSHING_TIME_SECONDS,
-            self.write_results)
+            self.write_results,
+            max_age_seconds=EvaluationService.MAX_RESULT_AGE_SECONDS)
         self._call_when_running(self.result_cache.start)
 
         # This lock is used to avoid inserting in the queue (which
