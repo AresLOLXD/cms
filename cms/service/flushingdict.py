@@ -195,13 +195,10 @@ class FlushingDict(typing.Generic[KeyT, ValueT]):
                     since_last_insert = now - self.last_insert
                     if len(self.d) != 0 and (
                             len(self.d) >= self.size or
-                            since_last_insert > self.flush_latency_seconds):
-                        break
-                    if (len(self.d) != 0
-                            and self.max_age_seconds is not None
-                            and self.oldest_insert is not None
-                            and now - self.oldest_insert
-                            > self.max_age_seconds):
+                            since_last_insert > self.flush_latency_seconds or
+                            (self.max_age_seconds is not None and
+                             self.oldest_insert is not None and
+                             now - self.oldest_insert > self.max_age_seconds)):
                         break
                 await asyncio.sleep(0.05)
             await self.flush()
