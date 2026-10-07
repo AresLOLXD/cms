@@ -46,6 +46,9 @@ SOLUTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "solutions")
 TERMINAL = {2, 5}  # COMPILATION_FAILED, SCORED
 SUBMISSION_ROW_RE = re.compile(rb'data-submission="(\d+)"')
+# The contest home in multi-contest mode (CWS -c ALL) is /<contest>, with
+# no trailing slash: /<contest>/ matches no route and answers 404.
+HOME = ""
 
 
 class Recorder:
@@ -156,16 +159,16 @@ class Driver:
             await asyncio.sleep(delay)
 
     async def login(self, user) -> bool:
-        await self.http(user, "GET", "/", "home_anon")
+        await self.http(user, "GET", HOME, "home_anon")
         for attempt in range(5):
             status, _body, location = await self.http(
                 user, "POST", "/login", "login", expect=(302,),
                 data={"username": user["username"],
                       "password": user["password"],
-                      "next": "/%s/" % user["contest"],
+                      "next": "/%s" % user["contest"],
                       "_xsrf": self.xsrf(user)})
             if status == 302 and location and "login_error" not in location:
-                status, body, _ = await self.http(user, "GET", "/",
+                status, body, _ = await self.http(user, "GET", HOME,
                                                   "home_logged")
                 if user["username"].encode() in body:
                     return True
@@ -288,7 +291,7 @@ class Driver:
         notif = asyncio.create_task(self.notifications_loop(user))
         # Start burst: reload when the contest starts.
         await self.sleep_until(self.start + self.rng.uniform(0.5, 20))
-        await self.http(user, "GET", "/", "contest_page")
+        await self.http(user, "GET", HOME, "contest_page")
         await self.browse_tasks(user, self.rng.randint(2, 3))
         end_burst_start = self.stop - self.args.end_burst
         # Steady phase (closed loop).
@@ -300,7 +303,7 @@ class Driver:
             if self.rng.random() < 0.3:
                 page = self.rng.choice(["contest_page", "submissions_list"])
                 if page == "contest_page":
-                    await self.http(user, "GET", "/", "contest_page")
+                    await self.http(user, "GET", HOME, "contest_page")
                 else:
                     task = self.rng.choice(user["tasks"])
                     await self.http(user, "GET", "/tasks/%s/submissions"
