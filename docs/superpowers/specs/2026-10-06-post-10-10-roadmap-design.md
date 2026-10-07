@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-06
 **Status:** Approved in the planning conversation; each wave item gets its
-own brainstorming before implementation
+own brainstorming before implementation. Updated 2026-10-07 with the Go gate
+decision and the wave changes that followed from the #7 load tests.
 
 ## Context
 
@@ -70,6 +71,7 @@ is smaller and makes CI trustworthy before new code lands on `beta`.
 These items do not depend on the stack:
 
 - #5 last-second submissions
+- #6, the max-age flush first (added 2026-10-07, see the Go gate)
 - #40 workers disabled forever
 - #39 database timeouts and keepalives
 - #38 watchdog
@@ -87,13 +89,19 @@ These items do not depend on the stack:
 - #34 dump download
 - #33 OMI Box import API
 - #30 i18n and dark theme, the largest item, last in the wave
+- #45 an OMI-shaped load-test profile and per-evaluation timings
+  (added 2026-10-07)
 
 Wave 2 items join a merge only if they are ready and tested by the cut.
 They never hold one back.
 
-### Paused Until the Go Decision
+### Wave 3 (Paused Until the Go Decision; Unblocked 2026-10-07)
 
-- #6 and #8-#10 (EvaluationService)
+The milestone that held these items is now named Ola 3. The Go gate
+below decided that the Python stack stays, so they are no longer
+blocked; they come after waves 1 and 2.
+
+- #8-#10 (EvaluationService); #6 moved to wave 1
 - #13 except S1
 - #20 and #21 (remove gevent)
 - #22 (CWS database work off the event loop)
@@ -109,6 +117,26 @@ partial, for example Go for one service (CWS or RWS) behind the same
 database contract, rather than a full rewrite. The questions of #28 that
 do not depend on Go (D6, MC-3, the DAG rule) are answered in the
 brainstorming of the wave they belong to.
+
+**Decided on 2026-10-07: no migration for now.** The #7 load tests
+(`docs/superpowers/reports/2026-10-07-loadtest-baseline.md`) showed:
+
+- The Workers saturate first: contestant code running inside isolate, which
+  a rewrite of the services would not change.
+- The Python services handled 250 and 500 harness users with 0 HTTP errors,
+  0 rejected submissions and 0 score mismatches. The fork broke only at
+  1000 users (in-time submissions rejected after CWS stalled on a saturated
+  host, #5). Each harness user submits 3-5x faster than a real OMI 2025
+  contestant, so that is far beyond the expected scale.
+- Two-phase screening roughly halved Worker time at 500 users, so the
+  capacity levers are screening and Workers on more machines.
+
+Follow-ups: #6 moved to wave 1 for the max-age flush (two-phase stages wait
+for the debounced result flush); the release-Worker-before-the-lock premise
+of #6 was not confirmed. #29 stays open for a future target that needs more
+than one host's worth of CWS/ES load. The load tests now run on
+GitHub-hosted runners (`.github/workflows/loadtest.yml`, push to a
+`loadtest/` branch), not on a developer workstation.
 
 ## Branch Mechanics
 
