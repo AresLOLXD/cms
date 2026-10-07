@@ -119,8 +119,10 @@ the header, or send the body late, and get a submission made after the stop
 accepted:
 
 - Every request reaches the Contest Web Server through that proxy. In this
-  deployment the Contest Web Server ports listen on `127.0.0.1` only (see
-  "Ports" above): keep it that way.
+  deployment the Contest Web Server ports are published on the host's
+  `127.0.0.1` only (see "Ports" above): keep it that way, and do not let any
+  other container send contestant requests to the Contest Web Server directly
+  (inside the Compose network it listens on all interfaces).
 - The proxy overwrites the header, replacing any value the client sent.
 - The proxy writes the header after it has received the whole request body.
   A proxy that writes it when the request headers arrive lets a client send
@@ -130,10 +132,12 @@ accepted:
 
 **nginx** meets these: `proxy_set_header` replaces the client's header, and
 nginx reads the whole body before it contacts the Contest Web Server
-(`proxy_request_buffering on`, the default). Add this line to the `location`
+(`proxy_request_buffering on`, the default). Add this line to every `location`
 block that proxies to the Contest Web Server (see "nginx configuration" in the
 [Docker Scripts Guide](docker-scripts.md)), and do not set
-`proxy_request_buffering off` there:
+`proxy_request_buffering off` there. A `location` that has any
+`proxy_set_header` of its own inherits none from the `server` level, so a line
+placed at the `server` level does not reach it:
 
 ```nginx
 proxy_set_header X-Request-Start "t=${msec}";
@@ -143,10 +147,16 @@ proxy_set_header X-Request-Start "t=${msec}";
 arrive, before the body, so the `header_up` line alone is not safe.
 `request_buffers` makes Caddy read the body first, but only up to that size: a
 larger body goes on with an early time. Set `max_size` in `request_body` to the
-same size, so that Caddy refuses larger requests (413) and the Contest Web
-Server never handles them. Pick a size above your largest request: a user test
-can carry up to 5 MB of input. In the site that proxies to the Contest Web
-Server (keep your upstreams and other options):
+same size, so that Caddy refuses larger requests (with a 413 or a connection
+reset) and the Contest Web Server never handles them. Pick a size above your
+largest request: a user test can carry up to 5 MB of input, and a submission
+to an OutputOnly task has one file per output (up to 100 KB each by default),
+so multiply the size of the largest outputs you expect by their number. The
+10MB below is only an example. Caddy can hold up to that many bytes in memory
+for each request, so keep the size close to your real maximum. This setup was
+tested on Caddy 2.11.7, over HTTP/1.1 and h2c: repeat the check below after you
+upgrade Caddy. In the site that proxies to the Contest Web Server (keep your
+upstreams and other options):
 
 ```
 request_body {
@@ -173,17 +183,45 @@ Request POST /tasks/sum/submit arrived 3.2 s before its handler ran, as its X-Re
 ```
 
 They appear only for requests that waited more than one second, so a quiet
-server shows none. A line that says "(clamped to 60 s)" means the header was
-more than 60 seconds old: check the proxy's clock, and that nothing else can
-reach the Contest Web Server.
+server shows none, and seeing no line under normal load proves nothing about
+the proxy. A line that says "(clamped to 60 s)" means the header was more than
+60 seconds old: check the proxy's clock, and that nothing else can reach the
+Contest Web Server.
+
+To check that the proxy overwrites the header, do this once the setting is on,
+and again after any change to the proxy. Send a request through the proxy with
+an old time in the header (use the address contestants use, not a Contest Web
+Server port):
+
+```
+curl -s -o /dev/null -H 'X-Request-Start: t=1' https://contest.example.com/
+```
+
+If the Contest Web Server log then shows a line like this one, the proxy
+forwards the value the client sent, and a contestant could do the same. Turn
+the setting off (empty `CMS_CWS_REQUEST_TIME_HEADER`, then `./restart.sh`) and
+fix the proxy before you use it:
+
+```
+Request GET / arrived 60.0 s before its handler ran, as its X-Request-Start header says (clamped to 60 s).
+```
+
+If there is no such line, the proxy replaced the value.
 
 Two harmless effects near the stop:
 
 - A page that reached the proxy just before the stop, but was handled after
   it, shows the contest as running with no time left, and reloads once more:
   the phase uses the arrival time, the clock the time the page was handled.
+  At the start the effect is reversed: a request that reached the proxy just
+  before the start, but was handled after it, still shows the contest as not
+  started yet, and the contestant reloads.
 - A token used just before the stop is stored with the time the Contest Web
-  Server handled the request, at most 60 seconds after the stop.
+  Server handled the request, at most 60 seconds after the stop. Whether a
+  token is available (its generation and `token_min_interval`) is also computed
+  at the time the request was handled, so a token request that reached the
+  proxy before the stop can gain at most the time it waited in the queue, up
+  to 60 seconds; the same already happens in the middle of the contest.
 
 ## Container resource limits
 

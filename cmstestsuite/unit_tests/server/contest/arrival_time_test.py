@@ -299,6 +299,10 @@ class HandlerTimesTest(unittest.TestCase):
             handler = self.build_handler(BaseHandler, service, stamp(600))
         self.assertEqual(handler.arrival_time, HANDLER_TIME - MAX_SKEW)
         self.assertIn("clamped to 60 s", logs.output[0])
+        # docs/docker-deployment.md quotes this line to the operators.
+        self.assertTrue(logs.output[0].endswith(
+            "Request GET / arrived 60.0 s before its handler ran, as its "
+            "X-Request-Start header says (clamped to 60 s)."))
 
         with self.assertNoLogs("cms.server.util", "INFO"):
             self.build_handler(BaseHandler, service, stamp(0.2))
