@@ -185,7 +185,7 @@ class ApiSubmitHandler(ApiContestHandler):
                 self.service.file_cacher,
                 self.current_user,
                 task,
-                self.timestamp,
+                self.arrival_time,
                 self.request.files,
                 self.get_argument("language", None),
                 official,

@@ -270,6 +270,12 @@ msgstr "Envío recibido"
 msgid "Your submission has been received and is currently being evaluated."
 msgstr "Su envío ha sido recibido, y se está evaluando en este momento."
 
+msgid "Submission not accepted"
+msgstr "Envío no aceptado"
+
+msgid "Test not accepted"
+msgstr "Prueba no aceptada"
+
 msgid "Compiling..."
 msgstr "Compilando..."
 

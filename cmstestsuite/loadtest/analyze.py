@@ -22,11 +22,12 @@ PHASES = ["login_burst", "start_burst", "steady", "end_burst", "drain"]
 
 METRIC_KEYS = (
     "run", "target", "profile", "users", "submissions_sent",
-    "submissions_rejected", "login_failures", "http_errors",
-    "score_mismatches", "rws_pairs", "rws_mismatches", "login_p50",
-    "login_p95", "submit_p50", "submit_p95", "submit_end_p95", "scored_p50",
-    "scored_p95", "scored_max", "drain_after_stop_s", "peak_pg_connections",
-    "cpu_mean_by_container", "mem_last_by_container")
+    "submissions_rejected", "submissions_rejected_in_time",
+    "login_failures", "http_errors", "score_mismatches", "rws_pairs",
+    "rws_mismatches", "login_p50", "login_p95", "submit_p50", "submit_p95",
+    "submit_end_p95", "scored_p50", "scored_p95", "scored_max",
+    "drain_after_stop_s", "peak_pg_connections", "cpu_mean_by_container",
+    "mem_last_by_container")
 
 
 def pct(values, p):
@@ -190,11 +191,17 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
           "against the database.\n")
     w("Login failures (gave up after 5 tries): %d" % len(login_failed))
     rejected = [s for s in driver_subs if not s.get("accepted")]
-    w("Submissions sent: %d; rejected by CWS: %d; DB rows: %d."
-      % (len(driver_subs), len(rejected), len(db["submissions"])))
+    # A POST created at or after the stop is rejected by design; only the
+    # ones created before it say something about the server.
+    rejected_in_time = [s for s in rejected if s["t_submit"] < stop]
+    w("Submissions sent: %d; rejected by CWS: %d (%d created before the "
+      "stop); DB rows: %d."
+      % (len(driver_subs), len(rejected), len(rejected_in_time),
+         len(db["submissions"])))
     metrics["login_failures"] = len(login_failed)
     metrics["submissions_sent"] = len(driver_subs)
     metrics["submissions_rejected"] = len(rejected)
+    metrics["submissions_rejected_in_time"] = len(rejected_in_time)
     for s in rejected[:10]:
         w("  - rejected %s %s status=%s location=%s" % (
             s["user"], s["task"], s.get("status"), s.get("location")))

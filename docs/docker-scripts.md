@@ -219,9 +219,15 @@ server {
         proxy_set_header   X-Real-IP $remote_addr;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Request-Start "t=${msec}";
     }
 }
 ```
+
+The `X-Request-Start` line records when nginx received each request, so that
+a busy CMS still accepts the submissions sent before the contest stop; it is
+used only with `CMS_CWS_REQUEST_TIME_HEADER=X-Request-Start` in `.env` (see
+"Submissions at the contest stop" in [Docker deployment](docker-deployment.md)).
 
 > **`ip_hash` is required.** Without it, a contestant's requests may land on different
 > shards and their session will be lost. CMS stores session state in-process, not in a

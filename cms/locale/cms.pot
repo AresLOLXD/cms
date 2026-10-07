@@ -267,6 +267,12 @@ msgstr ""
 msgid "Your submission has been received and is currently being evaluated."
 msgstr ""
 
+msgid "Submission not accepted"
+msgstr ""
+
+msgid "Test not accepted"
+msgstr ""
+
 msgid "Compiling..."
 msgstr ""
 

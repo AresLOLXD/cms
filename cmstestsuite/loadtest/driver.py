@@ -118,7 +118,7 @@ class Driver:
     # ---- HTTP -----------------------------------------------------------
 
     async def http(self, user, method, path, kind, *, expect=(200,),
-                   data=None, params=None):
+                   data=None, params=None, headers=None):
         base = self.bases[next(self.rr)]
         url = "%s/%s%s" % (base, user["contest"], path)
         t = time.time()
@@ -126,7 +126,7 @@ class Driver:
         status, body, location, error = -1, b"", None, None
         try:
             async with user["session"].request(
-                    method, url, data=data, params=params,
+                    method, url, data=data, params=params, headers=headers,
                     allow_redirects=False) as resp:
                 body = await resp.read()
                 status = resp.status
@@ -203,6 +203,11 @@ class Driver:
         if self.rng.random() < 0.3:
             await self.http(user, "GET", "/tasks/%s/description" % task,
                             "task_description")
+        # The description GET above can take time; do not send a POST that
+        # would be created after the stop (it is rejected by design and
+        # says nothing about the server).
+        if time.time() >= self.stop - 2:
+            return
         form = aiohttp.FormData()
         form.add_field("_xsrf", self.xsrf(user))
         form.add_field("language", scenario.LANGUAGES[lang_key])
@@ -210,9 +215,17 @@ class Driver:
                        filename="%s.%s" % (task, ext),
                        content_type="application/octet-stream")
         t_submit = time.time()
+        headers = None
+        if self.args.request_time_header:
+            # Simulate a front proxy stamping the arrival time of the
+            # request. A real proxy stamps it after reading the whole body;
+            # the driver uploads this small body in one write, so the time
+            # just before sending is equivalent.
+            headers = {self.args.request_time_header:
+                       "t=%d" % (t_submit * 1000)}
         status, _body, location = await self.http(
             user, "POST", "/tasks/%s/submit" % task, "submit",
-            expect=(302,), data=form)
+            expect=(302,), data=form, headers=headers)
         accepted = bool(location and "submission_id=" in location)
         entry = dict(user=user["username"], contest=user["contest"],
                      task=task, kind=kind, t_submit=t_submit,
@@ -442,6 +455,9 @@ def main():
                         help="max parallel connections per user (browser)")
     parser.add_argument("--limit-users", type=int, default=0)
     parser.add_argument("--seed", type=int, default=1010)
+    parser.add_argument("--request-time-header", default="",
+                        help="send NAME: t=<ms since epoch> on submit POSTs, "
+                        "like a front proxy stamping the arrival time")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     with open(args.users_file) as f:

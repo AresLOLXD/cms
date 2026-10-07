@@ -65,6 +65,30 @@ class RenderTest(unittest.TestCase):
             open(os.path.join(here, "cms_ranking.toml.tmpl")).read(),
             values))
 
+    def test_request_time_header_rendered_only_when_given(self):
+        import tomllib
+        here = os.path.join(os.path.dirname(__file__), "..", "..",
+                            "loadtest", "config")
+        template = open(os.path.join(here, "cms.toml.tmpl")).read()
+        base = dict(db_url="postgresql+psycopg2://cms:pw@db:5432/cmsdb",
+                    secret_key="0" * 32, rws_password="pw", workers=2,
+                    cws=2, two_phase=False)
+        off = tomllib.loads(render_config.render(
+            template, render_config.values(**base)))
+        self.assertNotIn("request_time_header", off["contest_web_server"])
+        on = tomllib.loads(render_config.render(
+            template, render_config.values(
+                **base, request_time_header="X-Request-Start")))
+        self.assertEqual(on["contest_web_server"]["request_time_header"],
+                         "X-Request-Start")
+
+    def test_request_time_header_name_is_validated(self):
+        for bad in ('X"Evil', "X Y", "X\nY", "a=b"):
+            with self.assertRaises(ValueError):
+                render_config.values(
+                    db_url="u", secret_key="k", rws_password="p", workers=1,
+                    cws=1, two_phase=False, request_time_header=bad)
+
 
 if __name__ == "__main__":
     unittest.main()

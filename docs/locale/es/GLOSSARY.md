@@ -52,14 +52,17 @@ every `.po` and change every link that quotes it.
 
 When you change the translation of a heading, grep its old text in every
 `.po` too: other pages quote headings. `contest-day.po` quotes headings of
-`multi-contest`, `subtask-dependencies` and `docker-scripts` ("Ventanas",
-"Reversión", "Verificar una programación", "Cuando un ranking está mal",
-"Eliminar un ranking antiguo", 'Los botones "ahora"', "Modo de fallo",
-"Escalar el Contest Web Server", "Avisos de ProxyService que necesitan a un
-operador"); `docker-deployment.po` quotes "Despliegue" (a heading of
-`multi-contest`) and "Scripts auxiliares" (its own heading);
-`docker-scripts.po` quotes "Antes de un día de examen" (`multi-contest`) and
-"1. Respalda todo" (`migrating-to-multi-contest`); `importing-users.po`
+`multi-contest`, `subtask-dependencies`, `docker-scripts` and
+`docker-deployment` ("Ventanas", "Reversión", "Verificar una programación",
+"Cuando un ranking está mal", "Eliminar un ranking antiguo", 'Los botones
+"ahora"', "Modo de fallo", "Escalar el Contest Web Server", "Avisos de
+ProxyService que necesitan a un operador", "Envíos al final de la
+competencia"); `docker-deployment.po` quotes "Despliegue" (a heading of
+`multi-contest`), "Configuración de nginx" (`docker-scripts`) and "Scripts
+auxiliares", "Puertos" and "Envíos al final de la competencia" (its own
+headings); `docker-scripts.po` quotes "Antes de un día de examen"
+(`multi-contest`), "1. Respalda todo" (`migrating-to-multi-contest`) and
+"Envíos al final de la competencia" (`docker-deployment`); `importing-users.po`
 quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`);
 `participant-activity.po` quotes "Configuración de nginx" (`docker-scripts`);
 `contest-day.po` also quotes "Después de la competencia" (a heading of

@@ -45,6 +45,10 @@ env:
   LOAD_END_BURST_FACTOR: "1.0"
   LOAD_WORKERS: "8"
   LOAD_CWS: "4"
+  # A header name simulates a front proxy that stamps the arrival time of
+  # each submit (the fork's CWS reads it, upstream ignores it with a
+  # warning); empty leaves the option off.
+  LOAD_REQUEST_TIME_HEADER: ""
   # portable or full; full has no upstream counterpart.
   LOAD_PROFILE: portable
   # The merge-base of the fork and upstream, as in the README.
@@ -115,6 +119,10 @@ jobs:
         timeout-minutes: 240
         run: |
           failed=0
+          extra=()
+          if [[ -n $LOAD_REQUEST_TIME_HEADER ]]; then
+            extra=(--request-time-header "$LOAD_REQUEST_TIME_HEADER")
+          fi
           for target in $ORDER; do
             name=ci-$REPEAT-$target
             echo "::group::$name"
@@ -127,7 +135,8 @@ jobs:
                 --contest "$LOAD_CONTEST" --end-burst "$LOAD_END_BURST" \
                 --rate "$LOAD_RATE" \
                 --end-burst-factor "$LOAD_END_BURST_FACTOR" \
-                --workers "$LOAD_WORKERS" --cws "$LOAD_CWS" 2>&1 |
+                --workers "$LOAD_WORKERS" --cws "$LOAD_CWS" \
+                "${extra[@]}" 2>&1 |
               tee "out/run-$name.log" || rc=$?
             disk=$(df -h --output=used,avail / | tail -1)
             ./teardown.sh "$target" 2>&1 | tee -a "out/run-$name.log" || rc=$?

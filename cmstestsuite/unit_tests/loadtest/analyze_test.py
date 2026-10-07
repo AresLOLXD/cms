@@ -36,11 +36,11 @@ FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "run_small")
 
 METRIC_KEYS = {
     "run", "target", "profile", "users", "submissions_sent",
-    "submissions_rejected", "login_failures", "http_errors",
-    "score_mismatches", "rws_pairs", "rws_mismatches", "login_p50",
-    "login_p95", "submit_p50", "submit_p95", "submit_end_p95", "scored_p50",
-    "scored_p95", "scored_max", "drain_after_stop_s", "peak_pg_connections",
-    "cpu_mean_by_container", "mem_last_by_container"}
+    "submissions_rejected", "submissions_rejected_in_time", "login_failures",
+    "http_errors", "score_mismatches", "rws_pairs", "rws_mismatches",
+    "login_p50", "login_p95", "submit_p50", "submit_p95", "submit_end_p95",
+    "scored_p50", "scored_p95", "scored_max", "drain_after_stop_s",
+    "peak_pg_connections", "cpu_mean_by_container", "mem_last_by_container"}
 
 
 class AnalyzeTest(unittest.TestCase):
@@ -91,9 +91,27 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(metrics["http_errors"], 1)
         self.assertEqual(metrics["submissions_sent"], 3)
         self.assertEqual(metrics["submissions_rejected"], 1)
+        self.assertEqual(metrics["submissions_rejected_in_time"], 1)
         self.assertEqual(metrics["login_failures"], 1)
         self.assertEqual(metrics["score_mismatches"], 0)
         self.assertIn("login_p95", metrics)
+
+    def test_rejections_after_the_stop_are_not_counted_as_in_time(self):
+        # The run stops at 1600: the fixture rejection at 1570 is in time,
+        # the two appended ones (one exactly at the stop) are late by design.
+        with open(os.path.join(self.run_dir, "submissions.jsonl"), "a") as f:
+            for t_submit in (1600.0, 1603.5):
+                f.write(json.dumps(
+                    {"user": "a001", "contest": "loada", "task": "suma",
+                     "kind": "ac", "t_submit": t_submit, "phase": "drain",
+                     "accepted": False, "expected": 100.0,
+                     "location": "/loada/tasks/suma/submissions",
+                     "status": 302}) + "\n")
+        analyze.main(self.run_dir)
+        metrics = self.metrics()
+        self.assertEqual(metrics["submissions_sent"], 5)
+        self.assertEqual(metrics["submissions_rejected"], 3)
+        self.assertEqual(metrics["submissions_rejected_in_time"], 1)
 
     def test_metrics_values_come_from_the_inputs(self):
         analyze.main(self.run_dir)

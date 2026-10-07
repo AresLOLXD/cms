@@ -164,6 +164,9 @@ http {
             include proxy_params;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
+            # Tell CWS when this request arrived. CWS ignores it unless
+            # request_time_header is set in cms.toml.
+            proxy_set_header X-Request-Start "t=${msec}";
 
             # Needs to be as large as the maximum allowed submission
             # and input lengths set in cms.toml.

@@ -53,6 +53,17 @@ class CompareTest(unittest.TestCase):
         text = compare.table(runs, ["login_p95"])
         self.assertIn("| 1.5 | - |", text)
 
+    def test_compare_tolerates_runs_from_before_the_in_time_metric(self):
+        runs = [{"run": "old", "target": "fork", "submissions_rejected": 20},
+                {"run": "new", "target": "fork", "submissions_rejected": 3,
+                 "submissions_rejected_in_time": 0}]
+        self.assertIn("submissions_rejected_in_time", compare.DEFAULT_KEYS)
+        text = compare.table(runs, list(compare.DEFAULT_KEYS))
+        self.assertIn("| submissions_rejected_in_time | - | 0 |", text)
+        fork = compare.summarize(runs)[0]
+        self.assertEqual(fork["submissions_rejected_in_time"], 0)
+        self.assertEqual(fork["runs"], 2)
+
     def test_summarize_takes_the_median_per_target(self):
         rows = compare.summarize(self.RUNS)
         fork = next(r for r in rows if r["target"] == "fork")

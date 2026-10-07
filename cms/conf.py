@@ -119,6 +119,7 @@ class CWSConfig:
     listen_port: tuple[int, ...] = (8888,)
     cookie_duration: int = 30 * 60  # 30 minutes
     num_proxies_used: int = 0
+    request_time_header: str = ""
 
     submit_local_copy: bool = True
     submit_local_copy_path: str = "%s/submissions/"
