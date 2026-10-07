@@ -324,11 +324,12 @@ class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             sorted(key for items in self.received_data for key, _ in items),
             list(range(count)))
-        # The background check runs every 0.05 s: the tolerance is
-        # generous so that a loaded machine does not fail the test.
+        # The background check runs every 0.05 s. The tolerance is
+        # generous so that a loaded machine does not fail the test, yet
+        # far from the 60 s the quiet time and the size would take.
         longest_wait = max(flushed_at[i] - inserted_at[i]
                            for i in range(count))
-        self.assertLess(longest_wait, max_age + 0.5)
+        self.assertLess(longest_wait, max_age + 2.0)
 
     async def test_no_max_age_keeps_the_old_behavior(self):
         d = self._make_aged_dict(self.callback, None)
@@ -361,10 +362,13 @@ class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
         max_age = 0.5
         d = self._make_unstarted_aged_dict(self.callback, max_age)
         d.add("old", 1)
-        # Make the entry look as if it had been waiting for a long
-        # time, so that a stale age would flush the next entry at once.
+        # The entry looks as if it had been waiting for a long time,
+        # so that a leftover age could not pass for a fresh one. What
+        # is pinned here is the invariant that oldest_insert is None
+        # exactly when the dict is empty.
         d.oldest_insert = time.monotonic() - 10
         d.discard(lambda key: True)
+        self.assertEqual(d.d, {})
         self.assertIsNone(d.oldest_insert)
 
         added_at = time.monotonic()
@@ -375,6 +379,30 @@ class TestFlushingDict(unittest.IsolatedAsyncioTestCase):
         waited = time.monotonic() - added_at
 
         self.assertEqual(self.received_data, [[("new", 2)]])
+        self.assertGreaterEqual(waited, max_age)
+
+    async def test_entry_added_during_a_flush_gets_its_own_age(self):
+        max_age = 0.3
+        callback, calls, release = self._held_callback()
+        d = self._make_aged_dict(callback, max_age)
+        d.add("first", 1)
+        await wait_until(lambda: len(calls) == 1,
+                         describe=lambda: repr(calls))
+        # The first entry is in flight, held by the callback.
+        self.assertIn("first", d)
+        self.assertIsNone(d.oldest_insert)
+
+        added_at = time.monotonic()
+        d.add("second", 2)
+        self.assertGreaterEqual(d.oldest_insert, added_at)
+        release.set()
+        await wait_until(lambda: len(calls) == 2,
+                         describe=lambda: repr(calls))
+        waited = time.monotonic() - added_at
+
+        self.assertEqual(calls, [[("first", 1)], [("second", 2)]])
+        # The second entry waited for its own age, not for the age of
+        # the first one, which was already over when it was added.
         self.assertGreaterEqual(waited, max_age)
 
     async def test_oldest_insert_tracking(self):
