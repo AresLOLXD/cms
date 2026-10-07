@@ -27,6 +27,7 @@ from cms.io.async_rpc import AsyncFakeRemoteServiceClient
 from cms.service.esoperations import ESOperation
 from cms.service.workerpool import (
     JOB_OVERHEAD_S, WorkerPool, job_group_timeout)
+from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
@@ -288,6 +289,102 @@ class TestDispatchIds(unittest.TestCase):
         with self.assertLogs("cms.service.workerpool", level="ERROR"):
             with self.assertRaises(ValueError):
                 self.pool.release_worker(shard)
+
+
+TEN_SECOND_EVALUATIONS = {
+    "jobs": [{"type": "evaluation", "time_limit": 10.0}] * 25}
+
+
+class TestTimeouts(unittest.TestCase):
+    """When check_timeouts gives up on a worker."""
+
+    def setUp(self):
+        self.pool = _single_worker_pool()
+        self.operation = _operation("001")
+        self.shard = self.pool.acquire_worker([self.operation])
+        self.dispatch = self.pool._current_dispatch[self.shard]
+
+    def _busy_for(self, seconds: float):
+        self.pool._start_time[self.shard] = \
+            make_datetime() - timedelta(seconds=seconds)
+
+    def _set_ten_second_timeout(self, dispatch_id: int | None):
+        with patch("cms.service.workerpool.config") as config:
+            config.sandbox.compilation_sandbox_max_time_s = 20.0
+            config.sandbox.trusted_sandbox_max_time_s = 10.0
+            self.pool._set_timeout(
+                self.shard, dispatch_id, TEN_SECOND_EVALUATIONS)
+
+    def test_a_worker_past_its_timeout_is_disabled(self):
+        self._busy_for(601)
+
+        with self.assertLogs("cms.service.workerpool", level="ERROR") as logs:
+            lost = self.pool.check_timeouts()
+
+        self.assertEqual(lost, [self.operation])
+        self.assertEqual(self.pool._operations[self.shard],
+                         WorkerPool.WORKER_DISABLED)
+        self.assertIn("(timeout 0:10:00)", logs.output[0])
+
+    def test_a_worker_within_its_derived_timeout_is_not_disabled(self):
+        self._set_ten_second_timeout(self.dispatch)
+        self.assertEqual(self.pool._timeout[self.shard],
+                         timedelta(seconds=1825))
+
+        self._busy_for(1000)
+        self.assertEqual(self.pool.check_timeouts(), [])
+        self.assertEqual(self.pool._operations[self.shard], [self.operation])
+
+        self._busy_for(1826)
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.assertEqual(self.pool.check_timeouts(), [self.operation])
+
+    def test_the_timeout_of_a_stale_dispatch_is_not_stored(self):
+        self._set_ten_second_timeout(self.dispatch + 1)
+        self.assertEqual(self.pool._timeout[self.shard],
+                         WorkerPool.WORKER_TIMEOUT)
+
+    def test_a_timeout_that_cannot_be_computed_keeps_the_default(self):
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.pool._set_timeout(self.shard, self.dispatch, {"no": "jobs"})
+        self.assertEqual(self.pool._timeout[self.shard],
+                         WorkerPool.WORKER_TIMEOUT)
+
+    def test_an_answered_worker_is_not_timed_out(self):
+        self._busy_for(10_000)
+        self.pool._mark_answered(self.shard, self.dispatch)
+
+        self.assertIsNotNone(self.pool._answered_at[self.shard])
+        self.assertEqual(self.pool.check_timeouts(), [])
+        self.assertEqual(self.pool._operations[self.shard], [self.operation])
+
+    def test_an_answer_not_handled_in_time_disables_the_worker(self):
+        self.pool._mark_answered(self.shard, self.dispatch)
+        self.pool._answered_at[self.shard] = (
+            make_datetime() - WorkerPool.ANSWER_HANDLING_TIMEOUT
+            - timedelta(seconds=1))
+
+        with self.assertLogs("cms.service.workerpool", level="ERROR") as logs:
+            lost = self.pool.check_timeouts()
+
+        self.assertEqual(lost, [self.operation])
+        self.assertEqual(self.pool._operations[self.shard],
+                         WorkerPool.WORKER_DISABLED)
+        self.assertIn("was not handled", logs.output[0])
+
+    def test_a_stale_answer_does_not_mark_the_current_dispatch(self):
+        self.pool._mark_answered(self.shard, self.dispatch + 1)
+        self.assertIsNone(self.pool._answered_at[self.shard])
+
+    def test_the_release_clears_the_answer(self):
+        self.pool._mark_answered(self.shard, self.dispatch)
+        self.pool.release_worker(self.shard, self.dispatch)
+        self.assertIsNone(self.pool._answered_at[self.shard])
+
+    def test_marking_an_unknown_worker_does_nothing(self):
+        self.pool._mark_answered(99, 1)
+        self.pool._mark_answered(self.shard, None)
+        self.assertIsNone(self.pool._answered_at[self.shard])
 
 
 if __name__ == "__main__":
