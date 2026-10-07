@@ -91,7 +91,7 @@ max_file_size = 1_048_576
 
 # Max processes, CPU time (s), memory (KiB) for compilation runs.
 compilation_sandbox_max_processes = 1000
-compilation_sandbox_max_time_s = 10.0
+compilation_sandbox_max_time_s = 20.0
 compilation_sandbox_max_memory_kib = 524_288  # 512 MiB
 # Max processes, CPU time (s), memory (KiB) for trusted (e.g. checker)
 # runs.
