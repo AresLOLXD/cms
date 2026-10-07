@@ -21,6 +21,7 @@
 import unittest
 from unittest.mock import patch
 
+from cms.conf import SandboxConfig
 from cms.grading.Sandbox import Sandbox
 from cms.grading.steps import COMPILATION_MESSAGES, compilation_step
 from cmstestsuite.unit_tests.grading.steps.fakesandbox \
@@ -165,6 +166,20 @@ class TestCompilationStep(unittest.TestCase):
         self.assertTrue(compilation_success)
         self.assertEqual(text, [COMPILATION_MESSAGES.get("success").message])
         self.assertEqual(stats, expected_stats)
+
+    def test_default_time_limits(self):
+        # Use a pristine SandboxConfig so that the result does not depend on
+        # the [sandbox] section of whatever CMS_CONFIG file is loaded.
+        expected_stats = get_stats(
+            0.1, 0.5, 1000 * 1024, Sandbox.EXIT_OK, stdout="o", stderr="e")
+        with patch("cms.grading.steps.compilation.config.sandbox",
+                   SandboxConfig()), \
+                patch("cms.grading.steps.compilation.generic_step",
+                      return_value=expected_stats):
+            compilation_step(self.sandbox, ONE_COMMAND)
+
+        self.assertEqual(self.sandbox.timeout, 20.0)
+        self.assertEqual(self.sandbox.wallclock_timeout, 41.0)
 
 
 if __name__ == "__main__":
