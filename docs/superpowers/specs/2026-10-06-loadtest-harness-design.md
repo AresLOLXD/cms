@@ -80,7 +80,7 @@ numbers behind #5 and #6.
 | L6 | Profiles | **`portable`:** both contests without `depends_on`, two-phase off, only `loada` ranked at the RWS root (ProxyService `-c <loada id>`), driver polls `/scores`, analyzer compares RWS for `loada` only. **`full`:** the recovered scenario (dependencies, two-phase, groups), fork target only. |
 | L7 | Readiness | HTTP probes of the CWS/RWS ports plus an RPC `echo` to each service replace the `supervisorctl` checks. |
 | L8 | Isolation | The compose project name is `cmsload-<target>` and parametrized everywhere, including the `analyze.py` docker-stats filter. The runner refuses to start while another `cmsload-`, `cmsci-` or stress stack runs, because isolate cgroups are shared. |
-| L9 | Where it runs | Locally, on rootful Docker on bazzite (`sg docker -c "docker --context default ..."`). A 4-vCPU hosted runner is too small for the scale questions, and there is no self-hosted runner. *(autonomous)* |
+| L9 | Where it runs | Locally, on rootful Docker on the test workstation (`sg docker -c "docker --context default ..."`). A 4-vCPU hosted runner is too small for the scale questions, and there is no self-hosted runner. *(autonomous)* |
 | L10 | Run plan | (a) `portable`, 250 users with the 2026-09-30 `full1` parameters, 3 runs per target. (b) `full` on the fork, 1 run. (c) A ramp on the fork with `portable` at 250, 500, 1000 and 2000 users, stopping at the first level with errors, rejected submissions or a backlog that never drains. (d) The same ramp on upstream up to the same level or its breaking point. *(autonomous)* |
 | L11 | Toolchain parity | The runner records the g++/python/java and isolate versions of each image in the run output. A mismatch is reported, not fixed. |
 | L12 | Results | Raw output in `cmstestsuite/loadtest/out/<run>/` (git-ignored). The written comparison goes in `docs/superpowers/reports/<date the report is written>-loadtest-baseline.md` and a comment on #7, plus #29, #39 and #42 where they need it. It stays out of the Sphinx manual, so there is no `.po` burden. |
@@ -96,14 +96,18 @@ numbers behind #5 and #6.
   the contest ids for the runner.
 - **`config/cms.toml.tmpl`, `config/cms_ranking.toml.tmpl`, `start.sh`:**
   the rendered config and the uniform start script of L4 and L5.
-- **`compose.yml`:** the same services, with the `cms` and `ranking` images
-  passed in (`LOAD_CMS_IMAGE`) instead of built from `./src`, and the
-  config and start script mounted.
+- **`compose.yml`:** the same services, with the image chosen by the
+  target (`LOAD_TARGET` selects `cmsload-<target>:latest`) instead of
+  built from `./src`, and the config and start script mounted.
 - **`build.sh <target> <ref>`:** runs `git archive` into a temporary
-  context, `docker build`, and tags `cmsload-<target>:<short sha>`.
+  context, `docker build`, and tags `cmsload-<target>:latest`. It
+  records the ref, its commit and the toolchain versions of the image in
+  `out/images/<target>.txt`.
 - **`run.sh`:** takes `--target`, `--profile`, a users count and the
   scenario knobs. It brings the stack up, starts ProxyService after setup
-  (with `-c <loada id>` for `portable`, none for `full`), runs the monitor,
+  (with `-c <loada id>` for `portable` and `-c ALL` for `full`: without
+  `-c`, ProxyService asks for a contest on the terminal, or exits when it
+  has none), runs the monitor,
   the stats sampler and the driver, then exports and collects. The
   readiness probes of L7 replace `supervisorctl`.
 - **`driver.py`:** polls the RWS scores paths listed in `users.json`

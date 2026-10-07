@@ -87,8 +87,8 @@ Comparability caveats (from the design doc):
   run it. Every script calls Docker as
   `sg docker -c "docker --context default ..."`, so your user must be in
   the `docker` group and the `default` context must be the rootful engine.
-- **About 16 cores** for the default (full-size) run; the smoke run fits
-  on far less.
+- **About 16 logical CPUs (8 cores with SMT)** for the default
+  (full-size) run; the smoke run fits on far less.
 - **No other `cmsload-`, `cmsci-` or stress stack running.** isolate's
   cgroups are shared with the host, and another stack would skew the
   numbers. `run.sh` refuses to start if it finds one; its own target's
@@ -188,7 +188,7 @@ runs only at the end of a complete run; run it by hand on an
 interrupted one:
 
 ```bash
-python3 analyze.py out/NAME --project-prefix cmsload-fork
+python3 analyze.py out/NAME --project-prefix cmsload-<target>
 ```
 
 ## Output
