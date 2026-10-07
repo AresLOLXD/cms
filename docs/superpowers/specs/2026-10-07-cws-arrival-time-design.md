@@ -71,9 +71,10 @@ is pure and unit-tested. It returns the effective time:
 - **Candidates:**
   - `handler_time`: `make_datetime()` in `__init__`, as today.
   - `tornado_start`: the start time Tornado recorded when it read the
-    request headers, derived from the public API as
-    `time.time() - request.request_time()`. It never trusts a value later
-    than `handler_time`.
+    request headers, computed as `handler_time` minus the elapsed time from
+    the public API `request.request_time()`. Using the elapsed time, not the
+    absolute clock, keeps tests that shift `make_datetime()` consistent. It
+    never trusts a value later than `handler_time`.
   - `header_time`: parsed from the configured header, only when the
     service has a header configured.
 - **Result:** the minimum of the candidates that parse and that are not
@@ -100,7 +101,9 @@ time, so every check that uses `self.timestamp` sees the arrival time:
 - the minimum-interval checks;
 - the timestamp stored on the submission.
 
-`self.handler_time` keeps the old value for logging. AWS uses the same
+`self.handler_time` keeps the old value for logging and for the clock
+and countdown shown to the contestant (`render_params()["now"]`), which
+must not run behind by the queueing delay. AWS uses the same
 base class with no header configured, so for AWS only Tornado's start time
 can move the time, by milliseconds.
 
