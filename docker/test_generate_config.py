@@ -203,6 +203,26 @@ def test_cms_toml_cookie_duration_invalid(monkeypatch, capsys, value):
     assert "CMS_CWS_COOKIE_DURATION" in capsys.readouterr().err
 
 
+def test_request_time_header_default_is_off(monkeypatch):
+    _set(monkeypatch, {})
+    cws = tomllib.loads(gc.generate_cms_toml())["contest_web_server"]
+    assert cws["request_time_header"] == ""
+
+
+def test_request_time_header_custom(monkeypatch):
+    _set(monkeypatch, {"CMS_CWS_REQUEST_TIME_HEADER": "X-Request-Start"})
+    cws = tomllib.loads(gc.generate_cms_toml())["contest_web_server"]
+    assert cws["request_time_header"] == "X-Request-Start"
+
+
+@pytest.mark.parametrize("value", ["X Request", "X-Request:", "a\"b", "é"])
+def test_request_time_header_invalid(monkeypatch, capsys, value):
+    _set(monkeypatch, {"CMS_CWS_REQUEST_TIME_HEADER": value})
+    with pytest.raises(SystemExit):
+        gc.generate_cms_toml()
+    assert "CMS_CWS_REQUEST_TIME_HEADER" in capsys.readouterr().err
+
+
 def test_cms_toml_proxy_url_contains_rws_creds(monkeypatch):
     _set(monkeypatch, {"CMS_RWS_USERNAME": "myuser", "CMS_RWS_PASSWORD": "mypass"})
     toml = gc.generate_cms_toml()
