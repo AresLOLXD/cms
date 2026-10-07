@@ -1,4 +1,21 @@
 #!/usr/bin/env bash
+
+# Contest Management System - http://cms-dev.github.io/
+# Copyright © 2026 Ares Ulises Juárez Martínez <aresulises8@hotmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 # Start every CMS service of the load-test stack (except ProxyService,
 # which run.sh starts once the contests exist) and wait forever. Used by
 # both targets so that they run the same processes the same way. A
