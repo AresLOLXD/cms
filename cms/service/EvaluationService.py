@@ -912,20 +912,25 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                            "submission %d on dataset %d, giving up on it.",
                            FIRE_AND_FORGET_TIMEOUT, submission_id, dataset_id)
 
-    async def action_finished(self, data: dict, shard: int, error=None):
+    async def action_finished(self, data: dict, shard: int, error=None,
+                              dispatch_id: int | None = None):
         """Callback from a worker, to signal that is finished some
         action (compilation or evaluation).
 
         data: the JobGroup, exported to dict.
         shard: the shard finishing the action.
+        dispatch_id: the job group this answer belongs to (see
+            WorkerPool.acquire_worker), or None if unknown.
 
         """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, self._action_finished_sync, data, shard, error)
+            None, self._action_finished_sync, data, shard, error,
+            dispatch_id)
 
     @with_post_finish_lock
-    def _action_finished_sync(self, data: dict, shard: int, error=None):
+    def _action_finished_sync(self, data: dict, shard: int, error=None,
+                              dispatch_id: int | None = None):
         """Do the work of action_finished(), synchronously.
 
         Runs inside loop.run_in_executor.
@@ -939,7 +944,8 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # this method and do nothing because in that case we know the
         # operation has returned to the queue and perhaps already been
         # reassigned to another worker.
-        to_ignore = self.get_executor().pool.release_worker(shard)
+        to_ignore = self.get_executor().pool.release_worker(
+            shard, dispatch_id)
         if to_ignore is True:
             logger.info("Ignored result from worker %s as requested.", shard)
             return

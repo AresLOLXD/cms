@@ -32,6 +32,7 @@ import threading
 from datetime import datetime, timedelta
 import typing
 
+from cms import config
 from cms.conf import ServiceCoord
 from cms.db import SessionGen
 from cms.grading.Job import JobGroup
@@ -46,6 +47,70 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Seconds a job needs besides its sandbox runs: fetching its files,
+# creating and cleaning up its sandboxes.
+JOB_OVERHEAD_S = 10
+
+
+# The 2x+1 wall limits are set in cms/grading/steps/evaluation.py,
+# compilation.py and trusted.py.
+def _wall_limit(time_limit_s: float) -> float:
+    """Return the wall-clock limit of a sandbox with a CPU time limit.
+
+    time_limit_s (float): the CPU time limit, in seconds.
+
+    return (float): the wall-clock limit the grading steps give it.
+
+    """
+    return 2 * time_limit_s + 1
+
+
+def job_group_timeout(
+    job_group_dict: dict,
+    compilation_time_limit_s: float,
+    trusted_time_limit_s: float,
+    minimum: timedelta,
+) -> timedelta:
+    """Return how long a worker may take on a job group.
+
+    Every sandbox run stops at its wall-clock limit, so a job group
+    takes about the sum of the wall limits of the sandboxes its jobs
+    run, plus JOB_OVERHEAD_S per job. An evaluation job is taken to run
+    two user stages (TwoSteps; the processes of Communication run side
+    by side) and one trusted program (the checker, or the manager).
+    That covers the usual task types: Batch, OutputOnly, TwoSteps and
+    Communication with up to two processes. It does not cover
+    Interactive (its controller_wall_limit is a task parameter),
+    Communication with three or more processes (the manager gets
+    2 * max(N * (time limit + 1), trusted limit) + 1) and steps with
+    several commands. The minimum (600 s for a worker) and the
+    overhead per job absorb the excess of small groups only.
+
+    job_group_dict (dict): the job group, as JobGroup.export_to_dict()
+        returns it.
+    compilation_time_limit_s (float): the CPU limit of a compilation.
+    trusted_time_limit_s (float): the CPU limit of a trusted program.
+    minimum (timedelta): the least time to allow; also the time for a
+        group with a job without time limit, whose sandbox has no wall
+        limit either.
+
+    return (timedelta): the time after which the worker counts as not
+        answering.
+
+    """
+    total = 0.0
+    for job in job_group_dict["jobs"]:
+        if job["type"] == "compilation":
+            total += _wall_limit(compilation_time_limit_s)
+        else:
+            time_limit = job["time_limit"]
+            if time_limit is None:
+                return minimum
+            total += (2 * _wall_limit(time_limit)
+                      + _wall_limit(trusted_time_limit_s))
+        total += JOB_OVERHEAD_S
+    return max(minimum, timedelta(seconds=total))
+
 
 class WorkerPool:
     """This class keeps the state of the workers attached to ES, and
@@ -56,8 +121,13 @@ class WorkerPool:
     WORKER_INACTIVE = None
     WORKER_DISABLED = "disabled"
 
-    # Seconds after which we declare a worker stale.
+    # The least time a worker may take on a job group (see
+    # job_group_timeout).
     WORKER_TIMEOUT = timedelta(seconds=600)
+
+    # How long an answer may wait for ES to handle it before the worker
+    # counts as lost anyway (see check_timeouts).
+    ANSWER_HANDLING_TIMEOUT = timedelta(minutes=30)
 
     def __init__(self, service: "EvaluationService"):
         """
@@ -80,6 +150,20 @@ class WorkerPool:
         self._start_time: dict[int, datetime | None] = {}
         self._schedule_disabling: dict[int, bool] = {}
         self._ignore: dict[int, bool] = {}
+        # The id of the job group each worker is working on, None while
+        # it works on none. acquire_worker takes ids from
+        # _last_dispatch_id, and every release clears the worker's. An
+        # answer that carries another id is stale (see release_worker).
+        self._current_dispatch: dict[int, int | None] = {}
+        self._last_dispatch_id = 0
+        # When each worker answered its current job group (None while it
+        # works on it), and how long it may take on it.
+        self._answered_at: dict[int, datetime | None] = {}
+        self._timeout: dict[int, timedelta] = {}
+        # Whether each disabled worker was disabled by check_timeouts
+        # (then it is enabled again when it reconnects) rather than by
+        # disable_worker.
+        self._disabled_by_timeout: dict[int, bool] = {}
 
         # TODO: given the number of pieces data associated to each
         # worker, this class could be simplified by creating a new
@@ -178,8 +262,12 @@ class WorkerPool:
         self._operations[shard] = WorkerPool.WORKER_INACTIVE
         self._operations_to_ignore[shard] = []
         self._start_time[shard] = None
+        self._current_dispatch[shard] = None
+        self._answered_at[shard] = None
+        self._timeout[shard] = WorkerPool.WORKER_TIMEOUT
         self._schedule_disabling[shard] = False
         self._ignore[shard] = False
+        self._disabled_by_timeout[shard] = False
         self._threadsafe_set_workers_available()
         logger.debug("Worker %s added.", shard)
 
@@ -188,12 +276,22 @@ class WorkerPool:
         offline. We use this callback to instruct the worker to
         precache all files concerning the contest.
 
+        A worker that check_timeouts disabled is enabled again: it was
+        told to quit, and reconnecting means it restarted.
+
         worker_coord: the coordinates of the worker
                       that came online.
 
         """
         shard = worker_coord.shard
         logger.info("Worker %s online again.", shard)
+        with self._operation_lock:
+            if self._operations[shard] == WorkerPool.WORKER_DISABLED and \
+                    self._disabled_by_timeout[shard]:
+                logger.warning("Worker %s reconnected after being disabled "
+                               "for not answering in time; enabling it "
+                               "again.", shard)
+                self.enable_worker(shard)
         if self._service.contest_id is not None:
             self._service._spawn(
                 self._fire_and_forget(
@@ -259,15 +357,22 @@ class WorkerPool:
 
             logger.debug("Worker %s acquired.", shard)
             self._start_time[shard] = make_datetime()
+            self._answered_at[shard] = None
+            self._timeout[shard] = WorkerPool.WORKER_TIMEOUT
+            self._last_dispatch_id += 1
+            dispatch_id = self._last_dispatch_id
+            self._current_dispatch[shard] = dispatch_id
 
         logger.info("Asking worker %s to %s.", shard,
                     ", ".join("`%s'" % operation for operation in operations))
 
-        self._service._spawn(self._build_and_dispatch(shard, operations))
+        self._service._spawn(
+            self._build_and_dispatch(shard, operations, dispatch_id))
         return shard
 
     async def _build_and_dispatch(
-        self, shard: int, operations: list[ESOperation]
+        self, shard: int, operations: list[ESOperation],
+        dispatch_id: int | None = None
     ):
         """Build the job group, dispatch it to the worker, report back.
 
@@ -283,6 +388,7 @@ class WorkerPool:
 
         shard: the worker the operations were assigned to.
         operations: the operations to send to the worker.
+        dispatch_id: the id acquire_worker gave the job group.
 
         """
         loop = asyncio.get_running_loop()
@@ -292,9 +398,11 @@ class WorkerPool:
         except Exception as build_error:
             logger.error("Failed to build job group for worker %s.", shard,
                          exc_info=True)
-            await self._report_action_finished(None, shard, str(build_error))
+            await self._report_action_finished(
+                None, shard, str(build_error), dispatch_id)
             return
-        await self._dispatch_to_worker(shard, job_group_dict)
+        self._set_timeout(shard, dispatch_id, job_group_dict)
+        await self._dispatch_to_worker(shard, job_group_dict, dispatch_id)
 
     def _build_job_group_dict(self, operations: list[ESOperation]) -> dict:
         """Build the JobGroup dict to send to a worker, synchronously.
@@ -305,7 +413,10 @@ class WorkerPool:
         with SessionGen() as session:
             return JobGroup.from_operations(operations, session).export_to_dict()
 
-    async def _dispatch_to_worker(self, shard: int, job_group_dict: dict):
+    async def _dispatch_to_worker(
+        self, shard: int, job_group_dict: dict,
+        dispatch_id: int | None = None
+    ):
         """Send a job group to a worker and forward its result to ES.
 
         Fire-and-forget from acquire_worker's perspective (mirrors the
@@ -313,6 +424,10 @@ class WorkerPool:
         call, which also never blocked the caller) -- awaited by
         _build_and_dispatch, itself spawned as a background task via
         self._service._spawn.
+
+        shard: the worker to send the job group to.
+        job_group_dict: the job group, exported to dict.
+        dispatch_id: the id acquire_worker gave the job group.
 
         """
         try:
@@ -322,30 +437,82 @@ class WorkerPool:
         except RPCError as rpc_error:
             data = None
             error = str(rpc_error)
-        await self._report_action_finished(data, shard, error)
+        self._mark_answered(shard, dispatch_id)
+        await self._report_action_finished(data, shard, error, dispatch_id)
 
     async def _report_action_finished(
-        self, data: dict | None, shard: int, error: str | None
+        self, data: dict | None, shard: int, error: str | None,
+        dispatch_id: int | None = None
     ):
         """Forward a worker's outcome to ES, logging any failure.
 
         This runs in a spawned task, so an exception escaping from
-        action_finished (e.g. the ValueError release_worker raises when
-        check_connections already released the worker) would otherwise
-        be lost without a trace.
+        action_finished (e.g. an error while ES handles the result)
+        would otherwise be lost without a trace.
 
         data: the JobGroup exported to dict, or None on error.
         shard: the worker that finished.
         error: the error message, or None on success.
+        dispatch_id: the id acquire_worker gave the job group.
 
         """
         try:
-            await self._service.action_finished(data, shard, error)
+            await self._service.action_finished(
+                data, shard, error, dispatch_id=dispatch_id)
         except Exception:
             logger.error("Unexpected error in action_finished for worker %s.",
                          shard, exc_info=True)
 
-    def release_worker(self, shard: int) -> bool | list[ESOperation]:
+    def _mark_answered(self, shard: int, dispatch_id: int | None) -> None:
+        """Note that a worker answered a job group.
+
+        From then on it cannot time out for being slow (see
+        check_timeouts): its answer only waits for ES.
+
+        shard (int): the worker that answered.
+        dispatch_id (int|None): the job group it answered, or None if
+            unknown (then nothing is noted).
+
+        """
+        if dispatch_id is None:
+            return
+        with self._operation_lock:
+            if self._current_dispatch.get(shard) == dispatch_id:
+                self._answered_at[shard] = make_datetime()
+
+    def _set_timeout(self, shard: int, dispatch_id: int | None,
+                     job_group_dict: dict) -> None:
+        """Set how long a worker may take on the job group it was given.
+
+        Assumes that ES and the workers read the same [sandbox] limits,
+        as in the Docker deployment, which generates one cms.toml.
+
+        shard (int): the worker.
+        dispatch_id (int|None): the job group, or None if unknown (then
+            the default stays).
+        job_group_dict (dict): the job group, exported to dict.
+
+        """
+        if dispatch_id is None:
+            return
+        try:
+            timeout = job_group_timeout(
+                job_group_dict,
+                config.sandbox.compilation_sandbox_max_time_s,
+                config.sandbox.trusted_sandbox_max_time_s,
+                WorkerPool.WORKER_TIMEOUT)
+        except Exception:
+            logger.error("Cannot compute the timeout of the job group of "
+                         "worker %s; it gets %s.", shard,
+                         WorkerPool.WORKER_TIMEOUT, exc_info=True)
+            return
+        with self._operation_lock:
+            if self._current_dispatch.get(shard) == dispatch_id:
+                self._timeout[shard] = timeout
+
+    def release_worker(
+        self, shard: int, dispatch_id: int | None = None
+    ) -> bool | list[ESOperation]:
         """To be called by ES when it receives a notification that an
         operation finished.
 
@@ -354,12 +521,23 @@ class WorkerPool:
         by the worker.
 
         shard: the worker to release.
+        dispatch_id: the job group the answer belongs to, or None if
+            unknown. An answer for another job group than the worker's
+            current one is stale: it is ignored, and the worker is left
+            as it is.
 
         return: if boolean, whether the result is to be ignored; if a list,
             the list of operation for which the results should be ignored.
 
         """
         with self._operation_lock:
+            if dispatch_id is not None and \
+                    dispatch_id != self._current_dispatch.get(shard):
+                logger.info("Ignoring a stale answer from worker %s "
+                            "(job group %s; current: %s).", shard,
+                            dispatch_id, self._current_dispatch.get(shard))
+                return True
+
             if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
                 err_msg = "Trying to release worker while it's inactive."
                 logger.error(err_msg)
@@ -374,6 +552,8 @@ class WorkerPool:
             to_ignore = self._operations_to_ignore[shard]
             self._operations_to_ignore[shard] = []
             self._start_time[shard] = None
+            self._current_dispatch[shard] = None
+            self._answered_at[shard] = None
             self._ignore[shard] = False
             if self._schedule_disabling[shard]:
                 self._remove_operations(shard, WorkerPool.WORKER_DISABLED)
@@ -469,6 +649,11 @@ class WorkerPool:
         this is the case, the worker is scheduled for disabling, and
         we send it a message trying to shut it down.
 
+        The time a worker may take is the one of its job group (see
+        _set_timeout). A worker that answered gets
+        ANSWER_HANDLING_TIMEOUT instead: its answer only waits for ES,
+        and the worker is not to blame for that.
+
         return: list of operations assigned to the worker
             that timed out.
 
@@ -477,39 +662,53 @@ class WorkerPool:
             now = make_datetime()
             lost_operations = []
             for shard in self._worker:
-                if self._start_time[shard] is not None:
+                if self._start_time[shard] is None:
+                    continue
+                answered_at = self._answered_at[shard]
+                if answered_at is not None:
+                    waiting_for = now - answered_at
+                    if waiting_for <= WorkerPool.ANSWER_HANDLING_TIMEOUT:
+                        continue
+                    logger.error("Disabling and shutting down worker %d: "
+                                 "it answered %s ago but its result was "
+                                 "not handled in %s.", shard, waiting_for,
+                                 WorkerPool.ANSWER_HANDLING_TIMEOUT)
+                    reason = "Result not handled in %s." % waiting_for
+                else:
                     active_for = now - self._start_time[shard]
+                    if active_for <= self._timeout[shard]:
+                        continue
+                    # Here shard is a working worker with no sign of
+                    # intelligent life for too much time.
+                    logger.error("Disabling and shutting down worker %d "
+                                 "because of no response in %s (timeout "
+                                 "%s).", shard, active_for,
+                                 self._timeout[shard])
+                    reason = "No response in %s." % active_for
+                is_busy = (self._operations[shard] !=
+                           WorkerPool.WORKER_INACTIVE and
+                           self._operations[shard] !=
+                           WorkerPool.WORKER_DISABLED)
+                assert is_busy
 
-                    if active_for > WorkerPool.WORKER_TIMEOUT:
-                        # Here shard is a working worker with no sign of
-                        # intelligent life for too much time.
-                        logger.error("Disabling and shutting down "
-                                     "worker %d because of no response "
-                                     "in %s.", shard, active_for)
-                        is_busy = (self._operations[shard] !=
-                                   WorkerPool.WORKER_INACTIVE and
-                                   self._operations[shard] !=
-                                   WorkerPool.WORKER_DISABLED)
-                        assert is_busy
+                # We return the operation so ES can do what it needs.
+                if not self._ignore[shard] and \
+                        isinstance(self._operations[shard], list):
+                    for operation in self._operations[shard]:
+                        if operation not in \
+                                self._operations_to_ignore[shard]:
+                            lost_operations.append(operation)
 
-                        # We return the operation so ES can do what it needs.
-                        if not self._ignore[shard] and \
-                                isinstance(self._operations[shard], list):
-                            for operation in self._operations[shard]:
-                                if operation not in \
-                                        self._operations_to_ignore[shard]:
-                                    lost_operations.append(operation)
-
-                        # Also, we are not trusting it, so we are not
-                        # assigning it new operations even if it comes
-                        # back to life.
-                        self._schedule_disabling[shard] = True
-                        self._ignore[shard] = True
-                        self.release_worker(shard)
-                        self._service._spawn(
-                            self._fire_and_forget(
-                                self._worker[shard].quit(
-                                    reason="No response in %s." % active_for)))
+                # Also, we are not trusting it, so we are not
+                # assigning it new operations even if it comes
+                # back to life.
+                self._schedule_disabling[shard] = True
+                self._ignore[shard] = True
+                self._disabled_by_timeout[shard] = True
+                self.release_worker(shard)
+                self._service._spawn(
+                    self._fire_and_forget(
+                        self._worker[shard].quit(reason=reason)))
 
             return lost_operations
 
@@ -531,6 +730,7 @@ class WorkerPool:
                 logger.warning(err_msg)
                 raise ValueError(err_msg)
 
+            self._disabled_by_timeout[shard] = False
             lost_operations = []
             if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
                 self._operations[shard] = WorkerPool.WORKER_DISABLED
@@ -572,6 +772,7 @@ class WorkerPool:
 
             self._operations[shard] = WorkerPool.WORKER_INACTIVE
             self._operations_to_ignore[shard] = []
+            self._disabled_by_timeout[shard] = False
             self._threadsafe_set_workers_available()
             logger.info("Worker %s enabled.", shard)
 
