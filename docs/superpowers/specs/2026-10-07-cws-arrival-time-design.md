@@ -39,7 +39,8 @@ the submission went through.
 1. A submission that reached the deployment's front proxy before the stop
    is accepted.
 2. Without a front proxy, accept it when the CWS process received it
-   before the stop.
+   before the stop. *(Dropped by Revision 1: there is no Tornado candidate,
+   so without a configured header the time is the handler time.)*
 3. Do not change the contest rules: no submission that arrived after the
    stop is accepted.
 4. A refused submission always tells the contestant why.
@@ -129,6 +130,10 @@ can move the time, by milliseconds.
 
   `header_up` replaces a value sent by the client. The proxy and CWS must
   share a clock: the same host, or NTP.
+
+  *Superseded by Revision 1, point 2:* this Caddy line alone stamps the
+  time when the request headers arrive, which is unsafe. Caddy also needs
+  `request_buffers` and `request_body { max_size }` of the same size.
 
 The production change (`.env` plus Caddy) is the operator's decision and is
 not made by this work. Until it is, behaviour matches today's, except that
@@ -233,8 +238,14 @@ Changes, which supersede the sections above where they differ:
    previous one.
 2. **The proxy must stamp the header only after it holds the whole request
    body.** With nginx, use `proxy_request_buffering on` (the default) and
-   `$msec`. Caddy is supported only if a test shows that its stamp comes
-   after the body. Otherwise the docs name nginx only.
+   `$msec`. Caddy is supported only with `request_buffers <size>` plus
+   `request_body { max_size <same size> }` next to
+   `header_up X-Request-Start "t={time.now.unix_ms}"`; this was verified by
+   experiment on Caddy 2.11.7, over HTTP/1.1 and h2c (see
+   `docs/docker-deployment.md`). `header_up` alone stamps the time when the
+   request headers arrive, which is unsafe, so the section 2 snippet is
+   superseded. In the experiment a body larger than `request_buffers` was
+   reset, not answered with a 413.
 3. **The arrival time is used only for decisions taken at the stop:** the
    contest phase (`phase`, `actual_phase` in `render_params`) and the
    timestamp stored by `accept_submission` (web and API) and

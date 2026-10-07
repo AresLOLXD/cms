@@ -21,6 +21,10 @@ Babel catalogs, Sphinx + sphinx-intl for the manual, bash, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-10-07-cws-arrival-time-design.md`
 
+> **Superseded in part:** this plan's Caddy snippets (`header_up` alone, in
+> Task 2 and Task 5) are unsafe and are superseded by Revision 1 of the
+> spec, point 2 (`request_buffers` plus `request_body max_size`).
+
 ## Global Constraints
 
 - **Where to work.** Work only in the worktree
