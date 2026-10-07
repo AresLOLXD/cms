@@ -96,7 +96,9 @@ class SandboxConfig:
     max_file_size: int = 1024 * 1024  # 1 GiB
     # Max processes, CPU time (s), memory (KiB) for compilation runs.
     compilation_sandbox_max_processes: int = 1000
-    compilation_sandbox_max_time_s: float = 10.0
+    # C++20 builds of tasks that compile a grader together with the solution
+    # reached the old 10 s limit under load (p95 9.1 s).
+    compilation_sandbox_max_time_s: float = 20.0
     compilation_sandbox_max_memory_kib: int = 512 * 1024  # 512 MiB
     # Max processes, CPU time (s), memory (KiB) for trusted runs.
     trusted_sandbox_max_processes: int = 1000
