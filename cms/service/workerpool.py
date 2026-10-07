@@ -52,6 +52,8 @@ logger = logging.getLogger(__name__)
 JOB_OVERHEAD_S = 10
 
 
+# The 2x+1 wall limits are set in cms/grading/steps/evaluation.py,
+# compilation.py and trusted.py.
 def _wall_limit(time_limit_s: float) -> float:
     """Return the wall-clock limit of a sandbox with a CPU time limit.
 
@@ -72,11 +74,17 @@ def job_group_timeout(
     """Return how long a worker may take on a job group.
 
     Every sandbox run stops at its wall-clock limit, so a job group
-    takes at most the sum of the wall limits of the sandboxes its jobs
-    can run, plus JOB_OVERHEAD_S per job. An evaluation job runs at
-    most two user stages (TwoSteps; the processes of Communication run
-    side by side) and one trusted program (the checker, or the
-    manager).
+    takes about the sum of the wall limits of the sandboxes its jobs
+    run, plus JOB_OVERHEAD_S per job. An evaluation job is taken to run
+    two user stages (TwoSteps; the processes of Communication run side
+    by side) and one trusted program (the checker, or the manager).
+    That covers the usual task types: Batch, OutputOnly, TwoSteps and
+    Communication with up to two processes. It does not cover
+    Interactive (its controller_wall_limit is a task parameter),
+    Communication with three or more processes (the manager gets
+    2 * max(N * (time limit + 1), trusted limit) + 1) and steps with
+    several commands. The minimum (600 s for a worker) and the
+    overhead per job absorb the excess of small groups only.
 
     job_group_dict (dict): the job group, as JobGroup.export_to_dict()
         returns it.
@@ -266,9 +274,10 @@ class WorkerPool:
     def on_worker_connected(self, worker_coord: ServiceCoord):
         """To be called when a worker comes alive after being
         offline. We use this callback to instruct the worker to
-        precache all files concerning the contest. A worker
-        check_timeouts disabled is enabled again: it was told to quit,
-        and reconnecting means it restarted.
+        precache all files concerning the contest.
+
+        A worker that check_timeouts disabled is enabled again: it was
+        told to quit, and reconnecting means it restarted.
 
         worker_coord: the coordinates of the worker
                       that came online.
@@ -438,9 +447,8 @@ class WorkerPool:
         """Forward a worker's outcome to ES, logging any failure.
 
         This runs in a spawned task, so an exception escaping from
-        action_finished (e.g. the ValueError release_worker raises when
-        check_connections already released the worker) would otherwise
-        be lost without a trace.
+        action_finished (e.g. an error while ES handles the result)
+        would otherwise be lost without a trace.
 
         data: the JobGroup exported to dict, or None on error.
         shard: the worker that finished.
@@ -455,7 +463,7 @@ class WorkerPool:
             logger.error("Unexpected error in action_finished for worker %s.",
                          shard, exc_info=True)
 
-    def _mark_answered(self, shard: int, dispatch_id: int | None):
+    def _mark_answered(self, shard: int, dispatch_id: int | None) -> None:
         """Note that a worker answered a job group.
 
         From then on it cannot time out for being slow (see
@@ -473,7 +481,7 @@ class WorkerPool:
                 self._answered_at[shard] = make_datetime()
 
     def _set_timeout(self, shard: int, dispatch_id: int | None,
-                     job_group_dict: dict):
+                     job_group_dict: dict) -> None:
         """Set how long a worker may take on the job group it was given.
 
         Assumes that ES and the workers read the same [sandbox] limits,
