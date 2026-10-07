@@ -127,14 +127,15 @@ Common problems:
 - **A worker was disabled:** a worker that does not finish its jobs in
   time is disabled and its jobs go back to the queue (`./logs.sh cms` says
   "Disabling and shutting down worker" and "put again in the queue because
-  of worker timeout"; these messages are not in the Overview **Logs**
-  table). The time allowed grows with the jobs: at least 10 minutes, about
-  15 minutes for a full batch of evaluations with a 1 s time limit and
-  about 30 minutes with a 10 s one. The worker is told to quit; when it has
-  restarted and reconnects it is enabled again by itself (the log says
-  "enabling it again"). Press **Enable** on its row of **Workers status**
-  only for a worker that stays disabled, for example one disabled with the
-  **Disable** button.
+  of worker timeout"; the Overview **Logs** table shows the first of them
+  but not the second). The time allowed grows with the jobs: at least 10
+  minutes, about 15 minutes for a full batch of 25 evaluations with a 1 s
+  time limit and about 30 minutes with a 10 s one. The worker is told to
+  quit; when it has restarted and reconnects it is enabled again by itself
+  (the log says "enabling it again"). Press **Enable** on its row of
+  **Workers status** only for a worker that stays disabled, for example one
+  disabled with the **Disable** button; a worker that stays disabled after
+  a timeout is stuck, so restart it first (see above).
 
 - **`QueuePool limit … reached` in the logs:** the Contest Web Server ran
   out of database connections (see [Troubleshooting](Troubleshooting.rst)).
