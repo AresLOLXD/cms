@@ -19,12 +19,14 @@
 
 import asyncio
 import unittest
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from cms.conf import ServiceCoord
 from cms.io.async_rpc import AsyncFakeRemoteServiceClient
 from cms.service.esoperations import ESOperation
-from cms.service.workerpool import WorkerPool
+from cms.service.workerpool import (
+    JOB_OVERHEAD_S, WorkerPool, job_group_timeout)
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
@@ -136,6 +138,59 @@ class TestDuplicateOperation(unittest.TestCase):
         self.assertEqual(self.pool._operations_reverse, {})
         for operation in (duplicate, only_first, only_second):
             self.assertNotIn(operation, self.pool)
+
+
+MINIMUM = timedelta(seconds=600)
+
+
+def _compilation_job() -> dict:
+    return {"type": "compilation"}
+
+
+def _evaluation_job(time_limit: float | None) -> dict:
+    return {"type": "evaluation", "time_limit": time_limit}
+
+
+class TestJobGroupTimeout(unittest.TestCase):
+    """How long a worker may take on a job group."""
+
+    @staticmethod
+    def _timeout(jobs: list[dict], minimum: timedelta = MINIMUM) -> timedelta:
+        # Compilation limit 20 s and trusted limit 10 s, as in
+        # config/cms.sample.toml.
+        return job_group_timeout({"jobs": jobs}, 20.0, 10.0, minimum)
+
+    def test_the_overhead_per_job(self):
+        self.assertEqual(JOB_OVERHEAD_S, 10)
+
+    def test_compilations_get_their_wall_limit_and_the_overhead(self):
+        # 25 x (2 x 20 + 1 + 10) = 1275 s.
+        self.assertEqual(self._timeout([_compilation_job()] * 25),
+                         timedelta(seconds=1275))
+
+    def test_evaluations_get_two_user_stages_and_a_trusted_program(self):
+        # 25 x (2 x (2 x 10 + 1) + (2 x 10 + 1) + 10) = 25 x 73 s.
+        self.assertEqual(self._timeout([_evaluation_job(10.0)] * 25),
+                         timedelta(seconds=1825))
+        # 25 x (2 x (2 x 1 + 1) + 21 + 10) = 25 x 37 s.
+        self.assertEqual(self._timeout([_evaluation_job(1.0)] * 25),
+                         timedelta(seconds=925))
+
+    def test_a_mixed_group_adds_its_jobs_up(self):
+        # 51 s for the compilation, 37 s for the evaluation.
+        self.assertEqual(
+            self._timeout([_compilation_job(), _evaluation_job(1.0)],
+                          minimum=timedelta(0)),
+            timedelta(seconds=88))
+
+    def test_the_timeout_is_never_below_the_minimum(self):
+        self.assertEqual(self._timeout([_evaluation_job(1.0)]), MINIMUM)
+        self.assertEqual(self._timeout([]), MINIMUM)
+
+    def test_a_job_without_time_limit_gets_the_minimum(self):
+        # Its sandbox has no wall limit, so the group cannot be bounded.
+        jobs = [_evaluation_job(10.0)] * 25 + [_evaluation_job(None)]
+        self.assertEqual(self._timeout(jobs), MINIMUM)
 
 
 if __name__ == "__main__":

@@ -46,6 +46,62 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Seconds a job needs besides its sandbox runs: fetching its files,
+# creating and cleaning up its sandboxes.
+JOB_OVERHEAD_S = 10
+
+
+def _wall_limit(time_limit_s: float) -> float:
+    """Return the wall-clock limit of a sandbox with a CPU time limit.
+
+    time_limit_s (float): the CPU time limit, in seconds.
+
+    return (float): the wall-clock limit the grading steps give it.
+
+    """
+    return 2 * time_limit_s + 1
+
+
+def job_group_timeout(
+    job_group_dict: dict,
+    compilation_time_limit_s: float,
+    trusted_time_limit_s: float,
+    minimum: timedelta,
+) -> timedelta:
+    """Return how long a worker may take on a job group.
+
+    Every sandbox run stops at its wall-clock limit, so a job group
+    takes at most the sum of the wall limits of the sandboxes its jobs
+    can run, plus JOB_OVERHEAD_S per job. An evaluation job runs at
+    most two user stages (TwoSteps; the processes of Communication run
+    side by side) and one trusted program (the checker, or the
+    manager).
+
+    job_group_dict (dict): the job group, as JobGroup.export_to_dict()
+        returns it.
+    compilation_time_limit_s (float): the CPU limit of a compilation.
+    trusted_time_limit_s (float): the CPU limit of a trusted program.
+    minimum (timedelta): the least time to allow; also the time for a
+        group with a job without time limit, whose sandbox has no wall
+        limit either.
+
+    return (timedelta): the time after which the worker counts as not
+        answering.
+
+    """
+    total = 0.0
+    for job in job_group_dict["jobs"]:
+        if job["type"] == "compilation":
+            total += _wall_limit(compilation_time_limit_s)
+        else:
+            time_limit = job["time_limit"]
+            if time_limit is None:
+                return minimum
+            total += (2 * _wall_limit(time_limit)
+                      + _wall_limit(trusted_time_limit_s))
+        total += JOB_OVERHEAD_S
+    return max(minimum, timedelta(seconds=total))
+
 
 class WorkerPool:
     """This class keeps the state of the workers attached to ES, and
