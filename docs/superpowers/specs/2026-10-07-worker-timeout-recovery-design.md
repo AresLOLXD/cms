@@ -66,32 +66,47 @@ watches the Overview.
 
 ## Design
 
-### 1. Stop the clock when the worker answers
+### 1. Stop the clock when the worker answers, and ignore stale answers
 
 - **New per-worker state in `WorkerPool`, guarded by `_operation_lock` like
   the rest:**
-  - `_dispatch_id[shard]` (int): incremented by `acquire_worker` each time it
-    gives the worker a job group;
+  - `_current_dispatch[shard]` (`int | None`): the id of the job group the
+    worker is working on. `acquire_worker` takes a new id from a counter.
+    Every release of the worker (`release_worker`, so also the releases
+    inside `check_timeouts`, `check_connections` and `disable_worker`) sets
+    it back to None.
   - `_answered_at[shard]` (`datetime | None`): None while the worker is
-    working;
+    working.
   - `_timeout[shard]` (`timedelta`): see section 3.
-- **`_build_and_dispatch` and `_dispatch_to_worker` carry the dispatch id**
-  they were spawned with.
-- **When the `execute_job_group` RPC returns, with a result or an
-  `RPCError`,** `_dispatch_to_worker` calls `_mark_answered(shard,
-  dispatch_id)` on the event loop, before `action_finished`. That call sets
-  `_answered_at[shard] = now` only if:
-  - the worker is still busy, and
-  - `_dispatch_id[shard]` still equals the id it carries.
-
-  So a late answer from an earlier dispatch, for example the RPC error of a
-  connection the worker dropped when it quit, never touches the current one.
+- **The dispatch id travels with the job group.**
+  - `acquire_worker` passes it to `_build_and_dispatch`, which passes it to
+    `_dispatch_to_worker`.
+  - When the `execute_job_group` RPC returns, with a result or an
+    `RPCError`, `_dispatch_to_worker` first calls `_mark_answered(shard,
+    dispatch_id)` on the event loop. That call sets `_answered_at[shard] =
+    now` only if `_current_dispatch[shard]` still equals the id.
+  - It then calls `action_finished(data, shard, error,
+    dispatch_id=dispatch_id)`. ES passes the id on through
+    `_action_finished_sync` to `release_worker(shard, dispatch_id)`.
+- **`release_worker` treats an answer whose id is not the current dispatch
+  as stale.**
+  - It returns True, so ES ignores the result, and logs one INFO line. It
+    changes nothing.
+  - Two kinds of answer are stale:
+    - the RPC error of a connection the worker dropped after
+      `check_connections` released it. Today this raises "Trying to release
+      worker while it's inactive";
+    - the late answer of a job group the timeout gave up on, which arrives
+      after the worker came back and took a new job group. Today this would
+      release the new job group by mistake.
+  - With `dispatch_id=None` (the old callers), it behaves exactly as today.
 - **`check_timeouts` skips an answered worker,** unless it has been waiting
   for more than `ANSWER_HANDLING_TIMEOUT` (30 min, a class constant). This
   backstop keeps a worker from being lost for good if handling its answer
-  fails before `release_worker`. Such a worker is disabled and re-queued
-  like a timed-out one, with its own log line ("answered ... but its result
-  was not handled in ..."). *(autonomous)*
+  fails before `release_worker`. Such a worker is disabled, re-queued and
+  sent `quit` like a timed-out one, with its own log line ("answered ...
+  but its result was not handled in ..."). Its answer, if it is ever
+  handled, is then stale and ignored. *(autonomous)*
 - **`release_worker` resets `_answered_at[shard]` to None.**
 - **`_start_time` is unchanged,** so the Overview still shows how long the
   worker has been busy.
@@ -192,9 +207,14 @@ watches the Overview.
   existing patterns, mocked service and worker proxies):**
   - an answered worker is not timed out, even past its timeout;
   - an answered worker is timed out after `ANSWER_HANDLING_TIMEOUT`;
-  - a late answer from an earlier dispatch does not mark the current
-    dispatch as answered;
-  - `release_worker` clears the answer;
+  - a late answer from an earlier dispatch neither marks the current
+    dispatch as answered nor releases it: `release_worker` returns True and
+    the current job group stays assigned;
+  - an answer after `check_connections` released the worker is ignored
+    without an error;
+  - `release_worker` with `dispatch_id=None` behaves as today;
+  - `release_worker` clears the answer and the current dispatch;
+  - ES passes the dispatch id from `action_finished` to `release_worker`;
   - a worker past its derived timeout is disabled and its operations are
     returned; one within it is not;
   - a timeout-disabled worker is enabled on reconnect, with the WARNING;
