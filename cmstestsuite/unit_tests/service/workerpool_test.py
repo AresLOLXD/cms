@@ -97,7 +97,8 @@ class TestDispatchToWorker(unittest.IsolatedAsyncioTestCase):
         with patch("cms.service.workerpool.FIRE_AND_FORGET_TIMEOUT", 0.05):
             await pool._dispatch_to_worker(0, {"jobs": []})
 
-        service.action_finished.assert_awaited_once_with({"jobs": []}, 0, None)
+        service.action_finished.assert_awaited_once_with(
+            {"jobs": []}, 0, None, dispatch_id=None)
 
 
 class TestDuplicateOperation(unittest.TestCase):
@@ -191,6 +192,102 @@ class TestJobGroupTimeout(unittest.TestCase):
         # Its sandbox has no wall limit, so the group cannot be bounded.
         jobs = [_evaluation_job(10.0)] * 25 + [_evaluation_job(None)]
         self.assertEqual(self._timeout(jobs), MINIMUM)
+
+
+class TestDispatchIdOfTheAnswer(unittest.IsolatedAsyncioTestCase):
+
+    async def test_dispatch_passes_its_id_to_action_finished(self):
+        service = MagicMock()
+        service.action_finished = AsyncMock()
+        pool = WorkerPool(service)
+        worker = MagicMock()
+        worker.execute_job_group = AsyncMock(return_value={"jobs": []})
+        pool._worker[0] = worker
+
+        await pool._dispatch_to_worker(0, {"jobs": []}, 5)
+
+        service.action_finished.assert_awaited_once_with(
+            {"jobs": []}, 0, None, dispatch_id=5)
+
+
+def _single_worker_pool() -> WorkerPool:
+    """Return a pool with one connected worker and nothing dispatched."""
+    service = MagicMock()
+    service._loop = None
+    service.contest_id = None
+    # Nothing is dispatched for real: drop the spawned coroutines.
+    service._spawn.side_effect = lambda coroutine: coroutine.close()
+    service.connect_to.side_effect = \
+        lambda coord, on_connect: MagicMock(connected=True)
+    pool = WorkerPool(service)
+    pool.add_worker(ServiceCoord("Worker", 0))
+    return pool
+
+
+def _operation(testcase_codename: str) -> ESOperation:
+    return ESOperation(ESOperation.EVALUATION, 42, 7, testcase_codename)
+
+
+class TestDispatchIds(unittest.TestCase):
+    """Each job group has an id; an answer with another id is stale."""
+
+    def setUp(self):
+        self.pool = _single_worker_pool()
+
+    def test_each_job_group_gets_a_new_id(self):
+        shard = self.pool.acquire_worker([_operation("001")])
+        first = self.pool._current_dispatch[shard]
+        self.assertIsNotNone(first)
+        self.pool.release_worker(shard, first)
+        self.pool.acquire_worker([_operation("002")])
+        self.assertNotEqual(self.pool._current_dispatch[shard], first)
+
+    def test_the_current_answer_releases_the_worker(self):
+        shard = self.pool.acquire_worker([_operation("001")])
+        dispatch = self.pool._current_dispatch[shard]
+
+        self.assertIs(self.pool.release_worker(shard, dispatch), False)
+
+        self.assertIs(self.pool._operations[shard],
+                      WorkerPool.WORKER_INACTIVE)
+        self.assertIsNone(self.pool._current_dispatch[shard])
+
+    def test_a_stale_answer_does_not_release_the_current_job_group(self):
+        shard = self.pool.acquire_worker([_operation("001")])
+        old = self.pool._current_dispatch[shard]
+        # Something else released the worker (e.g. the timeout), and it
+        # took a new job group before the old answer arrived.
+        self.pool.release_worker(shard)
+        self.assertEqual(self.pool.acquire_worker([_operation("002")]), shard)
+        current = self.pool._current_dispatch[shard]
+
+        with self.assertLogs("cms.service.workerpool", level="INFO") as logs:
+            self.assertIs(self.pool.release_worker(shard, old), True)
+
+        self.assertIn("stale answer", "\n".join(logs.output))
+        self.assertEqual(self.pool._operations[shard], [_operation("002")])
+        self.assertEqual(self.pool._current_dispatch[shard], current)
+
+    def test_an_answer_after_check_connections_released_the_worker_is_ignored(
+            self):
+        operation = _operation("001")
+        shard = self.pool.acquire_worker([operation])
+        dispatch = self.pool._current_dispatch[shard]
+        self.pool._worker[shard].connected = False
+        self.assertEqual(self.pool.check_connections(), [operation])
+
+        # The RPC error of the dropped connection arrives afterwards.
+        self.assertIs(self.pool.release_worker(shard, dispatch), True)
+
+        self.assertIs(self.pool._operations[shard],
+                      WorkerPool.WORKER_INACTIVE)
+
+    def test_a_release_without_id_behaves_as_before(self):
+        shard = self.pool.acquire_worker([_operation("001")])
+        self.assertIs(self.pool.release_worker(shard), False)
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            with self.assertRaises(ValueError):
+                self.pool.release_worker(shard)
 
 
 if __name__ == "__main__":

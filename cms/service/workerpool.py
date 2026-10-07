@@ -136,6 +136,12 @@ class WorkerPool:
         self._start_time: dict[int, datetime | None] = {}
         self._schedule_disabling: dict[int, bool] = {}
         self._ignore: dict[int, bool] = {}
+        # The id of the job group each worker is working on, None while
+        # it works on none. acquire_worker takes ids from
+        # _last_dispatch_id, and every release clears the worker's. An
+        # answer that carries another id is stale (see release_worker).
+        self._current_dispatch: dict[int, int | None] = {}
+        self._last_dispatch_id = 0
 
         # TODO: given the number of pieces data associated to each
         # worker, this class could be simplified by creating a new
@@ -234,6 +240,7 @@ class WorkerPool:
         self._operations[shard] = WorkerPool.WORKER_INACTIVE
         self._operations_to_ignore[shard] = []
         self._start_time[shard] = None
+        self._current_dispatch[shard] = None
         self._schedule_disabling[shard] = False
         self._ignore[shard] = False
         self._threadsafe_set_workers_available()
@@ -315,15 +322,20 @@ class WorkerPool:
 
             logger.debug("Worker %s acquired.", shard)
             self._start_time[shard] = make_datetime()
+            self._last_dispatch_id += 1
+            dispatch_id = self._last_dispatch_id
+            self._current_dispatch[shard] = dispatch_id
 
         logger.info("Asking worker %s to %s.", shard,
                     ", ".join("`%s'" % operation for operation in operations))
 
-        self._service._spawn(self._build_and_dispatch(shard, operations))
+        self._service._spawn(
+            self._build_and_dispatch(shard, operations, dispatch_id))
         return shard
 
     async def _build_and_dispatch(
-        self, shard: int, operations: list[ESOperation]
+        self, shard: int, operations: list[ESOperation],
+        dispatch_id: int | None = None
     ):
         """Build the job group, dispatch it to the worker, report back.
 
@@ -339,6 +351,7 @@ class WorkerPool:
 
         shard: the worker the operations were assigned to.
         operations: the operations to send to the worker.
+        dispatch_id: the id acquire_worker gave the job group.
 
         """
         loop = asyncio.get_running_loop()
@@ -348,9 +361,10 @@ class WorkerPool:
         except Exception as build_error:
             logger.error("Failed to build job group for worker %s.", shard,
                          exc_info=True)
-            await self._report_action_finished(None, shard, str(build_error))
+            await self._report_action_finished(
+                None, shard, str(build_error), dispatch_id)
             return
-        await self._dispatch_to_worker(shard, job_group_dict)
+        await self._dispatch_to_worker(shard, job_group_dict, dispatch_id)
 
     def _build_job_group_dict(self, operations: list[ESOperation]) -> dict:
         """Build the JobGroup dict to send to a worker, synchronously.
@@ -361,7 +375,10 @@ class WorkerPool:
         with SessionGen() as session:
             return JobGroup.from_operations(operations, session).export_to_dict()
 
-    async def _dispatch_to_worker(self, shard: int, job_group_dict: dict):
+    async def _dispatch_to_worker(
+        self, shard: int, job_group_dict: dict,
+        dispatch_id: int | None = None
+    ):
         """Send a job group to a worker and forward its result to ES.
 
         Fire-and-forget from acquire_worker's perspective (mirrors the
@@ -369,6 +386,10 @@ class WorkerPool:
         call, which also never blocked the caller) -- awaited by
         _build_and_dispatch, itself spawned as a background task via
         self._service._spawn.
+
+        shard: the worker to send the job group to.
+        job_group_dict: the job group, exported to dict.
+        dispatch_id: the id acquire_worker gave the job group.
 
         """
         try:
@@ -378,10 +399,11 @@ class WorkerPool:
         except RPCError as rpc_error:
             data = None
             error = str(rpc_error)
-        await self._report_action_finished(data, shard, error)
+        await self._report_action_finished(data, shard, error, dispatch_id)
 
     async def _report_action_finished(
-        self, data: dict | None, shard: int, error: str | None
+        self, data: dict | None, shard: int, error: str | None,
+        dispatch_id: int | None = None
     ):
         """Forward a worker's outcome to ES, logging any failure.
 
@@ -393,15 +415,19 @@ class WorkerPool:
         data: the JobGroup exported to dict, or None on error.
         shard: the worker that finished.
         error: the error message, or None on success.
+        dispatch_id: the id acquire_worker gave the job group.
 
         """
         try:
-            await self._service.action_finished(data, shard, error)
+            await self._service.action_finished(
+                data, shard, error, dispatch_id=dispatch_id)
         except Exception:
             logger.error("Unexpected error in action_finished for worker %s.",
                          shard, exc_info=True)
 
-    def release_worker(self, shard: int) -> bool | list[ESOperation]:
+    def release_worker(
+        self, shard: int, dispatch_id: int | None = None
+    ) -> bool | list[ESOperation]:
         """To be called by ES when it receives a notification that an
         operation finished.
 
@@ -410,12 +436,23 @@ class WorkerPool:
         by the worker.
 
         shard: the worker to release.
+        dispatch_id: the job group the answer belongs to, or None if
+            unknown. An answer for another job group than the worker's
+            current one is stale: it is ignored, and the worker is left
+            as it is.
 
         return: if boolean, whether the result is to be ignored; if a list,
             the list of operation for which the results should be ignored.
 
         """
         with self._operation_lock:
+            if dispatch_id is not None and \
+                    dispatch_id != self._current_dispatch.get(shard):
+                logger.info("Ignoring a stale answer from worker %s "
+                            "(job group %s; current: %s).", shard,
+                            dispatch_id, self._current_dispatch.get(shard))
+                return True
+
             if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
                 err_msg = "Trying to release worker while it's inactive."
                 logger.error(err_msg)
@@ -430,6 +467,7 @@ class WorkerPool:
             to_ignore = self._operations_to_ignore[shard]
             self._operations_to_ignore[shard] = []
             self._start_time[shard] = None
+            self._current_dispatch[shard] = None
             self._ignore[shard] = False
             if self._schedule_disabling[shard]:
                 self._remove_operations(shard, WorkerPool.WORKER_DISABLED)

@@ -290,6 +290,16 @@ class EvaluationServiceTest(
         await self._wait_until(lambda: operation in self.service.get_executor())
         self.assertIn(operation, self.service.get_executor())
 
+    # -- dispatch ids --
+
+    async def test_action_finished_passes_the_dispatch_id_to_the_pool(self):
+        pool = self.service.get_executor().pool
+        with patch.object(pool, "release_worker",
+                          return_value=True) as release_worker:
+            await self.service.action_finished(
+                {"jobs": []}, 0, None, dispatch_id=7)
+        release_worker.assert_called_once_with(0, 7)
+
     # -- full acquire -> execute -> action_finished -> write_results --
 
     async def test_full_round_trip_writes_result_and_notifies_scoring(self):
