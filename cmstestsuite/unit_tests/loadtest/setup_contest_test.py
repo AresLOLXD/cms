@@ -21,6 +21,7 @@
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(__file__), "..", "..", "loadtest"))
@@ -68,3 +69,14 @@ class ContestExtraKwargsTest(unittest.TestCase):
     def test_upstream_gets_nothing(self):
         self.assertEqual(setup_contest.contest_extra_kwargs(
             "loada", "portable", {}, has_active=False), {})
+
+
+class ContestWindowTest(unittest.TestCase):
+
+    def test_counts_from_the_call(self):
+        before = datetime.now(timezone.utc).replace(tzinfo=None)
+        start, stop = setup_contest.contest_window(195, 1500)
+        after = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.assertLessEqual(before + timedelta(seconds=195), start)
+        self.assertLessEqual(start, after + timedelta(seconds=195))
+        self.assertEqual(stop - start, timedelta(seconds=1500))

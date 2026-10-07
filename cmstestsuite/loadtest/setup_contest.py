@@ -109,6 +109,21 @@ def contest_extra_kwargs(contest_name: str, profile: str,
     return kwargs
 
 
+def contest_window(start_in: float,
+                   duration: float) -> tuple[datetime, datetime]:
+    """Return the contest start and stop, counted from now.
+
+    start_in: seconds from now to the start.
+    duration: contest length in seconds.
+
+    return: start and stop as naive UTC datetimes, as the DB stores them.
+
+    """
+    start = datetime.now(timezone.utc).replace(tzinfo=None) + \
+        timedelta(seconds=start_in)
+    return start, start + timedelta(seconds=duration)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-in", type=float, required=True,
@@ -126,9 +141,8 @@ def main() -> int:
               "which this build lacks.")
         return 1
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    start = now + timedelta(seconds=args.start_in)
-    stop = start + timedelta(seconds=args.duration)
+    # A provisional window: the real one is set after the users, see below.
+    start, stop = contest_window(args.start_in, args.duration)
     rng = random.Random(20261010)
     file_cacher = FileCacher()
     statement_digest = file_cacher.put_file_content(
@@ -142,6 +156,7 @@ def main() -> int:
             print("Contest loada already exists; reset the DB first.")
             return 1
         digests: dict[tuple, tuple[str, str]] = {}
+        groups = []
         for contest_name, user_count in (("loada", args.users_a),
                                          ("loadb", args.users_b)):
             if args.profile == "full":
@@ -157,6 +172,7 @@ def main() -> int:
                                        ranking_groups,
                                        hasattr(Contest, "active")))
             group = Group(name="default", start=start, stop=stop)
+            groups.append(group)
             contest.groups.append(group)
             contest.main_group = group
             session.add(contest)
@@ -209,6 +225,11 @@ def main() -> int:
                                           group=group))
                 users_out.append({"username": username, "password": password,
                                   "contest": contest_name})
+        # --start-in counts from now, after the bcrypt hashing above (about
+        # 0.23 s per user), so that it does not eat into the login window.
+        start, stop = contest_window(args.start_in, args.duration)
+        for group in groups:
+            group.start, group.stop = start, stop
         session.commit()
         contest_ids = {
             c.name: c.id for c in session.query(Contest).filter(
