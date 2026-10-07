@@ -229,6 +229,46 @@ def _operation(testcase_codename: str) -> ESOperation:
     return ESOperation(ESOperation.EVALUATION, 42, 7, testcase_codename)
 
 
+class TestDispatchingTheJobGroup(unittest.IsolatedAsyncioTestCase):
+    """The two places where dispatching feeds check_timeouts."""
+
+    def setUp(self):
+        self.pool = _single_worker_pool()
+        self.operations = [_operation("001")]
+        self.shard = self.pool.acquire_worker(self.operations)
+        self.dispatch = self.pool._current_dispatch[self.shard]
+        self.pool._service.action_finished = AsyncMock()
+
+    async def test_dispatching_marks_the_worker_as_answered(self):
+        self.pool._worker[self.shard].execute_job_group = \
+            AsyncMock(return_value={"jobs": []})
+        self.assertIsNone(self.pool._answered_at[self.shard])
+
+        await self.pool._dispatch_to_worker(
+            self.shard, {"jobs": []}, self.dispatch)
+
+        self.assertIsNotNone(self.pool._answered_at[self.shard])
+
+    async def test_the_timeout_is_set_before_the_worker_is_asked(self):
+        timeout_during_the_call = []
+
+        async def execute_job_group(job_group_dict):
+            timeout_during_the_call.append(self.pool._timeout[self.shard])
+            return {"jobs": []}
+
+        self.pool._worker[self.shard].execute_job_group = execute_job_group
+
+        with patch.object(self.pool, "_build_job_group_dict",
+                          return_value=TEN_SECOND_EVALUATIONS), \
+                patch("cms.service.workerpool.config") as config:
+            config.sandbox.compilation_sandbox_max_time_s = 20.0
+            config.sandbox.trusted_sandbox_max_time_s = 10.0
+            await self.pool._build_and_dispatch(
+                self.shard, self.operations, self.dispatch)
+
+        self.assertEqual(timeout_during_the_call, [timedelta(seconds=1825)])
+
+
 class TestDispatchIds(unittest.TestCase):
     """Each job group has an id; an answer with another id is stale."""
 
@@ -336,8 +376,10 @@ class TestTimeouts(unittest.TestCase):
         self.assertEqual(self.pool._operations[self.shard], [self.operation])
 
         self._busy_for(1826)
-        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+        with self.assertLogs(
+                "cms.service.workerpool", level="ERROR") as logs:
             self.assertEqual(self.pool.check_timeouts(), [self.operation])
+        self.assertIn("(timeout 0:30:25)", logs.output[0])
 
     def test_the_timeout_of_a_stale_dispatch_is_not_stored(self):
         self._set_ten_second_timeout(self.dispatch + 1)
@@ -416,6 +458,31 @@ class TestReenableOnReconnect(unittest.TestCase):
                       WorkerPool.WORKER_INACTIVE)
         self.assertFalse(self.pool._disabled_by_timeout[shard])
         self.assertIn("enabling it again", "\n".join(logs.output))
+
+    def test_the_answer_of_the_lost_job_group_is_ignored_after_the_return(
+            self):
+        shard = self.pool.acquire_worker([_operation("001")])
+        old_dispatch = self.pool._current_dispatch[shard]
+        self.pool._start_time[shard] = \
+            make_datetime() - timedelta(seconds=601)
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.pool.check_timeouts()
+        self.assertEqual(self.pool._operations[shard],
+                         WorkerPool.WORKER_DISABLED)
+        with self.assertLogs("cms.service.workerpool", level="WARNING"):
+            self.pool.on_worker_connected(self.coord)
+        new_operation = _operation("002")
+        self.assertEqual(self.pool.acquire_worker([new_operation]), shard)
+        new_dispatch = self.pool._current_dispatch[shard]
+        self.assertNotEqual(new_dispatch, old_dispatch)
+
+        # The answer of the lost job group arrives late.
+        with self.assertLogs("cms.service.workerpool", level="INFO"):
+            self.assertIs(self.pool.release_worker(shard, old_dispatch), True)
+
+        self.assertEqual(self.pool._operations[shard], [new_operation])
+        self.assertEqual(self.pool._current_dispatch[shard], new_dispatch)
+        self.assertIs(self.pool.release_worker(shard, new_dispatch), False)
 
     def test_a_worker_disabled_after_its_answer_waited_comes_back_too(self):
         shard = self.pool.acquire_worker([_operation("001")])
