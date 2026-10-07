@@ -948,14 +948,24 @@ class EvaluationServiceFailurePathsTest(
 
     # -- results of invalidated operations, cached or being flushed -----
 
+    def _hold_results_in_cache(self):
+        """Keep the results in the cache until the test flushes it.
+
+        Neither the quiet time nor the max age of the cache may flush a
+        result by itself (the service sets the latter to a short time).
+
+        """
+        self.service.result_cache.flush_latency_seconds = 3600
+        self.service.result_cache.max_age_seconds = None
+
     async def _cache_first_result(
         self, fixture: Fixture, operation: ESOperation
     ) -> RunLabellingWorker:
         """Get a first result of operation into the cache, and keep it there.
 
         The fixture's submission is sent to a worker, whose answer for
-        operation is then held in the cache (the flush latency is
-        raised). The worker holds its next answers.
+        operation is then held in the cache (see
+        _hold_results_in_cache). The worker holds its next answers.
 
         fixture: the fixture whose submission to send.
         operation: the operation whose result to wait for.
@@ -965,7 +975,7 @@ class EvaluationServiceFailurePathsTest(
         """
         worker = RunLabellingWorker()
         await self._start_worker(worker)
-        self.service.result_cache.flush_latency_seconds = 3600
+        self._hold_results_in_cache()
         await self.service.new_submission(fixture.submission.id)
         await self._wait_for(lambda: operation in self.service.result_cache,
                              "the first result to reach the cache")
@@ -1152,7 +1162,7 @@ class EvaluationServiceFailurePathsTest(
         fixture = self._add_fixture(testcases=1, compiled=True)
         submission_id, dataset_id = fixture.key
         cache = self.service.result_cache
-        cache.flush_latency_seconds = 3600
+        self._hold_results_in_cache()
         twin_evaluation = ESOperation(
             ESOperation.EVALUATION, submission_id, dataset_id, "t0",
             archive_sandbox=True)
@@ -1323,7 +1333,7 @@ class EvaluationServiceFailurePathsTest(
         fixture = self._add_fixture()
         worker = ControllableWorker()
         await self._start_worker(worker)
-        self.service.result_cache.flush_latency_seconds = 3600
+        self._hold_results_in_cache()
         await self.service.new_submission(fixture.submission.id)
         await self._wait_for(
             lambda: fixture.compilation() in self.service.result_cache,
