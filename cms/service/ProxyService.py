@@ -173,12 +173,15 @@ def _unix_end(value: datetime | None) -> int | None:
     return None if value is None else math.ceil(make_timestamp(value))
 
 
-def _check_status(status_code: int, operation: str):
+def _check_status(status_code: int, operation: str, quiet: bool = False):
     """Raise the right error if a ranking answered with a failure.
 
     status_code: the HTTP status of the answer.
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
+    quiet: whether to log a refusal (4xx) at DEBUG rather than
+        WARNING, as the caller reports it. A failure (5xx) is a
+        warning anyway.
 
     raise (RejectedError): if the ranking refused the request (4xx).
     raise (CannotSendError): if the ranking failed to handle it (5xx).
@@ -186,13 +189,19 @@ def _check_status(status_code: int, operation: str):
     """
     if 400 <= status_code < 600:
         msg = "Status %s while %s." % (status_code, operation)
-        logger.warning(msg)
+        if quiet and status_code < 500:
+            logger.debug(msg)
+        else:
+            logger.warning(msg)
         if status_code < 500:
             raise RejectedError(msg, status_code)
         raise CannotSendError(msg)
 
 
-def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
+def safe_put_data(
+    ranking: str, resource: str, data: dict, operation: str,
+    quiet: bool = False,
+):
     """Send some data to ranking using a PUT request.
 
     ranking: the URL of ranking server.
@@ -200,6 +209,8 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
     data: the data to JSON-encode and send.
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
+    quiet: whether to log a refusal (4xx) at DEBUG rather than
+        WARNING (see _check_status).
 
     raise (UnencodableError): if the data cannot be encoded as JSON.
     raise (RejectedError): if the ranking refuses the data.
@@ -227,7 +238,7 @@ def safe_put_data(ranking: str, resource: str, data: dict, operation: str):
         msg = "%s while %s: %s." % (type(error).__name__, operation, error)
         logger.warning(msg)
         raise CannotSendError(msg)
-    _check_status(res.status_code, operation)
+    _check_status(res.status_code, operation, quiet)
 
 
 def safe_delete_data(ranking: str, resource: str, operation: str):
@@ -737,7 +748,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         done: set[str] = set()
         for key, value in data.items():
             if split:
-                outcome = self._send(group, type_, {key: value}, quiet=True)
+                outcome = self._send(
+                    group, type_, {key: value}, quiet=True, alone=True)
             if outcome is SendOutcome.UNSENT:
                 # What was not sent alone yet goes back to the queue.
                 self._report_refused(group, type_, refused, unencodable,
@@ -777,7 +789,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         unencodable (bool): whether some entities cannot be encoded.
         rejected (bool): whether the ranking refused some entities for
             another reason (they are not sent again).
-        total (int): how many entities of the type were sent.
+        total (int): how many entities of the type are in the list.
 
         """
         name = self.RESOURCE_PATHS[type_]
@@ -869,7 +881,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 "that too.", self._visible_ranking, group)
 
     def _send(
-        self, group: str | None, type_: int, data: dict, quiet: bool = False
+        self, group: str | None, type_: int, data: dict, quiet: bool = False,
+        alone: bool = False,
     ) -> SendOutcome:
         """Send the entities of one type to a namespace of the ranking.
 
@@ -884,6 +897,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
             what to do about a refusal (the error itself is logged
             anyway). Either way, self._last_refusal_status tells the
             status of a refusal (None if the data cannot be encoded).
+        alone: whether data is one entity of a refused list, sent
+            alone (see _send_type): the ranking's refusal of it is
+            then logged at DEBUG only, as the warning of the round
+            names it.
 
         return: SENT if the ranking took the data; REJECTED if it
             refused it (which is final); UNSENT if the data did not
@@ -916,7 +933,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                     name, self._visible_ranking, prefix)
                 logger.debug(operation.capitalize())
                 safe_put_data(
-                    self._ranking, "%s%s/" % (prefix, name), data, operation)
+                    self._ranking, "%s%s/" % (prefix, name), data, operation,
+                    quiet=alone)
         except RejectedError as error:
             self._last_refusal_status = error.status_code
             # The error has already been logged: say what to do about it

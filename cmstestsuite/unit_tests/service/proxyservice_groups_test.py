@@ -473,6 +473,8 @@ class TestProxyServiceGroups(
         self.assertEqual(len(hints), 1)
         self.assertIn("refused 1 of 1 submissions of group olim", hints[0])
         self.assertIn("sent again after the contest data", hints[0])
+        # Regenerate is not needed for it.
+        self.assertFalse(any("Regenerate" in line for line in logs.output))
 
     async def test_sweep_retries_a_broken_contest(self):
         self.break_contest(self.contest_b)

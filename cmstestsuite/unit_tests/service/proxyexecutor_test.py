@@ -1063,6 +1063,53 @@ class TestProxyExecutorRefusals(unittest.IsolatedAsyncioTestCase):
             "group (root) (2); they will be sent again after the contest "
             "data of the group."])
 
+    def test_a_refusal_while_splitting_is_only_logged_at_debug(self):
+        # The warning of the round names it: one warning per entity on
+        # top of that would flood the log with each refused round.
+        self.refused_ids = {"2"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("alice")}),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("bob")}),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"3": score("carol")}))
+
+        with self.assertLogs("cms.service.ProxyService", "DEBUG") as logs:
+            self.executor._execute_sync(batch)
+
+        status = "Status 400 while sending submissions to ranking " \
+            "http://localhost:8890/."
+        self.assertEqual(
+            [record.getMessage() for record in logs.records
+             if record.levelname == "WARNING"],
+            [status,
+             "Ranking http://localhost:8890/ refused 1 of 3 submissions of "
+             "group (root) (2); they will be sent again after the contest "
+             "data of the group."])
+        # The merged request, then the refused one alone.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if record.getMessage() == status],
+            ["WARNING", "DEBUG"])
+
+    def test_the_warning_names_at_most_ten_refused_ids(self):
+        # One entry, as the sweep queues the scores of a contest.
+        self.refused_ids = {"%d" % i for i in range(1, 13)}
+        batch = entries(ProxyOperation(
+            ProxyExecutor.SUBMISSION_TYPE,
+            {"%d" % i: score("u%d" % i) for i in range(1, 14)}, "olim"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            self.executor._execute_sync(batch)
+
+        self.assertEqual(len(self.executor._refused_in_round), 12)
+        # The first REFUSED_IDS_SHOWN ids, sorted as strings.
+        self.assertEqual(self.refusal_warnings(logs), [
+            "Ranking http://localhost:8890/ refused 12 of 13 submissions of "
+            "group olim (1, 10, 11, 12, 2, 3, 4, 5, 6, 7, ...); they will "
+            "be sent again after the contest data of the group."])
+
     def test_a_single_refused_entity_is_not_split(self):
         self.refused_ids = {"2"}
         batch = entries(
@@ -1174,8 +1221,14 @@ class TestProxyExecutorRefusals(unittest.IsolatedAsyncioTestCase):
             ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
                            {"4": score("dave")}, "omips"))
 
-        unsent = self.executor._execute_sync(batch)
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
 
+        # A failure while splitting is a warning, as any failure is.
+        self.assertIn(
+            "Status 503 while sending submissions to ranking "
+            "http://localhost:8890/olim/.",
+            [record.getMessage() for record in logs.records])
         # The split stops at "2", and the group stalls: its subchanges
         # are not sent. omips is not held back.
         self.assertEqual([(target, list(payload))
@@ -1343,7 +1396,7 @@ class TestProxyExecutorRefusals(unittest.IsolatedAsyncioTestCase):
 
         # Bob is not known to the ranking, nor then his submission.
         self.refused_ids = {"2", "2s"}
-        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
             await self.executor.execute(entries(
                 ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
                                {"2": score("bob")}, "olim"),
@@ -1362,6 +1415,14 @@ class TestProxyExecutorRefusals(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(threads, [threading.get_ident()])
         # The round is over: nothing is kept for the next one.
         self.assertEqual(self.executor._refused_in_round, [])
+        # Scores and tokens are sent again, as submissions are.
+        self.assertEqual(self.refusal_warnings(logs), [
+            "Ranking http://localhost:8890/ refused 1 of 2 submissions of "
+            "group olim (2); they will be sent again after the contest "
+            "data of the group.",
+            "Ranking http://localhost:8890/ refused 1 of 1 subchanges of "
+            "group olim (2s); they will be sent again after the contest "
+            "data of the group."])
 
 
 if __name__ == "__main__":
