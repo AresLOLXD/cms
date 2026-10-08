@@ -33,7 +33,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError, \
 from sqlalchemy.orm import sessionmaker
 
 from cms.conf import Address, ServiceCoord, config
-from cms.db import Submission, engine
+from cms.db import Dataset, Submission, SubmissionResult, engine
 from cms.db.async_session import async_engine
 from cms.db.connect_options import with_connection_defaults
 from cms.service.esoperations import ESOperation
@@ -46,6 +46,12 @@ from cmstestsuite.unit_tests.servicelogmixin import \
 
 LOST = ("Lost the database connection while writing worker results "
         "(%s); the sweeper will redo them within about 2 minutes.")
+
+
+class DeadlockDetected(Exception):
+    """A driver error with the SQLSTATE of a deadlock (40P01)."""
+
+    pgcode = "40P01"
 
 
 class EvaluationServiceDatabaseTestCase(
@@ -115,7 +121,7 @@ class EvaluationServiceDatabaseTestCase(
                  Result(MagicMock(), True))
                 for testcase in self.testcases]
 
-    def _load_result(self):
+    def _load_result(self) -> SubmissionResult:
         """Return the submission's result, read again from the DB."""
         self.session.expire_all()
         submission = Submission.get_from_id(self.submission.id, self.session)
@@ -216,6 +222,31 @@ class TestWriteResultsOnALostConnection(EvaluationServiceDatabaseTestCase):
                       messages)
         self.assertEqual([message for message in messages
                           if message.startswith("Lost the database")], [])
+
+    async def test_a_deadlock_is_not_a_lost_connection(self):
+        # An OperationalError too, but with a SQLSTATE: the data, not the
+        # connection, is at fault. A rule of "any OperationalError" would
+        # drop these batches and hide the deadlock.
+        deadlock = OperationalError("INSERT", {}, DeadlockDetected())
+        with patch.object(self.service, "write_results_one_row",
+                          side_effect=deadlock) as write_row, \
+                self.assertLogs("cms.service.EvaluationService",
+                                "ERROR") as logs:
+            await self.service.write_results(self._evaluation_items())
+        self.assertEqual(write_row.call_count, 3)
+        messages = [record.getMessage() for record in logs.records]
+        self.assertEqual(
+            messages, ["Unexpected exception while inserting worker "
+                       "result."] * 3)
+
+    async def test_a_deadlock_at_the_first_query_propagates(self):
+        deadlock = OperationalError("SELECT", {}, DeadlockDetected())
+        with patch.object(Dataset, "get_from_id", side_effect=deadlock), \
+                self.assertNoLogs("cms.service.EvaluationService", "ERROR"):
+            # FlushingDict's generic handling must still see it.
+            with self.assertRaises(OperationalError) as raised:
+                await self.service.write_results(self._evaluation_items())
+        self.assertIs(raised.exception, deadlock)
 
 
 if __name__ == "__main__":

@@ -1022,15 +1022,16 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
         Runs inside loop.run_in_executor, holding post_finish_lock for
         its entire duration. Everything this calls internally --
-        write_results_one_object_and_type, write_results_one_row,
-        _advance_two_phase, compilation_ended, evaluation_ended,
-        user_test_compilation_ended, user_test_evaluation_ended,
-        submission_enqueue_operations, user_test_enqueue_operations,
-        _enqueue_sync -- runs as plain synchronous nested calls on this
-        same background thread; none of them may become `async def` or
-        call `await` anywhere in this call graph (see the module-level
-        note at the top of this file about why post_finish_lock is a real
-        threading.RLock, never held across an await).
+        _write_results_in_session, write_results_one_object_and_type,
+        write_results_one_row, _advance_two_phase, compilation_ended,
+        evaluation_ended, user_test_compilation_ended,
+        user_test_evaluation_ended, submission_enqueue_operations,
+        user_test_enqueue_operations, _enqueue_sync -- runs as plain
+        synchronous nested calls on this same background thread; none of
+        them may become `async def` or call `await` anywhere in this
+        call graph (see the module-level note at the top of this file
+        about why post_finish_lock is a real threading.RLock, never held
+        across an await).
 
         A lost database connection (see _lost_connection) drops the
         batch with one ERROR line; the sweeper redoes its results.
@@ -1050,7 +1051,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # operation type (i.e., group together the testcase
         # evaluations for the same submission and dataset).
         by_object_and_type: defaultdict[
-            tuple[str, int, int], list[tuple[ESOperation, Result]]
+            tuple[str, int, int, bool], list[tuple[ESOperation, Result]]
         ]
         by_object_and_type = defaultdict(list)
         for operation, result in items:
