@@ -135,12 +135,47 @@ the **Root ranking** row for "(root)".
   repeating, check the ranking container with `./status.sh` and
   `./logs.sh ranking`. Once the Ranking Web Server answers, the data goes
   through by itself.
+
+A batch that the Ranking Web Server refuses with a 400 is not dropped whole:
+ProxyService sends it again one entity at a time, so only the entities that
+the server refuses on their own are dropped. Scores and tokens refused
+because the server does not know their user or task are sent again after the
+contest data of their group (its contests, tasks, teams and users), at the
+next sweep, about every 6 minutes. The log shows the "Status 400 while
+sending …" line of the batch once, then one "refused" warning for each type
+of data and round; it counts the entities refused and names their ids (at
+most 10). The requests for single entities are logged at DEBUG only.
+
+Bad data is another matter: no later send repairs it. As long as the server
+keeps refusing an entity because its data is bad, rather than because a user
+or task is missing, every sweep sends the contest data of that group again,
+sends the refused entity again and repeats the warning. This goes on until
+someone fixes the data and presses **Regenerate** on the group.
+
+- **"Ranking … refused … of group … (…); they will be sent again after the
+  contest data of the group."** The Ranking Web Server refused some
+  submissions, or some of their scores or tokens, with a 400. Nothing to
+  do: at the next sweep, within about 6 minutes, ProxyService sends the
+  contest data of the group again and then these scores and tokens. If the
+  warning repeats for the same ids, their data is bad: fix the cause, then
+  press **Regenerate** on the group.
+- **"Ranking … refused … of group … (…); the contest data of the group will
+  be sent again at the next sweep. If this warning repeats, fix the data,
+  then use Regenerate for this group in AWS (Ranking groups)."** The Ranking
+  Web Server refused some contests, tasks, teams or users with a 400.
+  Nothing to do at first: the next sweep, within about 6 minutes, sends the
+  contest data of the group again. If the warning repeats for the same ids,
+  their data is bad: fix it, then press **Regenerate** on the group.
 - **"Ranking … rejected … of group …. It will not be sent again: use
   Regenerate for this group in AWS (Ranking groups) to send its data
-  again."** The Ranking Web Server refused that data (an answer 4xx), so the
-  scoreboard is missing it. The rest of the group's data is still sent. The
-  warning just before, "Status … while …", gives the status. Fix the cause,
-  then press **Regenerate** on the group.
+  again."** The Ranking Web Server refused that data with a 4xx status other
+  than 400, for example 401, 403 or 404. That points to a configuration
+  problem: wrong credentials or URL of the ranking in ProxyService, or an
+  old Ranking Web Server. The scoreboard is missing the data, and nothing
+  sends it again by itself. The rest of the group's data is still sent. The
+  warning just before, "Status … while …", gives the status. Fix the cause
+  (the ranking URL or credentials of ProxyService), then press
+  **Regenerate** on the group.
 - **"… of group … cannot be encoded for ranking …, and would fail the same way
   again. Fix the data, then use Regenerate for this group in AWS (Ranking
   groups) to send it."** The data cannot be written as JSON. The warning just
