@@ -49,6 +49,11 @@ env:
   # each submit (the fork's CWS reads it, upstream ignores it with a
   # warning); empty leaves the option off.
   LOAD_REQUEST_TIME_HEADER: ""
+  # Longest delay in seconds between two status polls of a submission, as
+  # the fork's page caps it. The driver emulates the browser, so it applies
+  # to both targets; empty leaves the option off (no limit, like upstream's
+  # page).
+  LOAD_POLL_CAP: ""
   # portable or full; full has no upstream counterpart.
   LOAD_PROFILE: portable
   # The merge-base of the fork and upstream, as in the README.
@@ -122,6 +127,9 @@ jobs:
           extra=()
           if [[ -n $LOAD_REQUEST_TIME_HEADER ]]; then
             extra=(--request-time-header "$LOAD_REQUEST_TIME_HEADER")
+          fi
+          if [[ -n $LOAD_POLL_CAP ]]; then
+            extra+=(--poll-cap "$LOAD_POLL_CAP")
           fi
           for target in $ORDER; do
             name=ci-$REPEAT-$target

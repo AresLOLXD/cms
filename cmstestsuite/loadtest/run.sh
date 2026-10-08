@@ -5,15 +5,20 @@
 #   ./run.sh --target fork|upstream --profile portable|full --name NAME \
 #            [--users-a N] [--users-b N] [--login-window S] [--contest S] \
 #            [--end-burst S] [--rate R] [--end-burst-factor F] \
-#            [--workers N] [--cws N] [--request-time-header NAME]
+#            [--workers N] [--cws N] [--request-time-header NAME] \
+#            [--poll-cap SECONDS]
 #
 # The defaults are the 2026-09-30 full1 values: users-a 175, users-b 75,
 # login-window 150, contest 1500, end-burst 300, rate 45 (submissions per
-# minute), end-burst-factor 1.0, workers 8, cws 2, no request time header.
+# minute), end-burst-factor 1.0, workers 8, cws 2, no request time header, no
+# poll cap.
 # --request-time-header NAME simulates a front proxy that stamps the arrival
 # time of each submit in the header NAME (the driver sends "NAME: t=<ms>" and
 # the fork target is configured to read it); the upstream target ignores the
 # key with a warning.
+# --poll-cap SECONDS limits the delay between two status polls of a
+# submission in the driver, like the fork's task_submissions.html; without it
+# the backoff has no limit, like upstream's page.
 #   smoke: ./run.sh --target fork --profile portable --name smoke \
 #              --users-a 14 --users-b 6 --login-window 60 --contest 480 \
 #              --end-burst 120 --rate 10
@@ -26,7 +31,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER=''
+TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER='' POLL_CAP=''
 UA=175 UB=75 LOGIN=150 CONTEST=1500 ENDB=300 RATE=45 EBF=1.0 WORKERS=8 CWS=2
 
 usage() {
@@ -48,6 +53,7 @@ while (($#)); do
     --workers) WORKERS=${2:?--workers needs a value}; shift 2 ;;
     --cws) CWS=${2:?--cws needs a value}; shift 2 ;;
     --request-time-header) REQUEST_TIME_HEADER=${2:?--request-time-header needs a value}; shift 2 ;;
+    --poll-cap) POLL_CAP=${2:?--poll-cap needs a value}; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage; exit 2 ;;
   esac
@@ -61,6 +67,9 @@ done
   { echo "--name is required: letters, digits, dot, dash and underscore, starting with a letter or digit" >&2; exit 2; }
 [[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9-]+$ ]] ||
   { echo "--request-time-header must be a header name: letters, digits and dashes" >&2; exit 2; }
+# A number with a non-zero digit, so that it is greater than 0.
+[[ -z $POLL_CAP || ($POLL_CAP =~ ^[0-9]+(\.[0-9]+)?$ && $POLL_CAP =~ [1-9]) ]] ||
+  { echo "--poll-cap must be a number of seconds greater than 0" >&2; exit 2; }
 if [[ $PROFILE == full && $TARGET == upstream ]]; then
   echo "The full profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
   exit 2
@@ -123,6 +132,9 @@ TWO_PHASE=false
 REQUEST_TIME_ARGS=()
 [[ -n $REQUEST_TIME_HEADER ]] &&
   REQUEST_TIME_ARGS=(--request-time-header "$REQUEST_TIME_HEADER")
+# Only the driver takes the poll cap, and only when it is set.
+POLL_CAP_ARGS=()
+[[ -n $POLL_CAP ]] && POLL_CAP_ARGS=(--poll-cap "$POLL_CAP")
 python3 "$HERE/render_config.py" --out-dir "$RUN_DIR" \
   --db-url "postgresql+psycopg2://cms:$DB_PASSWORD@db:5432/cmsdb" \
   --secret-key "$SECRET_KEY" --rws-password "$RWS_PASSWORD" \
@@ -348,7 +360,7 @@ compose exec -T driver python3 /loadtest/driver.py \
   --cws "${CWS_URLS[@]}" --rws http://ranking:8890 \
   --out "/loadtest/out/$NAME" --login-window "$LOGIN" --end-burst "$ENDB" \
   --steady-rate "$RATE" --end-burst-factor "$EBF" \
-  "${REQUEST_TIME_ARGS[@]}" 2>&1 |
+  "${REQUEST_TIME_ARGS[@]}" "${POLL_CAP_ARGS[@]}" 2>&1 |
   tee "$OUT/driver_stdout.log" &
 wait $! || driver_rc=$?
 

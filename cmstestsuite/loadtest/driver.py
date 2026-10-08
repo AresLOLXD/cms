@@ -12,7 +12,10 @@ Simulates contestants with a browser-like behaviour against CWS:
 3. Steady phase: closed loop per user: think (exponential, mean chosen from
    --steady-rate), sometimes browse, submit, poll the submission status
    with the backoff of task_submissions.html until it is terminal, maybe
-   open the details.
+   open the details. The poll is 1 s, then each delay is the previous one
+   times (1.4 + hash*0.2), without a limit like upstream's page;
+   --poll-cap SECONDS limits every delay after the multiplication, like
+   the fork's page.
 4. End burst: in the last --end-burst seconds every user submits 1-3 more
    times (skewed towards the stop), without waiting for results.
 5. Drain: after the stop, the pending polls continue until every submission
@@ -258,7 +261,10 @@ class Driver:
             await poll
 
     async def poll(self, user, entry):
-        """Poll like task_submissions.html: 1 s, then x(1.4 + hash*0.2)."""
+        """Poll like task_submissions.html: 1 s, then x(1.4 + hash*0.2).
+
+        Every delay after the first is limited to --poll-cap when it is set.
+        """
         opaque = entry["opaque_id"]
         factor = 1.4 + ((37 * opaque) % 100) / 100.0 * 0.2
         delay = 1.0
@@ -288,6 +294,8 @@ class Driver:
                 entry["polls"] = polls
                 break
             delay *= factor
+            if self.args.poll_cap is not None:
+                delay = min(delay, self.args.poll_cap)
             # Never poll past the drain deadline by much.
             delay = min(delay, max(1.0, deadline - time.time()))
         self.rec.submission(**entry)
@@ -458,7 +466,14 @@ def main():
     parser.add_argument("--request-time-header", default="",
                         help="send NAME: t=<ms since epoch> on submit POSTs, "
                         "like a front proxy stamping the arrival time")
+    parser.add_argument("--poll-cap", type=float, default=None,
+                        help="longest delay in seconds between two status "
+                        "polls of a submission, applied after each "
+                        "multiplication like the fork's task_submissions."
+                        "html; default: no cap, like upstream")
     args = parser.parse_args()
+    if args.poll_cap is not None and args.poll_cap <= 0:
+        parser.error("--poll-cap must be greater than 0")
     os.makedirs(args.out, exist_ok=True)
     with open(args.users_file) as f:
         data = json.load(f)

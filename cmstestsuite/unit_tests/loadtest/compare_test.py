@@ -64,6 +64,23 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(fork["submissions_rejected_in_time"], 0)
         self.assertEqual(fork["runs"], 2)
 
+    def test_compare_tolerates_runs_from_before_the_perceived_metrics(self):
+        new_keys = ("perceived_p50", "perceived_p95", "perceived_max",
+                    "status_polls")
+        for key in new_keys:
+            self.assertIn(key, compare.DEFAULT_KEYS)
+        runs = [{"run": "old", "target": "fork", "scored_p50": 30.0},
+                {"run": "new", "target": "fork", "scored_p50": 31.0,
+                 "perceived_p50": 8.5, "perceived_p95": 14.2,
+                 "perceived_max": 20.1, "status_polls": 4000}]
+        text = compare.table(runs, list(compare.DEFAULT_KEYS))
+        self.assertIn("| perceived_p50 | - | 8.5 |", text)
+        self.assertIn("| perceived_max | - | 20.1 |", text)
+        self.assertIn("| status_polls | - | 4000 |", text)
+        fork = compare.summarize(runs)[0]
+        self.assertEqual(fork["perceived_p95"], 14.2)
+        self.assertEqual(fork["runs"], 2)
+
     def test_summarize_takes_the_median_per_target(self):
         rows = compare.summarize(self.RUNS)
         fork = next(r for r in rows if r["target"] == "fork")

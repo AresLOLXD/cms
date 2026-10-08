@@ -29,6 +29,10 @@ The scenario (`scenario.py`, `setup_contest.py`, `driver.py`):
 - **Steady phase:** a closed loop per user: think, sometimes browse,
   submit, poll the submission status with the backoff of
   `task_submissions.html` until it is final, maybe open the details. The
+  poll starts at 1 s and multiplies the delay by a factor between 1.4
+  and 1.6 that depends on the submission id, without a limit like
+  upstream's page, so the polls land at about 1, 2.5, 4.8, 8, 13, 21, 32,
+  49 and 75 s; `--poll-cap` limits each delay, like the fork's page. The
   think time is set so that all the users together send about `--rate`
   submissions per minute.
 - **End burst:** in the last `--end-burst` seconds every user sends 1-3
@@ -141,6 +145,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--workers` | 8 | Worker shards |
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
 | `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
+| `--poll-cap` | (none) | longest delay in seconds between two status polls of a submission; the driver applies it after each multiplication of the backoff, like the fork's `task_submissions.html`, which caps it at 10 s. Without it the backoff has no limit, like upstream's page. The driver emulates the browser, so it applies to both targets. Must be greater than 0 |
 
 The defaults are the `full1` values of the 2026-09-30 run. `run.sh`
 brings the stack up with a fresh database, waits for every service
@@ -241,7 +246,8 @@ Everything goes to `out/<name>/` (git-ignored):
 - **Submissions:** login failures; submissions sent, rejected by CWS (and
   how many of those were created before the stop) and found in the DB; per phase, the server latency (`scored_at` minus the
   submission timestamp) and the perceived latency (the first poll that
-  saw a final status, with the browser backoff); when the last one was
+  saw a final status, with the browser backoff); the same latencies over
+  all phases, with the number of status polls; when the last one was
   scored after the stop; stuck submissions (never scored); rows the
   driver could not find on the submissions page; score mismatches
   against `expected_score()`; the solution mix; the histogram of
@@ -269,7 +275,7 @@ One flat object with the headline numbers, the ones `compare.py` reads.
 A value is `null` when its input is missing (for example `db_export.json`
 in a run that crashed). `compare.py` shows "-" for a key that an older
 `metrics.json` does not have (`submissions_rejected_in_time` was added
-later).
+later, and so were the `perceived_*` keys and `status_polls`).
 
 | key | meaning |
 |---|---|
@@ -285,6 +291,8 @@ later).
 | `login_p50`, `login_p95` | login POST duration, seconds |
 | `submit_p50`, `submit_p95`, `submit_end_p95` | submit POST duration, seconds, overall and in the end burst |
 | `scored_p50`, `scored_p95`, `scored_max` | server submit-to-scored latency, seconds |
+| `perceived_p50`, `perceived_p95`, `perceived_max` | perceived latency, seconds: the time of the first status poll that saw a final status minus the submit time (the browser backoff, so it depends on `--poll-cap`), over every submission that reached a final status, in all phases (`null` if none did); it needs no database export |
+| `status_polls` | `status_poll` requests in `requests.jsonl`, failed ones included, in all phases (the `n` column of the `status_poll` rows of the HTTP table in `summary.md`) |
 | `drain_after_stop_s` | seconds from the stop to the last `scored_at` |
 | `peak_pg_connections` | max PostgreSQL backends of the CMS database in a monitor sample |
 | `cpu_mean_by_container` | mean CPU percent per container |
@@ -341,10 +349,11 @@ git push origin --delete loadtest/<topic>
   `run.sh` options (`LOAD_USERS_A`, `LOAD_USERS_B`, `LOAD_LOGIN_WINDOW`,
   `LOAD_CONTEST`, `LOAD_END_BURST`, `LOAD_RATE`,
   `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`,
-  `LOAD_REQUEST_TIME_HEADER`)
+  `LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP`)
   and `UPSTREAM_REF`; change them in the commit you push. The values in
   the file are the `run.sh` defaults, except 4 CWS shards instead of 2
-  (`LOAD_REQUEST_TIME_HEADER` is empty, which leaves the option off).
+  (`LOAD_REQUEST_TIME_HEADER` and `LOAD_POLL_CAP` are empty, which leaves
+  those options off).
 - **Jobs:** four `pair` jobs, repeats 1 to 4, each on its own runner
   (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
   full-size run asks for). Each one builds both images

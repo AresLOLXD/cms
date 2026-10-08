@@ -39,7 +39,9 @@ DEFAULT_KEYS = (
     "submissions_rejected_in_time", "login_failures", "http_errors",
     "score_mismatches", "rws_pairs", "rws_mismatches", "login_p50",
     "login_p95", "submit_p50", "submit_p95", "submit_end_p95", "scored_p50",
-    "scored_p95", "scored_max", "drain_after_stop_s", "peak_pg_connections")
+    "scored_p95", "scored_max", "perceived_p50", "perceived_p95",
+    "perceived_max", "status_polls", "drain_after_stop_s",
+    "peak_pg_connections")
 
 
 def load(run_dirs: list[str]) -> list[dict]:
