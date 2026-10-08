@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 import unittest
 from datetime import datetime
@@ -11,7 +12,8 @@ from urllib.parse import urljoin
 import requests.exceptions
 
 from cms.io.priorityqueue import QueueEntry
-from cms.service.ProxyService import ProxyExecutor, ProxyOperation
+from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
+    RefusedEntity
 
 
 RANKING = "http://rws:secret@localhost:8890/"
@@ -353,13 +355,17 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
                 # Sending it again would fail again: it is not retried.
                 self.assertEqual(await self.drain(), [])
                 self.assertEqual(self.retry_waits.waits, [])
-                # The operator is told how to fix that group, and only
-                # that one.
+                # The operator is told what became of it in that group,
+                # and only that one. Only data refused as invalid (400)
+                # is sent again, once ProxyService fixed what it names.
                 hints = [line for line in logs.output
-                         if "Regenerate" in line]
+                         if " refused " in line or "Regenerate" in line]
                 self.assertEqual(len(hints), 1)
-                self.assertIn("olim", hints[0])
-                self.assertIn("submissions", hints[0])
+                self.assertIn("submissions of group olim", hints[0])
+                self.assertIn(
+                    "sent again after the contest data" if status == 400
+                    else "It will not be sent again: use Regenerate",
+                    hints[0])
                 self.assertNotIn("omips", hints[0])
 
     async def test_failed_group_waits_while_the_others_are_sent(self):
@@ -962,6 +968,500 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
         # They go out together, in a round or two after the first one.
         self.assertLessEqual(len(rounds), 3, rounds)
         self.assertEqual(self.urls().count(url("olim/contests/")), 1)
+
+
+def score(user: str) -> dict:
+    """Return the data of a submission of user, as the service builds it."""
+    return {"user": user, "task": "t", "time": 1000}
+
+
+class TestProxyExecutorRefusals(unittest.IsolatedAsyncioTestCase):
+    """What an executor does when a ranking refuses part of a list.
+
+    RWS takes the entities of a PUT of a list all or none (see
+    cmstestsuite/unit_tests/cmsranking/test_put_list.py): one entity it
+    refuses gets the whole list refused.
+
+    """
+
+    async def asyncSetUp(self):
+        # The requests made, in order, as (method, URL, JSON payload).
+        self.calls: list[tuple[str, str, dict | None]] = []
+        # The ranking answers the requests to the URLs of url_statuses
+        # with their status, whatever they hold. Else it refuses as
+        # invalid (400) a request holding one of refused_ids, else
+        # refuses its credentials (401) for one holding one of
+        # unauthorized_ids, else fails (503) on one holding one of
+        # failing_ids, else takes it.
+        self.url_statuses: dict[str, int] = {}
+        self.refused_ids: set[str] = set()
+        self.unauthorized_ids: set[str] = set()
+        self.failing_ids: set[str] = set()
+
+        def fake_request(method, ok_status):
+            def send(target, body=None, **kwargs):
+                payload = None if body is None else json.loads(body)
+                self.calls.append((method, target, payload))
+                ids = set(payload or ())
+                response = MagicMock()
+                if target in self.url_statuses:
+                    response.status_code = self.url_statuses[target]
+                elif ids & self.refused_ids:
+                    response.status_code = 400
+                elif ids & self.unauthorized_ids:
+                    response.status_code = 401
+                elif ids & self.failing_ids:
+                    response.status_code = 503
+                else:
+                    response.status_code = ok_status
+                return response
+            return send
+
+        for method, ok_status in (("put", 200), ("delete", 204)):
+            patcher = patch("cms.service.ProxyService.requests." + method,
+                            fake_request(method, ok_status))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        self.executor = ProxyExecutor(RANKING)
+
+    def refusal_warnings(self, logs) -> list[str]:
+        return [record.getMessage() for record in logs.records
+                if " refused " in record.getMessage()]
+
+    def test_a_refused_batch_is_split_and_only_refused_entities_are_dropped(
+        self,
+    ):
+        # Bob is not known to the ranking.
+        self.refused_ids = {"2"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("alice")}),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("bob")}),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"3": score("carol")}))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
+
+        # The list is refused, then each submission is sent on its own.
+        self.assertEqual(self.calls, [
+            ("put", url("submissions/"), {"1": score("alice"),
+                                          "2": score("bob"),
+                                          "3": score("carol")}),
+            ("put", url("submissions/"), {"1": score("alice")}),
+            ("put", url("submissions/"), {"2": score("bob")}),
+            ("put", url("submissions/"), {"3": score("carol")})])
+        # What was refused on its own is not sent again by the executor,
+        # but it is reported.
+        self.assertEqual(unsent, [])
+        self.assertEqual(self.executor._refused_in_round, [
+            RefusedEntity(None, ProxyExecutor.SUBMISSION_TYPE, "2",
+                          score("bob"))])
+        self.assertEqual(self.refusal_warnings(logs), [
+            "Ranking http://localhost:8890/ refused 1 of 3 submissions of "
+            "group (root) (2); they will be sent again after the contest "
+            "data of the group."])
+
+    def test_a_refusal_while_splitting_is_only_logged_at_debug(self):
+        # The warning of the round names it: one warning per entity on
+        # top of that would flood the log with each refused round.
+        self.refused_ids = {"2"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("alice")}),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("bob")}),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"3": score("carol")}))
+
+        with self.assertLogs("cms.service.ProxyService", "DEBUG") as logs:
+            self.executor._execute_sync(batch)
+
+        status = "Status 400 while sending submissions to ranking " \
+            "http://localhost:8890/."
+        self.assertEqual(
+            [record.getMessage() for record in logs.records
+             if record.levelname == "WARNING"],
+            [status,
+             "Ranking http://localhost:8890/ refused 1 of 3 submissions of "
+             "group (root) (2); they will be sent again after the contest "
+             "data of the group."])
+        # The merged request, then the refused one alone.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if record.getMessage() == status],
+            ["WARNING", "DEBUG"])
+
+    def test_the_warning_names_at_most_ten_refused_ids(self):
+        # One entry, as the sweep queues the scores of a contest.
+        self.refused_ids = {"%d" % i for i in range(1, 13)}
+        batch = entries(ProxyOperation(
+            ProxyExecutor.SUBMISSION_TYPE,
+            {"%d" % i: score("u%d" % i) for i in range(1, 14)}, "olim"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            self.executor._execute_sync(batch)
+
+        self.assertEqual(len(self.executor._refused_in_round), 12)
+        # The first REFUSED_IDS_SHOWN ids, sorted as strings.
+        self.assertEqual(self.refusal_warnings(logs), [
+            "Ranking http://localhost:8890/ refused 12 of 13 submissions of "
+            "group olim (1, 10, 11, 12, 2, 3, 4, 5, 6, 7, ...); they will "
+            "be sent again after the contest data of the group."])
+
+    def test_the_warning_names_the_submissions_of_refused_subchanges(self):
+        # A subchange id is a timestamp, a submission id and s (score)
+        # or t (token): the operator looks for the submission.
+        self.refused_ids = {"1791658800002s", "1791658800002t",
+                            "1791658900013s"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
+                           {"1791658800002s": {"submission": "2"},
+                            "1791658800002t": {"submission": "2"}}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
+                           {"1791658900013s": {"submission": "13"},
+                            "1791658900014s": {"submission": "14"}},
+                           "olim"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            self.executor._execute_sync(batch)
+
+        # Each submission once, sorted as strings; the count is still
+        # that of the subchanges.
+        self.assertEqual(self.refusal_warnings(logs), [
+            "Ranking http://localhost:8890/ refused 3 of 4 subchanges of "
+            "group olim (13, 2); they will be sent again after the contest "
+            "data of the group."])
+        self.assertEqual(
+            [entity.key for entity in self.executor._refused_in_round],
+            ["1791658800002s", "1791658800002t", "1791658900013s"])
+
+    def test_a_single_refused_entity_is_not_split(self):
+        self.refused_ids = {"2"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("bob")}, "olim"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
+
+        self.assertEqual(self.calls, [
+            ("put", url("olim/submissions/"), {"2": score("bob")})])
+        self.assertEqual(unsent, [])
+        self.assertEqual(self.executor._refused_in_round, [
+            RefusedEntity("olim", ProxyExecutor.SUBMISSION_TYPE, "2",
+                          score("bob"))])
+        warnings = self.refusal_warnings(logs)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("refused 1 of 1 submissions of group olim (2)",
+                      warnings[0])
+        self.assertIn("they will be sent again after the contest data",
+                      warnings[0])
+
+    def test_a_batch_refused_for_another_reason_is_not_split(self):
+        # E.g. wrong credentials (401), or an RWS without the namespace
+        # (404): each entity alone would be refused the same way.
+        for status in (401, 404):
+            with self.subTest(status=status):
+                self.executor = ProxyExecutor(RANKING)
+                self.calls.clear()
+                self.url_statuses = {url("olim/submissions/"): status}
+                batch = entries(
+                    ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                                   {"1": score("alice")}, "olim"),
+                    ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                                   {"2": score("bob")}, "olim"),
+                    ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                                   {"3": score("carol")}, "olim"))
+
+                with self.assertLogs(
+                        "cms.service.ProxyService", "WARNING") as logs:
+                    unsent = self.executor._execute_sync(batch)
+
+                # One request, dropped whole as before, and not reported.
+                self.assertEqual([(target, list(payload))
+                                  for method, target, payload in self.calls],
+                                 [(url("olim/submissions/"),
+                                   ["1", "2", "3"])])
+                self.assertEqual(unsent, [])
+                self.assertEqual(self.executor._refused_in_round, [])
+                self.assertEqual(self.refusal_warnings(logs), [])
+                hints = [line for line in logs.output
+                         if "Regenerate" in line]
+                self.assertEqual(len(hints), 1)
+                self.assertIn(
+                    "Ranking http://localhost:8890/ rejected the "
+                    "submissions of group olim. It will not be sent again: "
+                    "use Regenerate for this group in AWS (Ranking groups) "
+                    "to send its data again.", hints[0])
+
+    def test_a_refusal_for_another_reason_stops_the_split(self):
+        # The list is refused as invalid because of "2", and then the
+        # ranking refuses the credentials of the request of "3" alone
+        # (they changed meanwhile): "4" would be refused the same way.
+        self.refused_ids = {"2"}
+        self.unauthorized_ids = {"3"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("alice")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("bob")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"3": score("carol")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"4": score("dave")}, "olim"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
+
+        # The split stops at "3": "4" is not tried.
+        self.assertEqual(
+            [list(payload) for method, target, payload in self.calls],
+            [["1", "2", "3", "4"], ["1"], ["2"], ["3"]])
+        # "3" and "4" are dropped, as a batch refused for another reason
+        # is: neither sent again nor handed over.
+        self.assertEqual(unsent, [])
+        # "2" was refused as invalid before that: it still is reported.
+        self.assertEqual(self.executor._refused_in_round, [
+            RefusedEntity("olim", ProxyExecutor.SUBMISSION_TYPE, "2",
+                          score("bob"))])
+        # The status of the refusal for another reason is a warning, and
+        # the advice for it comes right after it.
+        self.assertEqual([record.getMessage() for record in logs.records], [
+            "Status 400 while sending submissions to ranking "
+            "http://localhost:8890/olim/.",
+            "Status 401 while sending submissions to ranking "
+            "http://localhost:8890/olim/.",
+            "Ranking http://localhost:8890/ rejected the submissions of "
+            "group olim. It will not be sent again: use Regenerate for this "
+            "group in AWS (Ranking groups) to send its data again.",
+            "Ranking http://localhost:8890/ refused 1 of 4 submissions of "
+            "group olim (2); they will be sent again after the contest "
+            "data of the group."])
+
+    def test_an_unsent_answer_while_splitting_puts_the_rest_back(self):
+        # The ranking refuses the list because of "3", takes "1", and
+        # fails on "2", e.g. while it restarts.
+        self.refused_ids = {"3"}
+        self.failing_ids = {"2"}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("alice")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("bob")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"3": score("carol")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
+                           {"1s": {"submission": "1"}}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"4": score("dave")}, "omips"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
+
+        # A failure while splitting is a warning, as any failure is.
+        self.assertIn(
+            "Status 503 while sending submissions to ranking "
+            "http://localhost:8890/olim/.",
+            [record.getMessage() for record in logs.records])
+        # The split stops at "2", and the group stalls: its subchanges
+        # are not sent. omips is not held back.
+        self.assertEqual([(target, list(payload))
+                          for method, target, payload in self.calls], [
+            (url("olim/submissions/"), ["1", "2", "3"]),
+            (url("olim/submissions/"), ["1"]),
+            (url("olim/submissions/"), ["2"]),
+            (url("omips/submissions/"), ["4"])])
+        # What did not go in alone goes back, in order: "1" went in.
+        self.assertEqual(unsent, batch[1:4])
+        # "3" was not refused on its own (yet).
+        self.assertEqual(self.executor._refused_in_round, [])
+
+    def test_an_entry_is_sent_only_if_all_its_entities_went_in(self):
+        with self.subTest("refused"):
+            self.refused_ids = {"b"}
+            batch = entries(
+                ProxyOperation(ProxyExecutor.USER_TYPE,
+                               {"a": {"f_name": "A"}, "b": {"f_name": "B"}},
+                               "olim"),
+                ProxyOperation(ProxyExecutor.USER_TYPE,
+                               {"c": {"f_name": "C"}}, "olim"))
+
+            with self.assertLogs(
+                    "cms.service.ProxyService", "WARNING") as logs:
+                unsent = self.executor._execute_sync(batch)
+
+            # "b" is dropped: both entries are done with.
+            self.assertEqual(
+                [list(payload) for method, target, payload in self.calls],
+                [["a", "b", "c"], ["a"], ["b"], ["c"]])
+            self.assertEqual(unsent, [])
+            self.assertEqual(self.executor._refused_in_round, [
+                RefusedEntity("olim", ProxyExecutor.USER_TYPE, "b",
+                              {"f_name": "B"})])
+            # ProxyService sends the contest data again at the next
+            # sweep; if that does not help, the data needs fixing.
+            self.assertEqual(self.refusal_warnings(logs), [
+                "Ranking http://localhost:8890/ refused 1 of 3 users of "
+                "group olim (b); the contest data of the group will be "
+                "sent again at the next sweep. If this warning repeats, "
+                "fix the data, then use Regenerate for this group in AWS "
+                "(Ranking groups)."])
+
+        with self.subTest("unsent"):
+            self.executor = ProxyExecutor(RANKING)
+            self.calls.clear()
+            # "a" goes in and "b" is refused, but "c" does not get there.
+            self.refused_ids = {"b"}
+            self.failing_ids = {"c"}
+
+            unsent = self.executor._execute_sync(batch)
+
+            self.assertEqual(
+                [list(payload) for method, target, payload in self.calls],
+                [["a", "b", "c"], ["a"], ["b"], ["c"]])
+            # The first entry is done with, the second one is not.
+            self.assertEqual(unsent, batch[1:])
+            self.assertEqual(self.executor._refused_in_round, [
+                RefusedEntity("olim", ProxyExecutor.USER_TYPE, "b",
+                              {"f_name": "B"})])
+
+        with self.subTest("not all in"):
+            self.executor = ProxyExecutor(RANKING)
+            self.calls.clear()
+            # "a" goes in, but "b" does not get there.
+            self.refused_ids = {"c"}
+            self.failing_ids = {"b"}
+
+            unsent = self.executor._execute_sync(batch)
+
+            self.assertEqual(
+                [list(payload) for method, target, payload in self.calls],
+                [["a", "b", "c"], ["a"], ["b"]])
+            # Both entries go back: the first one although "a" went in.
+            self.assertEqual(unsent, batch)
+            self.assertEqual(self.executor._refused_in_round, [])
+
+    def test_an_entity_that_cannot_be_encoded_does_not_drop_the_others(
+        self,
+    ):
+        batch = entries(
+            ProxyOperation(ProxyExecutor.USER_TYPE,
+                           {"a": {"f_name": "A"}}, "olim"),
+            ProxyOperation(ProxyExecutor.USER_TYPE,
+                           {"u": {"f_name": object()}}, "olim"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
+
+        # Neither the list nor "u" can be encoded: only "a" is sent.
+        self.assertEqual(self.calls, [
+            ("put", url("olim/users/"), {"a": {"f_name": "A"}})])
+        self.assertEqual(unsent, [])
+        # Fixing what it refers to would not help: it is not handed over,
+        # and the operator is told to fix the data, once.
+        self.assertEqual(self.executor._refused_in_round, [])
+        self.assertEqual(self.refusal_warnings(logs), [])
+        hints = [line for line in logs.output if "Regenerate" in line]
+        self.assertEqual(len(hints), 1)
+        self.assertIn("users of group olim cannot be encoded", hints[0])
+
+    def test_reset_and_visibility_are_never_split(self):
+        settings = {"hide_at": None, "show_at": None, "freeze_at": None,
+                    "unfreeze_at": None, "staff_password": None}
+        self.url_statuses = {url("olim/contests/"): 400,
+                             url("omips/visibility"): 400}
+        batch = entries(
+            ProxyOperation(ProxyExecutor.RESET_TYPE, {}, "olim"),
+            ProxyOperation(ProxyExecutor.USER_TYPE, {"u": {}}, "olim"),
+            ProxyOperation(ProxyExecutor.VISIBILITY_TYPE, settings, "omips"),
+            ProxyOperation(ProxyExecutor.USER_TYPE, {"v": {}}, "omips"))
+
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            unsent = self.executor._execute_sync(batch)
+
+        # The refused reset is dropped and the data of olim is sent; the
+        # refused visibility drops the data of omips. One request each.
+        self.assertEqual(self.calls, [
+            ("delete", url("olim/contests/"), None),
+            ("put", url("omips/visibility"), settings),
+            ("put", url("olim/users/"), {"u": {}})])
+        self.assertEqual(unsent, [])
+        self.assertEqual(self.executor._refused_in_round, [])
+        self.assertEqual(self.refusal_warnings(logs), [])
+        messages = [record.getMessage() for record in logs.records]
+        self.assertTrue(any("rejected the reset of group olim" in m
+                            and "Regenerate" in m for m in messages))
+        self.assertTrue(any("rejected the visibility of group omips" in m
+                            for m in messages))
+
+    def test_no_refusal_sends_one_put_per_type(self):
+        batch = entries(
+            ProxyOperation(ProxyExecutor.USER_TYPE, {"a": {}}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("a")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
+                           {"1s": {"submission": "1"}}, "olim"),
+            ProxyOperation(ProxyExecutor.USER_TYPE, {"b": {}}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"2": score("b")}, "olim"),
+            ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
+                           {"2s": {"submission": "2"}}, "olim"))
+
+        with self.assertNoLogs("cms.service.ProxyService", "WARNING"):
+            unsent = self.executor._execute_sync(batch)
+
+        self.assertEqual([(target, list(payload))
+                          for method, target, payload in self.calls], [
+            (url("olim/users/"), ["a", "b"]),
+            (url("olim/submissions/"), ["1", "2"]),
+            (url("olim/subchanges/"), ["1s", "2s"])])
+        self.assertEqual(unsent, [])
+        self.assertEqual(self.executor._refused_in_round, [])
+
+    async def test_execute_hands_refused_entities_to_the_callback(self):
+        threads: list[int] = []
+        on_refused = MagicMock(
+            side_effect=lambda refused: threads.append(threading.get_ident()))
+        self.executor = ProxyExecutor(RANKING, on_refused=on_refused)
+
+        # Nothing refused: the callback is not called.
+        await self.executor.execute(entries(
+            ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                           {"1": score("alice")}, "olim")))
+        on_refused.assert_not_called()
+
+        # Bob is not known to the ranking, nor then his submission.
+        self.refused_ids = {"2", "2s"}
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            await self.executor.execute(entries(
+                ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                               {"2": score("bob")}, "olim"),
+                ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
+                               {"2s": {"submission": "2"}}, "olim"),
+                ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
+                               {"3": score("carol")}, "olim")))
+
+        # Once, with everything refused in the round, on the event loop
+        # (the requests are made in another thread).
+        on_refused.assert_called_once_with([
+            RefusedEntity("olim", ProxyExecutor.SUBMISSION_TYPE, "2",
+                          score("bob")),
+            RefusedEntity("olim", ProxyExecutor.SUBCHANGE_TYPE, "2s",
+                          {"submission": "2"})])
+        self.assertEqual(threads, [threading.get_ident()])
+        # The round is over: nothing is kept for the next one.
+        self.assertEqual(self.executor._refused_in_round, [])
+        # Scores and tokens are sent again, as submissions are.
+        self.assertEqual(self.refusal_warnings(logs), [
+            "Ranking http://localhost:8890/ refused 1 of 2 submissions of "
+            "group olim (2); they will be sent again after the contest "
+            "data of the group.",
+            "Ranking http://localhost:8890/ refused 1 of 1 subchanges of "
+            "group olim (2); they will be sent again after the contest "
+            "data of the group."])
 
 
 if __name__ == "__main__":
