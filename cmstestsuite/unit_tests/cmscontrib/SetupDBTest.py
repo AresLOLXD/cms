@@ -224,6 +224,41 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
     def _hold(self, statement: str) -> None:
         self.holder.cursor().execute(statement)
 
+    def _apply_fork_sql_timed(self, sql: str, tables: str) -> float:
+        """Run apply_fork_sql, which must give up; return its lock wait.
+
+        The wait is timed from the moment the connection is open, so it
+        leaves out the connect. The connection also gets a 30 s
+        statement_timeout, so that a regression of the lock timeout fails
+        the test in 30 s (with QueryCanceled) instead of hanging it.
+
+        sql: the statements to apply.
+        tables: the tables they lock, for the error message.
+
+        return: the seconds from the open connection to the exception.
+
+        """
+        opened_at = []
+
+        def connect_with_backstop():
+            conn = custom_psycopg2_connection()
+            # Session level: autocommit keeps this SET out of the
+            # transaction that apply_fork_sql starts.
+            conn.autocommit = True
+            conn.cursor().execute("SET statement_timeout = '30s'")
+            conn.autocommit = False
+            opened_at.append(time.monotonic())
+            return conn
+
+        with patch("cmscontrib.updaters.fork_ddl.custom_psycopg2_connection",
+                   connect_with_backstop):
+            with self.assertRaises(SchemaLockTimeout) as caught:
+                apply_fork_sql(sql, tables)
+        wait = time.monotonic() - opened_at[0]
+        self.assertEqual(caught.exception.tables, tables)
+        self.assertEqual(str(caught.exception), LOCK_MESSAGE % tables)
+        return wait
+
     @staticmethod
     def _run_setup_db() -> tuple[subprocess.CompletedProcess, float]:
         """Run cmsSetupDB as db-init does; return it and its duration."""
@@ -243,14 +278,24 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
 
     def test_apply_fork_sql_gives_up_after_5_seconds(self):
         self._hold("SELECT 1 FROM contests LIMIT 1")
-        started = time.monotonic()
-        with self.assertRaises(SchemaLockTimeout) as caught:
-            apply_fork_sql("ALTER TABLE public.contests "
-                           "ALTER COLUMN active DROP DEFAULT", "contests")
-        elapsed = time.monotonic() - started
-        self.assertGreaterEqual(elapsed, 5)
-        self.assertLess(elapsed, 8)
-        self.assertEqual(str(caught.exception), LOCK_MESSAGE % "contests")
+        wait = self._apply_fork_sql_timed(
+            "ALTER TABLE public.contests ALTER COLUMN active DROP DEFAULT",
+            "contests")
+        self.assertGreaterEqual(wait, 5)
+        self.assertLess(wait, 8)
+
+    def test_apply_fork_sql_changes_nothing_when_it_gives_up(self):
+        # "Nothing was changed" is what the operator is told: the
+        # statement that ran before the blocked one is rolled back too.
+        self._hold("SELECT 1 FROM contests LIMIT 1")
+        self._apply_fork_sql_timed(
+            "CREATE TABLE public.zz_probe (i integer); "
+            "ALTER TABLE public.contests ALTER COLUMN active DROP DEFAULT",
+            "contests")
+        self.holder.rollback()
+        cursor = self.holder.cursor()
+        cursor.execute("SELECT to_regclass('public.zz_probe') IS NULL")
+        self.assertTrue(cursor.fetchone()[0])
 
     def test_setup_db_exits_1_when_a_session_read_contests(self):
         # F4's holder: it read contests and stays idle in its transaction.
@@ -272,6 +317,7 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
         self.assertEqual(completed.returncode, 1, completed.stderr)
         self.assertIn(LOCK_MESSAGE % "activity_intervals", completed.stderr)
         self.assertNotIn("Traceback", completed.stderr)
+        self.assertGreaterEqual(elapsed, 5)
         self.assertLess(elapsed, 15)
 
     def test_setup_db_succeeds_again_once_the_session_ended(self):

@@ -35,7 +35,7 @@ from cms.db import custom_psycopg2_connection
 class SchemaLockTimeout(Exception):
     """A fork schema update could not lock its tables within 5 s."""
 
-    def __init__(self, tables: str):
+    def __init__(self, tables: str) -> None:
         """Create the error, with the message cmsSetupDB prints.
 
         tables: the tables the update locks, as the message names them
