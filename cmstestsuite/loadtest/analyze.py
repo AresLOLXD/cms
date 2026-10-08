@@ -21,11 +21,12 @@ import re
 PHASES = ["login_burst", "start_burst", "steady", "end_burst", "drain"]
 
 METRIC_KEYS = (
-    "run", "target", "profile", "users", "submissions_sent",
+    "run", "target", "profile", "users", "poll_cap", "submissions_sent",
     "submissions_rejected", "submissions_rejected_in_time",
     "login_failures", "http_errors", "score_mismatches", "rws_pairs",
     "rws_mismatches", "login_p50", "login_p95", "submit_p50", "submit_p95",
     "submit_end_p95", "scored_p50", "scored_p95", "scored_max",
+    "perceived_p50", "perceived_p95", "perceived_max", "status_polls",
     "drain_after_stop_s", "peak_pg_connections", "cpu_mean_by_container",
     "mem_last_by_container")
 
@@ -125,6 +126,9 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
     metrics["target"] = users.get("target")
     metrics["profile"] = users.get("profile")
     metrics["users"] = len(users["users"])
+    # run.sh records it in users.json; null for a run without a cap, and for
+    # a run from before it was recorded.
+    metrics["poll_cap"] = users.get("poll_cap")
 
     w("# Run %s\n" % metrics["run"])
     w("Target %s, profile %s." % (metrics["target"], metrics["profile"]))
@@ -157,6 +161,9 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
                 kind, phase, len(d), errors[(kind, phase)], fmt(pct(d, 50)),
                 fmt(pct(d, 95)), fmt(pct(d, 99)), fmt(max(d))))
     metrics["http_errors"] = sum(errors.values())
+    # The n of the status_poll rows of the table above, over every phase.
+    metrics["status_polls"] = sum(
+        len(d) for (kind, _), d in groups.items() if kind == "status_poll")
     login_d = [r["dur"] for r in reqs if r["kind"] == "login"]
     submit_d = [r["dur"] for r in reqs if r["kind"] == "submit"]
     submit_end_d = [r["dur"] for r in reqs
@@ -235,12 +242,13 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
         elif server["score"] is not None and \
                 abs(server["score"] - s["expected"]) > 1e-6:
             mismatches.append((s, server))
-    all_srv = []
+    all_srv, all_perceived = [], []
     for phase in PHASES:
         if phase not in per_phase:
             continue
         a, b, n = per_phase[phase]
         all_srv += a
+        all_perceived += b
         w("| %s | %d | %s | %s | %s | %s | %s | %s |" % (
             phase, n, fmt(pct(a, 50), 1), fmt(pct(a, 95), 1),
             fmt(max(a) if a else float("nan"), 1), fmt(pct(b, 50), 1),
@@ -252,6 +260,18 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
     w("\nAll: server submit->scored p50 %s s, p95 %s s, max %s s."
       % (fmt(scored["scored_p50"], 1), fmt(scored["scored_p95"], 1),
          fmt(scored["scored_max"], 1)))
+    # Every submission that reached a final status, as in the table above.
+    perceived = {"perceived_p50": pct(all_perceived, 50),
+                 "perceived_p95": pct(all_perceived, 95),
+                 "perceived_max": (max(all_perceived) if all_perceived
+                                   else float("nan"))}
+    for key, value in perceived.items():
+        metrics[key] = metric(value, 1)
+    w("All: perceived (browser backoff) p50 %s s, p95 %s s, max %s s; "
+      "%d status polls." % (
+          fmt(perceived["perceived_p50"], 1),
+          fmt(perceived["perceived_p95"], 1),
+          fmt(perceived["perceived_max"], 1), metrics["status_polls"]))
     scored_times = [s["scored_at"] for s in db["submissions"]
                     if s.get("scored_at")]
     if scored_times:

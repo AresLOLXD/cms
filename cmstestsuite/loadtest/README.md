@@ -29,8 +29,14 @@ The scenario (`scenario.py`, `setup_contest.py`, `driver.py`):
 - **Steady phase:** a closed loop per user: think, sometimes browse,
   submit, poll the submission status with the backoff of
   `task_submissions.html` until it is final, maybe open the details. The
-  think time is set so that all the users together send about `--rate`
-  submissions per minute.
+  poll starts at 1 s and multiplies the delay by a factor between 1.4
+  and 1.6 that depends on the submission id, without a limit like
+  upstream's page, so the polls land at about 1, 2.5, 4.8, 8, 13, 21, 32,
+  49 and 75 s; `--poll-cap` limits each delay, like the fork's page. A
+  poll that fails with status 0 (connection error) or 5xx is asked again
+  after the next delay; a 4xx stops the poll of that submission, like the
+  page. The think time is set so that all the users together send about
+  `--rate` submissions per minute.
 - **End burst:** in the last `--end-burst` seconds every user sends 1-3
   more submissions (times `--end-burst-factor`), skewed towards the stop,
   without waiting for the results.
@@ -141,6 +147,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--workers` | 8 | Worker shards |
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
 | `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
+| `--poll-cap` | (none) | longest delay in seconds between two status polls of a submission; the driver applies it after each multiplication of the backoff, like the fork's `task_submissions.html`, which caps it at 10 s (`PAGE_POLL_CAP_S` in `driver.py`; a test keeps it equal to the page's). Each submission caps at the value times (0.9 + hash * 0.2), the hash that staggers its backoff, so the capped polls of a burst of submissions do not line up in waves. Without the option the backoff has no limit, like upstream's page. The driver emulates the browser, so it applies to both targets. Must be a finite number greater than 0. `run.sh` records it in `users.json` |
 
 The defaults are the `full1` values of the 2026-09-30 run. `run.sh`
 brings the stack up with a fresh database, waits for every service
@@ -207,9 +214,9 @@ Everything goes to `out/<name>/` (git-ignored):
 
 | file | written by | content |
 |---|---|---|
-| `users.json` | `setup_contest.py`, `run.sh` | target, profile, ranked contests and their RWS paths, contest ids, start and stop, usernames and plaintext passwords |
+| `users.json` | `setup_contest.py`, `run.sh` | target, poll cap (null when there is none), profile, ranked contests and their RWS paths, contest ids, start and stop, usernames and plaintext passwords |
 | `requests.jsonl` | driver | one line per HTTP request: time, kind, phase, duration, status, ok, user, shard, error or body excerpt when it failed |
-| `submissions.jsonl` | driver | one line per submission: user, task, solution kind, phase, accepted, opaque id, expected score, final status and score seen, polls; also one `login_failed` line per user who gave up logging in |
+| `submissions.jsonl` | driver | one line per submission: user, task, solution kind, phase, accepted, opaque id, expected score, final status and score seen, polls (final status `poll_failed`, with the HTTP status in `poll_status`, when a 4xx stopped the poll); also one `login_failed` line per user who gave up logging in |
 | `ranking.jsonl` | driver | every change of a (user, task) score seen on RWS |
 | `progress.log`, `driver_stdout.log` | driver | a progress line every 10 s (phase, submitted, final, pending polls, request counters) |
 | `monitor.jsonl` | `monitor.py` | a sample every 2 s: RPC `echo` round trip to ES, SS, PS, AWS and every CWS, ES queue and busy workers, CPU, RSS and PostgreSQL connections per CMS process, `pg_stat_activity` states, lock waits, longest idle-in-transaction |
@@ -241,7 +248,8 @@ Everything goes to `out/<name>/` (git-ignored):
 - **Submissions:** login failures; submissions sent, rejected by CWS (and
   how many of those were created before the stop) and found in the DB; per phase, the server latency (`scored_at` minus the
   submission timestamp) and the perceived latency (the first poll that
-  saw a final status, with the browser backoff); when the last one was
+  saw a final status, with the browser backoff); the same latencies over
+  all phases, with the number of status polls; when the last one was
   scored after the stop; stuck submissions (never scored); rows the
   driver could not find on the submissions page; score mismatches
   against `expected_score()`; the solution mix; the histogram of
@@ -266,15 +274,21 @@ Everything goes to `out/<name>/` (git-ignored):
 ### metrics.json
 
 One flat object with the headline numbers, the ones `compare.py` reads.
-A value is `null` when its input is missing (for example `db_export.json`
-in a run that crashed). `compare.py` shows "-" for a key that an older
+A value is `null` when there is nothing to compute it from: the database
+export, the monitor and the docker stats are optional inputs (for example
+`db_export.json` is missing in a run that crashed), and a percentile of no
+samples is `null`. The counts taken from the driver's files
+(`submissions_sent`, `submissions_rejected`, `submissions_rejected_in_time`,
+`login_failures`, `http_errors`, `status_polls`) are 0, not `null`, when
+the file is missing. `compare.py` shows "-" for a key that an older
 `metrics.json` does not have (`submissions_rejected_in_time` was added
-later).
+later, and so were the `perceived_*` keys, `status_polls` and `poll_cap`).
 
 | key | meaning |
 |---|---|
 | `run`, `target`, `profile` | run name, target and profile |
 | `users` | users in both contests |
+| `poll_cap` | the `--poll-cap` of the run in seconds, as `run.sh` recorded it in `users.json`; `null` when the run had no cap (the driver run by hand does not record it) |
 | `submissions_sent` | submissions the driver sent |
 | `submissions_rejected` | submissions CWS did not accept (no `submission_id` in the redirect) |
 | `submissions_rejected_in_time` | the rejected submissions whose POST was created before the contest stop (`t_submit` < stop); these are the ones that point at the server |
@@ -285,6 +299,8 @@ later).
 | `login_p50`, `login_p95` | login POST duration, seconds |
 | `submit_p50`, `submit_p95`, `submit_end_p95` | submit POST duration, seconds, overall and in the end burst |
 | `scored_p50`, `scored_p95`, `scored_max` | server submit-to-scored latency, seconds |
+| `perceived_p50`, `perceived_p95`, `perceived_max` | perceived latency, seconds: the time of the first status poll that saw a final status minus the submit time (the browser backoff, so it depends on `--poll-cap`), over every submission that reached a final status, in all phases (`null` if none did); it needs no database export |
+| `status_polls` | `status_poll` requests in `requests.jsonl`, failed ones included, in all phases (the `n` column of the `status_poll` rows of the HTTP table in `summary.md`) |
 | `drain_after_stop_s` | seconds from the stop to the last `scored_at` |
 | `peak_pg_connections` | max PostgreSQL backends of the CMS database in a monitor sample |
 | `cpu_mean_by_container` | mean CPU percent per container |
@@ -341,10 +357,11 @@ git push origin --delete loadtest/<topic>
   `run.sh` options (`LOAD_USERS_A`, `LOAD_USERS_B`, `LOAD_LOGIN_WINDOW`,
   `LOAD_CONTEST`, `LOAD_END_BURST`, `LOAD_RATE`,
   `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`,
-  `LOAD_REQUEST_TIME_HEADER`)
+  `LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP`)
   and `UPSTREAM_REF`; change them in the commit you push. The values in
   the file are the `run.sh` defaults, except 4 CWS shards instead of 2
-  (`LOAD_REQUEST_TIME_HEADER` is empty, which leaves the option off).
+  (`LOAD_REQUEST_TIME_HEADER` and `LOAD_POLL_CAP` are empty, which leaves
+  those options off).
 - **Jobs:** four `pair` jobs, repeats 1 to 4, each on its own runner
   (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
   full-size run asks for). Each one builds both images

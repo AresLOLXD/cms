@@ -1,6 +1,6 @@
 {"start": 1000.0, "stop": 1600.0, "profile": "portable",
  "ranked": {"loada": "scores"}, "contest_ids": {"loada": 1, "loadb": 2},
- "target": "fork",
+ "target": "fork", "poll_cap": 10.0,
  "users": [
   {"username": "a001", "password": "pw-a001", "contest": "loada"},
   {"username": "a002", "password": "pw-a002", "contest": "loada"},
