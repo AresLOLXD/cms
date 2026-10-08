@@ -39,10 +39,12 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, \
+    PendingRollbackError
 
 from cms import ServiceCoord, get_service_shards
 from cms.db.session import Session
+from cms.db.connect_options import describe_error, is_disconnect, sqlstate
 from cms.io.priorityqueue import PriorityQueue, QueueEntry, QueueEntryDict, \
     QueueItem
 from cmscommon.datetime import make_timestamp
@@ -280,6 +282,26 @@ def with_post_finish_lock(func):
                     self._dequeued_in_section.clear()
                     self._flush_loop_actions()
     return wrapped
+
+
+def _lost_connection(error: BaseException) -> bool:
+    """Tell whether a results write failed because the database is gone.
+
+    A disconnect (see is_disconnect) counts, and so does a failed
+    connect: SQLAlchemy raises it as an OperationalError whose driver
+    error has no SQLSTATE ("Connection refused", the connect deadline's
+    "timeout expired"), without marking it invalidated. Once a
+    disconnect has emptied the pool, that is what every flush meets
+    until PostgreSQL answers again.
+
+    error: the error that ended the write.
+
+    return: whether the batch was lost to the connection, not to its
+        data.
+
+    """
+    return is_disconnect(error) or (
+        isinstance(error, OperationalError) and sqlstate(error.orig) is None)
 
 
 class Result:
@@ -1010,6 +1032,9 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         note at the top of this file about why post_finish_lock is a real
         threading.RLock, never held across an await).
 
+        A lost database connection (see _lost_connection) drops the
+        batch with one ERROR line; the sweeper redoes its results.
+
         """
         # Results purged by an invalidation after a flush took them.
         for operation, result in items:
@@ -1032,6 +1057,35 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             t = (operation.type_, operation.object_id, operation.dataset_id, operation.archive_sandbox)
             by_object_and_type[t].append((operation, result))
 
+        try:
+            self._write_results_in_session(by_object_and_type)
+        except Exception as error:
+            # Not the results' fault: drop the batch with one line, and
+            # the sweeper redoes it (see _lost_connection).
+            if not _lost_connection(error):
+                raise
+            logger.error(
+                "Lost the database connection while writing worker "
+                "results (%s); the sweeper will redo them within about 2 "
+                "minutes.", describe_error(error))
+            return
+
+        logger.info("Done")
+
+    def _write_results_in_session(
+        self,
+        by_object_and_type: dict[
+            tuple[str, int, int, bool], list[tuple[ESOperation, Result]]],
+    ) -> None:
+        """Write the results of _write_results_sync() in one session.
+
+        Called only by _write_results_sync(), holding post_finish_lock;
+        the same rule applies: nothing in this call graph may await.
+
+        by_object_and_type: the results, grouped by (operation type,
+            object id, dataset id, archive_sandbox).
+
+        """
         with SessionGen() as session:
             for key, operation_results in by_object_and_type.items():
                 type_, object_id, dataset_id, archive_sandbox = key
@@ -1166,8 +1220,6 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                         continue
                     self.user_test_evaluation_ended(user_test_result)
 
-        logger.info("Done")
-
     def write_results_one_object_and_type(
         self,
         session: Session,
@@ -1182,6 +1234,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         operation_results: all the operations and corresponding worker
             results we have received for the given object_result
 
+        raise (sqlalchemy.exc.DBAPIError): on a lost connection (see
+            cms.db.connect_options.is_disconnect), which stops the loop.
+        raise (sqlalchemy.exc.PendingRollbackError): if the transaction
+            can no longer be used, which stops the loop too.
+
         """
         for operation, result in operation_results:
             logger.info("Writing result to db for %s", operation)
@@ -1193,7 +1250,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 logger.warning(
                     "Integrity error while inserting worker result.",
                     exc_info=True)
-            except Exception:
+            except Exception as error:
+                # A lost connection, or a transaction it left unusable,
+                # is not this row's fault, and no later row can succeed:
+                # stop, and let _write_results_sync drop the batch.
+                if is_disconnect(error) \
+                        or isinstance(error, PendingRollbackError):
+                    raise
                 # Defend against any exception. A poisonous results that fails
                 # here is attempted again without limits, thus can enter in
                 # all batches to write. Without the catch-all, it will prevent
