@@ -73,12 +73,15 @@ class TestSessionGenExit(unittest.TestCase):
             with SessionGen() as session:
                 pid = session.execute(
                     text("SELECT pg_backend_pid()")).scalar_one()
+                session.close = MagicMock(wraps=session.close)
                 terminate_backends("pid = %s", (pid,))
         # The driver's text varies with the libpq version: check the
         # fixed part only.
         self.assertTrue(logs.records[0].getMessage().startswith(
             "Lost the database connection before the session's rollback: "))
-        # close() ran: the connection went back to the pool.
+        # The failed rollback already released the connection, so the
+        # pool count below cannot tell whether close() ran: the spy can.
+        session.close.assert_called_once_with()
         self.assertEqual(engine.pool.checkedout(), checked_out)
 
     def test_another_rollback_error_still_propagates(self):
@@ -97,9 +100,24 @@ class TestSessionGenExit(unittest.TestCase):
                 with SessionGen() as session:
                     pid = session.execute(
                         text("SELECT pg_backend_pid()")).scalar_one()
+                    session.close = MagicMock(wraps=session.close)
                     terminate_backends("pid = %s", (pid,))
                     raise KeyError("the block's own error")
         self.assertEqual([r.levelname for r in logs.records], ["DEBUG"])
+        session.close.assert_called_once_with()
+        self.assertEqual(engine.pool.checkedout(), checked_out)
+
+    def test_an_interrupted_rollback_after_a_failed_block_propagates(self):
+        # KeyboardInterrupt is not an Exception: log_rollback_error must
+        # not get the chance to swallow it, and close() must still run.
+        checked_out = engine.pool.checkedout()
+        with self.assertRaises(KeyboardInterrupt):
+            with SessionGen() as session:
+                session.execute(text("SELECT 1"))
+                session.rollback = MagicMock(side_effect=KeyboardInterrupt())
+                session.close = MagicMock(wraps=session.close)
+                raise KeyError("the block's own error")
+        session.close.assert_called_once_with()
         self.assertEqual(engine.pool.checkedout(), checked_out)
 
 
@@ -118,9 +136,12 @@ class TestAsyncSessionGenExit(unittest.IsolatedAsyncioTestCase):
             async with AsyncSessionGen() as session:
                 pid = (await session.execute(
                     text("SELECT pg_backend_pid()"))).scalar_one()
+                session.close = AsyncMock(wraps=session.close)
                 terminate_backends("pid = %s", (pid,))
         self.assertTrue(logs.records[0].getMessage().startswith(
             "Lost the database connection before the session's rollback: "))
+        # As in the sync test, the pool count alone does not prove it.
+        session.close.assert_awaited_once_with()
         self.assertEqual(self._checked_out(), checked_out)
 
     async def test_another_rollback_error_still_propagates(self):
@@ -139,9 +160,11 @@ class TestAsyncSessionGenExit(unittest.IsolatedAsyncioTestCase):
                 async with AsyncSessionGen() as session:
                     pid = (await session.execute(
                         text("SELECT pg_backend_pid()"))).scalar_one()
+                    session.close = AsyncMock(wraps=session.close)
                     terminate_backends("pid = %s", (pid,))
                     raise KeyError("the block's own error")
         self.assertEqual([r.levelname for r in logs.records], ["DEBUG"])
+        session.close.assert_awaited_once_with()
         self.assertEqual(self._checked_out(), checked_out)
 
     async def test_a_cancelled_rollback_still_propagates_and_closes(self):

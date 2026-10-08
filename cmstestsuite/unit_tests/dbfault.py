@@ -26,10 +26,13 @@ from cms.db import custom_psycopg2_connection
 def terminate_backends(condition: str, params: tuple = ()) -> int:
     """End the backends that match a condition, and wait until they are gone.
 
-    The killer's own backend never matches.
+    Only client backends of the current database match, and never the
+    killer's own, so a test cannot cut the connections of another
+    database or the server's own processes on a shared PostgreSQL.
 
     condition: an SQL condition on the columns of pg_stat_activity,
-        with %s placeholders.
+        with %s placeholders. The driver reads it for placeholders even
+        when params is empty, so a literal % must be written %%.
     params: the values of the placeholders.
 
     return: how many backends were ended.
@@ -43,7 +46,10 @@ def terminate_backends(condition: str, params: tuple = ()) -> int:
         cursor = killer.cursor()
         cursor.execute(
             "SELECT pid FROM pg_stat_activity "
-            "WHERE pid <> pg_backend_pid() AND (" + condition + ")", params)
+            "WHERE pid <> pg_backend_pid() "
+            "AND datname = current_database() "
+            "AND backend_type = 'client backend' "
+            "AND (" + condition + ")", params)
         pids = [pid for (pid,) in cursor.fetchall()]
         for pid in pids:
             cursor.execute("SELECT pg_terminate_backend(%s)", (pid,))
