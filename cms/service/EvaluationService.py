@@ -612,7 +612,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 # between those commits.
                 for submission_result in get_submission_results_to_finalize(
                         session, self.contest_id):
-                    self._finalize_complete_result(submission_result)
+                    # evaluation_ended() of an earlier result of the same
+                    # submission (another dataset to judge) may have done
+                    # it.
+                    if not submission_result.evaluated():
+                        self._finalize_complete_result(submission_result)
                     logger.warning(
                         "Finalized result %d(%d): all its evaluations were "
                         "stored but its outcome was not (a write was cut).",

@@ -24,7 +24,7 @@
 import asyncio
 import socket
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
@@ -322,6 +322,71 @@ class TestPlainSweepFinalizesCutResults(EvaluationServiceDatabaseTestCase):
         self.assertEqual(keys(task.contest_id), [mine])
         self.assertEqual(keys(other_contest.id), [theirs])
         self.assertEqual(keys(None), sorted([mine, theirs]))
+
+    async def test_a_sibling_dataset_result_is_finalized_only_once(self):
+        # evaluation_ended() of the first result finalizes the other one
+        # (it ends with submission_enqueue_operations(), which goes over
+        # every dataset to judge): the sweep must not do it again.
+        sibling = self.add_dataset(task=self.dataset.task, autojudge=True)
+        sibling_testcases = [
+            self.add_testcase(sibling, codename="s%d" % index)
+            for index in range(self.TESTCASES)]
+        sibling_result = self.add_submission_result(self.submission, sibling)
+        sibling_result.set_compilation_outcome(True)
+        self._add_evaluations(self.submission_result, self.testcases)
+        self._add_evaluations(sibling_result, sibling_testcases)
+        submission_id = self.submission.id
+        dataset_ids = [self.dataset.id, sibling.id]
+        with self.assertLogs("cms.service.EvaluationService",
+                             "WARNING") as logs:
+            await self.service._missing_operations()
+        self.assertEqual(
+            sorted(record.getMessage() for record in logs.records),
+            sorted("Finalized result %d(%d): all its evaluations were "
+                   "stored but its outcome was not (a write was cut)."
+                   % (submission_id, dataset_id)
+                   for dataset_id in dataset_ids))
+        notify = self.service._threadsafe_notify_scoring_service
+        self.assertEqual(notify.call_count, 2)
+        notify.assert_has_calls(
+            [call(submission_id=submission_id, dataset_id=dataset_id)
+             for dataset_id in dataset_ids], any_order=True)
+
+
+class TestGatedSweepFinalizesSilently(EvaluationServiceDatabaseTestCase):
+    """The gated sweep finalizes a result without outcome through
+    submission_enqueue_operations(), as before, with no 8a WARNING.
+
+    """
+
+    async def _assert_finalized_silently(self) -> None:
+        submission_id, dataset_id = self.submission.id, self.dataset.id
+        self.session.commit()
+        with self.assertNoLogs("cms.service.EvaluationService", "WARNING"):
+            await self.service._missing_operations()
+        self.assertTrue(self._load_result().evaluated())
+        self.service._threadsafe_notify_scoring_service \
+            .assert_called_once_with(submission_id=submission_id,
+                                     dataset_id=dataset_id)
+
+    async def test_with_two_phase_grading(self):
+        for testcase in self.testcases:
+            self.add_evaluation(self.submission_result, testcase)
+        with patch.object(config.global_, "two_phase_evaluation", True):
+            await self._assert_finalized_silently()
+
+    async def test_with_subtask_dependencies(self):
+        codenames = ["s0-00-sample", "s0-01-normal", "s1-00-normal"]
+        for testcase, codename in zip(self.testcases, codenames):
+            testcase.codename = codename
+            self.add_evaluation(self.submission_result, testcase,
+                                outcome="1.0")
+        self.dataset.score_type = "GroupMin"
+        self.dataset.score_type_parameters = [
+            {"max_score": 50, "testcases": 2},
+            {"max_score": 50, "testcases": 1, "depends_on": [0]}]
+        with patch.object(config.global_, "two_phase_evaluation", False):
+            await self._assert_finalized_silently()
 
 
 if __name__ == "__main__":
