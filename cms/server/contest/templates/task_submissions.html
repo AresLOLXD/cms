@@ -147,7 +147,8 @@ update_scores = function (submission_id, data) {
     }
 };
 
-// Longest wait (ms) between two status polls of a submission.
+// Longest wait (ms) between two status polls of a submission; the cap of each
+// submission is between 90% and 110% of it (see schedule_update_scores).
 var MAX_STATUS_POLL_DELAY_MS = 10000;
 
 schedule_update_scores = function (submission_id) {
@@ -161,16 +162,27 @@ schedule_update_scores = function (submission_id) {
         // avoid asking about all of them at the same time, so we use 1.4 plus a
         // value depending on the submission id.
         var hash = (37 * parseInt(submission_id)) % 100 / 100.0;
-        schedule_update_scores.delays[submission_id] =
-            schedule_update_scores.delays[submission_id]
-                * (1.4 + hash * 0.2);
+        var delay = schedule_update_scores.delays[submission_id]
+            * (1.4 + hash * 0.2);
+        // The backoff stops growing at a cap. With the same cap for everybody
+        // the submissions that reach it would poll with the same period, in
+        // waves, so the same hash spreads the caps between 90% and 110% of
+        // MAX_STATUS_POLL_DELAY_MS.
         schedule_update_scores.delays[submission_id] = Math.min(
-            schedule_update_scores.delays[submission_id],
-            MAX_STATUS_POLL_DELAY_MS);
+            delay, MAX_STATUS_POLL_DELAY_MS * (0.9 + hash * 0.2));
     }
     setTimeout(function () {
         $.get(utils.contest_url("tasks", "{{ task.name }}", "submissions", submission_id), function (data) {
             update_scores(submission_id, data);
+        }).fail(function (xhr) {
+            // A failed poll (a proxy error under load, a dropped connection)
+            // must not stop the updates of the row until the page is
+            // reloaded: ask again, the backoff and its cap bound the rate.
+            // A 4xx (the session expired, the submission is gone) will not
+            // get better by asking again.
+            if (xhr.status === 0 || xhr.status >= 500) {
+                schedule_update_scores(submission_id);
+            }
         });
     }, schedule_update_scores.delays[submission_id]);
 };
