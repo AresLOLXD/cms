@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession as _AsyncSession, async_sessionmaker, create_async_engine)
 
 from cms.conf import config
+from .connect_options import with_connection_defaults
 
 
 def _async_database_url() -> URL:
@@ -83,10 +84,12 @@ def _async_database_url() -> URL:
 
 
 # Mirrors cms/db/__init__.py's sync `engine = create_engine(...)` call:
-# created once at import time, connects lazily on first actual use.
+# created once at import time, connects lazily on first actual use. The
+# connection defaults are added here, so that _async_database_url()
+# stays the plain driver swap.
 async_engine = create_async_engine(
-    _async_database_url(), echo=config.database.debug,
-    pool_timeout=60, pool_recycle=120)
+    with_connection_defaults(_async_database_url()),
+    echo=config.database.debug, pool_timeout=60, pool_recycle=120)
 
 AsyncSession = async_sessionmaker(async_engine)
 

@@ -69,7 +69,13 @@ TelegramBot = []
 
 [database]
 # Connection string for the database.
-url = "postgresql+psycopg2://cmsuser:your_password_here@localhost:5432/cmsdb"
+# Every connection also gets these libpq settings, unless the URL's own
+# query sets them: connect_timeout=10 (seconds), keepalives=1,
+# keepalives_idle=30 and keepalives_interval=10 (seconds),
+# keepalives_count=3, tcp_user_timeout=60000 (milliseconds, not
+# seconds), and fallback_application_name, the program's name. For
+# example, "...?keepalives_idle=60" changes only that one.
+url ="postgresql+psycopg2://cmsuser:your_password_here@localhost:5432/cmsdb"
 
 # Whether SQLAlchemy prints DB queries on stdout.
 debug = false

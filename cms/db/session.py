@@ -36,6 +36,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 
 from cms.conf import config
 from . import engine
+from .connect_options import with_connection_defaults
 
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,11 @@ def custom_psycopg2_connection(**kwargs: dict[str, str]):
     All psycopg2-specific code in CMS is supposed to obtain a function
     this way.
 
+    The URL gets the connection defaults of cms.db.connect_options,
+    under its own query.
+
     kwargs: additional values to use as query parameters in the
-        connection URL.
+        connection URL; they override the URL's query and the defaults.
 
     return (connection): a new, shiny connection object.
 
@@ -91,7 +95,8 @@ def custom_psycopg2_connection(**kwargs: dict[str, str]):
         configured to use psycopg2 as the DB-API driver.
 
     """
-    database_url: URL = make_url(config.database.url)
+    database_url: URL = with_connection_defaults(
+        make_url(config.database.url))
     assert database_url.get_dialect().driver == "psycopg2"
     # For Unix-domain socket we don't have a port nor a host and that's fine.
     if database_url.port is None and database_url.host is not None:
