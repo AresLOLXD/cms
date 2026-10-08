@@ -59,6 +59,7 @@ from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
     any_dataset_declares_dependencies, \
+    get_submission_results_to_finalize, \
     get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
     outcomes_for_screening, submission_get_operations, \
@@ -507,13 +508,30 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                                 operation, priority, submission.timestamp):
                             new_operations += 1
                 else:
-                    logger.info("Result %d(%d) has already all evaluations, "
-                                "finalizing it.", submission.id, dataset.id)
-                    submission_result.set_evaluation_outcome()
-                    submission_result.sa_session.commit()
-                    self.evaluation_ended(submission_result)
+                    self._finalize_complete_result(submission_result)
 
         return new_operations
+
+    def _finalize_complete_result(
+        self, submission_result: SubmissionResult
+    ) -> None:
+        """Set the outcome of a result that has every evaluation.
+
+        Commit it, then do what follows an evaluation (evaluation_ended:
+        notify ScoringService). Called holding post_finish_lock, by
+        submission_enqueue_operations() and by the plain sweep of
+        _missing_operations_sync().
+
+        submission_result: a result with an evaluation for each testcase
+            of its dataset, and no outcome yet.
+
+        """
+        logger.info("Result %d(%d) has already all evaluations, "
+                    "finalizing it.", submission_result.submission_id,
+                    submission_result.dataset_id)
+        submission_result.set_evaluation_outcome()
+        submission_result.sa_session.commit()
+        self.evaluation_ended(submission_result)
 
     def user_test_enqueue_operations(self, user_test: UserTest) -> int:
         """Push in queue the operations required by a user test.
@@ -584,6 +602,22 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                         get_submissions_operations(session, self.contest_id):
                     if self._enqueue_sync(operation, priority, timestamp):
                         counter += 1
+
+                # A write cut between the two commits of
+                # _write_results_sync (or an ES crash there) leaves a
+                # result with every evaluation but no outcome, which no
+                # operation finalizes on this path; the gated path above
+                # does it in submission_enqueue_operations().
+                # post_finish_lock keeps this from seeing the normal gap
+                # between those commits.
+                for submission_result in get_submission_results_to_finalize(
+                        session, self.contest_id):
+                    self._finalize_complete_result(submission_result)
+                    logger.warning(
+                        "Finalized result %d(%d): all its evaluations were "
+                        "stored but its outcome was not (a write was cut).",
+                        submission_result.submission_id,
+                        submission_result.dataset_id)
 
             for operation, priority, timestamp in \
                     get_user_tests_operations(session, self.contest_id):

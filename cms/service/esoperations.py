@@ -30,7 +30,7 @@ from collections.abc import Generator
 from datetime import datetime
 import logging
 
-from sqlalchemy import case, literal, select
+from sqlalchemy import case, func, literal, select
 
 from cms.db import Dataset, Evaluation, Submission, SubmissionResult, \
     Task, Testcase, UserTest, UserTestResult
@@ -580,6 +580,54 @@ def get_submission_results_to_evaluate(
             contest_filter &
             (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
             (FILTER_SUBMISSION_RESULTS_TO_EVALUATE))
+    ).scalars().all()
+
+
+def get_submission_results_to_finalize(
+    session: Session, contest_id: int | None = None
+) -> list[SubmissionResult]:
+    """Return the results that have every evaluation but no outcome.
+
+    EvaluationService writes the evaluations and the outcome in two
+    commits; a write cut between them (or a crash there) leaves such a
+    result. No evaluation operation finalizes it on the plain sweep
+    path; submission_enqueue_operations() does on the gated one. The
+    filters are those of get_submission_results_to_evaluate(), plus one
+    Evaluation row per testcase of the dataset.
+
+    session: the database session to use.
+    contest_id: the contest whose results to look at. If None, look at
+        every contest.
+
+    return: the submission results to finalize.
+
+    """
+    if contest_id is None:
+        contest_filter = literal(True)
+    else:
+        contest_filter = Task.contest_id == contest_id
+
+    evaluation_count = (
+        select(func.count(Evaluation.id))
+        .where(Evaluation.submission_id == SubmissionResult.submission_id)
+        .where(Evaluation.dataset_id == SubmissionResult.dataset_id)
+        .correlate(SubmissionResult)
+        .scalar_subquery())
+    testcase_count = (
+        select(func.count(Testcase.id))
+        .where(Testcase.dataset_id == SubmissionResult.dataset_id)
+        .correlate(SubmissionResult)
+        .scalar_subquery())
+    return session.execute(
+        select(SubmissionResult)
+        .join(SubmissionResult.dataset)
+        .join(SubmissionResult.submission)
+        .join(Submission.task)
+        .filter(
+            contest_filter &
+            (FILTER_SUBMISSION_DATASETS_TO_JUDGE) &
+            (FILTER_SUBMISSION_RESULTS_TO_EVALUATE) &
+            (evaluation_count == testcase_count))
     ).scalars().all()
 
 

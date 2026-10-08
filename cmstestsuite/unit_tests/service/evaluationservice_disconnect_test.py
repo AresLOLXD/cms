@@ -36,7 +36,8 @@ from cms.conf import Address, ServiceCoord, config
 from cms.db import Dataset, Submission, SubmissionResult, engine
 from cms.db.async_session import async_engine
 from cms.db.connect_options import with_connection_defaults
-from cms.service.esoperations import ESOperation
+from cms.service.esoperations import ESOperation, \
+    get_submission_results_to_finalize
 from cms.service.EvaluationService import EvaluationService, Result
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.dbfault import terminate_backends
@@ -247,6 +248,80 @@ class TestWriteResultsOnALostConnection(EvaluationServiceDatabaseTestCase):
             with self.assertRaises(OperationalError) as raised:
                 await self.service.write_results(self._evaluation_items())
         self.assertIs(raised.exception, deadlock)
+
+
+class TestPlainSweepFinalizesCutResults(EvaluationServiceDatabaseTestCase):
+    """8a: a write cut between the two commits of _write_results_sync
+    leaves every evaluation stored but no outcome.
+
+    """
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        # The plain path: no two-phase grading (and no dependencies).
+        patcher = patch.object(config.global_, "two_phase_evaluation", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _add_evaluations(self, submission_result: SubmissionResult,
+                         testcases: list) -> None:
+        for testcase in testcases:
+            self.add_evaluation(submission_result, testcase)
+        self.session.commit()
+
+    async def test_a_complete_result_without_outcome_is_finalized(self):
+        self._add_evaluations(self.submission_result, self.testcases)
+        submission_id, dataset_id = self.submission.id, self.dataset.id
+        with self.assertLogs("cms.service.EvaluationService",
+                             "WARNING") as logs:
+            await self.service._missing_operations()
+        self.assertTrue(self._load_result().evaluated())
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            ["Finalized result %d(%d): all its evaluations were stored "
+             "but its outcome was not (a write was cut)."
+             % (submission_id, dataset_id)])
+        self.service._threadsafe_notify_scoring_service \
+            .assert_called_once_with(submission_id=submission_id,
+                                     dataset_id=dataset_id)
+
+    async def test_a_result_with_a_missing_evaluation_is_left_alone(self):
+        self._add_evaluations(self.submission_result, self.testcases[:-1])
+        with self.assertNoLogs("cms.service.EvaluationService", "WARNING"):
+            await self.service._missing_operations()
+        self.assertFalse(self._load_result().evaluated())
+        self.service._threadsafe_notify_scoring_service.assert_not_called()
+
+    async def test_only_unfinalized_complete_results_of_the_contest(self):
+        self._add_evaluations(self.submission_result, self.testcases)
+        task = self.dataset.task
+        # The same, already finalized: not selected.
+        _, (finished,) = self.add_submission_with_results(
+            task, self.submission.participation, True)
+        self._add_evaluations(finished, self.testcases)
+        finished.set_evaluation_outcome()
+        # Complete and without outcome, in another contest.
+        other_contest = self.add_contest()
+        other_task = self.add_task(contest=other_contest)
+        other_dataset = self.add_dataset(task=other_task)
+        other_task.active_dataset = other_dataset
+        other_testcase = self.add_testcase(other_dataset)
+        _, (other,) = self.add_submission_with_results(
+            other_task, self.add_participation(contest=other_contest), True)
+        self.add_evaluation(other, other_testcase)
+        self.session.commit()
+
+        def keys(contest_id: int | None) -> list[tuple[int, int]]:
+            return sorted(
+                (result.submission_id, result.dataset_id)
+                for result in get_submission_results_to_finalize(
+                    self.session, contest_id))
+
+        mine = (self.submission.id, self.dataset.id)
+        theirs = (other.submission_id, other.dataset_id)
+        self.assertEqual(keys(task.contest_id), [mine])
+        self.assertEqual(keys(other_contest.id), [theirs])
+        self.assertEqual(keys(None), sorted([mine, theirs]))
 
 
 if __name__ == "__main__":
