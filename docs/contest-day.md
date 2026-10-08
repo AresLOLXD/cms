@@ -77,7 +77,8 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
   - Do not deploy while `./export.sh` or another CLI tool is running.
   - The deploy can stop at `db-init` with
     `cmsSetupDB could not lock … within 5 s`: another session is using a
-    table that the update changes, and nothing is changed. Check with
+    table that the update changes, and that update changes nothing (an
+    earlier update of the same run may already be applied). Check with
     `./status.sh` whether the running version still serves. Find that
     session with the holder query (see "When the database misbehaves"),
     wait for it to finish or end it, then run `./up.sh` again.
@@ -231,7 +232,7 @@ the URL already has a `?`:
 
 Then run `./up.sh` and choose no rebuild (1): it recreates the
 containers, so every service restarts. CMS then waits for PostgreSQL
-without a limit again, as before. The suffix does not switch off the
+without a short limit again, as before. The suffix does not switch off the
 5-second lock limit of `cmsSetupDB` (see "Before the start").
 
 ### Checking the settings after a deploy
@@ -313,5 +314,6 @@ must print nothing.
 | ProxyService logs "Reinitializing the rankings failed." | Fix the cause, then **Regenerate** on the groups it lists, or on those of what you changed | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "accepted the visibility of group" | **Regenerate** on that group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | Pages show an error after about 10 seconds, and the logs say `timeout expired` | A new database connection got no answer: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
-| The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
+| The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out`, `Lost the database connection before the session's rollback` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | A deploy stops at `db-init` with `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, wait for it to finish or end it, then run `./up.sh` again | "When the database misbehaves" (above) |
+| The logs say `Finalized result … (a write was cut)` | Nothing: the Evaluation Service completed a result whose outcome write was cut. If it repeats for many results, follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
