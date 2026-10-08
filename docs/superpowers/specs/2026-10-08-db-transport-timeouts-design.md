@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-08
 **Issue:** #39, stage 1 of 2 (wave 1 of `2026-10-06-post-10-10-roadmap-design.md`).
-**Status:** Designed. The approach was chosen by a panel of three specialist subagents, as the user asked for backlog issues on 2026-10-07 (see the Decision Record). A spec review followed (11 Important and 18 Minor findings, all applied).
+**Status:** Designed. The approach was chosen by a panel of three specialist subagents, as the user asked for backlog issues on 2026-10-07 (see the Decision Record). A spec review followed (11 Important and 18 Minor findings, all applied), then a re-check (7 more, applied).
 **Target:** `beta`, after the 2026-10-10 contest.
 
 ## Problem
@@ -160,10 +160,12 @@ The updaters are `cmscontrib/updaters/fork_multi_contest.py` and `fork_activity_
 - **`cmsSetupDB` catches the error and exits with status 1, without a traceback.** Today `scripts/cmsSetupDB` catches only `ConfigError`. It prints exactly:
 
   ```
-  cmsSetupDB could not lock table <table> within 5 s: another session is using it. Nothing was changed. Find that session with the holder query in the contest-day runbook ("When the database misbehaves"), wait for it to finish or end it, then run the setup again.
+  cmsSetupDB could not lock <tables> within 5 s: another session is using them. Nothing was changed. Find that session with the holder query in the contest-day runbook ("When the database misbehaves"), wait for it to finish or end it, then run the setup again.
   ```
 
-  `<table>` is the table named in the error, or "a table" if the error names none.
+  PostgreSQL's lock-timeout error names no table (measured on 16.15: `diag.table_name` is None), so each updater supplies `<tables>` itself:
+  - `fork_multi_contest` supplies "contests or ranking_groups";
+  - `fork_activity_intervals` supplies "activity_intervals".
 - **No retry loop.** Running the setup again is safe.
 - **Deployment-neutral text.** The text does not claim that the running version keeps serving: `cmsSetupDB` also runs outside Docker, and how Compose orders `db-init` is verified separately (Testing, V1).
 
@@ -207,7 +209,9 @@ isinstance(error, DBAPIError) and (
     Lost the database connection while writing worker results (<error>); the sweeper will redo them within about 2 minutes.
     ```
 
-  This also covers the most common case, a disconnect outside the per-row loop: the first query, the `Submission` lookup, either commit, and phases 2 and 3. Because ES returns, `FlushingDict.flush` logs nothing more. The dropped results are re-enqueued by the sweeper, as today.
+  - **Disconnects outside the per-row loop.** This also covers a disconnect at the first query, at the `Submission` lookup, at either commit, or in phases 2 and 3.
+  - **Connect failures.** In this wrapper only, a SQLAlchemy `OperationalError` whose driver error has no SQLSTATE also counts as a lost connection. Examples are "Connection refused" and the green deadline's "timeout expired". SQLAlchemy does not mark these as invalidated (`connection_invalidated` is False on the connect path), yet they are what every flush hits once the first disconnect has emptied the pool.
+  - **After a lost connection.** Because ES returns, `FlushingDict.flush` logs nothing more, and the sweeper re-enqueues the dropped results, as today.
 - **In `write_results_one_object_and_type`:**
   - a disconnect, or `PendingRollbackError`, is re-raised before the per-row `except Exception`, so the loop stops at the first one. Once the transaction is unusable, no later row can succeed.
   - Every other error keeps today's per-row handling: IntegrityError, a lock or a deadlock, a bad row.
@@ -270,12 +274,12 @@ All of this goes in `docs/contest-day.md` and its Spanish `.po`. In the `.po`, q
 - It does not switch off the DDL bound.
 
 **Under "Do not rebuild or update the deployment on the day":**
-- an emergency deploy may now fail at `db-init` with the lock message, and that failure is safe;
+- an emergency deploy may now fail at `db-init` with the lock message. Nothing is changed. Whether the running version keeps serving meanwhile depends on how Compose orders `db-init`: the runbook states V1's result;
 - do not deploy while `./export.sh` or a CLI tool is running;
 - start any SQL you apply by hand with `SET lock_timeout = '5s';`.
 
 **After a deploy of this stage:**
-- one command, run inside the running `cms` container, prints `getsockopt(TCP_USER_TIMEOUT)` and `SHOW application_name` for a fresh connection;
+- one command, run inside the running `cms` container, prints `getsockopt(TCP_USER_TIMEOUT)` and `SHOW application_name` for a fresh connection. It runs as `python3 -c`, so the name it shows is `-c`; any non-empty name shows the default arrived;
 - then search `./logs.sh` for `timeout expired|closed the connection|Lost the database`. It must find nothing.
 
 ## Testing
@@ -321,6 +325,7 @@ These run in the CI suite inside the production image, on ubuntu:noble and debia
 - **8b:**
   - a disconnect on row 1 stops the loop with one ERROR (the fixed text), and the later rows are not attempted;
   - a disconnect at the first query of `_write_results_sync` logs the same single ERROR, and `FlushingDict.flush` logs nothing;
+  - a connect failure at the first query (a closed local port, or the green deadline) logs the same single ERROR;
   - an IntegrityError or a ValueError still goes row by row.
 - **8a:**
   - a result with every evaluation and a NULL outcome, in a contest without a gated dataset, is finalized by one plain sweep, with the WARNING;
@@ -329,8 +334,8 @@ These run in the CI suite inside the production image, on ubuntu:noble and debia
   This unit test is the real gate for 8a: the window is milliseconds wide, so F1 rarely creates that state.
 
 **Gevent group (`cmscontrib/SetupDBTest.py`):**
-- **DDL:** a second connection holds a transaction that has read `contests`. The multi-contest updater then fails with 55P03 in about 5 s, and `cmsSetupDB` exits 1 with the exact message.
-- The same check for `activity_intervals` with the activity-intervals updater.
+- **DDL:** a second connection holds a transaction that has read `contests`. The multi-contest updater then fails with 55P03 in about 5 s, and `cmsSetupDB` exits 1 with the exact message naming "contests or ranking_groups".
+- The same check for `activity_intervals` with the activity-intervals updater; the message names "activity_intervals".
 
 ### Validation runs
 
@@ -346,14 +351,18 @@ These run in the CI suite inside the production image, on ubuntu:noble and debia
 - **Harness:** `run.sh` gets a background injector that writes each fault's start and end timestamps to `out/<name>/faults.json`, for a windowed analysis.
 - **Injection:**
   - the PostgreSQL container's network namespace is reached with `docker inspect` (its PID) and `sudo nsenter -n`;
-  - the main method is iptables DROP rules on INPUT and OUTPUT, which give a two-way drop and need only netfilter;
+  - the main method is iptables DROP rules scoped to PostgreSQL's port: `-p tcp --dport 5432` on INPUT and `-p tcp --sport 5432` on OUTPUT. They give a two-way drop, need only netfilter, and leave loopback traffic inside the netns alone. At the fault's end, the injector deletes exactly those rules;
   - plus `docker pause`, and `compose exec db psql` for SQL faults.
+- **Measuring "each database call fails within 75 s of its own start":**
+  - ES: from "Starting commit process..." to its error line;
+  - CWS: Tornado's logged request time on 500 responses;
+  - SS: from an operation's start to "Unexpected error when executing operation".
 - **Victims:** found by `application_name LIKE 'cms%'`, so that the harness monitor's own connection is spared.
 
 | # | Fault | Pass criteria |
 |---|---|---|
 | F1 | `pg_terminate_backend` of every CMS backend, twice in the middle of the run. | No restart is needed, and nothing is stuck after the drain. The logs show "Lost the database connection" or the driver's disconnect text. |
-| F2 | Two-way DROP between the CMS container and PostgreSQL, for 90 s. | Each database call fails within 75 s of its own start. Pages answer within 1 minute of the fault's end. ES commits again within about 2 minutes, and scores arrive within about 6 minutes, with no restart. Nothing is stuck after the drain. Backends left on the server after the fault are recorded: this is the Goal 2 caveat. |
+| F2 | Two-way DROP between the CMS container and PostgreSQL, for 90 s. Three minutes after the fault's end, the injector performs the runbook's partition step: it ends every `idle in transaction` CMS backend whose `xact_start` is before the fault's end, and records how many there were (the Goal 2 caveat). | Each database call fails within 75 s of its own start. From the later of the fault's end and that step: pages answer within 1 minute, ES commits again within about 2 minutes, and scores arrive within about 6 minutes, with no restart. Nothing is stuck after the drain. |
 | F3 | `docker pause` of PostgreSQL for 30 s: the server's kernel is alive, but PostgreSQL is stalled. | In-flight queries wait for the resume. New connections fail with `timeout expired` at about 10 s. After the resume, everything recovers with no restart and no damage. |
 | F4 | `cmsSetupDB` while a `psql` session holds `BEGIN; SELECT 1 FROM contests LIMIT 1;` idle. | `cmsSetupDB` exits 1 within 15 s with the message. CWS p99 is ≤ 6 s in the window from the start of `cmsSetupDB` to 5 s after it exits. |
 
