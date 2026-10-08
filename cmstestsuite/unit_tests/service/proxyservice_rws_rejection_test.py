@@ -1,9 +1,12 @@
-"""What ProxyService loses when RWS refuses a round of scores (#13, S1).
+"""How ProxyService keeps the scores RWS refuses in a round (#13, S1).
 
 RWS takes the entities of a PUT of a list all or none (see
 cmstestsuite/unit_tests/cmsranking/test_put_list.py), and ProxyService
 merges the entities of every operation of a round into one PUT per
-entity type and namespace. These tests pin what that costs today.
+entity type and namespace. These tests pin that a refused round loses
+only what RWS refuses on its own, and that the next sweep sends the
+contest data RWS lacks and then the scores it refused, without
+Regenerate.
 
 """
 
@@ -171,10 +174,13 @@ class TestRejectedRoundOfScores(
         result.ranking_score_details = ["100"]
         return submission
 
-    async def test_unknown_user_loses_the_scores_sent_with_it(self):
-        alice = self.alice.user.username
-        self.assertIn(encode_id(alice), self.ranking.stores["user"])
+    async def score_with_an_unknown_user(self):
+        """Send a round with the scores of Alice and of Bob, unknown to RWS.
 
+        return: Bob's participation, Alice's and Bob's submissions, and
+            the WARNING lines of the round.
+
+        """
         # Bob joins the contest behind ProxyService's back (as
         # cmsAddParticipation does, which CMS-Loader runs): nothing
         # sends him to RWS.
@@ -188,37 +194,62 @@ class TestRejectedRoundOfScores(
         self.service._submission_scored_sync(bob_submission.id)
         with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
             await self.next_round()
+        return bob, alice_submission, bob_submission, logs.output
 
-        # RWS refused the whole round because of Bob: Alice's valid
-        # score is lost with his (and both subchanges with them).
-        self.assertTrue(any("rejected the submissions" in line
-                            for line in logs.output))
-        self.assertFalse(self.ranking.has_submission(alice_submission.id))
-        self.assertEqual(self.ranking.score(alice, self.task.name), 0)
+    async def test_unknown_user_does_not_lose_the_scores_sent_with_it(self):
+        alice = self.alice.user.username
+        self.assertIn(encode_id(alice), self.ranking.stores["user"])
 
-        # Nothing sends it again: the sweeper takes it as sent (and
-        # does not send Bob either)...
-        self.assertEqual(self.service._missing_operations_sync(), 0)
-        await self.next_round()
-        self.assertFalse(self.ranking.has_submission(alice_submission.id))
+        bob, alice_submission, bob_submission, warnings = \
+            await self.score_with_an_unknown_user()
+
+        # RWS refused Bob's score (and his subchange) on its own:
+        # Alice's valid score got there in the same round.
+        self.assertTrue(self.ranking.has_submission(alice_submission.id))
+        self.assertEqual(self.ranking.score(alice, self.task.name), 100)
+        self.assertFalse(self.ranking.has_submission(bob_submission.id))
+        # The operator learns that Bob's will be sent again, without
+        # being told to use Regenerate.
+        refusals = [line for line in warnings if " refused " in line]
+        self.assertEqual(len(refusals), 2)
+        for line in refusals:
+            self.assertIn("refused 1 of 2", line)
+            self.assertIn("sent again after the contest data", line)
+        self.assertFalse(any("Regenerate" in line for line in warnings))
+
+    async def test_next_sweep_sends_the_unknown_user_then_his_score(self):
+        alice = self.alice.user.username
+        bob, _, bob_submission, _ = await self.score_with_an_unknown_user()
         self.assertNotIn(encode_id(bob.user.username),
                          self.ranking.stores["user"])
 
-        # ...nor does a reinitialize, which gets Bob to RWS, but not the
-        # scores refused before.
-        self.service._reinitialize_sync()
-        await self.next_round()
+        # One sweep sends the contest data, Bob with it, then his
+        # score: RWS takes all of it, with no Regenerate.
+        self.service._missing_operations_sync()
+        with self.assertNoLogs("cms.service.ProxyService", "WARNING"):
+            await self.next_round()
+
         self.assertIn(encode_id(bob.user.username),
                       self.ranking.stores["user"])
-        self.assertFalse(self.ranking.has_submission(alice_submission.id))
-
-        # Only Regenerate sends it again (or restarting ProxyService,
-        # whose first sweep sends every score).
-        self.service._regenerate_ranking_sync(self.group.name)
-        await self.next_round()
-        self.assertTrue(self.ranking.has_submission(alice_submission.id))
         self.assertTrue(self.ranking.has_submission(bob_submission.id))
+        self.assertEqual(
+            self.ranking.score(bob.user.username, self.task.name), 100)
         self.assertEqual(self.ranking.score(alice, self.task.name), 100)
+
+    async def test_a_repaired_group_is_not_repaired_again(self):
+        await self.score_with_an_unknown_user()
+        self.assertEqual(self.service._groups_to_repair, {self.group.name})
+        self.service._missing_operations_sync()
+        await self.next_round()
+        self.assertEqual(self.service._groups_to_repair, set())
+
+        # The next sweep sends no contest data (nor any score): only
+        # the visibility settings of the group, which each sweep sends.
+        self.assertEqual(self.service._missing_operations_sync(), 0)
+        self.assertEqual(
+            [(status["item"]["type"], status["item"]["group"])
+             for status in self.executor.get_status()],
+            [(ProxyExecutor.VISIBILITY_TYPE, self.group.name)])
 
     async def test_known_users_lose_nothing(self):
         alice = self.alice.user.username

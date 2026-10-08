@@ -22,7 +22,7 @@ from cms import config
 from cms.conf import Address
 from cms.db import Dataset, RankingGroup
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
-    ProxyService, encode_id
+    ProxyService, RefusedEntity, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
 from cmscommon.datetime import make_timestamp
 
@@ -475,6 +475,140 @@ class TestProxyServiceGroups(
         self.assertIn("sent again after the contest data", hints[0])
         # Regenerate is not needed for it.
         self.assertFalse(any("Regenerate" in line for line in logs.output))
+
+    async def test_refused_scores_leave_the_sent_sets(self):
+        service = await self.start()
+        service.scores_sent_to_rankings.update({7, 8, 9})
+        service.tokens_sent_to_rankings.update({7, 8, 9})
+
+        service._on_refused([
+            RefusedEntity("olim", ProxyExecutor.SUBMISSION_TYPE, "7",
+                          {"user": "bob", "task": "sum", "time": 0}),
+            RefusedEntity("olim", ProxyExecutor.SUBCHANGE_TYPE, "08s",
+                          {"submission": "8", "time": 0, "score": 0.0,
+                           "extra": []}),
+            RefusedEntity("olim", ProxyExecutor.SUBCHANGE_TYPE, "09t",
+                          {"submission": "9", "time": 0, "token": True})])
+
+        # A submission and a score subchange are scores, a token
+        # subchange is a token: nothing else leaves the sets.
+        self.assertNotIn(7, service.scores_sent_to_rankings)
+        self.assertNotIn(8, service.scores_sent_to_rankings)
+        self.assertIn(9, service.scores_sent_to_rankings)
+        self.assertNotIn(9, service.tokens_sent_to_rankings)
+        self.assertIn(7, service.tokens_sent_to_rankings)
+        self.assertIn(8, service.tokens_sent_to_rankings)
+        self.assertEqual(service._groups_to_repair, {"olim"})
+
+    async def test_refused_entities_are_read_as_the_builders_make_them(self):
+        self.add_token(submission=self.sub_a)
+        self.session.commit()
+        service = await self.start()
+
+        submission, score = service.operations_for_score(self.sub_a)
+        _, token = service.operations_for_token(self.sub_a)
+        [(score_key, score_data)] = score.data.items()
+        [(token_key, token_data)] = token.data.items()
+        self.assertEqual(list(submission.data), ["%d" % self.sub_a.id])
+        self.assertTrue(score_key.endswith("s"))
+        self.assertTrue(token_key.endswith("t"))
+        self.assertEqual(score_data["submission"], "%d" % self.sub_a.id)
+        self.assertEqual(token_data["submission"], "%d" % self.sub_a.id)
+
+        service._on_refused([RefusedEntity(
+            "olim", ProxyExecutor.SUBCHANGE_TYPE, token_key, token_data)])
+        self.assertNotIn(self.sub_a.id, service.tokens_sent_to_rankings)
+        self.assertIn(self.sub_a.id, service.scores_sent_to_rankings)
+        service._on_refused([RefusedEntity(
+            "olim", ProxyExecutor.SUBCHANGE_TYPE, score_key, score_data)])
+        self.assertNotIn(self.sub_a.id, service.scores_sent_to_rankings)
+
+    async def test_refused_contest_data_only_marks_the_group(self):
+        service = await self.start()
+        scores = set(service.scores_sent_to_rankings)
+        tokens = set(service.tokens_sent_to_rankings)
+        self.assertEqual(scores, {self.sub_a.id, self.sub_b.id})
+
+        service._on_refused([RefusedEntity(
+            "omips", ProxyExecutor.USER_TYPE, "bob",
+            {"f_name": "Bob", "l_name": "", "team": "nowhere"})])
+
+        self.assertEqual(service.scores_sent_to_rankings, scores)
+        self.assertEqual(service.tokens_sent_to_rankings, tokens)
+        self.assertEqual(service._groups_to_repair, {"omips"})
+
+    async def test_the_sweep_repairs_a_group_once(self):
+        # OLIM gets two more contests, one of them broken.
+        contest_d, _ = self.add_contest_with_submission(self.olim)
+        contest_e, _ = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        self.break_contest(contest_e)
+        service = await self.start()
+
+        calls: list[tuple] = []
+        real_contest_data = service._enqueue_contest_data
+        real_submissions = service._enqueue_submissions
+
+        def contest_data(contest):
+            calls.append(("contest data", contest.id))
+            return real_contest_data(contest)
+
+        def submissions(session, contest, only_missing):
+            calls.append(("submissions", contest.id, only_missing))
+            return real_submissions(session, contest, only_missing)
+
+        service._enqueue_contest_data = contest_data
+        service._enqueue_submissions = submissions
+        service._groups_to_repair.add("olim")
+
+        await service._missing_operations()
+        await self._settle(service)
+
+        # The contest data of each contest of OLIM, then its missing
+        # scores; the broken one, once, as each sweep tries it again.
+        a, b, d, e = (self.contest_a.id, self.contest_b.id, contest_d.id,
+                      contest_e.id)
+        self.assertEqual(calls, [
+            ("contest data", a), ("submissions", a, True),
+            ("submissions", b, True),
+            ("contest data", d), ("submissions", d, True),
+            ("contest data", e)])
+        self.assertEqual(service._groups_to_repair, set())
+
+        # The next sweep only tries the broken contest again.
+        calls.clear()
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(calls, [
+            ("submissions", a, True), ("submissions", b, True),
+            ("submissions", d, True), ("contest data", e)])
+
+    async def test_legacy_mode_repairs_the_root(self):
+        service = await self.start(self.contest_c.id)
+        refusals = [400]
+
+        # The ranking refuses the score once.
+        def put(target, *args, **kwargs):
+            response = MagicMock()
+            response.status_code = refusals.pop() \
+                if target == url("submissions/") and refusals else 200
+            return response
+
+        self.requests_put.side_effect = put
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            for operation in service.operations_for_score(self.sub_c):
+                service.enqueue(operation)
+            await self._settle(service)
+        self.assertEqual(service._groups_to_repair, {None})
+        self.clear_requests()
+
+        await service._missing_operations()
+        await self._settle(service)
+
+        self.assertEqual(set(self.put_payload(url("contests/"))),
+                         {encode_id(self.contest_c.name)})
+        self.assertEqual(set(self.put_payload(url("submissions/"))),
+                         {"%d" % self.sub_c.id})
 
     async def test_sweep_retries_a_broken_contest(self):
         self.break_contest(self.contest_b)

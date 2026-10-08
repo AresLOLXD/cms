@@ -35,6 +35,7 @@ import json
 import logging
 import math
 import string
+import threading
 import typing
 from collections.abc import Callable
 from time import monotonic
@@ -995,9 +996,19 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         self.contest_id = contest_id
 
         # Store what data we already sent to rankings, to avoid
-        # sending it twice.
+        # sending it twice. The run_in_executor threads add to them and
+        # test them, and the event loop discards from them
+        # (_on_refused): only single add, discard and "in", which the
+        # GIL keeps atomic. Iterating over them or copying them would
+        # need a lock.
         self.scores_sent_to_rankings: set[int] = set()
         self.tokens_sent_to_rankings: set[int] = set()
+
+        # The namespaces (None is the root) that refused some data since
+        # the last sweep: the event loop adds to it in _on_refused, and
+        # the sweeper thread takes it in _missing_operations_sync.
+        self._groups_to_repair: set[str | None] = set()
+        self._groups_to_repair_lock = threading.Lock()
 
         # IDs of the contests whose data could not be built last time
         # we tried (e.g., a task with invalid score type parameters).
@@ -1016,7 +1027,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         # Create one executor for each ranking.
         self.rankings = list()
         for ranking in config.proxy_service.rankings:
-            self.add_executor(ProxyExecutor(ranking))
+            self.add_executor(
+                ProxyExecutor(ranking, on_refused=self._on_refused))
 
         # Enqueue the dispatch of some initial data to rankings. Needs
         # to be done before the sweeper is started, as otherwise RWS
@@ -1025,6 +1037,33 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         self.initialize()
 
         self.start_sweeper(347.0)
+
+    def _on_refused(self, refused: list[RefusedEntity]) -> None:
+        """Make what a ranking refused be sent again after a repair.
+
+        Runs on the event loop (ProxyExecutor.execute calls it). A
+        ranking refuses a submission whose user or task it does not
+        know, and a subchange whose submission it does not know: such
+        scores and tokens are taken out of the sets of what was sent,
+        and their namespace is marked so that the next sweep sends its
+        contest data and then them (see _missing_operations_sync).
+
+        refused ([RefusedEntity]): the entities refused in a round.
+
+        """
+        groups: set[str | None] = set()
+        for entity in refused:
+            groups.add(entity.group)
+            if entity.type_ == ProxyExecutor.SUBMISSION_TYPE:
+                self.scores_sent_to_rankings.discard(int(entity.key))
+            elif entity.type_ == ProxyExecutor.SUBCHANGE_TYPE:
+                submission_id = int(entity.data["submission"])
+                if entity.key.endswith("t"):
+                    self.tokens_sent_to_rankings.discard(submission_id)
+                else:
+                    self.scores_sent_to_rankings.discard(submission_id)
+        with self._groups_to_repair_lock:
+            self._groups_to_repair |= groups
 
     def _threadsafe_enqueue(
         self,
@@ -1166,6 +1205,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         Besides what was not sent yet, try again the contests whose
         data could not be built: whatever broke them may be over, and
         they should not wait for someone to reinitialize the rankings.
+        The namespaces that refused something get their contest data
+        again, so a user or task the ranking lacks arrives before the
+        scores sent again after it.
 
         In group mode, send again the visibility settings of every
         ranking group first (they are not counted). Nothing else would
@@ -1175,6 +1217,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         the ranking refused be sent its data again once it takes them.
 
         """
+        with self._groups_to_repair_lock:
+            to_repair = self._groups_to_repair
+            self._groups_to_repair = set()
         counter = 0
         with SessionGen() as session:
             self._enqueue_visibility(session)
@@ -1187,6 +1232,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                     # Its scores were held back, and the ranking may
                     # have been emptied since it broke: send them all.
                     only_missing = False
+                elif self._group_of(contest) in to_repair:
+                    # Its namespace refused some data (see _on_refused):
+                    # what the ranking lacks goes before the scores.
+                    counter += self._enqueue_contest_data(contest)
                 counter += self._enqueue_submissions(
                     session, contest, only_missing=only_missing)
         return counter
