@@ -23,7 +23,7 @@ schema_diff_test).
 
 """
 
-from cms.db import custom_psycopg2_connection
+from cmscontrib.updaters.fork_ddl import apply_fork_sql
 
 
 FORK_ACTIVITY_INTERVALS_SQL = """
@@ -63,11 +63,9 @@ CREATE INDEX IF NOT EXISTS ix_activity_intervals_participation_id_last_seen_at
 def apply_fork_activity_intervals_update() -> None:
     """Apply FORK_ACTIVITY_INTERVALS_SQL to the configured database.
 
+    raise (SchemaLockTimeout): if another session keeps
+        activity_intervals locked for 5 s (a writer: CREATE INDEX IF
+        NOT EXISTS takes a SHARE lock); nothing is changed then.
+
     """
-    conn = custom_psycopg2_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(FORK_ACTIVITY_INTERVALS_SQL)
-        conn.commit()
-    finally:
-        conn.close()
+    apply_fork_sql(FORK_ACTIVITY_INTERVALS_SQL, "activity_intervals")

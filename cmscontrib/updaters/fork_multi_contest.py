@@ -24,7 +24,7 @@ idempotent, so it is safe to apply at each cmsSetupDB run.
 
 """
 
-from cms.db import custom_psycopg2_connection
+from cmscontrib.updaters.fork_ddl import apply_fork_sql
 
 
 FORK_MULTI_CONTEST_SQL = """
@@ -81,11 +81,8 @@ UPDATE public.ranking_groups
 def apply_fork_multi_contest_update() -> None:
     """Apply the fork's idempotent schema update to the database.
 
+    raise (SchemaLockTimeout): if another session keeps contests or
+        ranking_groups locked for 5 s; nothing is changed then.
+
     """
-    conn = custom_psycopg2_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(FORK_MULTI_CONTEST_SQL)
-        conn.commit()
-    finally:
-        conn.close()
+    apply_fork_sql(FORK_MULTI_CONTEST_SQL, "contests or ranking_groups")

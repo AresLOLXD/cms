@@ -19,16 +19,32 @@
 """Tests for the SetupDB script."""
 
 import os
+import subprocess
+import sys
+import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import func, select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
-from cms.db import Admin, Contest
+from cms.db import Admin, Contest, custom_psycopg2_connection
 from cmscommon.crypto import validate_password
 from cmscontrib.SetupDB import ensure_first_admin
+from cmscontrib.updaters.fork_ddl import SchemaLockTimeout, apply_fork_sql
+
+
+# The source tree, for scripts/cmsSetupDB; the tests run from it, in the
+# CI image too.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+LOCK_MESSAGE = (
+    "cmsSetupDB could not lock %s within 5 s: another session is using "
+    "them. Nothing was changed. Find that session with the holder query "
+    "in the contest-day runbook (\"When the database misbehaves\"), wait "
+    "for it to finish or end it, then run the setup again.")
 
 
 class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
@@ -193,6 +209,76 @@ class TestOfferSampleContest(DatabaseMixin, unittest.TestCase):
         self.assertTrue(result)
         self.session.expire_all()
         self.assertEqual(self._contest_count(), 0)
+
+
+class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
+    """The fork's schema updates give up on a locked table (#39)."""
+
+    def setUp(self):
+        super().setUp()
+        # Another session; psycopg2 does not autocommit, so what it runs
+        # stays in an open transaction.
+        self.holder = custom_psycopg2_connection()
+        self.addCleanup(self.holder.close)
+
+    def _hold(self, statement: str) -> None:
+        self.holder.cursor().execute(statement)
+
+    @staticmethod
+    def _run_setup_db() -> tuple[subprocess.CompletedProcess, float]:
+        """Run cmsSetupDB as db-init does; return it and its duration."""
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            path for path in (str(REPO_ROOT), env.get("PYTHONPATH"))
+            if path)
+        # No first admin to create: ensure_first_admin() only warns.
+        env.pop("CMS_ADMIN_USER", None)
+        env.pop("CMS_ADMIN_PASSWORD", None)
+        started = time.monotonic()
+        completed = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "cmsSetupDB")],
+            env=env, stdin=subprocess.DEVNULL, capture_output=True,
+            text=True, timeout=60)
+        return completed, time.monotonic() - started
+
+    def test_apply_fork_sql_gives_up_after_5_seconds(self):
+        self._hold("SELECT 1 FROM contests LIMIT 1")
+        started = time.monotonic()
+        with self.assertRaises(SchemaLockTimeout) as caught:
+            apply_fork_sql("ALTER TABLE public.contests "
+                           "ALTER COLUMN active DROP DEFAULT", "contests")
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 5)
+        self.assertLess(elapsed, 8)
+        self.assertEqual(str(caught.exception), LOCK_MESSAGE % "contests")
+
+    def test_setup_db_exits_1_when_a_session_read_contests(self):
+        # F4's holder: it read contests and stays idle in its transaction.
+        self._hold("SELECT 1 FROM contests LIMIT 1")
+        completed, elapsed = self._run_setup_db()
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertIn(LOCK_MESSAGE % "contests or ranking_groups",
+                      completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertGreaterEqual(elapsed, 5)
+        self.assertLess(elapsed, 15)
+
+    def test_setup_db_exits_1_when_a_session_writes_activity(self):
+        # A reader would not block it: CREATE INDEX IF NOT EXISTS takes
+        # a SHARE lock, which only writers block (ROW EXCLUSIVE, as the
+        # activity recorder's inserts take).
+        self._hold("LOCK TABLE activity_intervals IN ROW EXCLUSIVE MODE")
+        completed, elapsed = self._run_setup_db()
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertIn(LOCK_MESSAGE % "activity_intervals", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertLess(elapsed, 15)
+
+    def test_setup_db_succeeds_again_once_the_session_ended(self):
+        self._hold("SELECT 1 FROM contests LIMIT 1")
+        self.holder.rollback()
+        completed, _ = self._run_setup_db()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":
