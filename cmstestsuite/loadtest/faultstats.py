@@ -87,24 +87,33 @@ def log_time(line: str) -> float:
 
 
 def read_logs(run_dir: str, service: str) -> list[tuple[float, str]]:
-    """Return the timed lines of a service's logs, in time order.
+    """Return the timed records of a service's logs, in time order.
+
+    The lines with no time of their own (the traceback of a record) are
+    joined, with newlines, to the timed line before them: the error of a
+    failed request is often only there.
 
     run_dir: the run directory.
     service: how the log directories' names start, as
         "EvaluationService"; "" for every service.
 
-    return: (time, line) pairs.
+    return: (time, record) pairs.
 
     """
     entries = []
     pattern = os.path.join(run_dir, "cmslog", service + "*", "[0-9]*.log")
     for path in glob.glob(pattern):
+        last = None
         with open(path, errors="replace") as f:
             for line in f:
+                line = line.rstrip("\n")
                 try:
-                    entries.append((log_time(line), line.rstrip("\n")))
+                    entries.append((log_time(line), line))
+                    last = len(entries) - 1
                 except ValueError:
-                    continue
+                    if last is not None:
+                        moment, record = entries[last]
+                        entries[last] = (moment, record + "\n" + line)
     entries.sort(key=lambda entry: entry[0])
     return entries
 
@@ -304,11 +313,22 @@ def check(run_dir: str) -> list[Row]:
         expired = sum(1 for t, line in every
                       if f3["start"] <= t <= f3["end"] + 15
                       and "timeout expired" in line)
-        rows.append(("F3", "'timeout expired' log lines", str(expired),
-                     "reported", True))
-        rows.append(_longest("F3", "CWS 500 answer",
-                             cws_500s(cws, f3["start"], f3["end"]),
-                             F3_CONNECT_LIMIT_S))
+        # A new connection must have failed at its deadline: with none,
+        # the run did not show the behaviour.
+        rows.append(("F3", "'timeout expired' log lines",
+                     str(expired) if expired else
+                     "0 (no connect was attempted during the pause, so "
+                     "the deadline was not exercised)",
+                     "> 0", expired > 0))
+        answers = cws_500s(cws, f3["start"], f3["end"])
+        if answers:
+            rows.append(_longest("F3", "CWS 500 answer", answers,
+                                 F3_CONNECT_LIMIT_S))
+        else:
+            # The pages may have been served from open pooled
+            # connections; the row above carries the requirement.
+            rows.append(("F3", "longest CWS 500 answer", "no 500 answers",
+                         "<= %g s" % F3_CONNECT_LIMIT_S, True))
         rows.append(_within("F3", "pages answer again after",
                             first_after(pages, f3["end"]), PAGES_LIMIT_S))
 

@@ -81,6 +81,12 @@ class FaultStatsTest(unittest.TestCase):
                  "500 GET /loada (172.18.0.4) 10012.00ms"),
                 (F2_START + 70, "web::log_request",
                  "500 GET /loada (172.18.0.4) 61000.00ms"),
+                # The error is in the traceback lines, which have no time
+                # of their own.
+                (START + 611.9, "web::log_exception",
+                 "Uncaught exception GET /loada (172.18.0.4)\n"
+                 "Traceback (most recent call last):\n"
+                 "psycopg2.OperationalError: timeout expired"),
             ],
             "ScoringService-0": [
                 (F2_START + 1, "async_triggeredservice::run",
@@ -156,6 +162,7 @@ class FaultStatsTest(unittest.TestCase):
             ("F2", "pages answer again after"): ("20.0 s", True),
             ("F2", "ES commits again after"): ("31.0 s", True),
             ("F2", "earlier submissions scored after"): ("200.0 s", True),
+            ("F3", "'timeout expired' log lines"): ("1", True),
             ("F3", "longest CWS 500 answer"): ("10.0 s of 1", True),
             ("F3", "pages answer again after"): ("10.0 s", True),
             ("F4", "CWS p99 from its start to 5 s after its exit"):
@@ -173,6 +180,30 @@ class FaultStatsTest(unittest.TestCase):
             rows[("F2", "longest ES flush that lost the connection")],
             ("80.0 s of 1", False))
         self.assertEqual(self._main()[0], 1)
+
+    def test_an_f3_without_timeout_expired_fails_its_row(self):
+        del self.logs["ContestWebServer-0"][2]
+        value, passed = self._rows()[("F3", "'timeout expired' log lines")]
+        self.assertFalse(passed)
+        self.assertTrue(value.startswith("0 ("), value)
+        self.assertIn("deadline was not exercised", value)
+        self.assertEqual(self._main()[0], 1)
+
+    def test_an_f3_with_no_500_answers_passes_that_row(self):
+        del self.logs["ContestWebServer-0"][0]
+        rows = self._rows()
+        self.assertEqual(rows[("F3", "longest CWS 500 answer")],
+                         ("no 500 answers", True))
+        self.assertEqual(rows[("F3", "'timeout expired' log lines")],
+                         ("1", True))
+        self.assertEqual(self._main()[0], 0)
+
+    def test_an_f3_500_answer_over_the_deadline_fails_its_row(self):
+        self.logs["ContestWebServer-0"][0] = (
+            START + 625, "web::log_request",
+            "500 GET /loada (172.18.0.4) 20000.00ms")
+        self.assertEqual(self._rows()[("F3", "longest CWS 500 answer")],
+                         ("20.0 s of 1", False))
 
     def test_a_fault_that_did_not_run_fails_its_row(self):
         self.faults = [record for record in self.faults
