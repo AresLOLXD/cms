@@ -35,6 +35,8 @@ import json
 import logging
 import math
 import string
+import typing
+from collections.abc import Callable
 from time import monotonic
 from urllib.parse import urljoin, urlsplit
 
@@ -100,6 +102,15 @@ class SendOutcome(enum.Enum):
     # It did not reach the ranking, or the ranking failed to handle
     # it: it has to be sent again.
     UNSENT = enum.auto()
+
+
+class RefusedEntity(typing.NamedTuple):
+    """An entity that a ranking refused on its own, and was dropped."""
+
+    group: str | None
+    type_: int
+    key: str
+    data: dict
 
 
 def encode_id(entity_id: str) -> str:
@@ -283,9 +294,11 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     one per entity type.
 
     What the ranking cannot take because it is unreachable or failing is
-    put back in the queue for a later round; what it refuses is dropped.
-    Each namespace waits on its own before it is tried again, so one
-    that keeps failing doesn't slow down the others.
+    put back in the queue for a later round. A list it refuses is split,
+    and only the entities it refuses on their own are dropped and
+    reported (see on_refused in __init__). Each namespace waits on its
+    own before it is tried again, so one that keeps failing doesn't slow
+    down the others.
 
     Each entity type is identified by a integral class-level constant.
 
@@ -344,18 +357,38 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
     # burst would cost that much for each of them.
     BATCH_WINDOW = 0.2
 
-    def __init__(self, ranking: str):
+    # How many ids of the entities of a type that the ranking refused
+    # in a round the warning about them names at most.
+    REFUSED_IDS_SHOWN = 10
+
+    def __init__(
+        self,
+        ranking: str,
+        on_refused: Callable[[list[RefusedEntity]], None] | None = None,
+    ):
         """Create a proxy for the ranking at the given URL.
 
         ranking: a complete URL (containing protocol, username,
             password, hostname, port and prefix) where a ranking is
             supposed to listen.
+        on_refused: if given, called on the event loop after each
+            round in which the ranking refused some entities on their
+            own, with those entities.
 
         """
         super().__init__(batch_executions=True)
 
         self._ranking = ranking
         self._visible_ranking = safe_url(ranking)
+
+        self._on_refused = on_refused
+        # The entities the ranking refused on their own in the current
+        # round: _execute_sync adds them, execute hands them over.
+        self._refused_in_round: list[RefusedEntity] = []
+        # Whether the last data that _send got REJECTED for could not be
+        # encoded, rather than being refused by the ranking. Only
+        # _execute_sync uses it, one batch at a time.
+        self._last_refusal_unencodable = False
 
         # For each namespace whose data the ranking could not take: how
         # long it waits if its next attempt fails too, and when (on the
@@ -442,6 +475,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         the sleep early: a failing namespace must not hold back the
         data of the others.
 
+        The entities the ranking refused on their own in this round
+        are handed to on_refused, if given, before that sleep.
+
         entries: entries containing the operations to perform.
 
         """
@@ -455,6 +491,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         ready = [entry for entry in entries
                  if self._is_due(entry.item.group, now)]
         unsent: list[QueueEntry[ProxyOperation]] = []
+        self._refused_in_round = []
         if ready:
             loop = asyncio.get_running_loop()
             unsent = await loop.run_in_executor(
@@ -482,11 +519,17 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         put_back.update(
             id(entry) for entry in entries if id(entry) not in ready_ids)
         waiting = [entry for entry in entries if id(entry) in put_back]
-        if not waiting:
-            return
         for entry in waiting:
             # Not self.enqueue: this is not new work.
             super().enqueue(entry.item, entry.priority, entry.timestamp)
+
+        # Only once what waits is back in the queue, which an error of
+        # the callback must not lose.
+        refused, self._refused_in_round = self._refused_in_round, []
+        if refused and self._on_refused is not None:
+            self._on_refused(refused)
+        if not waiting:
+            return
 
         wait = min(self._retry_after[entry.item.group]
                    for entry in waiting) - now
@@ -525,7 +568,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         Namespaces don't depend on each other, so what goes wrong in
         one of them doesn't stop the others. Data refused by the
         ranking is dropped, as sending it again would get it refused
-        again, and the following entity types are sent anyway. When
+        again, and the following entity types are sent anyway. As the
+        ranking refuses a whole list for one entity it refuses, only
+        what it refuses on its own is dropped, and added to
+        self._refused_in_round (see _send_type). When
         data cannot be delivered instead (communication or server
         error), the entity types that follow it in the same namespace
         are held back too: the ranking would refuse them if they refer
@@ -609,13 +655,136 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 if len(data) == 0:
                     continue
                 if group not in stalled:
-                    outcome = self._send(group, type_, data)
+                    outcome, unsent_entries = self._send_type(
+                        group, type_, type_entries, data)
                     if outcome is not SendOutcome.UNSENT:
                         continue
                     stalled.add(group)
+                    unsent.update(id(entry) for entry in unsent_entries)
+                    continue
                 unsent.update(id(entry) for entry in type_entries)
 
         return [entry for entry in entries if id(entry) in unsent]
+
+    def _send_type(
+        self, group: str | None, type_: int,
+        type_entries: list[QueueEntry[ProxyOperation]], data: dict,
+    ) -> tuple[SendOutcome, list[QueueEntry[ProxyOperation]]]:
+        """Send the merged data of one type, splitting it if refused.
+
+        Runs inside loop.run_in_executor.
+
+        A ranking refuses a whole list if one of its entities is
+        refused (RWS checks them all before it stores any), so a
+        refused list of more than one entity is sent again one entity
+        at a time, and only what is refused on its own is dropped. The
+        entities the ranking refused are added to
+        self._refused_in_round. The ones that cannot be encoded are
+        dropped too, but not added: they would fail the same way again
+        until their data is fixed.
+
+        An entry counts as sent once each of its entities was taken or
+        refused on its own.
+
+        group (str|None): the namespace.
+        type_ (int): a data type (not RESET_TYPE nor VISIBILITY_TYPE).
+        type_entries ([QueueEntry]): the entries the data comes from.
+        data (dict): their merged data, by id.
+
+        return ((SendOutcome, [QueueEntry])): SENT if everything was
+            taken or refused (nothing to send again), UNSENT if the
+            ranking could not be reached, with the entries to send
+            again in that case (else an empty list).
+
+        """
+        outcome = self._send(group, type_, data, quiet=True)
+        if outcome is SendOutcome.SENT:
+            return SendOutcome.SENT, []
+        if outcome is SendOutcome.UNSENT:
+            return SendOutcome.UNSENT, list(type_entries)
+        refused: dict[str, dict] = dict()
+        unencodable = False
+        done: set[str] = set()
+        for key, value in data.items():
+            # A list of one entity was refused on its own already.
+            if len(data) > 1:
+                outcome = self._send(group, type_, {key: value}, quiet=True)
+            if outcome is SendOutcome.UNSENT:
+                # What was not sent alone yet goes back to the queue.
+                self._report_refused(
+                    group, type_, refused, unencodable, len(data))
+                return SendOutcome.UNSENT, [
+                    entry for entry in type_entries
+                    if not set(entry.item.data) <= done]
+            if outcome is SendOutcome.REJECTED:
+                if self._last_refusal_unencodable:
+                    unencodable = True
+                else:
+                    refused[key] = value
+            done.add(key)
+        self._report_refused(group, type_, refused, unencodable, len(data))
+        return SendOutcome.SENT, []
+
+    def _report_refused(
+        self, group: str | None, type_: int, refused: dict[str, dict],
+        unencodable: bool, total: int,
+    ) -> None:
+        """Report the entities of one type dropped in this round.
+
+        Runs inside loop.run_in_executor.
+
+        Add the entities the ranking refused to self._refused_in_round,
+        and tell the operator about them, and about the ones that
+        cannot be encoded: one warning for each, at most.
+
+        group (str|None): the namespace.
+        type_ (int): a data type (not RESET_TYPE nor VISIBILITY_TYPE).
+        refused ({str: dict}): the entities the ranking refused on
+            their own, by id.
+        unencodable (bool): whether some entities cannot be encoded.
+        total (int): how many entities of the type were sent.
+
+        """
+        name = self.RESOURCE_PATHS[type_]
+        if refused:
+            self._refused_in_round.extend(
+                RefusedEntity(group, type_, key, value)
+                for key, value in refused.items())
+            ids = sorted(refused)
+            shown = ", ".join(ids[:self.REFUSED_IDS_SHOWN])
+            if len(ids) > self.REFUSED_IDS_SHOWN:
+                shown += ", ..."
+            group_name = group if group is not None else "(root)"
+            if type_ in (self.SUBMISSION_TYPE, self.SUBCHANGE_TYPE):
+                logger.warning(
+                    "Ranking %s refused %d of %d %s of group %s (%s); they "
+                    "will be sent again after the contest data of the "
+                    "group.", self._visible_ranking, len(refused), total,
+                    name, group_name, shown)
+            else:
+                logger.warning(
+                    "Ranking %s refused %d of %d %s of group %s (%s). They "
+                    "will not be sent again: use Regenerate for this group "
+                    "in AWS (Ranking groups) to send its data again.",
+                    self._visible_ranking, len(refused), total, name,
+                    group_name, shown)
+        if unencodable:
+            self._warn_unencodable(group, "the " + name)
+
+    def _warn_unencodable(self, group: str | None, what: str) -> None:
+        """Tell the operator that some data cannot be encoded.
+
+        group (str|None): the namespace of the data.
+        what (str): what the data is, e.g. "the users".
+
+        """
+        # Regenerate alone would build the same data again.
+        logger.warning(
+            "%s of group %s cannot be encoded for ranking %s, and would "
+            "fail the same way again. Fix the data, then use Regenerate for "
+            "this group in AWS (Ranking groups) to send it.",
+            what.capitalize(), group if group is not None else "(root)",
+            self._visible_ranking)
 
     def _track_visibility(
         self, group: str | None, outcome: SendOutcome
@@ -649,7 +818,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 "Regenerate for this group in AWS (Ranking groups) to send "
                 "that too.", self._visible_ranking, group)
 
-    def _send(self, group: str | None, type_: int, data: dict) -> SendOutcome:
+    def _send(
+        self, group: str | None, type_: int, data: dict, quiet: bool = False
+    ) -> SendOutcome:
         """Send the entities of one type to a namespace of the ranking.
 
         Runs inside loop.run_in_executor.
@@ -659,6 +830,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
             namespace is emptied instead, and data is ignored. For
             VISIBILITY_TYPE data are the settings of the namespace.
         data: the entities to send, by id.
+        quiet: whether to leave it to the caller to tell the operator
+            what to do about a refusal (the error itself is logged
+            anyway). Either way, self._last_refusal_unencodable tells
+            whether a refusal is because the data cannot be encoded.
 
         return: SENT if the ranking took the data; REJECTED if it
             refused it (which is final); UNSENT if the data did not
@@ -693,19 +868,16 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 safe_put_data(
                     self._ranking, "%s%s/" % (prefix, name), data, operation)
         except RejectedError as error:
+            self._last_refusal_unencodable = \
+                isinstance(error, UnencodableError)
             # The error has already been logged: say what to do about it
-            # (for the visibility, _track_visibility does).
-            if type_ == self.VISIBILITY_TYPE:
+            # (for the visibility, _track_visibility does; if quiet, the
+            # caller does).
+            if type_ == self.VISIBILITY_TYPE or quiet:
                 return SendOutcome.REJECTED
             group_name = group if group is not None else "(root)"
-            if isinstance(error, UnencodableError):
-                # Regenerate alone would build the same data again.
-                logger.warning(
-                    "%s of group %s cannot be encoded for ranking %s, and "
-                    "would fail the same way again. Fix the data, then use "
-                    "Regenerate for this group in AWS (Ranking groups) to "
-                    "send it.", what.capitalize(), group_name,
-                    self._visible_ranking)
+            if self._last_refusal_unencodable:
+                self._warn_unencodable(group, what)
             else:
                 logger.warning(
                     "Ranking %s rejected %s of group %s. It will not be sent "

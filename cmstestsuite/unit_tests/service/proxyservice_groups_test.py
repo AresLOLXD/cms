@@ -468,11 +468,11 @@ class TestProxyServiceGroups(
         # What RWS refused is not sent again.
         self.assertEqual(self.retry_waits.waits, [])
         self.assertEqual(self.put_urls().count(url("olim/submissions/")), 1)
-        # The operator learns how to repair OLIM, and only OLIM.
-        hints = [line for line in logs.output if "Regenerate" in line]
+        # The operator learns what became of OLIM's, and only OLIM's.
+        hints = [line for line in logs.output if " refused " in line]
         self.assertEqual(len(hints), 1)
-        self.assertIn("olim", hints[0])
-        self.assertIn("submissions", hints[0])
+        self.assertIn("refused 1 of 1 submissions of group olim", hints[0])
+        self.assertIn("sent again after the contest data", hints[0])
 
     async def test_sweep_retries_a_broken_contest(self):
         self.break_contest(self.contest_b)
