@@ -118,12 +118,12 @@ single contest is served (`CMS_CONTEST_ID=<id>`). After switching to
 ### ProxyService warnings that need an operator
 
 ProxyService sends the contests, their tasks and users, and the scores to the
-Ranking Web Server. These messages of its log (`./logs.sh cms`) need someone
-to act. In the texts below, "…" stands for the parts that change: the ranking
-URL (without its password), the group name ("(root)" for the root ranking),
-the contest, or the data type ("the users", "the submissions", …). "Group" is
-the ranking group: **Regenerate** is on its row of **Ranking groups**, or on
-the **Root ranking** row for "(root)".
+Ranking Web Server. These messages of its log (`./logs.sh cms`) may need
+someone to act. In the texts below, "…" stands for the parts that change:
+the ranking URL (without its password), the group name ("(root)" for the root
+ranking), the contest, or the data type ("the users", "the submissions", …).
+"Group" is the ranking group: **Regenerate** is on its row of **Ranking
+groups**, or on the **Root ranking** row for "(root)".
 
 - **"Could not send … operation(s) of group … to ranking …, trying again in …
   seconds."** The Ranking Web Server could not be reached, did not answer in
@@ -142,30 +142,35 @@ the server refuses on their own are dropped. Scores and tokens refused
 because the server does not know their user or task are sent again after the
 contest data of their group (its contests, tasks, teams and users), at the
 next sweep, about every 6 minutes. The log shows the "Status 400 while
-sending …" line of the batch once, then one "refused" warning for each type
-of data and round; it counts the entities refused and names their ids (at
-most 10). The requests for single entities are logged at DEBUG only.
+sending …" line of the batch once (the "Status 400" lines of the single
+requests are logged at DEBUG only), then a "refused" warning for that type of
+data, which counts the entities refused and names their ids (at most 10). The
+reason is in the log of the Ranking Web Server (`./logs.sh ranking`), as a
+warning "Invalid data: …".
 
 Bad data is another matter: no later send repairs it. As long as the server
 keeps refusing an entity because its data is bad, rather than because a user
 or task is missing, every sweep sends the contest data of that group again,
 sends the refused entity again and repeats the warning. This goes on until
-someone fixes the data and presses **Regenerate** on the group.
+someone fixes the data.
 
 - **"Ranking … refused … of group … (…); they will be sent again after the
   contest data of the group."** The Ranking Web Server refused some
   submissions, or some of their scores or tokens, with a 400. Nothing to
   do: at the next sweep, within about 6 minutes, ProxyService sends the
   contest data of the group again and then these scores and tokens. If the
-  warning repeats for the same ids, their data is bad: fix the cause, then
-  press **Regenerate** on the group.
+  warning repeats for the same ids, their data is bad: fix the cause, and the
+  next sweep sends them again by itself, or press **Regenerate** on the group
+  to send them at once (it briefly empties the scoreboard).
 - **"Ranking … refused … of group … (…); the contest data of the group will
   be sent again at the next sweep. If this warning repeats, fix the data,
   then use Regenerate for this group in AWS (Ranking groups)."** The Ranking
   Web Server refused some contests, tasks, teams or users with a 400.
   Nothing to do at first: the next sweep, within about 6 minutes, sends the
   contest data of the group again. If the warning repeats for the same ids,
-  their data is bad: fix it, then press **Regenerate** on the group.
+  their data is bad: fix it, and the next sweep sends it again by itself, or
+  press **Regenerate** on the group to send it at once (it briefly empties
+  the scoreboard).
 - **"Ranking … rejected … of group …. It will not be sent again: use
   Regenerate for this group in AWS (Ranking groups) to send its data
   again."** The Ranking Web Server refused that data with a 4xx status other
