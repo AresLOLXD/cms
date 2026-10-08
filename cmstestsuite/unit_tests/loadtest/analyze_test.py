@@ -35,7 +35,7 @@ import analyze  # noqa: E402
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "run_small")
 
 METRIC_KEYS = {
-    "run", "target", "profile", "users", "submissions_sent",
+    "run", "target", "profile", "users", "poll_cap", "submissions_sent",
     "submissions_rejected", "submissions_rejected_in_time", "login_failures",
     "http_errors", "score_mismatches", "rws_pairs", "rws_mismatches",
     "login_p50", "login_p95", "submit_p50", "submit_p95", "submit_end_p95",
@@ -87,6 +87,7 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(metrics["target"], "fork")
         self.assertEqual(metrics["profile"], "portable")
         self.assertEqual(metrics["users"], 3)
+        self.assertEqual(metrics["poll_cap"], 10.0)
         self.assertEqual(metrics["rws_pairs"], 2)
         self.assertEqual(metrics["rws_mismatches"], 0)
         self.assertEqual(metrics["http_errors"], 1)
@@ -123,6 +124,21 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(metrics["scored_max"], 69.5)
         self.assertEqual(metrics["drain_after_stop_s"], 30.0)
         self.assertEqual(metrics["peak_pg_connections"], 7)
+
+    def test_poll_cap_is_null_without_a_cap_and_in_older_runs(self):
+        users_path = os.path.join(self.run_dir, "users.json")
+        with open(users_path) as f:
+            users = json.load(f)
+        for case in ("null", "missing"):
+            with self.subTest(case=case):
+                if case == "null":
+                    users["poll_cap"] = None
+                else:
+                    del users["poll_cap"]
+                with open(users_path, "w") as f:
+                    json.dump(users, f)
+                analyze.main(self.run_dir)
+                self.assertIsNone(self.metrics()["poll_cap"])
 
     def test_perceived_latency_is_first_poll_seen_final_minus_submit(self):
         # The fixture: a001 submits at 1550 and sees it final at 1561,

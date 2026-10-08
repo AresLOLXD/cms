@@ -35,7 +35,7 @@ import sys
 # The metrics.json keys of analyze.METRIC_KEYS, in the same order, without
 # the labels of the run and the per-container dicts.
 DEFAULT_KEYS = (
-    "users", "submissions_sent", "submissions_rejected",
+    "users", "poll_cap", "submissions_sent", "submissions_rejected",
     "submissions_rejected_in_time", "login_failures", "http_errors",
     "score_mismatches", "rws_pairs", "rws_mismatches", "login_p50",
     "login_p95", "submit_p50", "submit_p95", "submit_end_p95", "scored_p50",

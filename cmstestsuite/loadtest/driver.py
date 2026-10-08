@@ -14,8 +14,11 @@ Simulates contestants with a browser-like behaviour against CWS:
    with the backoff of task_submissions.html until it is terminal, maybe
    open the details. The poll is 1 s, then each delay is the previous one
    times (1.4 + hash*0.2), without a limit like upstream's page;
-   --poll-cap SECONDS limits every delay after the multiplication, like
-   the fork's page.
+   --poll-cap SECONDS limits every delay after the multiplication to
+   SECONDS * (0.9 + hash*0.2), like the fork's page (PAGE_POLL_CAP_S).
+   A poll that fails with status 0 (connection error) or 5xx is asked
+   again after the next delay; one that fails with a 4xx stops the poll
+   of that submission (final_status "poll_failed"), like the page.
 4. End burst: in the last --end-burst seconds every user submits 1-3 more
    times (skewed towards the stop), without waiting for results.
 5. Drain: after the stop, the pending polls continue until every submission
@@ -34,6 +37,7 @@ import argparse
 import asyncio
 import itertools
 import json
+import math
 import os
 import random
 import re
@@ -48,6 +52,14 @@ import scenario  # noqa: E402
 SOLUTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "solutions")
 TERMINAL = {2, 5}  # COMPILATION_FAILED, SCORED
+# The cap of the fork's task_submissions.html, which the driver emulates with
+# --poll-cap: each submission caps its poll delay at PAGE_POLL_CAP_S *
+# (POLL_CAP_JITTER_BASE + hash * POLL_CAP_JITTER_SPAN) seconds, where hash is
+# the one that staggers the backoff. driver_test.py checks these against the
+# template (MAX_STATUS_POLL_DELAY_MS and its jitter).
+PAGE_POLL_CAP_S = 10.0
+POLL_CAP_JITTER_BASE = 0.9
+POLL_CAP_JITTER_SPAN = 0.2
 SUBMISSION_ROW_RE = re.compile(rb'data-submission="(\d+)"')
 # The contest home in multi-contest mode (CWS -c ALL) is /<contest>, with
 # no trailing slash: /<contest>/ matches no route and answers 404.
@@ -263,10 +275,19 @@ class Driver:
     async def poll(self, user, entry):
         """Poll like task_submissions.html: 1 s, then x(1.4 + hash*0.2).
 
-        Every delay after the first is limited to --poll-cap when it is set.
+        Every delay after the first is limited to --poll-cap (jittered by
+        the hash, like the page) when it is set. A poll that fails with
+        status 0 or 5xx (here: -1 for a connection error, or a 5xx) is
+        asked again after the next delay; a 4xx stops the poll and records
+        final_status "poll_failed" and poll_status.
         """
         opaque = entry["opaque_id"]
-        factor = 1.4 + ((37 * opaque) % 100) / 100.0 * 0.2
+        hash_ = ((37 * opaque) % 100) / 100.0
+        factor = 1.4 + hash_ * 0.2
+        cap = None
+        if self.args.poll_cap is not None:
+            cap = self.args.poll_cap * (
+                POLL_CAP_JITTER_BASE + hash_ * POLL_CAP_JITTER_SPAN)
         delay = 1.0
         polls = 0
         deadline = self.stop + self.args.drain_timeout
@@ -289,13 +310,20 @@ class Driver:
                     entry["polls"] = polls
                     self.terminal += 1
                     break
+            elif 400 <= status < 500:
+                # The session expired or the submission is gone: asking
+                # again will not help, and the page does not either.
+                entry["final_status"] = "poll_failed"
+                entry["poll_status"] = status
+                entry["polls"] = polls
+                break
             if time.time() > deadline:
                 entry["final_status"] = "stuck"
                 entry["polls"] = polls
                 break
             delay *= factor
-            if self.args.poll_cap is not None:
-                delay = min(delay, self.args.poll_cap)
+            if cap is not None:
+                delay = min(delay, cap)
             # Never poll past the drain deadline by much.
             delay = min(delay, max(1.0, deadline - time.time()))
         self.rec.submission(**entry)
@@ -469,11 +497,14 @@ def main():
     parser.add_argument("--poll-cap", type=float, default=None,
                         help="longest delay in seconds between two status "
                         "polls of a submission, applied after each "
-                        "multiplication like the fork's task_submissions."
-                        "html; default: no cap, like upstream")
+                        "multiplication and jittered by the submission "
+                        "like the fork's task_submissions.html, which uses "
+                        "%g; default: no cap, like upstream"
+                        % PAGE_POLL_CAP_S)
     args = parser.parse_args()
-    if args.poll_cap is not None and args.poll_cap <= 0:
-        parser.error("--poll-cap must be greater than 0")
+    if args.poll_cap is not None and not (math.isfinite(args.poll_cap)
+                                          and args.poll_cap > 0):
+        parser.error("--poll-cap must be a finite number greater than 0")
     os.makedirs(args.out, exist_ok=True)
     with open(args.users_file) as f:
         data = json.load(f)
