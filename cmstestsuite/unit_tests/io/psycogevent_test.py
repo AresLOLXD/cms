@@ -131,6 +131,11 @@ class TestGreenConnect(unittest.TestCase):
     def test_the_kill_switch_removes_the_deadline(self):
         url = with_connection_defaults(make_url(with_kill_switch(
             "postgresql+psycopg2://cms@127.0.0.1:%d/cms" % self.port)))
+        # The 3.5 s timer below cannot tell "no deadline" from the 10 s
+        # default, so check the deadline directly.
+        self.assertIsNone(connect_deadline(SimpleNamespace(
+            status=extensions.STATUS_SETUP,
+            dsn=extensions.make_dsn(**url.query))))
         with self.assertRaises(gevent.Timeout):
             with gevent.Timeout(3.5):
                 self._connect(**url.query)
@@ -148,9 +153,10 @@ class TestGreenConnect(unittest.TestCase):
             except psycopg2.OperationalError:
                 pass
         # The collector frees a connection that a reference cycle still
-        # holds; a leaked one would stay.
+        # holds; a leaked one would stay. Another thread may close an
+        # unrelated descriptor meanwhile, so the count must not grow.
         gc.collect()
-        self.assertEqual(len(os.listdir("/proc/self/fd")), before)
+        self.assertLessEqual(len(os.listdir("/proc/self/fd")), before)
 
 
 class TestQueriesHaveNoDeadline(unittest.TestCase):
