@@ -62,11 +62,26 @@ class TestConnectDeadline(unittest.TestCase):
                 self.assertIsNone(
                     self._seconds_left(extensions.STATUS_SETUP, dsn))
 
+    def test_a_connect_timeout_that_is_not_an_integer_means_no_deadline(
+            self):
+        # Blocking libpq rejects these values itself.
+        for dsn in ("host=h connect_timeout=abc",
+                    "host=h connect_timeout=10.5"):
+            with self.subTest(dsn=dsn):
+                self.assertIsNone(
+                    self._seconds_left(extensions.STATUS_SETUP, dsn))
+
     def test_a_query_never_gets_a_deadline(self):
         for status in (extensions.STATUS_READY, extensions.STATUS_BEGIN):
             with self.subTest(status=status):
                 self.assertIsNone(self._seconds_left(
                     status, "host=h connect_timeout=10"))
+
+
+# An outer guard for every connect to the silent listener: well above
+# the longest bound a test expects (3.5 s), so that a regression, such as
+# a deadline that is lost, fails the test instead of hanging the run.
+GUARD_S = 8
 
 
 class TestGreenConnect(unittest.TestCase):
@@ -83,8 +98,11 @@ class TestGreenConnect(unittest.TestCase):
         self.port = self.listener.getsockname()[1]
 
     def _connect(self, **keywords: str) -> None:
-        psycopg2.connect(host="127.0.0.1", port=self.port, user="cms",
-                         dbname="cms", **keywords)
+        guard = gevent.Timeout(GUARD_S, AssertionError(
+            "the connect was still waiting after %d s" % GUARD_S))
+        with guard:
+            psycopg2.connect(host="127.0.0.1", port=self.port, user="cms",
+                             dbname="cms", **keywords)
 
     def _seconds_to_fail(self, **keywords: str) -> float:
         started = time.monotonic()

@@ -84,7 +84,8 @@ def connect_deadline(conn) -> float | None:
     Libpq leaves connect_timeout to the application when it connects
     without blocking, as green psycopg2 does. The value is the
     connection's own connect_timeout, so that a URL's value (0
-    included) applies: 0 or none means no deadline, and a positive
+    included) applies: 0, none or a value that is not an integer means
+    no deadline (libpq rejects the last one itself), and a positive
     value under MIN_CONNECT_TIMEOUT_S counts as that, as in libpq.
     Limits: with a multi-host URL the deadline covers the whole
     connect, not each host; a DNS lookup that blocks before the socket
@@ -100,10 +101,14 @@ def connect_deadline(conn) -> float | None:
     """
     if conn.status != extensions.STATUS_SETUP:
         return None
-    value = extensions.parse_dsn(conn.dsn).get("connect_timeout")
-    if not value or int(value) <= 0:
+    try:
+        seconds = int(extensions.parse_dsn(conn.dsn).get("connect_timeout"))
+    except (TypeError, ValueError):
+        # Absent, or not an integer: libpq rejects the latter itself.
         return None
-    return time.monotonic() + max(int(value), MIN_CONNECT_TIMEOUT_S)
+    if seconds <= 0:
+        return None
+    return time.monotonic() + max(seconds, MIN_CONNECT_TIMEOUT_S)
 
 
 def gevent_wait_callback(conn, timeout=None):
