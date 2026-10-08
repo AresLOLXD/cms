@@ -6,7 +6,8 @@ merges the entities of every operation of a round into one PUT per
 entity type and namespace. These tests pin that a refused round loses
 only what RWS refuses on its own, and that the next sweep sends the
 contest data RWS lacks and then the scores it refused, without
-Regenerate.
+Regenerate. A score that RWS refuses whatever comes before it is tried
+again at each sweep.
 
 """
 
@@ -250,6 +251,53 @@ class TestRejectedRoundOfScores(
             [(status["item"]["type"], status["item"]["group"])
              for status in self.executor.get_status()],
             [(ProxyExecutor.VISIBILITY_TYPE, self.group.name)])
+
+    async def test_a_score_refused_for_bad_data_is_retried_at_each_sweep(self):
+        # RWS takes only strings as score details, and this one is NULL:
+        # no contest data can make it take this score.
+        bad = self.add_scored_submission(self.alice)
+        self.session.commit()
+        bad.get_result().ranking_score_details = [None]
+        self.session.commit()
+        self.service._submission_scored_sync(bad.id)
+
+        # The first attempt, then the one of the sweep that follows.
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                with self.assertLogs(
+                        "cms.service.ProxyService", "WARNING") as logs:
+                    await self.next_round()
+
+                # Each time, RWS refuses the score, the operator is
+                # told, and the group is marked to be repaired.
+                refusals = [line for line in logs.output
+                            if " refused " in line]
+                self.assertEqual(len(refusals), 1)
+                self.assertIn("refused 1 of 1 subchanges of group olim",
+                              refusals[0])
+                self.assertIn("sent again after the contest data",
+                              refusals[0])
+                self.assertEqual(
+                    self.ranking.stores["subchange"].retrieve_list(), {})
+                self.assertNotIn(
+                    bad.id, self.service.scores_sent_to_rankings)
+                self.assertEqual(self.service._groups_to_repair,
+                                 {self.group.name})
+
+                # The next sweep sends the contest data of the group
+                # again, then the score.
+                self.service._missing_operations_sync()
+                queued = self.executor.get_status()
+                self.assertLessEqual(
+                    {ProxyExecutor.CONTEST_TYPE, ProxyExecutor.USER_TYPE,
+                     ProxyExecutor.TASK_TYPE},
+                    {status["item"]["type"] for status in queued})
+                self.assertEqual(
+                    [change["submission"] for status in queued
+                     if status["item"]["type"] == ProxyExecutor.SUBCHANGE_TYPE
+                     for change in status["item"]["data"].values()],
+                    ["%d" % bad.id])
+                self.assertEqual(self.service._groups_to_repair, set())
 
     async def test_known_users_lose_nothing(self):
         alice = self.alice.user.username

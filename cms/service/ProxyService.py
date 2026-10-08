@@ -811,11 +811,12 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                     name, group_name, shown)
             else:
                 logger.warning(
-                    "Ranking %s refused %d of %d %s of group %s (%s). They "
-                    "will not be sent again: use Regenerate for this group "
-                    "in AWS (Ranking groups) to send its data again.",
-                    self._visible_ranking, len(refused), total, name,
-                    group_name, shown)
+                    "Ranking %s refused %d of %d %s of group %s (%s); the "
+                    "contest data of the group will be sent again at the "
+                    "next sweep. If this warning repeats, fix the data, "
+                    "then use Regenerate for this group in AWS (Ranking "
+                    "groups).", self._visible_ranking, len(refused), total,
+                    name, group_name, shown)
         if unencodable:
             self._warn_unencodable(group, "the " + name)
         if rejected:

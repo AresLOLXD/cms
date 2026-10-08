@@ -1264,12 +1264,14 @@ class TestProxyExecutorRefusals(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.executor._refused_in_round, [
                 RefusedEntity("olim", ProxyExecutor.USER_TYPE, "b",
                               {"f_name": "B"})])
-            # Nothing sends users again by itself.
+            # ProxyService sends the contest data again at the next
+            # sweep; if that does not help, the data needs fixing.
             self.assertEqual(self.refusal_warnings(logs), [
                 "Ranking http://localhost:8890/ refused 1 of 3 users of "
-                "group olim (b). They will not be sent again: use "
-                "Regenerate for this group in AWS (Ranking groups) to "
-                "send its data again."])
+                "group olim (b); the contest data of the group will be "
+                "sent again at the next sweep. If this warning repeats, "
+                "fix the data, then use Regenerate for this group in AWS "
+                "(Ranking groups)."])
 
         with self.subTest("unsent"):
             self.executor = ProxyExecutor(RANKING)
