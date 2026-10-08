@@ -1047,7 +1047,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         know, and a subchange whose submission it does not know: such
         scores and tokens are taken out of the sets of what was sent,
         and their namespace is marked so that the next sweep sends its
-        contest data and then them (see _missing_operations_sync).
+        contest data and then them (see _missing_operations_sync). A
+        refused contest, task, team or user marks its namespace too, so
+        that its contest data is sent again at the next sweep.
 
         refused ([RefusedEntity]): the entities refused in a round.
 
@@ -1222,23 +1224,32 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             to_repair = self._groups_to_repair
             self._groups_to_repair = set()
         counter = 0
-        with SessionGen() as session:
-            self._enqueue_visibility(session)
-            for contest in self._contests_to_send(session):
-                only_missing = True
-                if contest.id in self._broken_contests:
-                    counter += self._enqueue_contest_data(contest)
+        try:
+            with SessionGen() as session:
+                self._enqueue_visibility(session)
+                for contest in self._contests_to_send(session):
+                    only_missing = True
                     if contest.id in self._broken_contests:
-                        continue
-                    # Its scores were held back, and the ranking may
-                    # have been emptied since it broke: send them all.
-                    only_missing = False
-                elif self._group_of(contest) in to_repair:
-                    # Its namespace refused some data (see _on_refused):
-                    # what the ranking lacks goes before the scores.
-                    counter += self._enqueue_contest_data(contest)
-                counter += self._enqueue_submissions(
-                    session, contest, only_missing=only_missing)
+                        counter += self._enqueue_contest_data(contest)
+                        if contest.id in self._broken_contests:
+                            continue
+                        # Its scores were held back, and the ranking may
+                        # have been emptied since it broke: send them all.
+                        only_missing = False
+                    elif self._group_of(contest) in to_repair:
+                        # Its namespace refused some data (see
+                        # _on_refused): what the ranking lacks goes
+                        # before the scores.
+                        counter += self._enqueue_contest_data(contest)
+                    counter += self._enqueue_submissions(
+                        session, contest, only_missing=only_missing)
+        except BaseException:
+            # Put the marks back for the next sweep: only a new refusal
+            # would mark them again, and refused contest data may never
+            # get one.
+            with self._groups_to_repair_lock:
+                self._groups_to_repair |= to_repair
+            raise
         return counter
 
     def initialize(self):

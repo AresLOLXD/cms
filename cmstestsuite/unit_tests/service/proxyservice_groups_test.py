@@ -583,6 +583,49 @@ class TestProxyServiceGroups(
             ("submissions", a, True), ("submissions", b, True),
             ("submissions", d, True), ("contest data", e)])
 
+    async def test_a_failed_sweep_keeps_the_groups_to_repair(self):
+        service = await self.start()
+        service._groups_to_repair.add("olim")
+
+        with patch.object(service, "_contests_to_send",
+                          side_effect=RuntimeError("database is down")):
+            with self.assertRaisesRegex(RuntimeError, "database is down"):
+                await service._missing_operations()
+        await self._settle(service)
+
+        self.assertEqual(service._groups_to_repair, {"olim"})
+
+    async def test_a_refusal_during_a_sweep_is_repaired_by_the_next_one(self):
+        service = await self.start()
+        repaired: list[int] = []
+        real_contest_data = service._enqueue_contest_data
+        real_submissions = service._enqueue_submissions
+
+        def contest_data(contest):
+            repaired.append(contest.id)
+            return real_contest_data(contest)
+
+        # The ranking refuses a user of OMIPS while the sweep runs.
+        def submissions(session, contest, only_missing):
+            if contest.id == self.contest_a.id:
+                service._on_refused([RefusedEntity(
+                    "omips", ProxyExecutor.USER_TYPE, "bob",
+                    {"f_name": "Bob", "l_name": "", "team": "nowhere"})])
+            return real_submissions(session, contest, only_missing)
+
+        service._enqueue_contest_data = contest_data
+        service._enqueue_submissions = submissions
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(repaired, [])
+        self.assertEqual(service._groups_to_repair, {"omips"})
+
+        service._enqueue_submissions = real_submissions
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(repaired, [self.contest_b.id])
+        self.assertEqual(service._groups_to_repair, set())
+
     async def test_legacy_mode_repairs_the_root(self):
         service = await self.start(self.contest_c.id)
         refusals = [400]
