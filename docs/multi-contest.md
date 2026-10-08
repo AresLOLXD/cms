@@ -144,9 +144,9 @@ contest data of their group (its contests, tasks, teams and users), at the
 next sweep, about every 6 minutes. The log shows the "Status 400 while
 sending …" line of the batch once (the "Status 400" lines of the single
 requests are logged at DEBUG only), then a "refused" warning for that type of
-data, which counts the entities refused and names their ids (at most 10). The
-reason is in the log of the Ranking Web Server (`./logs.sh ranking`), as a
-warning "Invalid data: …".
+data, which counts the entities refused and names their ids (at most 10; for
+subchanges, the ids of their submissions). The reason is in the log of the
+Ranking Web Server (`./logs.sh ranking`), as a warning "Invalid data: …".
 
 Bad data is another matter: no later send repairs it. As long as the server
 keeps refusing an entity because its data is bad, rather than because a user

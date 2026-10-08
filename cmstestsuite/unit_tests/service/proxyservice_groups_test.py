@@ -587,13 +587,21 @@ class TestProxyServiceGroups(
         service = await self.start()
         service._groups_to_repair.add("olim")
 
+        def broken_sweep(session):
+            # The ranking refuses a user of OMIPS while the sweep runs:
+            # putting OLIM back must not lose that mark.
+            service._on_refused([RefusedEntity(
+                "omips", ProxyExecutor.USER_TYPE, "bob",
+                {"f_name": "Bob", "l_name": "", "team": "nowhere"})])
+            raise RuntimeError("database is down")
+
         with patch.object(service, "_contests_to_send",
-                          side_effect=RuntimeError("database is down")):
+                          side_effect=broken_sweep):
             with self.assertRaisesRegex(RuntimeError, "database is down"):
                 await service._missing_operations()
         await self._settle(service)
 
-        self.assertEqual(service._groups_to_repair, {"olim"})
+        self.assertEqual(service._groups_to_repair, {"olim", "omips"})
 
     async def test_a_refusal_during_a_sweep_is_repaired_by_the_next_one(self):
         service = await self.start()

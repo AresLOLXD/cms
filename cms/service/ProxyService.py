@@ -174,15 +174,17 @@ def _unix_end(value: datetime | None) -> int | None:
     return None if value is None else math.ceil(make_timestamp(value))
 
 
-def _check_status(status_code: int, operation: str, quiet: bool = False):
+def _check_status(
+    status_code: int, operation: str, invalid_at_debug: bool = False,
+):
     """Raise the right error if a ranking answered with a failure.
 
     status_code: the HTTP status of the answer.
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
-    quiet: whether to log a refusal (4xx) at DEBUG rather than
-        WARNING, as the caller reports it. A failure (5xx) is a
-        warning anyway.
+    invalid_at_debug: whether to log a 400 (the ranking refused the
+        data as invalid) at DEBUG rather than WARNING, as the caller
+        reports it. Any other failure is a warning anyway.
 
     raise (RejectedError): if the ranking refused the request (4xx).
     raise (CannotSendError): if the ranking failed to handle it (5xx).
@@ -190,7 +192,7 @@ def _check_status(status_code: int, operation: str, quiet: bool = False):
     """
     if 400 <= status_code < 600:
         msg = "Status %s while %s." % (status_code, operation)
-        if quiet and status_code < 500:
+        if invalid_at_debug and status_code == 400:
             logger.debug(msg)
         else:
             logger.warning(msg)
@@ -201,7 +203,7 @@ def _check_status(status_code: int, operation: str, quiet: bool = False):
 
 def safe_put_data(
     ranking: str, resource: str, data: dict, operation: str,
-    quiet: bool = False,
+    invalid_at_debug: bool = False,
 ):
     """Send some data to ranking using a PUT request.
 
@@ -210,7 +212,7 @@ def safe_put_data(
     data: the data to JSON-encode and send.
     operation: a human-readable description of the operation
         we're performing (to produce log messages).
-    quiet: whether to log a refusal (4xx) at DEBUG rather than
+    invalid_at_debug: whether to log a 400 at DEBUG rather than
         WARNING (see _check_status).
 
     raise (UnencodableError): if the data cannot be encoded as JSON.
@@ -239,7 +241,7 @@ def safe_put_data(
         msg = "%s while %s: %s." % (type(error).__name__, operation, error)
         logger.warning(msg)
         raise CannotSendError(msg)
-    _check_status(res.status_code, operation, quiet)
+    _check_status(res.status_code, operation, invalid_at_debug)
 
 
 def safe_delete_data(ranking: str, resource: str, operation: str):
@@ -716,7 +718,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         are dropped too, but not added: they would fail the same way
         again until their data is fixed. A list refused for another
         reason is not split, and is dropped whole: each of its entities
-        would be refused the same way.
+        would be refused the same way. For the same reason, an entity
+        refused alone for another reason stops the split: the entities
+        not tried yet are dropped with it, as such a list is.
 
         An entry counts as sent once each of its entities was taken or
         refused on its own.
@@ -739,8 +743,8 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
             return SendOutcome.UNSENT, list(type_entries)
         # Not split: a list of one entity, which was refused on its own
         # already, nor a list refused for another reason than invalid
-        # data. Then the loop below gives each entity the refusal of
-        # the list, without sending anything.
+        # data. Then the loop below gives the refusal of the list to its
+        # first entity, without sending anything.
         split = len(data) > 1 and self._last_refusal_status in (
             None, self.INVALID_DATA_STATUS)
         refused: dict[str, dict] = dict()
@@ -764,7 +768,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 elif self._last_refusal_status == self.INVALID_DATA_STATUS:
                     refused[key] = value
                 else:
+                    # E.g. wrong credentials: the entities not tried yet
+                    # would be refused the same way. All are dropped.
                     rejected = True
+                    break
             done.add(key)
         self._report_refused(
             group, type_, refused, unencodable, rejected, len(data))
@@ -781,7 +788,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         Add the entities refused as invalid to self._refused_in_round,
         and tell the operator about them, about the ones that cannot be
         encoded, and about the ones refused for another reason: one
-        warning for each, at most.
+        warning for each, at most. The warning about the entities
+        refused as invalid names their ids, or for subchanges the ids
+        of their submissions, which the operator looks for.
 
         group (str|None): the namespace.
         type_ (int): a data type (not RESET_TYPE nor VISIBILITY_TYPE).
@@ -794,11 +803,22 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
 
         """
         name = self.RESOURCE_PATHS[type_]
+        # First, right after the status line of that refusal: it was
+        # the last request (a split stops at it), and the operator looks
+        # for the advice there.
+        if rejected:
+            self._warn_rejected(group, "the " + name)
         if refused:
             self._refused_in_round.extend(
                 RefusedEntity(group, type_, key, value)
                 for key, value in refused.items())
-            ids = sorted(refused)
+            if type_ == self.SUBCHANGE_TYPE:
+                # A subchange id is a timestamp, a submission id and s
+                # or t: a score and a token name the same submission.
+                ids = sorted({value["submission"]
+                              for value in refused.values()})
+            else:
+                ids = sorted(refused)
             shown = ", ".join(ids[:self.REFUSED_IDS_SHOWN])
             if len(ids) > self.REFUSED_IDS_SHOWN:
                 shown += ", ..."
@@ -819,8 +839,6 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                     name, group_name, shown)
         if unencodable:
             self._warn_unencodable(group, "the " + name)
-        if rejected:
-            self._warn_rejected(group, "the " + name)
 
     def _warn_rejected(self, group: str | None, what: str) -> None:
         """Tell the operator that the ranking refused some data for good.
@@ -900,9 +918,10 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
             anyway). Either way, self._last_refusal_status tells the
             status of a refusal (None if the data cannot be encoded).
         alone: whether data is one entity of a refused list, sent
-            alone (see _send_type): the ranking's refusal of it is
-            then logged at DEBUG only, as the warning of the round
-            names it.
+            alone (see _send_type): if the ranking refuses it as
+            invalid (400), its status is logged at DEBUG only, as the
+            warning of the round names it. Any other refusal is a
+            warning anyway.
 
         return: SENT if the ranking took the data; REJECTED if it
             refused it (which is final); UNSENT if the data did not
@@ -936,7 +955,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 logger.debug(operation.capitalize())
                 safe_put_data(
                     self._ranking, "%s%s/" % (prefix, name), data, operation,
-                    quiet=alone)
+                    invalid_at_debug=alone)
         except RejectedError as error:
             self._last_refusal_status = error.status_code
             # The error has already been logged: say what to do about it
@@ -1236,7 +1255,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                         # Its scores were held back, and the ranking may
                         # have been emptied since it broke: send them all.
                         only_missing = False
-                    elif self._group_of(contest) in to_repair:
+                    elif to_repair and self._group_of(contest) in to_repair:
                         # Its namespace refused some data (see
                         # _on_refused): what the ranking lacks goes
                         # before the scores.
