@@ -283,6 +283,77 @@ jobs:
           overwrite: true
           retention-days: 30
 
+  # A fault run (run.sh --faults): smoke-sized load, the fork only, one
+  # job per profile. faults.md, in the summary and the artifact, has the
+  # pass or FAIL of every criterion; a FAIL does not fail the job.
+  faults:
+    if: ${{ startsWith(github.ref_name, 'loadtest/faults') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [portable, full]
+
+    env:
+      PROFILE: ${{ matrix.profile }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmstestsuite/loadtest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Record the runner
+        run: |
+          mkdir -p out
+          {
+            echo "fault run, profile $PROFILE"
+            echo "nproc: $(nproc)"
+            lscpu | grep '^Model name'
+            echo "kernel: $(uname -r)"
+          } | tee out/runner.txt
+
+      - name: Build the fork image
+        run: ./build.sh fork HEAD
+
+      # The README's smoke values, but a 2100 s contest: the faults and
+      # their recovery end about 1770 s after the start (faults.py).
+      - name: Run with faults
+        timeout-minutes: 120
+        run: |
+          name=faults-$PROFILE
+          rc=0
+          ./run.sh --target fork --profile "$PROFILE" --name "$name" \
+              --users-a 14 --users-b 6 --login-window 60 --contest 2100 \
+              --end-burst 120 --rate 10 --workers "$LOAD_WORKERS" \
+              --cws "$LOAD_CWS" --faults 2>&1 |
+            tee "out/run-$name.log" || rc=$?
+          ./teardown.sh fork 2>&1 | tee -a "out/run-$name.log" || rc=$?
+          exit "$rc"
+
+      - name: Summarize the run
+        if: always()
+        run: |
+          shopt -s nullglob
+          {
+            echo "## Fault run, profile $PROFILE"
+            echo
+            for file in out/faults-*/faults.md; do cat "$file"; done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-faults-${{ matrix.profile }}
+          path: cmstestsuite/loadtest/out/
+          overwrite: true
+          retention-days: 30
+
   # Can this runner inject the faults of a fault run? It checks nsenter
   # and iptables in a container's network namespace (the DROP rules must
   # block the container's port from outside and leave its loopback

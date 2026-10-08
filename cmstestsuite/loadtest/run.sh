@@ -6,7 +6,7 @@
 #            [--users-a N] [--users-b N] [--login-window S] [--contest S] \
 #            [--end-burst S] [--rate R] [--end-burst-factor F] \
 #            [--workers N] [--cws N] [--request-time-header NAME] \
-#            [--poll-cap SECONDS]
+#            [--poll-cap SECONDS] [--faults]
 #
 # The defaults are the 2026-09-30 full1 values: users-a 175, users-b 75,
 # login-window 150, contest 1500, end-burst 300, rate 45 (submissions per
@@ -19,6 +19,10 @@
 # --poll-cap SECONDS limits the delay between two status polls of a
 # submission in the driver, like the fork's task_submissions.html; without it
 # the backoff has no limit, like upstream's page.
+# --faults (fork target only, --contest 2100 or more) also runs
+# faults.py, which injects the database faults of #39 at fixed times of
+# the contest, and then faultstats.py, which writes out/<name>/faults.md
+# (see "Fault runs" in the README). It needs passwordless sudo.
 #   smoke: ./run.sh --target fork --profile portable --name smoke \
 #              --users-a 14 --users-b 6 --login-window 60 --contest 480 \
 #              --end-burst 120 --rate 10
@@ -33,6 +37,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER='' POLL_CAP=''
 UA=175 UB=75 LOGIN=150 CONTEST=1500 ENDB=300 RATE=45 EBF=1.0 WORKERS=8 CWS=2
+FAULTS=0
 
 usage() {
   sed -n '2,/^# left running/p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -54,6 +59,7 @@ while (($#)); do
     --cws) CWS=${2:?--cws needs a value}; shift 2 ;;
     --request-time-header) REQUEST_TIME_HEADER=${2:?--request-time-header needs a value}; shift 2 ;;
     --poll-cap) POLL_CAP=${2:?--poll-cap needs a value}; shift 2 ;;
+    --faults) FAULTS=1; shift ;;
     -h | --help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage; exit 2 ;;
   esac
@@ -73,6 +79,16 @@ done
 if [[ $PROFILE == full && $TARGET == upstream ]]; then
   echo "The full profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
   exit 2
+fi
+if ((FAULTS)); then
+  if [[ $TARGET != fork ]]; then
+    echo "--faults runs on the fork target only" >&2
+    exit 2
+  fi
+  if ! [[ $CONTEST =~ ^[0-9]+$ ]] || ((CONTEST < 2100)); then
+    echo "--faults needs --contest 2100 or more: the scores after the last fault arrive about 1770 s after the start" >&2
+    exit 2
+  fi
 fi
 
 PROJ=cmsload-$TARGET
@@ -178,6 +194,7 @@ take_census() {
 
 COLLECTED=
 STATS_PID=
+FAULTS_PID=
 # collect: gather everything the analysis needs from the stack. It runs once,
 # from the main flow or, if a step failed, from the EXIT trap, and it never
 # stops on an error so that as much as possible is saved.
@@ -189,6 +206,12 @@ collect() {
   set +e
   echo "Collecting the logs into $OUT"
   [[ -z $STATS_PID ]] || kill "$STATS_PID" 2>/dev/null
+  # The injector first: on SIGTERM it removes its rules and unpauses
+  # PostgreSQL, which the export below needs.
+  if [[ -n $FAULTS_PID ]]; then
+    kill "$FAULTS_PID" 2>/dev/null
+    wait "$FAULTS_PID" 2>/dev/null
+  fi
   take_census end "$OUT/processes_end.txt"
   # shellcheck disable=SC2016  # expanded in the container
   compose exec -T cms bash -c 'kill "$(cat /loadtest/run/monitor.pid)"' >/dev/null 2>&1
@@ -354,6 +377,14 @@ compose exec -d cms bash -c "echo \$\$ >/loadtest/run/monitor.pid; exec python3 
 ) &
 STATS_PID=$!
 
+if ((FAULTS)); then
+  python3 "$HERE/faults.py" --project "$PROJ" \
+    --compose-file "$HERE/compose.yml" --env-file "$HERE/.env.load" \
+    --users-file "$OUT/users.json" --out "$OUT/faults.json" \
+    >"$OUT/faults.log" 2>&1 &
+  FAULTS_PID=$!
+fi
+
 # The driver runs in the background so that a signal to this script runs
 # its trap at once: bash defers traps until a foreground command ends.
 driver_rc=0
@@ -370,5 +401,10 @@ wait $! || driver_rc=$?
 sleep 15
 collect
 python3 "$HERE/analyze.py" "$OUT" --project-prefix "$PROJ"
+if ((FAULTS)); then
+  python3 "$HERE/faultstats.py" "$OUT" >"$OUT/faults.md" ||
+    echo "A fault criterion failed, see $OUT/faults.md" >&2
+  cat "$OUT/faults.md"
+fi
 echo "Run $NAME done: $OUT"
 exit "$driver_rc"

@@ -394,6 +394,33 @@ git push origin --delete loadtest/<topic>
   about 5 minutes of that. With the defaults it takes about 1.5 hours,
   an estimate from the local runs, not yet measured on a runner.
 
+## Fault runs
+
+`run.sh --faults` (fork target only, `--contest` of 2100 s or more) also
+starts `faults.py` on the host, next to the driver. It injects the
+database faults of #39 at fixed times after the contest start, and
+writes their start and end times to `out/<name>/faults.json`:
+
+| Time (s) | Fault |
+|---|---|
+| 120, 180 | F1: `pg_terminate_backend` of every CMS backend (`application_name LIKE 'cms%'`) |
+| 600 | F3: `docker pause` of PostgreSQL for 30 s |
+| 1000 | F4: `cmsSetupDB` while a `psql` session holds `BEGIN; SELECT 1 FROM contests LIMIT 1;` idle |
+| 1080 | F2: an iptables DROP of PostgreSQL's port, both ways, for 90 s, in its network namespace (`sudo nsenter`); 180 s after its end, the runbook's partition step |
+
+After the run, `faultstats.py out/<name>` checks the pass criteria of
+`docs/superpowers/specs/2026-10-08-db-transport-timeouts-design.md` and
+writes `out/<name>/faults.md`: one row per criterion, `pass` or `FAIL`.
+The injector needs passwordless `sudo`, as GitHub runners have. If it
+stops on an error or on SIGTERM (`run.sh` sends it at the end of the
+run), it removes its rules and unpauses PostgreSQL first.
+
+On GitHub Actions, push the commit to a `loadtest/faults-<topic>` branch:
+the `faults` job runs the fork once per profile, smoke-sized, and shows
+`faults.md` in its summary (a `FAIL` does not fail the job). A
+`loadtest/runner-check-<topic>` branch runs only the 5-minute check that
+a runner can use `nsenter`, `iptables` and `docker pause`.
+
 ## Limits
 
 - **One host:** the driver, the database, RWS and every CMS service share
