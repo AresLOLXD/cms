@@ -28,6 +28,7 @@ interact with SQLAlchemy objects.
 
 import logging
 import typing
+from types import TracebackType
 
 import psycopg2
 import sqlalchemy.orm
@@ -36,7 +37,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 
 from cms.conf import config
 from . import engine
-from .connect_options import with_connection_defaults
+from .connect_options import log_rollback_error, with_connection_defaults
 
 
 logger = logging.getLogger(__name__)
@@ -69,9 +70,21 @@ class SessionGen:
         self.session = Session()
         return self.session
 
-    def __exit__(self, unused1, unused2, unused3):
-        self.session.rollback()
-        self.session.close()
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        # A rollback on a lost connection raises; it must neither hide
+        # the block's own error nor skip close() (see log_rollback_error).
+        try:
+            self.session.rollback()
+        except Exception as error:
+            if not log_rollback_error(error, exc_value is not None):
+                raise
+        finally:
+            self.session.close()
 
 
 def custom_psycopg2_connection(**kwargs: dict[str, str]):

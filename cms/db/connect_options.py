@@ -32,12 +32,16 @@ cms.db package imports it before it creates its engines.
 
 """
 
+import logging
 import os
 import sys
 from collections.abc import Sequence
 
 from sqlalchemy.engine.url import URL
 from sqlalchemy.exc import DBAPIError
+
+
+logger = logging.getLogger(__name__)
 
 
 # Libpq keywords, with string values as in a URL query.
@@ -149,3 +153,31 @@ def describe_error(error: BaseException) -> str:
     text = " ".join(line.strip() for line in str(cause).splitlines()
                     if line.strip())
     return text or type(cause).__name__
+
+
+def log_rollback_error(error: Exception, body_failed: bool) -> bool:
+    """Log an error of the rollback that ends a session, if harmless.
+
+    SessionGen and AsyncSessionGen roll back on exit. When their block
+    raised, the block's own error is the one to report, so a rollback
+    error is only logged at DEBUG. When the block succeeded and the
+    rollback finds the connection gone, the server has already
+    discarded the transaction: that is a WARNING. Any other rollback
+    error must propagate, as before.
+
+    error: the error that the rollback raised.
+    body_failed: whether the session's block raised.
+
+    return: True if the error was logged and must not propagate; False
+        if the caller must re-raise it.
+
+    """
+    if body_failed:
+        logger.debug("The rollback after a failed session block failed "
+                     "too: %s", describe_error(error))
+        return True
+    if is_disconnect(error):
+        logger.warning("Lost the database connection before the session's "
+                       "rollback: %s", describe_error(error))
+        return True
+    return False
