@@ -147,6 +147,9 @@ update_scores = function (submission_id, data) {
     }
 };
 
+// Longest wait (ms) between two status polls of a submission.
+var MAX_STATUS_POLL_DELAY_MS = 10000;
+
 schedule_update_scores = function (submission_id) {
     if (typeof(schedule_update_scores.delays) === "undefined") {
         schedule_update_scores.delays = {};
@@ -161,6 +164,9 @@ schedule_update_scores = function (submission_id) {
         schedule_update_scores.delays[submission_id] =
             schedule_update_scores.delays[submission_id]
                 * (1.4 + hash * 0.2);
+        schedule_update_scores.delays[submission_id] = Math.min(
+            schedule_update_scores.delays[submission_id],
+            MAX_STATUS_POLL_DELAY_MS);
     }
     setTimeout(function () {
         $.get(utils.contest_url("tasks", "{{ task.name }}", "submissions", submission_id), function (data) {
