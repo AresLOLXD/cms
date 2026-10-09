@@ -42,9 +42,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 LOCK_MESSAGE = (
     "cmsSetupDB could not lock %s within 5 s: another session is using "
-    "them. Nothing was changed. Find that session with the holder query "
-    "in the contest-day runbook (\"When the database misbehaves\"), wait "
-    "for it to finish or end it, then run the setup again.")
+    "them. That update changed nothing. Find that session with the "
+    "holder query in the contest-day runbook (\"When the database "
+    "misbehaves\"), wait for it to finish or end it, then run the setup "
+    "again.")
 
 
 class TestEnsureFirstAdmin(DatabaseMixin, unittest.TestCase):
@@ -285,7 +286,7 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
         self.assertLess(wait, 8)
 
     def test_apply_fork_sql_changes_nothing_when_it_gives_up(self):
-        # "Nothing was changed" is what the operator is told: the
+        # "That update changed nothing" is what the operator is told: the
         # statement that ran before the blocked one is rolled back too.
         self._hold("SELECT 1 FROM contests LIMIT 1")
         self._apply_fork_sql_timed(

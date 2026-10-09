@@ -156,9 +156,11 @@ def offer_sample_contest() -> bool:
 def setup_db() -> bool:
     """Initialize or update DB schema, create first admin, offer sample contest.
 
-    return: True on success, False if a required step failed; a schema
-        update that could not lock its tables within 5 s is one, and
-        it changed nothing.
+    return: True on success, False if a required step failed. A fork
+        schema update that waited 5 s for one lock is one: that update
+        changed nothing, though an earlier one may already be applied.
+        The 5 s bound is per lock wait, so the setup can wait longer in
+        all.
 
     """
     init_db()  # raises on failure; return value is always True

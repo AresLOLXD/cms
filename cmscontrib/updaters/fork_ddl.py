@@ -20,10 +20,13 @@
 
 An idempotent ALTER TABLE or CREATE INDEX still takes its lock when it
 changes nothing, and while it waits for that lock every later query on
-the table waits behind it: every Contest Web Server freezes. So each
-update gives up after 5 s and changes nothing, and cmsSetupDB tells the
-operator what to do (#39). There is no retry: each try would freeze the
-tables for 5 s again, and running the setup again is safe.
+the table waits behind it: every Contest Web Server freezes. So an
+update gives up once it has waited 5 s for one lock, that update then
+changes nothing, and cmsSetupDB tells the operator what to do (#39).
+The bound is per lock wait: an update that waits for several tables in
+turn can queue CMS for up to 5 s behind each of them (with two holders,
+an update gave up after 9 s). There is no retry: each try would freeze
+the tables again, and running the setup again is safe.
 
 """
 
@@ -33,7 +36,7 @@ from cms.db import custom_psycopg2_connection
 
 
 class SchemaLockTimeout(Exception):
-    """A fork schema update could not lock its tables within 5 s."""
+    """A fork schema update waited 5 s for a lock on one of its tables."""
 
     def __init__(self, tables: str) -> None:
         """Create the error, with the message cmsSetupDB prints.
@@ -44,10 +47,10 @@ class SchemaLockTimeout(Exception):
         """
         super().__init__(
             "cmsSetupDB could not lock %s within 5 s: another session is "
-            "using them. Nothing was changed. Find that session with the "
-            "holder query in the contest-day runbook (\"When the database "
-            "misbehaves\"), wait for it to finish or end it, then run the "
-            "setup again." % tables)
+            "using them. That update changed nothing. Find that session "
+            "with the holder query in the contest-day runbook (\"When the "
+            "database misbehaves\"), wait for it to finish or end it, then "
+            "run the setup again." % tables)
         self.tables = tables
 
 
@@ -57,8 +60,10 @@ def apply_fork_sql(sql: str, tables: str) -> None:
     sql: the update's statements.
     tables: the tables they lock, for the message of SchemaLockTimeout.
 
-    raise (SchemaLockTimeout): if a lock was not granted within 5 s;
-        the transaction is rolled back, so nothing is changed.
+    raise (SchemaLockTimeout): if one lock was not granted within
+        5 s (each wait has its own 5 s, so the whole update can take
+        longer); the transaction is rolled back, so this update
+        changes nothing.
 
     """
     conn = custom_psycopg2_connection()
