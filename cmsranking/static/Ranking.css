@@ -458,7 +458,7 @@ abbr {
 /* Long usernames have no spaces, so let them break anywhere instead of
    overflowing into the neighbouring cells. */
 #Scoreboard_body tr td.user_id {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
 #Scoreboard_head tr th.sel {
