@@ -106,13 +106,15 @@ participación no tiene contraseña propia.</p>
   <p><label for="import_file">Archivo CSV *</label>
     <input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
   {# The header chosen for the password is not echoed back: in a file without
-     a header row it would be a contestant's password. #}
+     a header row it would be a contestant's password. Only a flag is: on the
+     contest page, a password left unassigned stays so (the global page needs
+     it, so it is guessed again there). #}
   {% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)" if contest else "Contraseña (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
   <table{% if mapping %} data-has-mapping="1"{% endif %}>
     {% for field in fields %}
     <tr>
       <td><label for="map_{{ field }}">{{ labels[field] }}{% if field in required %} *{% endif %}</label></td>
-      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"><option value="">(sin asignar)</option></select></td>
+      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"{% if field == "password" and contest and mapping and not mapping.get("password") %} data-unassigned="1"{% endif %}><option value="">(sin asignar)</option></select></td>
       {% if field == "password" and contest %}<td class="import-note">Sin asignar: las participaciones nuevas entran con la contraseña de su cuenta y las existentes conservan la suya. Los usuarios deben existir.</td>{% endif %}
       {% if field == "team" %}<td rowspan="2" class="import-note">Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal.</td>{% endif %}
     </tr>
@@ -161,8 +163,10 @@ participación no tiene contraseña propia.</p>
                     var chosen = select.getAttribute("data-selected");
                     // The page never echoes the column chosen for the
                     // password (in a file without a header row it would
-                    // be a real password), so that select is always guessed.
-                    var keepChoice = hasMapping && field !== "password";
+                    // be a real password), so that select is guessed again,
+                    // unless it was left unassigned: the page says so with
+                    // a flag, and keeping "(sin asignar)" needs no header.
+                    var keepChoice = hasMapping && (field !== "password" || select.hasAttribute("data-unassigned"));
                     var aliases = ALIASES[field].map(norm);
                     select.length = 1;
                     headers.forEach(function (h) {

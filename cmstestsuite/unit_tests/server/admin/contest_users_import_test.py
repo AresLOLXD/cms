@@ -1045,6 +1045,48 @@ class TestImportTemplates(unittest.TestCase):
                   r'data-selected="" id="map_password">')
         self.assertIn('data-selected="usuario"', html)
 
+    def password_select(self, html: str) -> str:
+        """Return the password select of a rendered page, tag included."""
+        match = re.search(r'<select name="map_password".*?</select>', html,
+                          re.DOTALL)
+        self.assertIsNotNone(match)
+        return match.group(0)
+
+    def test_an_unassigned_password_is_marked_on_the_contest_page(self):
+        # Only a boolean reaches the page: the choice itself is "(sin
+        # asignar)", so there is no header to echo.
+        html = self.render_import(mapping={
+            "username": "usuario", "password": ""})
+
+        self.assertIn('data-unassigned="1"', self.password_select(html))
+        self.assertEqual(html.count('data-unassigned="1"'), 1)
+
+    def test_an_assigned_password_is_not_marked_nor_echoed(self):
+        html = self.render_import(mapping={
+            "username": "usuario", "password": "contraseña"})
+
+        self.assertNotIn('data-unassigned="1"', html)
+        self.assertNotIn("contraseña", self.password_select(html))
+
+    def test_the_first_visit_does_not_mark_the_password(self):
+        # Nothing was submitted yet, so the aliases guess the column.
+        self.assertNotIn('data-unassigned="1"', self.render_import())
+
+    def test_the_global_page_never_marks_the_password(self):
+        # There the password is required, and guessing it again helps.
+        html = self.render_import(
+            contest=None, fields=USER_FIELDS, required=USER_REQUIRED,
+            mapping={"username": "usuario", "password": ""})
+
+        self.assertIn('name="map_password"', html)
+        self.assertNotIn('data-unassigned="1"', html)
+
+    def test_the_script_keeps_the_password_only_if_it_was_unassigned(self):
+        html = self.render_import()
+
+        self.assertIn('var keepChoice = hasMapping && (field !== "password" '
+                      '|| select.hasAttribute("data-unassigned"));', html)
+
     def test_the_summary_of_a_validation_is_shown(self):
         html = self.render_import(summary=make_plan().summary())
 
@@ -1245,6 +1287,22 @@ class TestTheContestPasswordIsOptional(unittest.TestCase):
         self.assertIn("las participaciones nuevas entran con la contraseña "
                       "de su cuenta", html)
         self.assertNotIn("(password) *", html)
+
+    def test_the_page_after_an_error_keeps_the_password_unassigned(self):
+        handler = make_handler(form=import_form(
+            "import", {**MAPPING, "username": "", "password": ""}))
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            handler._post_sync(str(CONTEST_ID))
+
+        params = rendered_params(handler)
+        self.assertTrue(params["errors"])
+        jobs.start.assert_not_called()
+        template = AWS_ENVIRONMENT.get_template("contest_users_import.html")
+        html = "".join(template.blocks["core"](
+            template.new_context(dict(params))))
+        self.assertRegex(
+            html, r'<select name="map_password"[^>]*data-unassigned="1"')
+        self.assertNotIn(PASSWORD, html)
 
 
 class TestGlobalImportPage(unittest.TestCase):
