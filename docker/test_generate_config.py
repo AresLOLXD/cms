@@ -248,6 +248,12 @@ def test_ranking_toml_custom(monkeypatch):
     assert "http_port = 9090" in toml
 
 
+def test_ranking_toml_always_shows_the_username_column(monkeypatch):
+    _set(monkeypatch)
+    toml = gc.generate_cms_ranking_toml()
+    assert tomllib.loads(toml)["public"]["show_id_column"] is True
+
+
 def test_supervisord_single_cws_worker(monkeypatch):
     _set(monkeypatch)
     conf = gc.generate_supervisord_conf()

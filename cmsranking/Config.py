@@ -39,7 +39,7 @@ def default_path(name):
 
 @dataclass
 class PublicConfig:
-    show_id_column: bool = False
+    show_id_column: bool = True
 
 
 @dataclass
