@@ -28,13 +28,26 @@ td.import-note {
 }
 </style>
 <div class="core_title">
-  <h1>Importar CSV &mdash; {{ contest.name }}</h1>
+  <h1>Importar CSV &mdash; {{ contest.name if contest else "Usuarios" }}</h1>
 </div>
 
+{% if contest %}
 <p>Un renglón por concursante: crea los usuarios que falten y registra su
-participación en este concurso con la contraseña del día. Si el usuario o
-la participación ya existen, se actualizan. Si hay cualquier error, no se
+participación en este concurso con la contraseña del día. Sin columna de
+contraseña, solo inscribe usuarios que ya existen y las participaciones
+nuevas entran con la contraseña de su cuenta. Si el usuario o la
+participación ya existen, se actualizan. Si hay cualquier error, no se
 guarda nada.</p>
+{% else %}
+<p>Un renglón por usuario: crea las cuentas que falten con su contraseña y
+actualiza el nombre, el apellido y la contraseña de las que ya existen. No
+registra a nadie en ningún concurso. Si hay cualquier error, no se guarda
+nada.</p>
+<p>La contraseña de la cuenta solo se usa en los concursos donde la
+participación no tiene contraseña propia.</p>
+{% endif %}
+{% set import_url = url("contest", contest.id, "users", "import") if contest else url("users", "import") %}
+{% set users_url = url("contest", contest.id, "users") if contest else url("users") %}
 
 {% if errors %}
 <div class="import-box import-error">
@@ -60,11 +73,13 @@ guarda nada.</p>
   <ul>
     <li>Usuarios nuevos: {{ summary.usuarios_nuevos }}</li>
     <li>Usuarios actualizados: {{ summary.usuarios_actualizados }}</li>
+    {% if summary.participaciones_nuevas is defined %}
     <li>Participaciones nuevas: {{ summary.participaciones_nuevas }}</li>
     <li>Participaciones actualizadas: {{ summary.participaciones_actualizadas }}</li>
+    {% endif %}
   </ul>
 </div>
-{% if summary.equipos_quitados or summary.movidas_al_grupo_principal %}
+{% if summary.equipos_quitados is defined and (summary.equipos_quitados or summary.movidas_al_grupo_principal) %}
 <div class="import-box import-warning">
   {% if summary.equipos_quitados %}<p>{{ count_of(summary.equipos_quitados, "participación perderá su equipo", "participaciones perderán su equipo") }}</p>{% endif %}
   {% if summary.movidas_al_grupo_principal %}<p>{{ count_of(summary.movidas_al_grupo_principal, "participación pasará al grupo principal", "participaciones pasarán al grupo principal") }}</p>{% endif %}
@@ -73,16 +88,16 @@ guarda nada.</p>
 {% endif %}
 
 {% if job %}
-<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") }}"
-     data-users-url="{{ url("contest", contest.id, "users") }}"
-     data-import-url="{{ url("contest", contest.id, "users", "import") }}">
+<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") if contest else url("users", "import", job.id, "status") }}"
+     data-users-url="{{ users_url }}"
+     data-import-url="{{ import_url }}">
   <p id="import_text" aria-live="polite">Procesando {{ job.processed }} de {{ job.total }}</p>
   <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" aria-label="Progreso de la importación" style="width: 100%"></progress>
   <div id="import_result" aria-live="polite"></div>
 </div>
 {% else %}
 <form enctype="multipart/form-data" method="POST" id="import_form"
-      action="{{ url("contest", contest.id, "users", "import") }}">
+      action="{{ import_url }}">
   {{ xsrf_form_html|safe }}
   {% if mapping %}
   <p>Vuelve a elegir el archivo para importarlo. Se conservan las columnas asignadas, salvo la de la contraseña: revísala.</p>
@@ -92,12 +107,13 @@ guarda nada.</p>
     <input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
   {# The header chosen for the password is not echoed back: in a file without
      a header row it would be a contestant's password. #}
-  {% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
+  {% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)" if contest else "Contraseña (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
   <table{% if mapping %} data-has-mapping="1"{% endif %}>
     {% for field in fields %}
     <tr>
-      <td><label for="map_{{ field }}">{{ labels[field] }}{% if field in ("username", "first_name", "last_name", "password") %} *{% endif %}</label></td>
+      <td><label for="map_{{ field }}">{{ labels[field] }}{% if field in required %} *{% endif %}</label></td>
       <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"><option value="">(sin asignar)</option></select></td>
+      {% if field == "password" and contest %}<td class="import-note">Sin asignar: las participaciones nuevas entran con la contraseña de su cuenta y las existentes conservan la suya. Los usuarios deben existir.</td>{% endif %}
       {% if field == "team" %}<td rowspan="2" class="import-note">Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal.</td>{% endif %}
     </tr>
     {% endfor %}
@@ -247,11 +263,14 @@ guarda nada.</p>
                     var strong = document.createElement("strong");
                     strong.textContent = "Listo.";
                     lead.appendChild(strong);
-                    lead.appendChild(document.createTextNode(
-                        " Usuarios nuevos: " + s.summary.usuarios_nuevos +
-                        ", actualizados: " + s.summary.usuarios_actualizados +
-                        ". Participaciones nuevas: " + s.summary.participaciones_nuevas +
-                        ", actualizadas: " + s.summary.participaciones_actualizadas + "."));
+                    var counts = " Usuarios nuevos: " + s.summary.usuarios_nuevos +
+                        ", actualizados: " + s.summary.usuarios_actualizados + ".";
+                    // The global import of users has no participations.
+                    if (s.summary.participaciones_nuevas !== undefined) {
+                        counts += " Participaciones nuevas: " + s.summary.participaciones_nuevas +
+                            ", actualizadas: " + s.summary.participaciones_actualizadas + ".";
+                    }
+                    lead.appendChild(document.createTextNode(counts));
                     out.appendChild(lead);
                     // The import is over, so what it cleared is told in the past.
                     var losses = document.createElement("div");

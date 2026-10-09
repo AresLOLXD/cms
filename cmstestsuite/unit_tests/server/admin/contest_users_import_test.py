@@ -34,8 +34,8 @@ from unittest import mock
 
 import tornado.web
 
-from cms.server.admin.bulkimport import FIELDS, MAX_BYTES, ImportPlan, \
-    read_rows
+from cms.server.admin.bulkimport import FIELDS, MAX_BYTES, REQUIRED, \
+    ImportPlan, read_rows
 from cms.server.admin.handlers.contestuser import ImportJobStatusHandler, \
     ImportUsersHandler
 from cms.server.admin.handlers import HANDLERS
@@ -560,6 +560,26 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
             self.assertIn('data-selected="ana"', html)
             self.assertNotIn(PASSWORD, html)
 
+    def test_a_field_on_the_password_header_does_not_echo_it(self):
+        # A file without a header row, with the team mapped to the
+        # password's "header": read_rows refuses it, and the page shown
+        # again must not carry the header in the team's select either.
+        headerless = ("ana,Ana,Pérez,%s\nbob,Bob,Ruiz,pw2\n"
+                      % PASSWORD).encode("utf-8")
+        mapping = {"username": "ana", "first_name": "Ana",
+                   "last_name": "Pérez", "password": PASSWORD,
+                   "team": PASSWORD}
+        handler = make_handler(data=headerless,
+                               form=import_form("validate", mapping))
+        handler._post_sync(str(CONTEST_ID))
+
+        html = self.render_last_page(handler)
+
+        self.assertIn("la columna de la contraseña está asignada a más de "
+                      "un campo", html)
+        self.assertIn('data-selected="ana"', html)
+        self.assertNotIn(PASSWORD, html)
+
 
 class TestLossesReachThePage(unittest.TestCase):
     """The counts of plan_import are what the warnings of the page show."""
@@ -730,6 +750,7 @@ class TestImportTemplates(unittest.TestCase):
         params.setdefault("contest", SimpleNamespace(id=CONTEST_ID,
                                                      name="Día 1"))
         params.setdefault("fields", FIELDS)
+        params.setdefault("required", REQUIRED)
         params.setdefault("mapping", {})
         params.setdefault("errors", [])
         params.setdefault("summary", None)
@@ -839,7 +860,7 @@ class TestImportTemplates(unittest.TestCase):
             "map_username": "Usuario (username) *",
             "map_first_name": "Nombre (first_name) *",
             "map_last_name": "Apellidos (last_name) *",
-            "map_password": "Contraseña del día (password) *",
+            "map_password": "Contraseña del día (password)",
             "map_team": "Equipo (team)",
             "map_group": "Grupo (group)"}
         for control, text in labels.items():
@@ -1062,6 +1083,18 @@ class TestImportTemplates(unittest.TestCase):
         self.assertNotIn("pasará", html)
         self.assertNotIn('class="import-box import-warning"', html)
 
+    def test_a_summary_of_users_only_shows_neither_participations_nor_losses(
+            self):
+        # The summary of the global import has just the two user counts,
+        # and the page renders with StrictUndefined.
+        html = self.render_import(summary={"usuarios_nuevos": 1,
+                                           "usuarios_actualizados": 2})
+
+        self.assertIn("Usuarios nuevos: 1", html)
+        self.assertIn("Usuarios actualizados: 2", html)
+        self.assertNotIn("<li>Participaciones", html)
+        self.assertNotIn('class="import-box import-warning"', html)
+
     def test_the_form_warns_that_empty_team_and_group_cells_replace(self):
         note = ("Vacío o sin asignar: la participación se queda sin equipo "
                 "/ en el grupo principal.")
@@ -1173,6 +1206,35 @@ class TestImportTemplates(unittest.TestCase):
             unassigned_users=[],
             admin=SimpleNamespace(permission_all=False))
         self.assertNotIn("Importar CSV", html)
+
+
+class TestTheContestPasswordIsOptional(unittest.TestCase):
+
+    def test_the_handler_passes_the_required_fields(self):
+        handler = make_handler(form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])):
+            handler._post_sync(str(CONTEST_ID))
+
+        self.assertEqual(rendered_params(handler)["required"], REQUIRED)
+
+    def test_without_a_password_column_the_rows_carry_none(self):
+        handler = make_handler(form=import_form(
+            "validate", {**MAPPING, "password": ""}))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])) as plan_import:
+            handler._post_sync(str(CONTEST_ID))
+
+        rows = plan_import.call_args.args[2]
+        self.assertEqual([row.password for row in rows], [None])
+        self.assertEqual(rendered_params(handler)["errors"], [])
+
+    def test_the_page_explains_an_unassigned_password(self):
+        html = TestImportTemplates().render_import()
+
+        self.assertIn("las participaciones nuevas entran con la contraseña "
+                      "de su cuenta", html)
+        self.assertNotIn("(password) *", html)
 
 
 if __name__ == "__main__":
