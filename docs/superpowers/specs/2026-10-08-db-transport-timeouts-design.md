@@ -43,8 +43,9 @@ No CMS database connection has a timeout. `cms/db/__init__.py:90` and `cms/db/as
    - scores within about 6 minutes (the SS and PS sweepers run every 347 s).
 
    **One case this stage cannot heal:** a symmetric network partition. There, a server backend whose client gave up can keep its transaction and locks until the server's own keepalive fires, about 2 h 11 min with the defaults. The runbook covers it (section 6), and Open Points name the host setting that bounds it.
-3. **Bounded deploy locks.** The fork's schema updaters, which `cmsSetupDB` runs (production's `db-init`), never queue CMS behind their locks for more than 5 s.
-   - If an updater cannot get its lock in time, it fails visibly and changes nothing.
+3. **Bounded deploy locks.** The fork's schema updaters, which `cmsSetupDB` runs (production's `db-init`), never queue CMS behind one of their lock waits for more than 5 s.
+   - The bound is per lock wait, not per update or per run: an updater that waits for several tables in turn can queue CMS for up to 5 s behind each of them (measured: an updater gave up after 9 s with two holders).
+   - If an updater cannot get a lock in time, it fails visibly, and that update changes nothing. An earlier update of the same run may already be applied.
    - `init_db()` itself is not bounded in this stage.
 4. **No change on a healthy database.** Apart from the deploy's DDL bound (Goal 3), nothing in this stage fires against a PostgreSQL that answers, however busy it is. The server's kernel answers keepalives even while PostgreSQL is saturated, and the connect deadline applies only while connecting. Queries, lock waits and long transactions behave exactly as today.
 
@@ -156,11 +157,12 @@ The updaters are `cmscontrib/updaters/fork_multi_contest.py` and `fork_activity_
 - **Each one runs its own `cursor.execute("SET LOCAL lock_timeout = '5s'")`** in the same transaction, before its update SQL.
   - It is not part of the `FORK_*_SQL` constants, which `schema_diff_test.py:156-160` and `rankinggroup_visibility_test.py:59-94` run directly.
   - Both updaters take locks even when there is nothing to change. `fork_multi_contest` takes ACCESS EXCLUSIVE on `contests`. `fork_activity_intervals` takes a SHARE lock on `activity_intervals` through its `CREATE INDEX IF NOT EXISTS`, and that conflicts with the activity recorder's writes.
-- **When a lock cannot be had in time** (SQLSTATE 55P03), the updater's transaction rolls back and nothing is changed.
+- **When a lock cannot be had in time** (SQLSTATE 55P03), the updater's transaction rolls back, so that update changes nothing. An earlier update of the same run stays applied.
+- **The bound is per lock wait.** `lock_timeout` limits each wait for a lock, not the statement or the transaction: an updater whose statements wait for several tables in turn can take up to 5 s per table (9 s measured with two holders).
 - **`cmsSetupDB` catches the error and exits with status 1, without a traceback.** Today `scripts/cmsSetupDB` catches only `ConfigError`. It prints exactly:
 
   ```
-  cmsSetupDB could not lock <tables> within 5 s: another session is using them. Nothing was changed. Find that session with the holder query in the contest-day runbook ("When the database misbehaves"), wait for it to finish or end it, then run the setup again.
+  cmsSetupDB could not lock <tables> within 5 s: another session is using them. That update changed nothing. Find that session with the holder query in the contest-day runbook ("When the database misbehaves"), wait for it to finish or end it, then run the setup again.
   ```
 
   PostgreSQL's lock-timeout error names no table (measured on 16.15: `diag.table_name` is None), so each updater supplies `<tables>` itself:
@@ -274,13 +276,13 @@ All of this goes in `docs/contest-day.md` and its Spanish `.po`. In the `.po`, q
 - It does not switch off the DDL bound.
 
 **Under "Do not rebuild or update the deployment on the day":**
-- an emergency deploy may now fail at `db-init` with the lock message. Nothing is changed. Whether the running version keeps serving meanwhile depends on how Compose orders `db-init`: the runbook states V1's result;
+- an emergency deploy may now fail at `db-init` with the lock message. That update changes nothing. Whether the running version keeps serving meanwhile depends on how Compose orders `db-init`: the runbook states V1's result;
 - do not deploy while `./export.sh` or a CLI tool is running;
 - start any SQL you apply by hand with `SET lock_timeout = '5s';`.
 
 **After a deploy of this stage:**
 - one command, run inside the running `cms` container, prints `getsockopt(TCP_USER_TIMEOUT)` and `SHOW application_name` for a fresh connection. It runs as `python3 -c`, so the name it shows is `-c`; any non-empty name shows the default arrived;
-- then search `./logs.sh` for `timeout expired|closed the connection|Lost the database`. It must find nothing.
+- then search `./logs.sh` for `timeout expired|closed the connection|Lost the database|Connection timed out|could not receive data from server`. It must find nothing.
 
 ## Testing
 
@@ -371,7 +373,7 @@ These run in the CI suite inside the production image, on ubuntu:noble and debia
 **No-fault regression runs:**
 - **Setup:** the contest-shaped `full` profile, 4 repeats, compared per CPU model with a beta baseline run **in the same batch**.
 - **Pass:**
-  - zero transport errors in the CMS logs (`timeout expired`, `timed out`, `closed the connection`);
+  - zero transport errors in the CMS logs (`timeout expired`, `Connection timed out`, `closed the connection`);
   - every submission ends in a final state;
   - scored p95, CWS p99, flush p95 and drain time within the run-to-run spread.
 

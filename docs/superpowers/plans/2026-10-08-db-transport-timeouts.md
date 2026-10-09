@@ -145,7 +145,7 @@ GitHub Actions.
 | F2 | two-way DROP for 90 s; partition step 3 minutes after the drop ends; each database call fails within 75 s of its own start; then pages within 1 minute, ES commits within about 2 minutes, scores within about 6 minutes |
 | F3 | `docker pause` of PostgreSQL for 30 s; new connections fail with `timeout expired` at about 10 s |
 | F4 | `cmsSetupDB` exits 1 within 15 s with the message; CWS p99 ≤ 6 s from the start of `cmsSetupDB` to 5 s after it exits |
-| No-fault | zero `timeout expired`, `timed out`, `closed the connection` in the CMS logs; every submission final; scored p95, CWS p99, flush p95 and drain time within the run-to-run spread of a beta baseline of the same batch |
+| No-fault | zero `timeout expired`, `Connection timed out`, `closed the connection` in the CMS logs; every submission final; scored p95, CWS p99, flush p95 and drain time within the run-to-run spread of a beta baseline of the same batch |
 
 The plan turns "about 2 minutes" into 150 s and "about 6 minutes" into
 420 s (the sweeper periods, 117 s and 347 s, plus the work), and "about
@@ -4545,7 +4545,9 @@ record() {
   poller=$!
   C ps -q cms >"$V1/cms-before-$label.txt"
   set +e
-  C up -d --wait --wait-timeout 90 --no-build
+  # What ./up.sh shows the operator: the runbook says that it does not
+  # print db-init's lock message (./logs.sh db-init does).
+  C up -d --wait --wait-timeout 90 --no-build >"$V1/up-output-$label.txt" 2>&1
   echo "exit $?" >"$V1/up-$label.txt"
   set -e
   sleep 5
@@ -4590,6 +4592,7 @@ for label in ("a", "b"):
     polls = [line.split() for line in open(os.path.join(v1, "aws-%s.log" % label))]
     bad = [poll for poll in polls if len(poll) < 2 or poll[1] != "200"]
     print("  AWS polls:", len(polls), "not 200:", len(bad), bad[:3])
+    print("  up printed:", read("up-output-%s.txt" % label)[-600:])
 print(read("db-init-b.log")[-600:])
 EOF
 ```
@@ -4604,6 +4607,11 @@ EOF
       before db-init starts, and the AWS polls fail while db-init runs
       (in deploy b, no `cms` runs after the failed `up`).
     - Anything else: stop and report the records to the user.
+    - In either case, note what `up` printed in deploy b
+      (`up-output-b.txt`, which is what `./up.sh` shows). If it holds
+      `cmsSetupDB could not lock`, report it: the runbook says that
+      `./up.sh` does not print the message and that `./logs.sh db-init`
+      shows it, and that sentence must then change.
   - Replace the provisional sentence of `docs/contest-day.md` (Task 7
     Step 1), `Check with ./status.sh whether the running version still serves.`
     (with its code span), by the case's sentence, and its `msgstr`
@@ -4624,6 +4632,31 @@ EOF
     the `Co-Authored-By` trailer).
   - Clean up: `sg docker -c "docker --context default compose -f /home/areslolxd/.claude/jobs/4c257a1a/tmp/db39-v1/docker/docker-compose.prod.yml --env-file /home/areslolxd/.claude/jobs/4c257a1a/tmp/db39-v1/.env -p v1order --profile localdb down -v --remove-orphans"`
     and `sg docker -c "docker --context default image rm v1order-cms:latest v1order-db-init:latest v1order-ranking:latest"`.
+  - **F4b: `cmsSetupDB` under load, with no holder (local rootful
+    Docker, the image built above).** It shows that the 5 s bound does
+    not fire on a busy, healthy database (Goal 4).
+    - Start a smoke-sized run (it leaves the stack up). Remove an
+      earlier `out/db39-f4b` first: `run.sh` keeps the directory, and
+      its old `users.json` would start the step below at once.
+      `rm -rf /var/home/areslolxd/Documentos/cms/.worktrees/db-timeouts/cmstestsuite/loadtest/out/db39-f4b && /var/home/areslolxd/Documentos/cms/.worktrees/db-timeouts/cmstestsuite/loadtest/run.sh --target fork --profile portable --name db39-f4b --users-a 14 --users-b 6 --login-window 60 --contest 480 --end-burst 120 --rate 10`
+    - From a second shell, during its end burst (60 s before the
+      contest's end), run `cmsSetupDB` in the `cms` container and record
+      its exit status, its duration and its output:
+
+```bash
+OUT=/var/home/areslolxd/Documentos/cms/.worktrees/db-timeouts/cmstestsuite/loadtest/out/db39-f4b
+LT=/var/home/areslolxd/Documentos/cms/.worktrees/db-timeouts/cmstestsuite/loadtest
+until [[ -s $OUT/users.json ]]; do sleep 5; done
+start=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["start"])' "$OUT/users.json")
+sleep "$(python3 -c "import time; print(max(0, $start + 420 - time.time()))")"
+began=$(date +%s.%N)
+sg docker -c "docker --context default compose -p cmsload-fork -f $LT/compose.yml --env-file $LT/.env.load exec -T cms cmsSetupDB" >"$OUT/f4b.log" 2>&1
+echo "exit $? after $(python3 -c "import time; print(round(time.time() - $began, 1))") s" | tee -a "$OUT/f4b.log"
+```
+
+    - Pass: exit 0, and `f4b.log` has no `could not lock`. Keep the
+      duration for the report.
+    - Then: `/var/home/areslolxd/Documentos/cms/.worktrees/db-timeouts/cmstestsuite/loadtest/teardown.sh fork`.
 
 - [ ] **V2: The fault runs F1-F4 (GitHub Actions, both profiles).**
   - Run: `git push origin HEAD:refs/heads/loadtest/faults-db39`, find the
@@ -4683,7 +4716,10 @@ python3 - /var/home/areslolxd/Documentos/cms/.superpowers/loadtest-db39-regress 
 submissions and transport errors of every full run (#39 V3)."""
 import collections, datetime, glob, json, os, re, statistics, sys
 
-TRANSPORT = re.compile(r"timeout expired|timed out|closed the connection")
+# "Connection timed out", not a bare "timed out", which would also match
+# the sandbox's "Execution timed out" and "Compilation timed out".
+TRANSPORT = re.compile(
+    r"timeout expired|Connection timed out|closed the connection")
 
 
 def log_time(line):

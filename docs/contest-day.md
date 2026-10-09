@@ -78,7 +78,8 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
   - The deploy can stop at `db-init` with
     `cmsSetupDB could not lock … within 5 s`: another session is using a
     table that the update changes, and that update changes nothing (an
-    earlier update of the same run may already be applied). Check with
+    earlier update of the same run may already be applied). `./up.sh`
+    does not print that message: `./logs.sh db-init` shows it. Check with
     `./status.sh` whether the running version still serves. Find that
     session with the holder query (see "When the database misbehaves"),
     wait for it to finish or end it, then run `./up.sh` again.
@@ -175,7 +176,7 @@ text that follows it.
 
    ```bash
    docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
-       exec -T cms bash -c 'pg_isready -t 3 -d "${CMS_DB_URL/+psycopg2/}"'
+       exec -T cms bash -c 'timeout 5 pg_isready -t 3 -d "${CMS_DB_URL/+psycopg2/}"'
    ```
 
    Without `-d`, `pg_isready` checks the container's own socket instead.
@@ -186,12 +187,17 @@ text that follows it.
    `Is the connection string in cms.toml correct?`.
 4. Once PostgreSQL answers, CMS recovers by itself: pages within a
    minute, grading within about 2 minutes and scores within about 6
-   minutes. Then run `./status.sh`: every program must be `RUNNING`.
+   minutes. Then run `./status.sh`: every program must be `RUNNING`. If
+   one is not, restart it with the `supervisorctl` command of "A worker
+   shows Connected: No" (above), with the program's name from
+   `./status.sh` instead of `cmsworker<shard>`.
 5. If grading or scoring has not resumed 3 minutes after PostgreSQL
    answers, run the holder query (below) and end every session whose
-   `state` is `idle in transaction` and whose `open_for` is longer than
-   the time since the outage began. After a network cut, PostgreSQL can
-   keep such a transaction, and its locks, for about 2 hours.
+   `open_for` is longer than the time since the outage began and whose
+   `state` is `idle in transaction`, or `active` with `wait_event_type`
+   `Client` (it waits for a client that is gone). After a network cut,
+   PostgreSQL can keep such a transaction, and its locks, for about 2
+   hours.
 6. Do not press **Regenerate** while database errors continue: a failed
    regenerate can leave a scoreboard empty until it is pressed again.
 
@@ -247,7 +253,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
 It must print `TCP_USER_TIMEOUT 60000` (or the value that `CMS_DB_URL`
 sets) and a non-empty `application_name`: here `-c`, the name of a
 `python3 -c` program. Then
-`./logs.sh --tail 2000 cms | grep -E 'timeout expired|closed the connection|Lost the database'`
+`./logs.sh --tail 2000 cms | grep -E 'timeout expired|closed the connection|Lost the database|Connection timed out|could not receive data from server'`
 must print nothing.
 
 ## At the end
@@ -315,5 +321,5 @@ must print nothing.
 | ProxyService logs "accepted the visibility of group" | **Regenerate** on that group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | Pages show an error after about 10 seconds, and the logs say `timeout expired` | A new database connection got no answer: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out`, `Lost the database connection before the session's rollback` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
-| A deploy stops at `db-init` with `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, wait for it to finish or end it, then run `./up.sh` again | "When the database misbehaves" (above) |
+| A deploy stops at `db-init`, and `./logs.sh db-init` shows `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, wait for it to finish or end it, then run `./up.sh` again | "When the database misbehaves" (above) |
 | The logs say `Finalized result … (a write was cut)` | Nothing: the Evaluation Service completed a result whose outcome write was cut. If it repeats for many results, follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
