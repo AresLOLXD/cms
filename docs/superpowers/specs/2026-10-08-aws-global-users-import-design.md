@@ -130,10 +130,12 @@ it is left "(sin asignar)":
 - Names, team and group behave as today.
 
 The selector keeps the label "Contraseña del día (password)" and loses the
-`*`. When the page is shown again after an error, the password selector is
-guessed again from the headers, as today, so an admin who left it
-unassigned must unassign it again; the existing notice ("revísala") already
-says so.
+`*`. Each time the file is chosen again (after "Solo validar" or an error),
+a password left "(sin asignar)" stays unassigned; a mapped one is guessed
+again from the headers, as before, since the page never echoes the header
+chosen for the password. Only a boolean (`data-unassigned`) reaches the
+page. (Amended during execution, Ruling 9: re-guessing an unassigned
+password silently gave the participations the file's passwords.)
 
 **Resulting workflow:** import the accounts once on Users with their
 password; then, in each contest, import the same CSV with the password left
