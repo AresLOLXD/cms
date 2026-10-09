@@ -48,8 +48,8 @@ from sqlalchemy import select
 
 from cms.db import ActivityInterval, Contest, Group, Message, Participation, \
     Submission, User, Team
-from cms.server.admin.bulkimport import FIELDS, REQUIRED, plan_import, \
-    read_rows
+from cms.server.admin.bulkimport import FIELDS, REQUIRED, USER_FIELDS, \
+    USER_REQUIRED, plan_import, plan_user_import, read_rows
 from cms.server.admin.importjobs import IMPORT_JOBS, ImportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
@@ -550,5 +550,55 @@ class ImportJobStatusHandler(BaseHandler):
     async def get(self, contest_id: str, job_id: str) -> None:
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
         if job is None or str(job.contest_id) != contest_id:
+            raise tornado.web.HTTPError(404)
+        _write_job_status(self, job)
+
+
+class ImportGlobalUsersHandler(ImportPageHandler):
+    """Bulk import of user accounts, with their password (CSV).
+
+    It registers nobody in any contest; see ImportUsersHandler for that.
+
+    """
+    fields = USER_FIELDS
+    required = USER_REQUIRED
+    running_notice = ("Hay una importación de usuarios en curso; espera a "
+                      "que termine.")
+    repeated_notice = ("Ya tenías una importación de usuarios en curso; "
+                       "este es su progreso. El archivo que acabas de "
+                       "enviar no se importó.")
+
+    def _plan(self, rows: list) -> tuple[object | None, list[str]]:
+        return plan_user_import(self.sql_session, rows)
+
+    def _import_url(self) -> str:
+        return self.url("users", "import")
+
+    def _get_sync(self) -> None:
+        self.contest = None
+        self._show_page()
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync)
+
+    def _post_sync(self) -> None:
+        self.contest = None
+        self._upload()
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+
+class GlobalImportJobStatusHandler(BaseHandler):
+    """The progress of a global users import job, as JSON, for its owner."""
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, job_id: str) -> None:
+        job = IMPORT_JOBS.get(job_id, self.current_user.id)
+        if job is None or job.contest_id is not None:
             raise tornado.web.HTTPError(404)
         _write_job_status(self, job)

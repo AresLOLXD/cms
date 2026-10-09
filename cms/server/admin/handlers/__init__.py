@@ -60,7 +60,9 @@ from .contestuser import \
     ParticipationHandler, \
     MessageHandler, \
     ImportUsersHandler, \
-    ImportJobStatusHandler
+    ImportJobStatusHandler, \
+    ImportGlobalUsersHandler, \
+    GlobalImportJobStatusHandler
 from .bulkremove import \
     BulkRemoveParticipationsHandler, \
     BulkRemoveUsersHandler
@@ -228,6 +230,8 @@ HANDLERS = [
     (r"/users", UserListHandler),
     (r"/users/([0-9]+)/remove", RemoveUserHandler),
     (r"/users/remove", BulkRemoveUsersHandler),
+    (r"/users/import", ImportGlobalUsersHandler),
+    (r"/users/import/([A-Za-z0-9_-]+)/status", GlobalImportJobStatusHandler),
     (r"/teams", TeamListHandler),
     (r"/teams/([0-9]+)/remove", RemoveTeamHandler),
     (r"/users/add", AddUserHandler),
