@@ -72,7 +72,8 @@ class FaultStatsTest(unittest.TestCase):
              "terminated": 8},
             {"fault": "F3", "start": START + 600, "end": START + 630,
              "probe": {"elapsed_s": 10.1, "outcome": "error",
-                       "error": "OperationalError: timeout expired"}},
+                       "error": "OperationalError: timeout expired",
+                       "connect_started_at": START + 603}},
             {"fault": "F4", "start": START + 1000, "end": START + 1006,
              "holder_ready": True, "exit_status": 1, "duration": 6.0,
              "message": True},
@@ -254,11 +255,22 @@ class FaultStatsTest(unittest.TestCase):
                           "during the pause")],
             ("no request started during the pause", True))
 
-    def _probe_row(self, probe) -> tuple[str, bool]:
+    def _probe_row(self, probe, connect_started_at: float | None = None
+                   ) -> tuple[str, bool]:
+        """Return the probe row for a probe record.
+
+        connect_started_at: when its connect began; by default 3 s into
+            the pause. The record is completed with it.
+
+        """
         if probe is None:
             del self.faults[2]["probe"]
         else:
-            self.faults[2]["probe"] = probe
+            self.faults[2]["probe"] = {
+                "connect_started_at": (START + 603
+                                       if connect_started_at is None
+                                       else connect_started_at),
+                **probe}
         return self._rows()[("F3", PROBE_ROW)]
 
     def test_a_probe_that_timed_out_at_ten_seconds_passes(self):
@@ -302,6 +314,49 @@ class FaultStatsTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("another error: OperationalError: connection refused",
                       value)
+        self.assertEqual(self._main()[0], 1)
+
+    def test_a_probe_that_connected_inside_the_pause_counts(self):
+        timed_out = {"elapsed_s": 10.0, "outcome": "error",
+                     "error": "OperationalError: timeout expired"}
+        # The pause is [START + 600, START + 630): the start counts, the
+        # end does not.
+        self.assertEqual(self._probe_row(timed_out, START + 600),
+                         ("timeout expired after 10.0 s", True))
+        self.assertEqual(self._probe_row(timed_out, START + 629.9),
+                         ("timeout expired after 10.0 s", True))
+
+    def test_a_probe_that_connected_after_the_pause_is_inconclusive(self):
+        # It would have connected: the unpause came first.
+        value, passed = self._probe_row(
+            {"elapsed_s": 0.1, "outcome": "ok", "error": ""},
+            START + 631.2)
+        self.assertFalse(passed)
+        self.assertEqual(
+            value, "inconclusive: the probe connected outside the pause "
+            "(31.2 s after its start)")
+        self.assertEqual(self._main()[0], 1)
+        # Also when it timed out: the bounds do not matter then.
+        value, passed = self._probe_row(
+            {"elapsed_s": 10.0, "outcome": "error",
+             "error": "OperationalError: timeout expired"}, START + 630)
+        self.assertFalse(passed)
+        self.assertEqual(
+            value, "inconclusive: the probe connected outside the pause "
+            "(30.0 s after its start)")
+
+    def test_a_probe_that_connected_before_the_pause_is_inconclusive(self):
+        value, passed = self._probe_row(
+            {"elapsed_s": 0.1, "outcome": "ok", "error": ""}, START + 599.5)
+        self.assertFalse(passed)
+        self.assertIn("(-0.5 s after its start)", value)
+
+    def test_a_probe_without_a_connect_time_fails_the_run(self):
+        probe = {"elapsed_s": 10.1, "outcome": "error",
+                 "error": "OperationalError: timeout expired"}
+        self.faults[2]["probe"] = probe
+        self.assertEqual(self._rows()[("F3", PROBE_ROW)],
+                         ("probe missing connect time", False))
         self.assertEqual(self._main()[0], 1)
 
     def test_a_missing_probe_fails_the_run(self):

@@ -413,8 +413,8 @@ After the run, `faultstats.py out/<name>` checks the pass criteria of
 writes `out/<name>/faults.md`: one row per criterion, `pass` or `FAIL`.
 F3's probe runs in the `cms` container and opens a new connection through
 CMS's own path (the connection defaults, no pool) while PostgreSQL is paused,
-and F3 passes only if it fails with `timeout expired` at about 10 s, which
-proves the connect deadline; a probe that connects (the pause did not stall
+and F3 passes only if that connect began inside the pause and failed with
+`timeout expired` at about 10 s, which proves the connect deadline; a probe that connects (the pause did not stall
 connects) or hangs fails it, and the `timeout expired` log lines and the
 requests that started during the pause are for information only, since
 pooled connections just wait for the resume.

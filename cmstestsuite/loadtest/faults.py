@@ -86,7 +86,9 @@ HOLDER_SCRIPT = ("BEGIN;\nSELECT 1 FROM contests LIMIT 1;\n"
                  "\\! sleep 40\nCOMMIT;\n")
 # F3's probe: a fresh connection through CMS's own path (green psycopg2,
 # the connection defaults of cms.db.connect_options), outside any pool.
-# The elapsed time starts after the imports. It prints one JSON line.
+# The elapsed time and connect_started_at (epoch seconds, to tell a
+# connect that fell outside the pause) start after the imports. It prints
+# one JSON line.
 PROBE_SCRIPT = """\
 import json
 import time
@@ -94,6 +96,7 @@ import time
 import cms.io  # makes psycopg2 green, as in the services
 from cms.db.session import custom_psycopg2_connection
 
+connect_started_at = time.time()
 start = time.monotonic()
 try:
     custom_psycopg2_connection().close()
@@ -102,6 +105,7 @@ except Exception as error:
     result = {"outcome": "error", "error": "%s: %s" % (
         type(error).__name__, " ".join(str(error).split()))}
 result["elapsed_s"] = round(time.monotonic() - start, 1)
+result["connect_started_at"] = connect_started_at
 print(json.dumps(result))
 """
 SETUP_DB_MESSAGE = ("cmsSetupDB could not lock contests or ranking_groups "

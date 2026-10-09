@@ -246,13 +246,15 @@ def _within(fault: str, what: str, seconds: float | None,
             seconds is not None and seconds <= limit)
 
 
-def probe_row(probe: dict | None) -> Row:
+def probe_row(probe: dict | None, start: float, end: float) -> Row:
     """Return the row of F3's probe: a new connection during the pause.
 
-    The pause must stall the connect, and the connect deadline must end
+    The connect must begin inside the pause (otherwise the run proves
+    nothing), the pause must stall it, and the connect deadline must end
     it with "timeout expired" at about 10 s.
 
     probe: the probe's record in faults.json, or None if it has none.
+    start, end: the pause, in epoch seconds.
 
     return: the row; its value says what went wrong, if anything.
 
@@ -264,13 +266,20 @@ def probe_row(probe: dict | None) -> Row:
     outcome = probe.get("outcome")
     elapsed = probe.get("elapsed_s")
     error = probe.get("error") or ""
-    if outcome == "ok":
+    began = probe.get("connect_started_at")
+    if outcome == "hung":
+        # It printed nothing, so it has no connect time either.
+        value = "hung, no answer in time: the deadline did not fire"
+    elif outcome not in ("ok", "error") or elapsed is None:
+        value = "unusable probe record: %s" % json.dumps(probe)
+    elif began is None:
+        value = "probe missing connect time"
+    elif not start <= began < end:
+        value = ("inconclusive: the probe connected outside the pause "
+                 "(%.1f s after its start)" % (began - start))
+    elif outcome == "ok":
         value = ("connected after %s: the pause did not stall connects, "
                  "so the fault did not apply" % fmt(elapsed))
-    elif outcome == "hung":
-        value = "hung, no answer in time: the deadline did not fire"
-    elif outcome != "error" or elapsed is None:
-        value = "unusable probe record: %s" % json.dumps(probe)
     elif "timeout expired" not in error:
         value = "failed after %s with another error: %s" % (
             fmt(elapsed), error)
@@ -368,7 +377,7 @@ def check(run_dir: str) -> list[Row]:
     if "end" not in f3:
         rows.append(("F3", "ran", "no", "yes", False))
     else:
-        rows.append(probe_row(f3.get("probe")))
+        rows.append(probe_row(f3.get("probe"), f3["start"], f3["end"]))
         # Shown for the reader, with no effect on the result: the probe
         # decides. Requests may be served from pooled connections, which
         # wait for the resume, and a connect may not have been needed.

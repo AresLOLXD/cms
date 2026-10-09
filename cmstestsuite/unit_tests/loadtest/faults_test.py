@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(
@@ -126,7 +127,7 @@ class FakeStdin:
 # What the probe prints when the connect deadline ends its connect.
 PROBE_TIMED_OUT = (
     '{"outcome": "error", "error": "OperationalError: timeout expired", '
-    '"elapsed_s": 10.1}\n')
+    '"connect_started_at": 1800000003.0, "elapsed_s": 10.1}\n')
 
 
 class FakePopen:
@@ -291,7 +292,8 @@ class InjectorTest(unittest.TestCase):
         self.assertEqual(
             record["probe"],
             {"outcome": "error", "error": "OperationalError: timeout "
-             "expired", "elapsed_s": 10.1})
+             "expired", "connect_started_at": 1800000003.0,
+             "elapsed_s": 10.1})
         probe = self.popens[0]
         self.assertEqual(probe.started_at, started + faults.F3_PROBE_AFTER_S)
         # Through the cms container, cut by timeout(1) before the unpause.
@@ -371,6 +373,7 @@ class InjectorTest(unittest.TestCase):
                 with open(os.path.join(directory, "cms", "db",
                                        "session.py"), "w") as f:
                     f.write(source)
+                before = time.time()
                 done = subprocess.run(
                     [sys.executable, "-c", faults.PROBE_SCRIPT],
                     capture_output=True, text=True, timeout=60,
@@ -380,8 +383,12 @@ class InjectorTest(unittest.TestCase):
                 self.assertEqual(len(lines), 1, done.stdout)
                 result = json.loads(lines[0])
                 elapsed = result.pop("elapsed_s")
+                connect_started_at = result.pop("connect_started_at")
                 self.assertEqual(result, expected)
                 self.assertLess(elapsed, 5)
+                # The time of the connect, in epoch seconds.
+                self.assertLessEqual(before, connect_started_at)
+                self.assertLessEqual(connect_started_at, time.time())
 
     def test_cleanup_after_a_signal_as_the_rule_goes_in_deletes_it(self):
         injector = self._injector()
