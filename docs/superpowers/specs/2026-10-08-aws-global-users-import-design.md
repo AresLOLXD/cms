@@ -134,8 +134,9 @@ The selector keeps the label "Contraseña del día (password)" and loses the
 a password left "(sin asignar)" stays unassigned; a mapped one is guessed
 again from the headers, as before, since the page never echoes the header
 chosen for the password. Only a boolean (`data-unassigned`) reaches the
-page. (Amended during execution, Ruling 9: re-guessing an unassigned
-password silently gave the participations the file's passwords.)
+page. (Amended during execution, after the final review: re-guessing an
+unassigned password silently gave the participations the file's
+passwords.)
 
 **Resulting workflow:** import the accounts once on Users with their
 password; then, in each contest, import the same CSV with the password left
