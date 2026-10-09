@@ -32,7 +32,8 @@ from sqlalchemy import event, inspect, select
 
 from cms.db import Participation, SessionGen, User
 from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, USER_FIELDS, \
-    USER_REQUIRED, ImportRow, apply_import, hash_passwords, plan_import, \
+    USER_REQUIRED, ImportRow, apply_import, apply_user_import, \
+    hash_account_passwords, hash_passwords, plan_import, plan_user_import, \
     read_rows
 from cms.server.contest.authentication import authenticate_request, \
     validate_login
@@ -1267,6 +1268,181 @@ class TestReimportAndTheContestCookie(ImportFixtureMixin, unittest.TestCase):
         # Importing the same file again keeps the contestant logged in.
         self.run_import(rows)
         self.assertTrue(self.cookie_authenticates(cookie))
+
+
+def user_row(line: int, username: str, password: str = "pw",
+             first_name: str = "Nombre") -> ImportRow:
+    return ImportRow(line=line, username=username, first_name=first_name,
+                     last_name="Apellido", password=password, team=None,
+                     group=None)
+
+
+class TestPlanUserImport(ImportFixtureMixin, unittest.TestCase):
+
+    def test_plan(self):
+        self.ana.password = "bcrypt:account-ana"
+        self.session.flush()
+
+        plan, errors = plan_user_import(self.session, [
+            user_row(2, "ana"), user_row(3, "carla")])
+
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.new_users, ["carla"])
+        self.assertEqual(plan.updated_users, ["ana"])
+        self.assertEqual(plan.stored_passwords["ana"], "bcrypt:account-ana")
+        self.assertEqual(plan.summary(), {"usuarios_nuevos": 1,
+                                          "usuarios_actualizados": 1})
+        self.assertNotIn("bcrypt:account-ana", repr(plan))
+
+    def test_nothing_is_added_or_flushed(self):
+        pending = self.add_user(username="pending")
+        flushes = []
+
+        def record_flush(session, flush_context, instances):
+            flushes.append(instances)
+
+        event.listen(self.session, "before_flush", record_flush)
+        self.addCleanup(event.remove, self.session, "before_flush",
+                        record_flush)
+
+        plan_user_import(self.session, [user_row(2, "carla")])
+
+        self.assertEqual(flushes, [])
+        self.assertEqual(list(self.session.new), [pending])
+
+
+class TestHashAccountPasswords(unittest.TestCase):
+
+    def setUp(self):
+        patcher = mock.patch("cms.server.admin.bulkimport.hash_password",
+                             lambda p, method="bcrypt": "fake:" + p)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_hashes_keep_a_matching_bcrypt_hash_and_report_progress(self):
+        stored = {"ana": "bcrypt:pw-ana", "beto": "bcrypt:old-beto",
+                  "carla": "plaintext:pw-carla"}
+        rows = [user_row(2, "ana", "pw-ana"), user_row(3, "beto", "pw-beto"),
+                user_row(4, "carla", "pw-carla"),
+                user_row(5, "dora", "pw-dora")]
+        calls = []
+        with mock.patch("cms.server.admin.bulkimport.validate_password",
+                        lambda s, p: s.split(":", 1)[1] == p):
+            result = hash_account_passwords(rows, stored,
+                                            lambda: calls.append(None))
+        self.assertEqual(result, {"ana": "bcrypt:pw-ana",
+                                  "beto": "fake:pw-beto",
+                                  "carla": "fake:pw-carla",
+                                  "dora": "fake:pw-dora"})
+        self.assertEqual(len(calls), 4)
+
+
+class TestApplyUserImport(ImportFixtureMixin, unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.delete_data)
+        self.ana.password = "account:ana"
+        self.ana.email = "ana@example.com"
+        self.ana_participation.password = "day:ana"
+        self.ana_participation.team_id = self.team.id
+        self.session.flush()
+
+    def test_apply(self):
+        rows = [user_row(2, "ana", first_name="Ana María"),
+                user_row(3, "carla", first_name="Carla")]
+
+        apply_user_import(self.session, rows,
+                          {"ana": "fake:ana", "carla": "fake:carla"})
+        self.session.commit()
+
+        users = {u.username: u for u in self.session.query(User)}
+        self.assertEqual((users["carla"].first_name, users["carla"].password),
+                         ("Carla", "fake:carla"))
+        self.assertEqual((users["ana"].first_name, users["ana"].password),
+                         ("Ana María", "fake:ana"))
+        # Nothing else about the user, and nothing of its participations.
+        self.assertEqual(users["ana"].email, "ana@example.com")
+        self.assertEqual(self.ana_participation.password, "day:ana")
+        self.assertEqual(self.ana_participation.team_id, self.team.id)
+        self.assertEqual(self.session.query(Participation).count(), 1)
+
+    def test_nothing_is_committed(self):
+        self.session.commit()
+        with SessionGen() as session:
+            apply_user_import(session, [user_row(2, "carla")],
+                              {"carla": "fake:carla"})
+        with SessionGen() as session:
+            self.assertIsNone(session.execute(
+                select(User).filter(User.username == "carla")
+            ).scalar_one_or_none())
+
+
+class TestGlobalReimportAndTheContestCookie(ImportFixtureMixin,
+                                            unittest.TestCase):
+    """Accounts imported again, against the cookie check of CWS.
+
+    beto takes part in the contest with no participation password, so the
+    account password is the one CWS checks and stores in the cookie.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.delete_data)
+        patcher = mock.patch("cmscommon.crypto.BCRYPT_ROUNDS", 4)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.add_participation(user=self.beto, contest=self.contest)
+        self.session.commit()
+        self.timestamp = make_datetime()
+        self.ip_address = ipaddress.ip_address("10.0.0.1")
+        self.rows = [user_row(2, "beto", "cuenta-beto"),
+                     user_row(3, "ana", "cuenta-ana")]
+
+    def run_import(self, rows):
+        with SessionGen() as session:
+            plan, errors = plan_user_import(session, rows)
+            self.assertEqual(errors, [])
+            hashes = hash_account_passwords(rows, plan.stored_passwords,
+                                            lambda: None)
+            apply_user_import(session, rows, hashes)
+            session.commit()
+
+    def log_in(self, username, password):
+        self.session.expire_all()
+        participation, cookie = validate_login(
+            self.session, self.contest, self.timestamp, username, password,
+            self.ip_address)
+        self.assertIsNotNone(cookie)
+        return cookie
+
+    def cookie_authenticates(self, cookie):
+        self.session.expire_all()
+        participation, _, _ = authenticate_request(
+            self.session, self.contest, self.timestamp, cookie, None,
+            self.ip_address)
+        return participation is not None
+
+    def test_the_same_accounts_again_keep_the_contestant_logged_in(self):
+        self.run_import(self.rows)
+        cookie = self.log_in("beto", "cuenta-beto")
+
+        self.rows[1] = dataclasses.replace(self.rows[1], first_name="Ana M.")
+        self.run_import(self.rows)
+
+        self.assertTrue(self.cookie_authenticates(cookie))
+
+    def test_a_changed_account_password_logs_out(self):
+        self.run_import(self.rows)
+        cookie = self.log_in("beto", "cuenta-beto")
+
+        self.rows[0] = dataclasses.replace(self.rows[0],
+                                           password="cuenta-beto-2")
+        self.run_import(self.rows)
+
+        self.assertFalse(self.cookie_authenticates(cookie))
+        self.log_in("beto", "cuenta-beto-2")
 
 
 if __name__ == "__main__":

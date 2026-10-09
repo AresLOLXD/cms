@@ -528,3 +528,101 @@ def apply_import(session: Session, contest_id: int, rows: list[ImportRow],
             participation.password = participation_hash
         participation.team_id = team_id
         participation.group_id = group_id
+
+
+@dataclasses.dataclass
+class UserImportPlan:
+    """What a global users import would do; built without writing anything.
+
+    new_users: usernames of the users that do not exist yet.
+    updated_users: usernames of the users that already exist.
+    stored_passwords: username -> account password stored now (an
+        authentication string), for the existing users. It is never shown
+        or logged, so it is out of summary() and of the representation of
+        the plan.
+
+    """
+    new_users: list[str]
+    updated_users: list[str]
+    stored_passwords: dict[str, str] = dataclasses.field(
+        default_factory=dict, repr=False)
+
+    def summary(self) -> dict[str, int]:
+        """Count the new and the updated users."""
+        return {"usuarios_nuevos": len(self.new_users),
+                "usuarios_actualizados": len(self.updated_users)}
+
+
+def plan_user_import(session: Session, rows: list[ImportRow]
+                     ) -> tuple[UserImportPlan, list[str]]:
+    """Plan a global users import against the database.
+
+    session: a read-only use of a session; nothing is added or flushed.
+    rows: the rows from read_rows with USER_FIELDS, without errors.
+
+    return: the plan and no errors (the same shape as plan_import, for
+        the callers that run either).
+
+    """
+    usernames = [row.username for row in rows]
+    with session.no_autoflush:
+        stored = dict(session.execute(
+            select(User.username, User.password)
+            .filter(User.username.in_(usernames))).all())
+    return UserImportPlan(
+        new_users=[u for u in usernames if u not in stored],
+        updated_users=[u for u in usernames if u in stored],
+        stored_passwords=stored), []
+
+
+def hash_account_passwords(rows: list[ImportRow],
+                           stored_passwords: dict[str, str],
+                           progress: Callable[[], None]) -> dict[str, str]:
+    """Hash the account password of every row, a few at a time.
+
+    An existing user keeps its stored bcrypt hash when the row's password
+    still matches it: in a contest where the participation has no password
+    of its own, the CWS cookie holds that hash.
+
+    rows: the rows to import, every one with a password.
+    stored_passwords: username -> account password stored now, from the
+        plan.
+    progress: called once each time a row is done.
+
+    return: username -> account password, as an authentication string.
+
+    """
+    def work(row: ImportRow) -> tuple[str, str]:
+        assert row.password is not None
+        return row.username, _hash_or_keep(
+            row.password, stored_passwords.get(row.username))
+
+    return _hash_in_pool(rows, work, progress)
+
+
+def apply_user_import(session: Session, rows: list[ImportRow],
+                      hashes: dict[str, str]) -> None:
+    """Write a global users import into the session; the caller commits.
+
+    The users are read again here, so a user that another import created
+    after the plan is updated instead of inserted twice.
+
+    session: the session of the transaction.
+    rows: the rows to import.
+    hashes: from hash_account_passwords.
+
+    """
+    usernames = [row.username for row in rows]
+    users = {u.username: u for u in session.execute(
+        select(User).filter(User.username.in_(usernames))).scalars()}
+    for row in rows:
+        user = users.get(row.username)
+        if user is None:
+            session.add(User(username=row.username,
+                             first_name=row.first_name,
+                             last_name=row.last_name,
+                             password=hashes[row.username]))
+        else:
+            user.first_name = row.first_name
+            user.last_name = row.last_name
+            user.password = hashes[row.username]
