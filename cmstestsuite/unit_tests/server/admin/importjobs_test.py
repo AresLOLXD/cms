@@ -30,7 +30,8 @@ import time
 import unittest
 from unittest import mock
 
-from cms.server.admin.bulkimport import ImportPlan, ImportRow
+from cms.server.admin.bulkimport import ImportPlan, ImportRow, \
+    UserImportPlan
 from cms.server.admin.importjobs import APPLY_FAILED, JOB_TTL, \
     ImportJobStore
 
@@ -45,6 +46,7 @@ LEAK_USERNAME = "ana-leak-check"
 LEAK_PASSWORD = "pw-secret-leak"
 LEAK_MESSAGE = "%s %s" % (LEAK_USERNAME, LEAK_PASSWORD)
 HASHES = {"user0": ("participation-hash", "account-hash")}
+ACCOUNT_HASHES = {"user0": "account-hash"}
 # The participation password that user2 has in the contest before the
 # import, as the plan reads it.
 STORED_PASSWORD = "bcrypt:stored-user2"
@@ -74,7 +76,8 @@ class ImportJobsTestCase(unittest.TestCase):
         self.session = mock.MagicMock()
         self.on_done = mock.Mock()
         for name in ("SessionGen", "plan_import", "hash_passwords",
-                     "apply_import"):
+                     "apply_import", "plan_user_import",
+                     "hash_account_passwords", "apply_user_import"):
             patcher = mock.patch("%s.%s" % (MODULE, name))
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
@@ -82,12 +85,24 @@ class ImportJobsTestCase(unittest.TestCase):
         self.plan_import.return_value = (self.plan, [])
         self.hash_passwords.side_effect = self.hash_every_row
         self.apply_import.return_value = None
+        self.user_plan = UserImportPlan(
+            new_users=["user0"], updated_users=["user1", "user2"],
+            stored_passwords={"user2": STORED_PASSWORD})
+        self.plan_user_import.return_value = (self.user_plan, [])
+        self.hash_account_passwords.side_effect = self.hash_every_account
+        self.apply_user_import.return_value = None
 
     @staticmethod
     def hash_every_row(rows, new_users, stored_passwords, progress):
         for _ in rows:
             progress()
         return HASHES
+
+    @staticmethod
+    def hash_every_account(rows, stored_passwords, progress):
+        for _ in rows:
+            progress()
+        return ACCOUNT_HASHES
 
     def wait_for_job(self, job) -> None:
         """Wait, at most 5 s, until the thread of the job is over."""
@@ -264,6 +279,76 @@ class TestJobRuns(ImportJobsTestCase):
         self.assertIsNone(logs.records[0].exc_info)
         self.assertNotIn(LEAK_USERNAME, output)
         self.assertNotIn(LEAK_PASSWORD, output)
+
+
+class TestGlobalJobs(ImportJobsTestCase):
+
+    def test_a_global_job_runs_the_users_import(self):
+        store = ImportJobStore()
+
+        job = store.start(OWNER_ID, None, self.rows, self.on_done)
+        self.wait_for_job(job)
+
+        self.assertEqual((job.status, job.processed), ("done", 3))
+        self.assertEqual(job.summary, {"usuarios_nuevos": 1,
+                                       "usuarios_actualizados": 2})
+        self.plan_user_import.assert_called_once_with(self.session,
+                                                      self.rows)
+        self.hash_account_passwords.assert_called_once_with(
+            self.rows, {"user2": STORED_PASSWORD}, mock.ANY)
+        self.apply_user_import.assert_called_once_with(
+            self.session, self.rows, ACCOUNT_HASHES)
+        self.session.commit.assert_called_once_with()
+        self.on_done.assert_called_once_with()
+        for contest_step in (self.plan_import, self.hash_passwords,
+                             self.apply_import):
+            contest_step.assert_not_called()
+
+    def test_one_global_job_at_a_time_besides_the_contest_ones(self):
+        started = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def blocking_hash(rows, stored_passwords, progress):
+            started.set()
+            release.wait(5)
+            return ACCOUNT_HASHES
+        self.hash_account_passwords.side_effect = blocking_hash
+        store = ImportJobStore()
+
+        job = store.start(OWNER_ID, None, self.rows, self.on_done)
+        self.assertTrue(started.wait(5))
+        with self.assertRaises(ValueError) as raised:
+            store.start(OWNER_ID + 1, None, self.rows, self.on_done)
+        self.assertEqual(str(raised.exception),
+                         "ya hay una importación de usuarios en curso")
+        self.assertIs(store.running_job(None), job)
+        self.assertIsNone(store.running_job(CONTEST_ID))
+        contest_job = store.start(OWNER_ID, CONTEST_ID, self.rows,
+                                  self.on_done)
+
+        release.set()
+        self.wait_for_job(job)
+        self.wait_for_job(contest_job)
+        self.assertEqual((job.status, contest_job.status), ("done", "done"))
+
+    def test_a_global_failure_logs_no_row_data(self):
+        def failing_apply(*args):
+            raise RuntimeError(LEAK_MESSAGE)
+        self.apply_user_import.side_effect = failing_apply
+        store = ImportJobStore()
+
+        with self.assertLogs(MODULE, level="ERROR") as logs:
+            job = store.start(OWNER_ID, None, self.rows, self.on_done)
+            self.wait_for_job(job)
+
+        self.assertEqual((job.status, job.error), ("error", APPLY_FAILED))
+        output = "\n".join(logs.output)
+        self.assertIn("global users", output)
+        self.assertIn("RuntimeError", output)
+        self.assertNotIn(LEAK_USERNAME, output)
+        self.assertNotIn(LEAK_PASSWORD, output)
+        self.assertIsNone(logs.records[0].exc_info)
 
 
 class TestStore(ImportJobsTestCase):
