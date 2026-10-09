@@ -25,6 +25,7 @@ run-time plan, bcrypt (at its lowest cost), the writing and the commit.
 """
 
 import contextlib
+import dataclasses
 import json
 import os
 import re
@@ -84,13 +85,17 @@ class TestImportJobAgainstTheDatabase(DatabaseMixin, unittest.TestCase):
         """Start a job for the rows and wait, at most 30 s, for its end."""
         job = ImportJobStore().start(OWNER_ID, self.contest.id, self.rows,
                                      self.on_done)
+        self.wait(job)
+        return job
+
+    def wait(self, job) -> None:
+        """Wait, at most 30 s, until the thread of the job is over."""
         name = "aws-import-%s" % job.id[:8]
         deadline = time.monotonic() + 30
         while any(t.name == name for t in threading.enumerate()):
             if time.monotonic() > deadline:
                 self.fail("the thread of the import job did not finish")
             time.sleep(0.02)
-        return job
 
     def snapshot(self):
         """Read what is committed, in a session of its own."""
@@ -156,6 +161,35 @@ class TestImportJobAgainstTheDatabase(DatabaseMixin, unittest.TestCase):
             self.assertTrue(validate_password(
                 existing_participation.password, EXISTING_PASSWORD))
             self.assertEqual(existing_participation.team_id, self.team.id)
+
+    def test_a_global_job_imports_the_accounts(self):
+        rows = [dataclasses.replace(row, team=None) for row in self.rows]
+        job = ImportJobStore().start(OWNER_ID, None, rows, self.on_done)
+        self.wait(job)
+
+        self.assertEqual((job.status, job.error), ("done", None))
+        self.assertEqual(job.summary, {"usuarios_nuevos": 1,
+                                       "usuarios_actualizados": 1})
+        # The page reads these keys of the summary, among others.
+        with open(PAGE, encoding="utf-8") as page:
+            read_by_the_page = set(re.findall(r"s\.summary\.(\w+)",
+                                              page.read()))
+        self.assertLessEqual(set(job.summary), read_by_the_page)
+        self.assertNotIn(NEW_PASSWORD, json.dumps(job.as_json()))
+        with SessionGen() as session:
+            users = {u.username: u for u in session.execute(
+                select(User)).scalars()}
+            self.assertTrue(validate_password(
+                users[NEW_USERNAME].password, NEW_PASSWORD))
+            self.assertTrue(validate_password(
+                users[EXISTING_USERNAME].password, EXISTING_PASSWORD))
+            # The participation and its day password are left alone.
+            participation = session.execute(
+                select(Participation).join(Participation.user)
+                .filter(User.username == EXISTING_USERNAME)).scalar_one()
+            self.assertTrue(validate_password(participation.password,
+                                              "old-ana"))
+            self.assertEqual(session.query(Participation).count(), 1)
 
     def test_a_commit_that_fails_leaves_nothing_written(self):
         before = self.snapshot()

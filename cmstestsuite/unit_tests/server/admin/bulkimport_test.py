@@ -31,21 +31,33 @@ from unittest import mock
 from sqlalchemy import event, inspect, select
 
 from cms.db import Participation, SessionGen, User
-from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, ImportRow, \
-    apply_import, hash_passwords, plan_import, read_rows
+from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, USER_FIELDS, \
+    USER_REQUIRED, ImportRow, apply_import, apply_user_import, \
+    hash_account_passwords, hash_passwords, plan_import, plan_user_import, \
+    read_rows
 from cms.server.contest.authentication import authenticate_request, \
     validate_login
+from cmscommon.crypto import hash_password
 from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 MAPPING = {"username": "usuario", "first_name": "nombre",
            "last_name": "apellido", "password": "contraseña",
            "team": "estado", "group": ""}
+USER_MAPPING = {"username": "usuario", "first_name": "nombre",
+                "last_name": "apellido", "password": "contraseña"}
 
 
 def csv_bytes(text: str, bom: bool = False) -> bytes:
     data = text.encode("utf-8")
     return (b"\xef\xbb\xbf" + data) if bom else data
+
+
+def read_user_rows(text: str, mapping: dict[str, str] | None = None):
+    """Read a CSV with the fields of the global users import."""
+    return read_rows(csv_bytes(text),
+                     USER_MAPPING if mapping is None else mapping,
+                     USER_FIELDS, USER_REQUIRED)
 
 
 class TestReadRows(unittest.TestCase):
@@ -73,23 +85,89 @@ class TestReadRows(unittest.TestCase):
         self.assertIsNone(rows[0].team)
 
     def test_unmapped_required_field(self):
-        mapping = dict(MAPPING, password="")
+        mapping = dict(MAPPING, username="")
         _, errors = read_rows(csv_bytes("usuario,nombre,apellido\n"),
                               mapping)
         self.assertIn(
-            "falta asignar la columna para la contraseña (password)", errors)
+            "falta asignar la columna para el usuario (username)", errors)
 
     def test_unmapped_required_fields_read_well_in_spanish(self):
-        for field, text in (
-                ("username", "el usuario"), ("first_name", "el nombre"),
-                ("last_name", "el apellido"), ("password", "la contraseña")):
-            with self.subTest(field=field):
-                _, errors = read_rows(
-                    csv_bytes("usuario,nombre,apellido,contraseña,estado\n"),
-                    dict(MAPPING, **{field: ""}))
-                self.assertEqual(
-                    errors,
-                    ["falta asignar la columna para %s (%s)" % (text, field)])
+        for fields, required, mapping, cases in (
+                (None, None, MAPPING, (
+                    ("username", "el usuario"), ("first_name", "el nombre"),
+                    ("last_name", "el apellido"))),
+                (USER_FIELDS, USER_REQUIRED, USER_MAPPING, (
+                    ("username", "el usuario"), ("first_name", "el nombre"),
+                    ("last_name", "el apellido"),
+                    ("password", "la contraseña")))):
+            for field, text in cases:
+                with self.subTest(fields=fields, field=field):
+                    args = () if fields is None else (fields, required)
+                    _, errors = read_rows(
+                        csv_bytes("usuario,nombre,apellido,contraseña,"
+                                  "estado\n"),
+                        dict(mapping, **{field: ""}), *args)
+                    self.assertEqual(
+                        errors,
+                        ["falta asignar la columna para %s (%s)"
+                         % (text, field)])
+
+    def test_the_contest_password_may_be_left_unmapped(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,pw,JAL\n"), dict(MAPPING, password=""))
+        self.assertEqual(errors, [])
+        self.assertIsNone(rows[0].password)
+        self.assertEqual((rows[0].username, rows[0].team), ("ana", "JAL"))
+
+    def test_a_mapped_contest_password_still_needs_every_cell(self):
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,,\n"), MAPPING)
+        self.assertEqual(errors, ["fila 2: la contraseña está vacía"])
+
+    def test_the_global_fields(self):
+        # Extra columns, a team among them, are ignored.
+        rows, errors = read_user_rows(
+            "usuario,nombre,apellido,contraseña,estado,grupo\n"
+            "ana,Ana,López, pw ,JAL,tarde\n")
+        self.assertEqual(errors, [])
+        self.assertEqual(rows, [ImportRow(
+            line=2, username="ana", first_name="Ana", last_name="López",
+            password="pw", team=None, group=None)])
+
+    def test_the_global_password_column_is_exclusive_and_never_echoed(self):
+        # A file without a header row: its first row holds a password.
+        text = "ana,Ana,López,S3CRET\nbeto,Beto,Ruiz,pw2\n"
+        mapping = {"username": "ana", "first_name": "S3CRET",
+                   "last_name": "López", "password": "S3CRET"}
+        rows, errors = read_user_rows(text, mapping)
+        self.assertEqual(rows, [])
+        self.assertEqual(errors, ["la columna de la contraseña está "
+                                  "asignada a más de un campo"])
+
+    def test_the_global_rows_check_the_password_as_the_contest_does(self):
+        _, errors = read_user_rows(
+            "usuario,nombre,apellido,contraseña\n"
+            "ana,Ana,López,\n"
+            "beto,Beto,Ruiz,%s\n"
+            "carla,Carla,Sanz,a\tb\n" % ("ñ" * 37))
+        self.assertEqual(errors, [
+            "fila 2: la contraseña está vacía",
+            "fila 3: la contraseña pasa de 72 bytes",
+            "fila 4: la contraseña tiene caracteres no permitidos"])
+
+    def test_headerless_file_with_two_fields_on_one_column(self):
+        # The team and the group read the same column; the password has
+        # its own one and is never echoed.
+        text = "ana;Ana;López;s3cret;JAL\nbeto;Beto;Ruiz;pw;JAL\n"
+        mapping = {"username": "ana", "first_name": "Ana",
+                   "last_name": "López", "password": "s3cret",
+                   "team": "JAL", "group": "JAL"}
+        rows, errors = read_rows(csv_bytes(text), mapping)
+        self.assertEqual(errors, [])
+        self.assertEqual([(r.username, r.team, r.group) for r in rows],
+                         [("beto", "JAL", "JAL")])
 
     def test_mapping_to_a_missing_header(self):
         mapping = dict(MAPPING, team="equipo")
@@ -436,10 +514,16 @@ class TestReadRows(unittest.TestCase):
 
 
 def import_row(line: int, username: str, team: str | None = None,
-               group: str | None = None, password: str = "pw") -> ImportRow:
+               group: str | None = None,
+               password: str | None = "pw") -> ImportRow:
     return ImportRow(line=line, username=username, first_name="Nombre",
                      last_name="Apellido", password=password, team=team,
                      group=group)
+
+
+def hash_password_for_tests(password: str) -> str:
+    """Hash with real bcrypt (the tests lower its rounds)."""
+    return hash_password(password, "bcrypt")
 
 
 class ImportFixtureMixin(DatabaseMixin):
@@ -486,6 +570,30 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         self.assertEqual(self.session.query(User).count(), users_before)
         self.assertEqual(self.session.query(Participation).count(),
                          participations_before)
+
+    def test_without_a_password_only_existing_users_can_be_registered(self):
+        # beto exists without a participation, carla and dora do not exist,
+        # and row 3 also has an unknown team: every error, in row order.
+        rows = [import_row(2, "beto", password=None),
+                import_row(3, "carla", team="XYZ", password=None),
+                import_row(4, "ana", password=None),
+                import_row(5, "dora", password=None)]
+        result = plan_import(self.session, self.contest.id, rows)
+        self.assertEqual(result, (None, [
+            "fila 3: el equipo XYZ no existe",
+            "fila 3: el usuario carla no existe; sin columna de contraseña "
+            "solo se pueden inscribir usuarios que ya existen",
+            "fila 5: el usuario dora no existe; sin columna de contraseña "
+            "solo se pueden inscribir usuarios que ya existen"]))
+
+    def test_without_a_password_existing_users_are_planned(self):
+        plan, errors = plan_import(self.session, self.contest.id, [
+            import_row(2, "ana", password=None),
+            import_row(3, "beto", password=None)])
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.new_users, [])
+        self.assertEqual(plan.new_participations, ["beto"])
+        self.assertEqual(plan.updated_participations, ["ana"])
 
     def test_nothing_is_added_or_flushed(self):
         # An object the caller left pending must stay pending: a flush
@@ -755,6 +863,17 @@ class TestHashPasswords(unittest.TestCase):
             self.assertTrue(thread_name.startswith("aws-import-hash"),
                             msg=thread_name)
 
+    def test_a_row_without_password_hashes_no_participation(self):
+        rows = [import_row(2, "ana", password=None)]
+        calls = []
+        with mock.patch("cms.server.admin.bulkimport.validate_password") \
+                as validate:
+            result = hash_passwords(rows, set(), {"ana": "bcrypt:x"},
+                                    lambda: calls.append(None))
+        self.assertEqual(result, {"ana": (None, None)})
+        self.assertEqual(len(calls), 1)
+        validate.assert_not_called()
+
     def test_pool_size(self):
         created = []
 
@@ -983,6 +1102,27 @@ class TestApplyImport(ImportFixtureMixin, unittest.TestCase):
             "ana": "fake:pw-ana", "beto": "fake:pw-beto",
             "carla": "fake:pw", "dora": "fake:pw-dora"})
 
+    def test_without_a_password_participation_passwords_are_left_alone(self):
+        # ana takes part with a day password; beto is registered now.
+        self.ana_participation.password = "bcrypt:day-ana"
+        self.session.flush()
+        rows = [import_row(2, "ana", password=None),
+                import_row(3, "beto", password=None)]
+
+        apply_import(self.session, self.contest.id, rows,
+                     self.plan(self.session, rows),
+                     {"ana": (None, None), "beto": (None, None)})
+        self.session.commit()
+
+        participations = {p.user.username: p for p in
+                          self.session.query(Participation).filter(
+                              Participation.contest_id == self.contest.id)}
+        self.assertEqual(participations["ana"].password, "bcrypt:day-ana")
+        self.assertIsNone(participations["beto"].password)
+        # The account passwords are not touched either.
+        self.assertEqual(self.ana.password, "account:ana")
+        self.assertEqual(self.beto.password, "account:beto")
+
     def test_nothing_is_committed(self):
         self.session.commit()
         before = self.snapshot()
@@ -1115,6 +1255,194 @@ class TestReimportAndTheContestCookie(ImportFixtureMixin, unittest.TestCase):
         self.assertTrue(self.cookie_authenticates(cookies["ana"]))
         # The new password is the one that logs in now.
         self.log_in("carla", "dia1-carla-nueva")
+
+    def test_without_a_password_the_account_password_logs_in(self):
+        self.beto.password = hash_password_for_tests("cuenta-beto")
+        self.session.commit()
+        rows = [import_row(2, "beto", password=None)]
+
+        self.run_import(rows)
+
+        self.assertIsNone(self.stored_password("beto"))
+        cookie = self.log_in("beto", "cuenta-beto")
+        # Importing the same file again keeps the contestant logged in.
+        self.run_import(rows)
+        self.assertTrue(self.cookie_authenticates(cookie))
+
+
+def user_row(line: int, username: str, password: str = "pw",
+             first_name: str = "Nombre") -> ImportRow:
+    return ImportRow(line=line, username=username, first_name=first_name,
+                     last_name="Apellido", password=password, team=None,
+                     group=None)
+
+
+class TestPlanUserImport(ImportFixtureMixin, unittest.TestCase):
+
+    def test_plan(self):
+        self.ana.password = "bcrypt:account-ana"
+        self.session.flush()
+
+        plan, errors = plan_user_import(self.session, [
+            user_row(2, "ana"), user_row(3, "carla")])
+
+        self.assertEqual(errors, [])
+        self.assertEqual(plan.new_users, ["carla"])
+        self.assertEqual(plan.updated_users, ["ana"])
+        self.assertEqual(plan.stored_passwords["ana"], "bcrypt:account-ana")
+        self.assertEqual(plan.summary(), {"usuarios_nuevos": 1,
+                                          "usuarios_actualizados": 1})
+        self.assertNotIn("bcrypt:account-ana", repr(plan))
+
+    def test_nothing_is_added_or_flushed(self):
+        pending = self.add_user(username="pending")
+        flushes = []
+
+        def record_flush(session, flush_context, instances):
+            flushes.append(instances)
+
+        event.listen(self.session, "before_flush", record_flush)
+        self.addCleanup(event.remove, self.session, "before_flush",
+                        record_flush)
+
+        plan_user_import(self.session, [user_row(2, "carla")])
+
+        self.assertEqual(flushes, [])
+        self.assertEqual(list(self.session.new), [pending])
+
+
+class TestHashAccountPasswords(unittest.TestCase):
+
+    def setUp(self):
+        patcher = mock.patch("cms.server.admin.bulkimport.hash_password",
+                             lambda p, method="bcrypt": "fake:" + p)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_hashes_keep_a_matching_bcrypt_hash_and_report_progress(self):
+        stored = {"ana": "bcrypt:pw-ana", "beto": "bcrypt:old-beto",
+                  "carla": "plaintext:pw-carla"}
+        rows = [user_row(2, "ana", "pw-ana"), user_row(3, "beto", "pw-beto"),
+                user_row(4, "carla", "pw-carla"),
+                user_row(5, "dora", "pw-dora")]
+        calls = []
+        with mock.patch("cms.server.admin.bulkimport.validate_password",
+                        lambda s, p: s.split(":", 1)[1] == p):
+            result = hash_account_passwords(rows, stored,
+                                            lambda: calls.append(None))
+        self.assertEqual(result, {"ana": "bcrypt:pw-ana",
+                                  "beto": "fake:pw-beto",
+                                  "carla": "fake:pw-carla",
+                                  "dora": "fake:pw-dora"})
+        self.assertEqual(len(calls), 4)
+
+
+class TestApplyUserImport(ImportFixtureMixin, unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.delete_data)
+        self.ana.password = "account:ana"
+        self.ana.email = "ana@example.com"
+        self.ana_participation.password = "day:ana"
+        self.ana_participation.team_id = self.team.id
+        self.session.flush()
+
+    def test_apply(self):
+        rows = [user_row(2, "ana", first_name="Ana María"),
+                user_row(3, "carla", first_name="Carla")]
+
+        apply_user_import(self.session, rows,
+                          {"ana": "fake:ana", "carla": "fake:carla"})
+        self.session.commit()
+
+        users = {u.username: u for u in self.session.query(User)}
+        self.assertEqual((users["carla"].first_name, users["carla"].password),
+                         ("Carla", "fake:carla"))
+        self.assertEqual((users["ana"].first_name, users["ana"].password),
+                         ("Ana María", "fake:ana"))
+        # Nothing else about the user, and nothing of its participations.
+        self.assertEqual(users["ana"].email, "ana@example.com")
+        self.assertEqual(self.ana_participation.password, "day:ana")
+        self.assertEqual(self.ana_participation.team_id, self.team.id)
+        self.assertEqual(self.session.query(Participation).count(), 1)
+
+    def test_nothing_is_committed(self):
+        self.session.commit()
+        with SessionGen() as session:
+            apply_user_import(session, [user_row(2, "carla")],
+                              {"carla": "fake:carla"})
+        with SessionGen() as session:
+            self.assertIsNone(session.execute(
+                select(User).filter(User.username == "carla")
+            ).scalar_one_or_none())
+
+
+class TestGlobalReimportAndTheContestCookie(ImportFixtureMixin,
+                                            unittest.TestCase):
+    """Accounts imported again, against the cookie check of CWS.
+
+    beto takes part in the contest with no participation password, so the
+    account password is the one CWS checks and stores in the cookie.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.delete_data)
+        patcher = mock.patch("cmscommon.crypto.BCRYPT_ROUNDS", 4)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.add_participation(user=self.beto, contest=self.contest)
+        self.session.commit()
+        self.timestamp = make_datetime()
+        self.ip_address = ipaddress.ip_address("10.0.0.1")
+        self.rows = [user_row(2, "beto", "cuenta-beto"),
+                     user_row(3, "ana", "cuenta-ana")]
+
+    def run_import(self, rows):
+        with SessionGen() as session:
+            plan, errors = plan_user_import(session, rows)
+            self.assertEqual(errors, [])
+            hashes = hash_account_passwords(rows, plan.stored_passwords,
+                                            lambda: None)
+            apply_user_import(session, rows, hashes)
+            session.commit()
+
+    def log_in(self, username, password):
+        self.session.expire_all()
+        participation, cookie = validate_login(
+            self.session, self.contest, self.timestamp, username, password,
+            self.ip_address)
+        self.assertIsNotNone(cookie)
+        return cookie
+
+    def cookie_authenticates(self, cookie):
+        self.session.expire_all()
+        participation, _, _ = authenticate_request(
+            self.session, self.contest, self.timestamp, cookie, None,
+            self.ip_address)
+        return participation is not None
+
+    def test_the_same_accounts_again_keep_the_contestant_logged_in(self):
+        self.run_import(self.rows)
+        cookie = self.log_in("beto", "cuenta-beto")
+
+        self.rows[1] = dataclasses.replace(self.rows[1], first_name="Ana M.")
+        self.run_import(self.rows)
+
+        self.assertTrue(self.cookie_authenticates(cookie))
+
+    def test_a_changed_account_password_logs_out(self):
+        self.run_import(self.rows)
+        cookie = self.log_in("beto", "cuenta-beto")
+
+        self.rows[0] = dataclasses.replace(self.rows[0],
+                                           password="cuenta-beto-2")
+        self.run_import(self.rows)
+
+        self.assertFalse(self.cookie_authenticates(cookie))
+        self.log_in("beto", "cuenta-beto-2")
 
 
 if __name__ == "__main__":

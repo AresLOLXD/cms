@@ -48,7 +48,8 @@ from sqlalchemy import select
 
 from cms.db import ActivityInterval, Contest, Group, Message, Participation, \
     Submission, User, Team
-from cms.server.admin.bulkimport import FIELDS, plan_import, read_rows
+from cms.server.admin.bulkimport import FIELDS, REQUIRED, USER_FIELDS, \
+    USER_REQUIRED, plan_import, plan_user_import, read_rows
 from cms.server.admin.importjobs import IMPORT_JOBS, ImportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
@@ -346,15 +347,58 @@ class MessageHandler(BaseHandler):
         await loop.run_in_executor(None, self._post_sync, contest_id, user_id)
 
 
-class ImportUsersHandler(BaseHandler):
-    """Bulk import of users and participations into a contest (CSV).
+def _shown_mapping(mapping: dict[str, str]) -> dict[str, str]:
+    """Return the mapping to show again, without the password's header.
+
+    In a file without a header row, the header chosen for the password is
+    a real password; the page never echoes it, not even as the column of
+    another field.
+
+    mapping: import field -> header the admin chose for it.
+
+    """
+    password_name = (mapping.get("password") or "").strip()
+    return {field: "" if field != "password" and password_name
+            and header.strip() == password_name else header
+            for field, header in mapping.items()}
+
+
+class ImportPageHandler(BaseHandler):
+    """The page of a bulk import of users from a CSV.
 
     GET shows the form, or the progress of the job given by ?job= (with
     &repetido=1, also a notice that the file just sent was not imported).
     POST reads the file: "validate" only reports what an import would do,
     "import" starts the job and redirects to its progress page.
 
+    A subclass sets self.contest (None for the global users import) and
+    says what is imported: the fields, the required ones, the plan and the
+    URL of the page.
+
     """
+    fields: tuple[str, ...] = FIELDS
+    required: frozenset[str] = REQUIRED
+    # Said when an import of the same kind is running; the file is fine,
+    # so it is not one of the errors that say that nothing was applied.
+    running_notice = ("Hay una importación en curso para este concurso; "
+                      "espera a que termine.")
+    # Said with the progress of the admin's own running import, when a
+    # second file was sent while it ran: that file was not imported.
+    repeated_notice = ("Ya tenías una importación en curso en este "
+                       "concurso; este es su progreso. El archivo que "
+                       "acabas de enviar no se importó.")
+    contest: Contest | None
+
+    def _plan(self, rows: list) -> tuple[object | None, list[str]]:
+        """Plan the import of the rows; see plan_import."""
+        raise NotImplementedError
+
+    def _import_url(self) -> str:
+        """Return the URL of the page."""
+        raise NotImplementedError
+
+    def _contest_id(self) -> int | None:
+        return None if self.contest is None else self.contest.id
 
     def _render_page(self, mapping: dict[str, str] | None = None,
                      errors: list[str] | None = None,
@@ -377,8 +421,9 @@ class ImportUsersHandler(BaseHandler):
         """
         self.r_params = self.render_params()
         self.r_params["contest"] = self.contest
-        self.r_params["fields"] = FIELDS
-        self.r_params["mapping"] = mapping or {}
+        self.r_params["fields"] = self.fields
+        self.r_params["required"] = self.required
+        self.r_params["mapping"] = _shown_mapping(mapping or {})
         self.r_params["errors"] = errors or []
         self.r_params["summary"] = summary
         self.r_params["job"] = job
@@ -391,17 +436,16 @@ class ImportUsersHandler(BaseHandler):
         job: the job.
 
         """
-        return self.url("contest", self.contest.id, "users",
-                        "import") + "?job=" + job.id
+        return self._import_url() + "?job=" + job.id
 
-    def _get_sync(self, contest_id: str) -> None:
-        self.contest = self.safe_get_item(Contest, contest_id)
+    def _show_page(self) -> None:
+        """Show the form, or the progress of the job of ?job=."""
         job_id = self.get_argument("job", None)
         if job_id is None:
             self._render_page()
             return
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
-        if job is None or job.contest_id != self.contest.id:
+        if job is None or job.contest_id != self._contest_id():
             # A notice, not an error: the job may have been saved before it
             # expired or the AWS restarted, so "nothing was applied" would
             # be false.
@@ -413,28 +457,21 @@ class ImportUsersHandler(BaseHandler):
         # admin must not take the progress for the one of that file.
         repeated = bool(self.get_argument("repetido", None))
         self._render_page(job=job, notice=(
-            "Ya tenías una importación en curso en este concurso; este es "
-            "su progreso. El archivo que acabas de enviar no se importó."
-            if repeated else None))
+            self.repeated_notice if repeated else None))
 
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    async def get(self, contest_id: str) -> None:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._get_sync, contest_id)
-
-    def _post_sync(self, contest_id: str) -> None:
-        self.contest = self.safe_get_item(Contest, contest_id)
+    def _upload(self) -> None:
+        """Validate the file sent, and start its import if asked to."""
         mapping = {field: self.get_argument("map_" + field, "")
-                   for field in FIELDS}
+                   for field in self.fields}
         files = self.request.files.get("file")
         if not files:
             self._render_page(mapping, errors=["elige un archivo CSV"])
             return
-        rows, errors = read_rows(files[0]["body"], mapping)
+        rows, errors = read_rows(files[0]["body"], mapping, self.fields,
+                                 self.required)
         plan = None
         if not errors:
-            plan, errors = plan_import(self.sql_session, self.contest.id,
-                                       rows)
+            plan, errors = self._plan(rows)
         if errors:
             self._render_page(mapping, errors=errors)
             return
@@ -448,24 +485,45 @@ class ImportUsersHandler(BaseHandler):
             self.schedule_rpc(service.proxy_service.reinitialize)
 
         try:
-            job = IMPORT_JOBS.start(self.current_user.id, self.contest.id,
+            job = IMPORT_JOBS.start(self.current_user.id, self._contest_id(),
                                     rows, on_done)
         except ValueError:
-            # The contest already has a running import. If it is this
-            # admin's, follow it instead of losing its progress page. The
-            # file just sent may not be the one that is running, so the
-            # page is told that it was not imported. Otherwise there is
-            # nothing wrong with the file: the admin only has to wait.
-            running = IMPORT_JOBS.running_job(self.contest.id)
+            # An import of the same kind is running. If it is this admin's,
+            # follow it instead of losing its progress page. The file just
+            # sent may not be the one that is running, so the page is told
+            # that it was not imported. Otherwise there is nothing wrong
+            # with the file: the admin only has to wait.
+            running = IMPORT_JOBS.running_job(self._contest_id())
             if running is not None \
                     and running.owner_id == self.current_user.id:
                 self.redirect(self._job_url(running) + "&repetido=1")
                 return
-            self._render_page(mapping, notice=(
-                "Hay una importación en curso para este concurso; "
-                "espera a que termine."))
+            self._render_page(mapping, notice=self.running_notice)
             return
         self.redirect(self._job_url(job))
+
+
+class ImportUsersHandler(ImportPageHandler):
+    """Bulk import of users and participations into a contest (CSV)."""
+
+    def _plan(self, rows: list) -> tuple[object | None, list[str]]:
+        return plan_import(self.sql_session, self.contest.id, rows)
+
+    def _import_url(self) -> str:
+        return self.url("contest", self.contest.id, "users", "import")
+
+    def _get_sync(self, contest_id: str) -> None:
+        self.contest = self.safe_get_item(Contest, contest_id)
+        self._show_page()
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, contest_id: str) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync, contest_id)
+
+    def _post_sync(self, contest_id: str) -> None:
+        self.contest = self.safe_get_item(Contest, contest_id)
+        self._upload()
 
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def post(self, contest_id: str) -> None:
@@ -473,14 +531,74 @@ class ImportUsersHandler(BaseHandler):
         await loop.run_in_executor(None, self._post_sync, contest_id)
 
 
+def _write_job_status(handler: BaseHandler, job: ImportJob) -> None:
+    """Write the progress of a job as JSON, never cached.
+
+    handler: the handler that answers the request.
+    job: the job.
+
+    """
+    handler.set_header("Content-Type", "application/json")
+    handler.set_header("Cache-Control", "no-store")
+    handler.write(json.dumps(job.as_json()))
+
+
 class ImportJobStatusHandler(BaseHandler):
-    """The progress of an import job, as JSON, for its owner only."""
+    """The progress of a contest import job, as JSON, for its owner only."""
 
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def get(self, contest_id: str, job_id: str) -> None:
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
         if job is None or str(job.contest_id) != contest_id:
             raise tornado.web.HTTPError(404)
-        self.set_header("Content-Type", "application/json")
-        self.set_header("Cache-Control", "no-store")
-        self.write(json.dumps(job.as_json()))
+        _write_job_status(self, job)
+
+
+class ImportGlobalUsersHandler(ImportPageHandler):
+    """Bulk import of user accounts, with their password (CSV).
+
+    It registers nobody in any contest; see ImportUsersHandler for that.
+
+    """
+    fields = USER_FIELDS
+    required = USER_REQUIRED
+    running_notice = ("Hay una importación de usuarios en curso; espera a "
+                      "que termine.")
+    repeated_notice = ("Ya tenías una importación de usuarios en curso; "
+                       "este es su progreso. El archivo que acabas de "
+                       "enviar no se importó.")
+
+    def _plan(self, rows: list) -> tuple[object | None, list[str]]:
+        return plan_user_import(self.sql_session, rows)
+
+    def _import_url(self) -> str:
+        return self.url("users", "import")
+
+    def _get_sync(self) -> None:
+        self.contest = None
+        self._show_page()
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_sync)
+
+    def _post_sync(self) -> None:
+        self.contest = None
+        self._upload()
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def post(self) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._post_sync)
+
+
+class GlobalImportJobStatusHandler(BaseHandler):
+    """The progress of a global users import job, as JSON, for its owner."""
+
+    @require_permission(BaseHandler.PERMISSION_ALL)
+    async def get(self, job_id: str) -> None:
+        job = IMPORT_JOBS.get(job_id, self.current_user.id)
+        if job is None or job.contest_id is not None:
+            raise tornado.web.HTTPError(404)
+        _write_job_status(self, job)

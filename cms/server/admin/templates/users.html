@@ -6,6 +6,10 @@
   <h1>Users list</h1>
 </div>
 
+{% if admin.permission_all %}
+<p><a href="{{ url("users", "import") }}">Importar CSV</a></p>
+{% endif %}
+
 <form action="{{ url("users", "remove") }}" method="POST">
   {{ xsrf_form_html|safe }}
   <input type="hidden" name="action" value="preview"/>
