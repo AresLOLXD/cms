@@ -48,8 +48,13 @@ ES_LIMIT_S = 150
 SCORES_LIMIT_S = 420
 # F1: the logs name the lost connection within this many seconds.
 F1_WINDOW_S = 120
-# F3: a new connection fails at the connect deadline of 10 s.
+# F3: a new connection fails at the connect deadline of 10 s. The slack
+# is how long after the pause its effects may still be logged, and, added
+# to the connect limit, how long a request that started during the pause
+# may last: one that waits for the resume instead lasts about the pause.
 F3_CONNECT_LIMIT_S = 12
+F3_SLACK_S = 15
+F3_REQUEST_LIMIT_S = F3_CONNECT_LIMIT_S + F3_SLACK_S
 # F4: cmsSetupDB exits within 15 s, and CWS p99 stays at most 6 s from
 # its start to 5 s after it exits.
 F4_EXIT_LIMIT_S = 15
@@ -95,7 +100,9 @@ def read_logs(run_dir: str, service: str) -> list[tuple[float, str]]:
 
     run_dir: the run directory.
     service: how the log directories' names start, as
-        "EvaluationService"; "" for every service.
+        "EvaluationService"; "" for every service (the directory "cms",
+        LogService's merged copy of every record, is skipped then, or
+        each record would count twice).
 
     return: (time, record) pairs.
 
@@ -103,6 +110,9 @@ def read_logs(run_dir: str, service: str) -> list[tuple[float, str]]:
     entries = []
     pattern = os.path.join(run_dir, "cmslog", service + "*", "[0-9]*.log")
     for path in glob.glob(pattern):
+        if service == "" and os.path.basename(
+                os.path.dirname(path)) == "cms":
+            continue
         last = None
         with open(path, errors="replace") as f:
             for line in f:
@@ -182,15 +192,16 @@ def es_failed_flushes(es_logs: list[tuple[float, str]], start: float,
 
 
 def cws_500s(cws_logs: list[tuple[float, str]], start: float,
-             end: float) -> list[float]:
+             end: float, after: float = 0.0) -> list[float]:
     """Return the request times of the CWS 500 answers to the requests
-    that started between start and end.
+    that started between start and end and were logged at or after
+    after.
 
     """
     times = []
     for t, line in cws_logs:
         match = ACCESS.search(line)
-        if match is not None and match.group(1) == "500":
+        if match is not None and match.group(1) == "500" and t >= after:
             took = float(match.group(2)) / 1000
             if start <= t - took <= end:
                 times.append(took)
@@ -253,7 +264,8 @@ def check(run_dir: str) -> list[Row]:
     requests = [request for request
                 in load_jsonl(os.path.join(run_dir, "requests.jsonl"))
                 if request["shard"] != "rws"]
-    pages = [request["t"] for request in requests
+    # When the answers arrived: the request time plus its duration.
+    pages = [request["t"] + request["dur"] for request in requests
              if 200 <= request["status"] < 400]
     es_done = [t for t, line in es if line.endswith("] Done")]
     export = _load_json(os.path.join(run_dir, "db_export.json"), None)
@@ -263,9 +275,12 @@ def check(run_dir: str) -> list[Row]:
     rows.append(("F1", "injections", str(len(f1)), "2", len(f1) == 2))
     for index, record in enumerate(f1, 1):
         start = record["start"]
+        # A window ends at the next injection, whose effects are its own.
+        end = start + F1_WINDOW_S
+        if index < len(f1):
+            end = min(end, f1[index]["start"])
         lines = sum(1 for t, line in every
-                    if start <= t <= start + F1_WINDOW_S
-                    and DISCONNECT.search(line))
+                    if start <= t < end and DISCONNECT.search(line))
         rows.append(("F1", "backends ended (#%d)" % index,
                      str(record["terminated"]), "> 0",
                      record["terminated"] > 0))
@@ -278,6 +293,8 @@ def check(run_dir: str) -> list[Row]:
     else:
         window = (f2["start"] - CALL_LIMIT_S, f2["end"])
         answers = cws_500s(cws, *window)
+        # Answered after the drop began; one logged before it is not it.
+        during = cws_500s(cws, *window, after=f2["start"])
         rows.append(_longest("F2", "ES flush that lost the connection",
                              es_failed_flushes(es, *window), CALL_LIMIT_S))
         rows.append(_longest("F2", "CWS 500 answer", answers, CALL_LIMIT_S))
@@ -285,7 +302,7 @@ def check(run_dir: str) -> list[Row]:
                              ss_failed_operations(ss, *window),
                              CALL_LIMIT_S))
         rows.append(("F2", "CWS 500 answers during the drop",
-                     str(len(answers)), "> 0", bool(answers)))
+                     str(len(during)), "> 0", bool(during)))
         rows.append(("F2", "backends ended by the partition step",
                      str(f2["partition_step_terminated"]), "recorded",
                      True))
@@ -311,14 +328,17 @@ def check(run_dir: str) -> list[Row]:
         rows.append(("F3", "ran", "no", "yes", False))
     else:
         expired = sum(1 for t, line in every
-                      if f3["start"] <= t <= f3["end"] + 15
+                      if f3["start"] <= t <= f3["end"] + F3_SLACK_S
                       and "timeout expired" in line)
         # A new connection must have failed at its deadline: with none,
-        # the run did not show the behaviour.
+        # the run did not show the behaviour. There are two ways to have
+        # none: no connection was attempted, or the deadline did not fire
+        # and the attempts waited for the resume.
         rows.append(("F3", "'timeout expired' log lines",
                      str(expired) if expired else
-                     "0 (no connect was attempted during the pause, so "
-                     "the deadline was not exercised)",
+                     "0 (no new connection failed with 'timeout expired' "
+                     "during the pause: either none was attempted or the "
+                     "deadline did not fire)",
                      "> 0", expired > 0))
         answers = cws_500s(cws, f3["start"], f3["end"])
         if answers:
@@ -329,6 +349,18 @@ def check(run_dir: str) -> list[Row]:
             # connections; the row above carries the requirement.
             rows.append(("F3", "longest CWS 500 answer", "no 500 answers",
                          "<= %g s" % F3_CONNECT_LIMIT_S, True))
+        lasted = [request["dur"] for request in requests
+                  if f3["start"] <= request["t"] <= f3["end"]]
+        what = "longest non-RWS request that started during the pause"
+        limit = "<= %g s" % F3_REQUEST_LIMIT_S
+        if lasted:
+            rows.append(("F3", what,
+                         "%s of %d" % (fmt(max(lasted)), len(lasted)),
+                         limit, max(lasted) <= F3_REQUEST_LIMIT_S))
+        else:
+            rows.append(("F3", what,
+                         "no request started during the pause", limit,
+                         True))
         rows.append(_within("F3", "pages answer again after",
                             first_after(pages, f3["end"]), PAGES_LIMIT_S))
 
@@ -336,6 +368,13 @@ def check(run_dir: str) -> list[Row]:
     if "exit_status" not in f4:
         rows.append(("F4", "ran", "no", "yes", False))
     else:
+        ready = bool(f4.get("holder_ready"))
+        rows.append(("F4", "holder idle in its transaction before "
+                     "cmsSetupDB",
+                     "yes" if ready else
+                     "no (the holder was not idle in its transaction "
+                     "after 30 s, so the lock may not have been held)",
+                     "yes", ready))
         rows.append(("F4", "cmsSetupDB exit status",
                      str(f4["exit_status"]), "1", f4["exit_status"] == 1))
         rows.append(_within("F4", "cmsSetupDB duration", f4["duration"],

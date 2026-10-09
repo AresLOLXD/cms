@@ -90,6 +90,11 @@ DROP_RULES = (
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
+def report(message: str) -> None:
+    """Print a problem of the cleanup to stderr (it goes to faults.log)."""
+    print(message, file=sys.stderr, flush=True)
+
+
 def run_command(argv: list[str],
                 check: bool = True) -> subprocess.CompletedProcess:
     """Run a command and capture its output as text.
@@ -245,8 +250,10 @@ class Injector:
             stderr=subprocess.DEVNULL, text=True)
         self.holder.stdin.write(HOLDER_SCRIPT)
         self.holder.stdin.close()
+        ready = False
         for _ in range(30):
             if self.psql(HOLDER_READY_SQL) != "0":
+                ready = True
                 break
             self.sleep(1)
         start = self.clock()
@@ -257,7 +264,7 @@ class Injector:
         self.holder = None
         self.records.append({
             "fault": "F4", "start": start, "end": end,
-            "exit_status": setup.returncode,
+            "holder_ready": ready, "exit_status": setup.returncode,
             "duration": round(end - start, 1),
             "message": SETUP_DB_MESSAGE in setup.stdout + setup.stderr})
 
@@ -265,27 +272,57 @@ class Injector:
         """Delete the DROP rules in place, the last added first.
 
         A rule leaves the list only once its deletion was tried, so that
-        a signal during it leaves the rule to cleanup.
+        a signal during it leaves the rule to cleanup. A deletion that
+        fails or raises is reported, and the next one is tried.
 
         """
         while self.rules:
             pid, rule = self.rules[-1]
-            deleted = self.run(iptables_argv(pid, "-D", rule), check=False)
+            try:
+                deleted = self.run(iptables_argv(pid, "-D", rule),
+                                   check=False)
+            except Exception as error:
+                report("iptables -D %s raised %r" % (" ".join(rule), error))
+            else:
+                if deleted.returncode != 0:
+                    report("iptables -D %s failed: %s"
+                           % (" ".join(rule), deleted.stderr.strip()))
             self.rules.pop()
-            if deleted.returncode != 0:
-                print("iptables -D %s failed: %s"
-                      % (" ".join(rule), deleted.stderr.strip()),
-                      file=sys.stderr, flush=True)
+
+    def _unpause(self) -> None:
+        """Unpause PostgreSQL if it is paused; report a failure."""
+        if self.paused is None:
+            return
+        unpaused = self.run(self.docker("unpause", self.paused), check=False)
+        container, self.paused = self.paused, None
+        if unpaused.returncode != 0:
+            report("docker unpause %s failed: %s"
+                   % (container, unpaused.stderr.strip()))
+
+    def _end_holder(self) -> None:
+        """Kill the holder's psql, if there is one."""
+        if self.holder is not None:
+            holder, self.holder = self.holder, None
+            holder.kill()
+
+    def _guarded(self, what: str, step: Callable[[], None]) -> None:
+        """Run a cleanup step; report an exception instead of raising."""
+        try:
+            step()
+        except Exception as error:
+            report("cleanup: %s raised %r" % (what, error))
 
     def cleanup(self) -> None:
-        """Undo whatever fault is still in place."""
+        """Undo whatever fault is still in place, and save the records.
+
+        Every step runs even if an earlier one failed: a problem is
+        reported to stderr and the next step goes on.
+
+        """
         self._delete_rules()
-        if self.paused is not None:
-            self.run(self.docker("unpause", self.paused), check=False)
-            self.paused = None
-        if self.holder is not None:
-            self.holder.kill()
-            self.holder = None
+        self._guarded("docker unpause", self._unpause)
+        self._guarded("ending the holder", self._end_holder)
+        self._guarded("saving faults.json", self.save)
 
     def run_schedule(self, contest_start: float) -> None:
         """Inject every fault at its time, and record each one.
@@ -321,8 +358,9 @@ def main() -> int:
     try:
         injector.run_schedule(contest_start)
     finally:
+        # A second SIGTERM must not cut the cleanup short.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         injector.cleanup()
-        injector.save()
     return 0
 
 

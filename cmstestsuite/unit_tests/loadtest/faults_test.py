@@ -78,6 +78,23 @@ class SignalingRunner(FakeRunner):
         return result
 
 
+class FailingRunner(FakeRunner):
+    """A FakeRunner whose first command with a given text raises."""
+
+    def __init__(self, answers: dict[str, tuple[int, str, str]],
+                 fail_on: str | None):
+        super().__init__(answers)
+        self.fail_on = fail_on
+
+    def __call__(self, argv: list[str],
+                 check: bool = True) -> subprocess.CompletedProcess:
+        result = super().__call__(argv, check)
+        if self.fail_on is not None and self.fail_on in " ".join(argv):
+            self.fail_on = None
+            raise OSError("the command could not run")
+        return result
+
+
 class FakeTime:
     """A clock that moves only when the injector sleeps."""
 
@@ -119,6 +136,13 @@ class FakePopen:
 
     def kill(self) -> None:
         self.killed = True
+
+
+class BrokenPopen(FakePopen):
+    """A holder that cannot be killed."""
+
+    def kill(self) -> None:
+        raise OSError("no such process")
 
 
 class InjectorTest(unittest.TestCase):
@@ -274,11 +298,59 @@ class InjectorTest(unittest.TestCase):
                            + faults.SETUP_DB_MESSAGE + ": another\n")})
         injector.f4()
         record = injector.records[-1]
-        self.assertEqual((record["fault"], record["exit_status"],
-                          record["message"]), ("F4", 1, True))
+        self.assertEqual((record["fault"], record["holder_ready"],
+                          record["exit_status"], record["message"]),
+                         ("F4", True, 1, True))
         self.assertEqual(self.popens[0].stdin.text, faults.HOLDER_SCRIPT)
         self.assertIn("psql", self.popens[0].argv[3])
         self.assertIsNone(injector.holder)
+
+    def test_f4_records_that_the_holder_never_became_ready(self):
+        injector = self._injector({"application_name = ": (0, "0\n", "")})
+        injector.f4()
+        self.assertIs(injector.records[-1]["holder_ready"], False)
+
+    def test_a_cleanup_step_that_raises_does_not_stop_the_others(self):
+        for broken in ("iptables -D", "unpause", "kill"):
+            with self.subTest(broken=broken):
+                injector = self._injector()
+                injector.run = FailingRunner(
+                    ANSWERS, None if broken == "kill" else broken)
+                holder = (BrokenPopen if broken == "kill" else FakePopen)(
+                    ["psql"])
+                injector.rules.extend(
+                    [(4242, faults.DROP_RULES[0]),
+                     (4242, faults.DROP_RULES[1])])
+                injector.paused = "c0ffee"
+                injector.holder = holder
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors):
+                    injector.cleanup()
+                self.assertIn("raised", errors.getvalue())
+                commands = [" ".join(command)
+                            for command in injector.run.commands]
+                self.assertEqual(
+                    sum("iptables -D" in command for command in commands),
+                    2)
+                self.assertTrue(any("unpause" in command
+                                    for command in commands))
+                self.assertEqual(injector.rules, [])
+                self.assertIsNone(injector.holder)
+                if broken != "kill":
+                    self.assertTrue(holder.killed)
+                with open(self.out) as f:
+                    self.assertEqual(json.load(f), injector.records)
+
+    def test_a_failed_unpause_is_reported(self):
+        injector = self._injector(
+            {"unpause": (1, "", "Error: no such container\n")})
+        injector.paused = "c0ffee"
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            injector.cleanup()
+        self.assertIn("docker unpause c0ffee failed", errors.getvalue())
+        self.assertIn("no such container", errors.getvalue())
+        self.assertIsNone(injector.paused)
 
     def test_the_records_are_saved_as_json(self):
         injector = self._injector({"pg_terminate_backend": (0, "3\n", "")})
