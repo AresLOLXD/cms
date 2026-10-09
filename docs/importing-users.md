@@ -2,18 +2,23 @@
 
 The Admin Web Server (AWS) can load the contestants of a contest from one CSV
 file. For each row it creates the user if it does not exist and registers the
-user in the contest with that day's password. It replaces
-[CMS-Loader](cms-loader.md), which will be removed after 2026-10-10.
+user in the contest with that day's password. It can also create the user
+accounts alone, with their own password, from the global Users list (see
+"Importing accounts" below). It replaces [CMS-Loader](cms-loader.md), which
+will be removed after 2026-10-10.
 
 The import page is in Spanish. The texts below are quoted as they appear on
 the page.
 
 ## Where
 
-**Contest → Users → "Importar CSV"**
+**Contest → Users → "Importar CSV"**, to register the contestants of a contest.
 
-The link is only shown to admins with full permission. Other admins do not see
-it and cannot open the page.
+**Users → "Importar CSV"**, to create or update user accounts alone (see
+"Importing accounts" below).
+
+Both links are only shown to admins with full permission. Other admins do not
+see them and cannot open the pages.
 
 ## The file
 
@@ -36,7 +41,7 @@ it and cannot open the page.
 | `username` | yes | The login. It is unique in the whole of CMS. Only letters A-Z a-z, digits, `_` and `-` (no spaces, dots, accents or `@`). Capitals matter: `Ana01` and `ana01` are different users. | `username`, `usuario`, `user` |
 | `first_name` | yes | First name | `first_name`, `nombre`, `nombres` |
 | `last_name` | yes | Last name | `last_name`, `apellido`, `apellidos` |
-| `password` | yes | The day password (see below). At most 72 bytes. | `password`, `contraseña`, `contrasena`, `clave` |
+| `password` | no | The day password (see below). At most 72 bytes. Without this column, see "Without a password column" below. | `password`, `contraseña`, `contrasena`, `clave` |
 | `team` | no | The team code, for example `JAL`. | `team`, `equipo`, `estado` |
 | `group` | no | The name of a group of this contest. | `group`, `grupo` |
 
@@ -75,9 +80,27 @@ The `password` column is the participation password of this contest. Upload
 **one file per contest day**, with that day's passwords.
 
 New accounts get a random account password that nobody knows, so only the day
-password logs in. If you later add these users to another contest by hand, set
-a participation password there, because the account password is not meant to be
-used.
+password logs in. To give the contestants an account password instead, import
+the accounts first on **Users → "Importar CSV"** (see "Importing accounts"
+below), then import the contest without a password column.
+
+### Without a password column
+
+Leave the password selector on **"(sin asignar)"** to register users who
+already have an account password:
+
+- A new participation gets no password of its own, so the contestant logs
+  in with the account password.
+- An existing participation keeps its password, whatever it is.
+- Every user in the file must already exist. Otherwise the row gets
+  "fila N: el usuario X no existe; sin columna de contraseña solo se pueden
+  inscribir usuarios que ya existen" and nothing is applied: a new account
+  would get a random password and could never log in.
+
+When the file has a column called `password` or `contraseña`, the page
+assigns it on its own: set it back to "(sin asignar)" before validating,
+and again after the page shows errors, since the password selector is
+always guessed again.
 
 ## Import step by step
 
@@ -140,7 +163,10 @@ contestants' submissions and logins. Import before the contest starts.
   kept.
 - **Participation:** if the user is not yet in the contest, they are added. If
   they are already in it, their participation is updated. In both cases the
-  password, the team and the group are those of the row.
+  password, the team and the group are those of the row. The exception is a
+  password left on "(sin asignar)": a new participation then gets no password
+  of its own and an existing one keeps its password (see "Without a password
+  column" above).
 - Nothing else changes. The other participations of the user, and the users or
   participations that are not in the file, are left as they are. So are the
   other settings of a participation: Hidden participation, Unrestricted
@@ -209,11 +235,13 @@ groups are checked after the rest of the file.
 | "fila N: el usuario está vacío", "fila N: el nombre está vacío", "fila N: el apellido está vacío", "fila N: la contraseña está vacía" | Fill in the cell. |
 | "fila N: el usuario X está repetido (fila M)" | Each username may appear only once per file. |
 | "fila N: el usuario X tiene caracteres no permitidos (solo letras sin acentos, números, _ y -)" | Change the username to use only those characters. |
+| "fila N: el usuario X no existe; sin columna de contraseña solo se pueden inscribir usuarios que ya existen" | Import the accounts first on Users → "Importar CSV", or assign the password column. |
 | "fila N: el equipo X no existe" | Create the team in **Teams**, or fix the code. |
 | "fila N: el grupo X no existe en este concurso" | Create the group in **Contest → Groups**, or fix the name. |
 | "fila N: la contraseña pasa de 72 bytes" | Use a shorter password. |
 | "fila N: la contraseña tiene caracteres no permitidos" | The password has a control character, which is usually invisible and comes from a pasted cell. Type the password again. |
 | "fila N: la celda del usuario tiene caracteres no permitidos" (or "del nombre", "del apellido", "del equipo", "del grupo") | The cell has a NUL character, which is invisible. Type the cell again. |
+| "Hay una importación de usuarios en curso; espera a que termine." | Another admin is importing accounts. Wait and upload again. |
 
 ## Progress problems
 
@@ -266,6 +294,33 @@ groups are checked after the rest of the file.
 Passwords are stored hashed, so they cannot be read back, and AWS has **no
 download or export**. Keep the original file safe: nothing in AWS can give the
 day passwords back.
+
+## Importing accounts
+
+**Users → "Importar CSV"** creates or updates user accounts with their
+account password, and registers nobody in any contest.
+
+| Field | Required | What it holds |
+|-------|----------|---------------|
+| `username` | yes | The login, with the same rules as above. |
+| `first_name` | yes | First name |
+| `last_name` | yes | Last name |
+| `password` | yes | The account password. At most 72 bytes, no control characters. |
+
+The file, the column selectors, "Solo validar", "Importar", the progress
+bar and the errors work as in the contest import. Other columns, such as
+`team` or `group`, are ignored.
+
+- A **new user** is created with the row's names and password.
+- An **existing user** gets the row's first name, last name and password.
+  If the password did not change, the stored hash is kept, so a contestant
+  logged in with it stays logged in. Nothing else of the user changes, and
+  no participation changes.
+
+The account password only logs in to the contests where the participation
+has no password of its own. To use it for a contest day, import the same
+file in the contest with the password left "(sin asignar)" (see
+"Without a password column" above).
 
 ## Removing users and participations
 

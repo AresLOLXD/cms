@@ -151,8 +151,8 @@ password; then, in each contest, import the same CSV with the password left
   is not mapped. A mapped password with an empty cell is still the error
   "la contraseña está vacía".
 - `plan_import` (contest): when the rows carry no password, every username
-  that does not exist is an error on its row, and the plan records that
-  participation passwords are not touched.
+  that does not exist is an error on its row, and `apply_import` leaves a
+  participation password alone when the row has none.
 - `apply_import` (contest): with no password, a new participation gets
   `password = None` and an existing one keeps its password.
 - New `plan_user_import(session, rows)`: the new and the existing usernames,
@@ -239,5 +239,5 @@ password; then, in each contest, import the same CSV with the password left
   passwords and stay logged in.
 - **Locally, not on GitHub** (the fork's workflows are disabled and runs
   must be frugal): the admin unit tests, the docs translation check and
-  Spanish build, and the functional tests on the rootful Docker harness.
+  Spanish build, and the whole unit suite in its two pytest groups.
   The work is pushed once, after the final review.
