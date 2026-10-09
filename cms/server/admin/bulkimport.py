@@ -21,6 +21,9 @@
 One CSV per contest: each row creates the user if missing and registers
 its participation in the contest, with the day's password.
 
+The global users import takes a CSV of accounts, each with its own password,
+and registers nobody in any contest.
+
 The error messages are meant to be shown as they are in the page, so they
 never contain a data cell of the column mapped to the password.
 

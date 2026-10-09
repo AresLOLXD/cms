@@ -123,7 +123,8 @@ class ImportJobStore:
             del self._jobs[job_id]
 
     def _find_running(self, contest_id: int | None) -> ImportJob | None:
-        """Find the job running for a contest; the caller holds the lock.
+        """Find the job running for a contest or for the global users import
+        (None); the caller holds the lock.
 
         contest_id: the contest, or None for the global users import.
 
@@ -137,11 +138,12 @@ class ImportJobStore:
     def start(self, owner_id: int, contest_id: int | None,
               rows: list[ImportRow],
               on_done: Callable[[], None]) -> ImportJob:
-        """Start importing rows into a contest, in a thread.
+        """Start importing rows into a contest, or the global users import
+        when contest_id is None, in a thread.
 
         owner_id: the admin who starts it.
         contest_id: the contest, or None for a global users import.
-        rows: the rows, already validated by read_rows and plan_import.
+        rows: the rows, already validated by read_rows and the plan step.
         on_done: called after the commit (to notify ProxyService).
 
         return: the job.
@@ -236,7 +238,8 @@ class ImportJobStore:
                            _describe(job), type(exc).__name__)
 
     def running_job(self, contest_id: int | None) -> ImportJob | None:
-        """Return the job that is running for a contest, if any.
+        """Return the job that is running for a contest or for the global
+        users import (None), if any.
 
         It is the job that makes start() refuse another one, whoever
         started it.
