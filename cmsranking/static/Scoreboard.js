@@ -164,9 +164,9 @@ var Scoreboard = new function () {
 <col class=\"sel\"/> \
 <col class=\"rank\"/> \
 <col class=\"f_name\"/> <col/><col/><col/><col/><col/><col/><col/><col/><col/> \
-<col class=\"l_name\"/> <col/><col/><col/><col/><col/><col/><col/><col/><col/> \
-<col class=\"user_id\"/> \
-<col class=\"team\"/>";
+<col class=\"l_name\"/> <col/><col/><col/><col/><col/><col/><col/><col/><col/>" +
+            (PublicConfig.show_id_column ? "<col class=\"user_id\"/>" : "") +
+            "<col class=\"team\"/>";
 
         var contests = DataStore.contest_list;
         for (var i in contests) {
