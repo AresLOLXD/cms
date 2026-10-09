@@ -411,16 +411,26 @@ writes their start and end times to `out/<name>/faults.json`:
 After the run, `faultstats.py out/<name>` checks the pass criteria of
 `docs/superpowers/specs/2026-10-08-db-transport-timeouts-design.md` and
 writes `out/<name>/faults.md`: one row per criterion, `pass` or `FAIL`.
-F3's probe runs in the `cms` container and opens a new connection through
-CMS's own path (the connection defaults, no pool) while PostgreSQL is paused,
-and F3 passes only if that connect began inside the pause and failed with
-`timeout expired` at about 10 s, which proves the connect deadline; a probe that connects (the pause did not stall
-connects) or hangs fails it, and the `timeout expired` log lines and the
-requests that started during the pause are for information only, since
-pooled connections just wait for the resume.
-The injector needs passwordless `sudo`, as GitHub runners have. If it
-stops on an error or on SIGTERM (`run.sh` sends it at the end of the
-run), it removes its rules and unpauses PostgreSQL first.
+After F2 and F3, each CWS shard has its own "pages answer again" row, so
+one frozen shard fails the run even while the others answer.
+
+F3's probe runs in the `cms` container and opens a new connection
+through CMS's own path (green psycopg2, the connection defaults, no pool)
+while PostgreSQL is paused. F3 passes only if that connect began inside
+the pause, in a green psycopg2, and failed with `timeout expired` at
+about 10 s, which proves the connect deadline. Any other probe fails it,
+and its row says why: it connected at once (the pause did not stall
+connects), it connected only after the resume or hung (the deadline did
+not fire), or it never reached its connect (inconclusive). The
+`timeout expired` log lines and the requests that started during the
+pause are for information only, since pooled connections just wait for
+the resume.
+
+The injector needs passwordless `sudo`, as GitHub runners have. A fault
+that fails or hangs gets its error in its record (its row fails), what
+it left in place is undone, and the next fault still runs. If the
+injector stops on an error or on SIGTERM (`run.sh` sends it at the end
+of the run), it removes its rules and unpauses PostgreSQL first.
 
 On GitHub Actions, push the commit to a `loadtest/faults-<topic>` branch:
 the `faults` job runs the fork once per profile, smoke-sized, and shows

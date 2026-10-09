@@ -73,12 +73,13 @@ class FaultStatsTest(unittest.TestCase):
             {"fault": "F3", "start": START + 600, "end": START + 630,
              "probe": {"elapsed_s": 10.1, "outcome": "error",
                        "error": "OperationalError: timeout expired",
-                       "connect_started_at": START + 603}},
+                       "connect_started_at": START + 603, "green": True}},
             {"fault": "F4", "start": START + 1000, "end": START + 1006,
              "holder_ready": True, "exit_status": 1, "duration": 6.0,
              "message": True},
             {"fault": "F2", "start": F2_START, "end": F2_START + 90,
-             "partition_step": RECOVERED, "partition_step_terminated": 0},
+             "rules_removed": True, "partition_step": RECOVERED,
+             "partition_step_terminated": 0},
         ]
         self.logs = {
             "EvaluationService-0": [
@@ -119,6 +120,11 @@ class FaultStatsTest(unittest.TestCase):
             {"t": RECOVERED + 5, "dur": 0.1, "status": 200, "shard": "rws"},
             {"t": RECOVERED + 20, "dur": 0.1, "status": 200,
              "shard": "cms:8888"},
+            # A second shard, which answers again later than the first.
+            {"t": START + 645, "dur": 0.2, "status": 200,
+             "shard": "cms:8889"},
+            {"t": RECOVERED + 30, "dur": 0.2, "status": 200,
+             "shard": "cms:8889"},
         ]
         self.submissions: list[dict] | None = [
             {"timestamp": F2_START - 10, "scored_at": RECOVERED + 200},
@@ -185,7 +191,11 @@ class FaultStatsTest(unittest.TestCase):
             ("F2", "longest SS operation that failed"):
                 ("61.0 s of 1", True),
             ("F2", "CWS 500 answers during the drop"): ("1", True),
-            ("F2", "pages answer again after"): ("20.1 s", True),
+            ("F2", "DROP rules removed after the drop"): ("yes", True),
+            ("F2", "shard cms:8888 pages answer again after"):
+                ("20.1 s", True),
+            ("F2", "shard cms:8889 pages answer again after"):
+                ("30.2 s", True),
             ("F2", "ES commits again after"): ("31.0 s", True),
             ("F2", "earlier submissions scored after"): ("200.0 s", True),
             ("F3", PROBE_ROW): ("timeout expired after 10.1 s", True),
@@ -193,7 +203,10 @@ class FaultStatsTest(unittest.TestCase):
             ("F3", "longest CWS 500 answer"): ("10.0 s of 1", True),
             ("F3", "longest non-RWS request that started during the "
                    "pause"): ("10.0 s of 1", True),
-            ("F3", "pages answer again after"): ("10.1 s", True),
+            ("F3", "shard cms:8888 pages answer again after"):
+                ("10.1 s", True),
+            ("F3", "shard cms:8889 pages answer again after"):
+                ("15.2 s", True),
             ("F4", "holder idle in its transaction before cmsSetupDB"):
                 ("yes", True),
             ("F4", "CWS p99 from its start to 5 s after its exit"):
@@ -270,7 +283,7 @@ class FaultStatsTest(unittest.TestCase):
                 "connect_started_at": (START + 603
                                        if connect_started_at is None
                                        else connect_started_at),
-                **probe}
+                "green": True, **probe}
         return self._rows()[("F3", PROBE_ROW)]
 
     def test_a_probe_that_timed_out_at_ten_seconds_passes(self):
@@ -282,19 +295,72 @@ class FaultStatsTest(unittest.TestCase):
                                      "OperationalError: timeout expired"}),
                     ("timeout expired after %.1f s" % elapsed, True))
 
-    def test_a_probe_that_connected_fails_the_run(self):
-        value, passed = self._probe_row(
-            {"elapsed_s": 0.1, "outcome": "ok", "error": ""})
-        self.assertFalse(passed)
-        self.assertIn("the pause did not stall connects", value)
-        self.assertEqual(self._main()[0], 1)
+    def test_a_probe_that_connected_at_once_fails_the_run(self):
+        for elapsed in (0.1, 8.9):
+            with self.subTest(elapsed=elapsed):
+                value, passed = self._probe_row(
+                    {"elapsed_s": elapsed, "outcome": "ok", "error": ""})
+                self.assertFalse(passed)
+                self.assertEqual(
+                    value, "connected at once: the pause did not stall "
+                    "connects (after %.1f s)" % elapsed)
+                self.assertEqual(self._main()[0], 1)
 
-    def test_a_probe_that_hung_fails_the_run(self):
+    def test_a_probe_that_connected_after_the_resume_fails_the_run(self):
+        # The connect waited for the unpause: no deadline cut it.
+        for elapsed in (9.0, 26.0):
+            with self.subTest(elapsed=elapsed):
+                value, passed = self._probe_row(
+                    {"elapsed_s": elapsed, "outcome": "ok", "error": ""})
+                self.assertFalse(passed)
+                self.assertEqual(
+                    value, "connected only after the resume (the deadline "
+                    "did not fire in time), after %.1f s" % elapsed)
+                self.assertEqual(self._main()[0], 1)
+
+    def test_a_probe_that_hung_in_its_connect_fails_the_run(self):
         value, passed = self._probe_row(
             {"elapsed_s": None, "outcome": "hung", "error": ""})
         self.assertFalse(passed)
-        self.assertIn("the deadline did not fire", value)
+        self.assertEqual(
+            value, "hung, no answer in time: the deadline did not fire")
         self.assertEqual(self._main()[0], 1)
+
+    def test_a_probe_that_hung_before_its_connect_is_inconclusive(self):
+        # No line before the connect: it never got that far.
+        self.faults[2]["probe"] = {"elapsed_s": None, "outcome": "hung",
+                                   "error": ""}
+        self.assertEqual(
+            self._rows()[("F3", PROBE_ROW)],
+            ("inconclusive: the probe never reached the connect", False))
+        self.assertEqual(self._main()[0], 1)
+
+    def test_a_probe_that_hung_after_the_pause_is_inconclusive(self):
+        value, passed = self._probe_row(
+            {"elapsed_s": None, "outcome": "hung", "error": ""},
+            START + 640)
+        self.assertFalse(passed)
+        self.assertIn("inconclusive: the probe connected outside the pause",
+                      value)
+
+    def test_a_probe_that_was_not_green_fails_the_run(self):
+        # A blocking libpq applies connect_timeout itself: the timing
+        # would pass without the green deadline.
+        timed_out = {"elapsed_s": 10.1, "outcome": "error",
+                     "error": "OperationalError: timeout expired"}
+        for green in (False, None):
+            with self.subTest(green=green):
+                value, passed = self._probe_row({**timed_out,
+                                                 "green": green})
+                self.assertFalse(passed)
+                self.assertTrue(value.startswith("not green"), value)
+                self.assertEqual(self._main()[0], 1)
+        # A record without the flag fails the same way.
+        self.faults[2]["probe"] = {**timed_out,
+                                   "connect_started_at": START + 603}
+        value, passed = self._rows()[("F3", PROBE_ROW)]
+        self.assertFalse(passed)
+        self.assertTrue(value.startswith("not green"), value)
 
     def test_a_probe_that_expired_too_late_or_too_soon_fails(self):
         for elapsed, why in ((13.1, "did not fire at about 10 s"),
@@ -352,7 +418,7 @@ class FaultStatsTest(unittest.TestCase):
         self.assertIn("(-0.5 s after its start)", value)
 
     def test_a_probe_without_a_connect_time_fails_the_run(self):
-        probe = {"elapsed_s": 10.1, "outcome": "error",
+        probe = {"elapsed_s": 10.1, "outcome": "error", "green": True,
                  "error": "OperationalError: timeout expired"}
         self.faults[2]["probe"] = probe
         self.assertEqual(self._rows()[("F3", PROBE_ROW)],
@@ -366,10 +432,102 @@ class FaultStatsTest(unittest.TestCase):
 
     def test_pages_are_measured_when_they_are_answered(self):
         # Started before the recovery, answered 25 s after it.
-        self.requests[-1] = {"t": RECOVERED - 5, "dur": 30.0,
-                             "status": 200, "shard": "cms:8888"}
-        self.assertEqual(self._rows()[("F2", "pages answer again after")],
-                         ("25.0 s", True))
+        self.requests[4] = {"t": RECOVERED - 5, "dur": 30.0,
+                            "status": 200, "shard": "cms:8888"}
+        self.assertEqual(
+            self._rows()[("F2", "shard cms:8888 pages answer again after")],
+            ("25.0 s", True))
+
+    def test_a_shard_that_never_answers_again_fails_the_run(self):
+        # cms:8888 answers, cms:8889 stays frozen: its requests end with
+        # the driver's timeout.
+        self.requests[-1] = {"t": RECOVERED + 30, "dur": 120.0,
+                             "status": -1, "shard": "cms:8889"}
+        rows = self._rows()
+        self.assertEqual(
+            rows[("F2", "shard cms:8888 pages answer again after")],
+            ("20.1 s", True))
+        self.assertEqual(
+            rows[("F2", "shard cms:8889 pages answer again after")],
+            ("no answer", False))
+        self.assertEqual(self._main()[0], 1)
+        # Its requests a minute after the limit fail too.
+        self.requests.append({"t": RECOVERED + 70, "dur": 120.0,
+                              "status": -1, "shard": "cms:8889"})
+        self.assertEqual(
+            self._rows()[("F2", "shard cms:8889 pages answer again after")],
+            ("no answer, then 1 of 1 requests started 60-120 s after it "
+             "ended with status -1", False))
+
+    def test_a_shard_that_answers_late_fails_its_row(self):
+        self.requests[-1] = {"t": RECOVERED + 61, "dur": 0.2,
+                             "status": 200, "shard": "cms:8889"}
+        self.assertEqual(
+            self._rows()[("F2", "shard cms:8889 pages answer again after")],
+            ("61.2 s", False))
+
+    def test_a_shard_whose_requests_still_fail_later_fails_its_row(self):
+        # It answered in time, but a minute after the limit its requests
+        # still end with a connection error.
+        self.requests.append({"t": RECOVERED + 90, "dur": 0.5,
+                              "status": -1, "shard": "cms:8889"})
+        self.requests.append({"t": RECOVERED + 100, "dur": 0.1,
+                              "status": 200, "shard": "cms:8889"})
+        self.assertEqual(
+            self._rows()[("F2", "shard cms:8889 pages answer again after")],
+            ("30.2 s, then 1 of 2 requests started 60-120 s after it "
+             "ended with status -1", False))
+        # Outside that minute, a -1 is not counted.
+        self.requests[-2]["t"] = RECOVERED + 130
+        self.assertEqual(
+            self._rows()[("F2", "shard cms:8889 pages answer again after")],
+            ("30.2 s", True))
+
+    def test_a_run_without_cws_requests_fails_the_pages_rows(self):
+        self.requests = [request for request in self.requests
+                         if request["shard"] == "rws"]
+        rows = self._rows()
+        for fault in ("F2", "F3"):
+            with self.subTest(fault=fault):
+                self.assertEqual(rows[(fault, "pages answer again after")],
+                                 ("no CWS request", False))
+
+    def test_an_f2_whose_rules_were_not_removed_fails_its_row(self):
+        for removed, value in ((False, "no"), (None, "not recorded")):
+            with self.subTest(removed=removed):
+                if removed is None:
+                    del self.faults[4]["rules_removed"]
+                else:
+                    self.faults[4]["rules_removed"] = removed
+                self.assertEqual(
+                    self._rows()[("F2", "DROP rules removed after the "
+                                  "drop")], (value, False))
+                self.assertEqual(self._main()[0], 1)
+
+    def test_an_f4_whose_cmssetupdb_hung_fails_its_rows(self):
+        self.faults[3].update(exit_status=None, duration=120.0,
+                              message=False)
+        rows = self._rows()
+        self.assertEqual(rows[("F4", "cmsSetupDB exit status")],
+                         ("hung", False))
+        self.assertEqual(rows[("F4", "cmsSetupDB duration")],
+                         ("120.0 s", False))
+        self.assertEqual(self._main()[0], 1)
+
+    def test_a_fault_that_failed_shows_its_error(self):
+        error = "CalledProcessError: Command 'pause' returned 1. (gone)"
+        for index, fault, criterion in ((0, "F1", "ran (#1)"),
+                                        (2, "F3", "ran"), (3, "F4", "ran"),
+                                        (4, "F2", "ran")):
+            with self.subTest(fault=fault):
+                self.setUp()
+                # As run_schedule records it: the start and the error.
+                self.faults[index] = {"fault": fault,
+                                      "start": self.faults[index]["start"],
+                                      "error": error}
+                self.assertEqual(self._rows()[(fault, criterion)],
+                                 ("failed: " + error, False))
+                self.assertEqual(self._main()[0], 1)
 
     def test_an_f4_whose_holder_was_not_ready_fails_its_row(self):
         self.faults[3]["holder_ready"] = False

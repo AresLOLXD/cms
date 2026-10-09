@@ -25,7 +25,7 @@ the driver's requests.jsonl, db_export.json and processes_end.txt,
 prints one markdown row per criterion of the fault table of
 docs/superpowers/specs/2026-10-08-db-transport-timeouts-design.md
 ("Validation runs"), and exits 1 if one fails, a fault that did not run
-included. Stdlib only.
+or failed included. Stdlib only.
 
 """
 
@@ -44,6 +44,10 @@ CALL_LIMIT_S = 75
 # within about 6 minutes (the SS and PS sweepers run every 347 s), plus
 # the time to do the work.
 PAGES_LIMIT_S = 60
+# Each CWS shard answers again on its own: in the minute after
+# PAGES_LIMIT_S, no request of it may still end with status -1 (a
+# connection error, or the driver's own timeout).
+PAGES_STEADY_S = 60
 ES_LIMIT_S = 150
 SCORES_LIMIT_S = 420
 # F1: the logs name the lost connection within this many seconds.
@@ -246,12 +250,63 @@ def _within(fault: str, what: str, seconds: float | None,
             seconds is not None and seconds <= limit)
 
 
+def shard_rows(fault: str, requests: list[dict],
+               recovered: float) -> list[Row]:
+    """Return one row per CWS shard: when it answered a page again.
+
+    A shard passes if its first answer (2xx or 3xx) after recovered
+    came within PAGES_LIMIT_S, and none of its requests that started in
+    the PAGES_STEADY_S after that limit ended with status -1: one frozen
+    shard fails the fault, even while the others answer.
+
+    fault: the fault of the rows.
+    requests: the driver's requests to the CWS shards, of the whole run.
+    recovered: when the fault was over, in epoch seconds.
+
+    return: the rows, in the order of the shards' names.
+
+    """
+    limit = "<= %g s" % PAGES_LIMIT_S
+    by_shard: dict[str, list[dict]] = {}
+    for request in requests:
+        by_shard.setdefault(request["shard"], []).append(request)
+    if not by_shard:
+        return [(fault, "pages answer again after", "no CWS request",
+                 limit, False)]
+    rows = []
+    steady = (recovered + PAGES_LIMIT_S,
+              recovered + PAGES_LIMIT_S + PAGES_STEADY_S)
+    for shard, its in sorted(by_shard.items()):
+        answered = first_after(
+            [request["t"] + request["dur"] for request in its
+             if 200 <= request["status"] < 400], recovered)
+        later = [request for request in its
+                 if steady[0] <= request["t"] < steady[1]]
+        lost = sum(1 for request in later if request["status"] == -1)
+        value = "no answer" if answered is None else fmt(answered)
+        if lost:
+            value += (", then %d of %d requests started %g-%g s after it "
+                      "ended with status -1"
+                      % (lost, len(later), steady[0] - recovered,
+                         steady[1] - recovered))
+        rows.append((fault, "shard %s pages answer again after" % shard,
+                     value, limit, answered is not None
+                     and answered <= PAGES_LIMIT_S and not lost))
+    return rows
+
+
+def _failed(fault: str, record: dict, what: str = "ran") -> Row:
+    """Return the row of a fault whose injection raised an error."""
+    return (fault, what, "failed: %s" % record["error"], "yes", False)
+
+
 def probe_row(probe: dict | None, start: float, end: float) -> Row:
     """Return the row of F3's probe: a new connection during the pause.
 
     The connect must begin inside the pause (otherwise the run proves
-    nothing), the pause must stall it, and the connect deadline must end
-    it with "timeout expired" at about 10 s.
+    nothing), in a green psycopg2 (a blocking libpq applies
+    connect_timeout itself), the pause must stall it, and the connect
+    deadline must end it with "timeout expired" at about 10 s.
 
     probe: the probe's record in faults.json, or None if it has none.
     start, end: the pause, in epoch seconds.
@@ -267,19 +322,34 @@ def probe_row(probe: dict | None, start: float, end: float) -> Row:
     elapsed = probe.get("elapsed_s")
     error = probe.get("error") or ""
     began = probe.get("connect_started_at")
+    outside = None
+    if began is not None and not start <= began < end:
+        outside = ("inconclusive: the probe connected outside the pause "
+                   "(%.1f s after its start)" % (began - start))
     if outcome == "hung":
-        # It printed nothing, so it has no connect time either.
-        value = "hung, no answer in time: the deadline did not fire"
+        # It printed no outcome; the line before its connect, if any,
+        # says whether it got that far.
+        if began is None:
+            value = "inconclusive: the probe never reached the connect"
+        else:
+            value = outside or ("hung, no answer in time: the deadline "
+                                "did not fire")
     elif outcome not in ("ok", "error") or elapsed is None:
         value = "unusable probe record: %s" % json.dumps(probe)
     elif began is None:
         value = "probe missing connect time"
-    elif not start <= began < end:
-        value = ("inconclusive: the probe connected outside the pause "
-                 "(%.1f s after its start)" % (began - start))
+    elif outside is not None:
+        value = outside
+    elif probe.get("green") is not True:
+        value = ("not green (green: %s): the probe's psycopg2 had no wait "
+                 "callback, so it does not test the green deadline"
+                 % json.dumps(probe.get("green")))
+    elif outcome == "ok" and elapsed < F3_PROBE_MIN_S:
+        value = ("connected at once: the pause did not stall connects "
+                 "(after %s)" % fmt(elapsed))
     elif outcome == "ok":
-        value = ("connected after %s: the pause did not stall connects, "
-                 "so the fault did not apply" % fmt(elapsed))
+        value = ("connected only after the resume (the deadline did not "
+                 "fire in time), after %s" % fmt(elapsed))
     elif "timeout expired" not in error:
         value = "failed after %s with another error: %s" % (
             fmt(elapsed), error)
@@ -314,9 +384,6 @@ def check(run_dir: str) -> list[Row]:
     requests = [request for request
                 in load_jsonl(os.path.join(run_dir, "requests.jsonl"))
                 if request["shard"] != "rws"]
-    # When the answers arrived: the request time plus its duration.
-    pages = [request["t"] + request["dur"] for request in requests
-             if 200 <= request["status"] < 400]
     es_done = [t for t, line in es if line.endswith("] Done")]
     export = _load_json(os.path.join(run_dir, "db_export.json"), None)
     submissions = export["submissions"] if export is not None else []
@@ -324,6 +391,9 @@ def check(run_dir: str) -> list[Row]:
     f1 = by_fault.get("F1", [])
     rows.append(("F1", "injections", str(len(f1)), "2", len(f1) == 2))
     for index, record in enumerate(f1, 1):
+        if "error" in record:
+            rows.append(_failed("F1", record, "ran (#%d)" % index))
+            continue
         start = record["start"]
         # A window ends at the next injection, whose effects are its own.
         end = start + F1_WINDOW_S
@@ -338,9 +408,16 @@ def check(run_dir: str) -> list[Row]:
                      % (F1_WINDOW_S, index), str(lines), "> 0", lines > 0))
 
     f2 = by_fault.get("F2", [{}])[0]
-    if "partition_step" not in f2:
+    if "error" in f2:
+        rows.append(_failed("F2", f2))
+    elif "partition_step" not in f2:
         rows.append(("F2", "ran", "no", "yes", False))
     else:
+        removed = f2.get("rules_removed")
+        rows.append(("F2", "DROP rules removed after the drop",
+                     "yes" if removed is True else
+                     "no" if removed is False else "not recorded",
+                     "yes", removed is True))
         window = (f2["start"] - CALL_LIMIT_S, f2["end"])
         answers = cws_500s(cws, *window)
         # Answered after the drop began; one logged before it is not it.
@@ -357,8 +434,7 @@ def check(run_dir: str) -> list[Row]:
                      str(f2["partition_step_terminated"]), "recorded",
                      True))
         recovered = max(f2["end"], f2["partition_step"])
-        rows.append(_within("F2", "pages answer again after",
-                            first_after(pages, recovered), PAGES_LIMIT_S))
+        rows.extend(shard_rows("F2", requests, recovered))
         rows.append(_within("F2", "ES commits again after",
                             first_after(es_done, recovered), ES_LIMIT_S))
         backlog = [submission for submission in submissions
@@ -374,7 +450,9 @@ def check(run_dir: str) -> list[Row]:
                             scored_after, SCORES_LIMIT_S))
 
     f3 = by_fault.get("F3", [{}])[0]
-    if "end" not in f3:
+    if "error" in f3:
+        rows.append(_failed("F3", f3))
+    elif "end" not in f3:
         rows.append(("F3", "ran", "no", "yes", False))
     else:
         rows.append(probe_row(f3.get("probe"), f3["start"], f3["end"]))
@@ -400,11 +478,12 @@ def check(run_dir: str) -> list[Row]:
                      "%s of %d" % (fmt(max(lasted)), len(lasted)) if lasted
                      else "no request started during the pause",
                      "informational", True))
-        rows.append(_within("F3", "pages answer again after",
-                            first_after(pages, f3["end"]), PAGES_LIMIT_S))
+        rows.extend(shard_rows("F3", requests, f3["end"]))
 
     f4 = by_fault.get("F4", [{}])[0]
-    if "exit_status" not in f4:
+    if "error" in f4:
+        rows.append(_failed("F4", f4))
+    elif "exit_status" not in f4:
         rows.append(("F4", "ran", "no", "yes", False))
     else:
         ready = bool(f4.get("holder_ready"))
@@ -414,8 +493,11 @@ def check(run_dir: str) -> list[Row]:
                      "no (the holder was not idle in its transaction "
                      "after 30 s, so the lock may not have been held)",
                      "yes", ready))
+        # None: cut by the injector's command timeout.
         rows.append(("F4", "cmsSetupDB exit status",
-                     str(f4["exit_status"]), "1", f4["exit_status"] == 1))
+                     "hung" if f4["exit_status"] is None
+                     else str(f4["exit_status"]), "1",
+                     f4["exit_status"] == 1))
         rows.append(_within("F4", "cmsSetupDB duration", f4["duration"],
                             F4_EXIT_LIMIT_S))
         rows.append(("F4", "lock message printed",

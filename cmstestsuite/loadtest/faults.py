@@ -36,8 +36,10 @@ again after each fault, for faultstats.py. CMS backends are those whose
 application_name starts with "cms", so the monitor and psql are spared.
 The DROP rules go into PostgreSQL's network namespace (sudo nsenter):
 they need only netfilter and leave the loopback inside the container
-alone. On an error or on SIGTERM, the injector removes its rules and
-unpauses PostgreSQL. Stdlib only.
+alone. A fault that fails or hangs gets its error in its record, what
+it left in place is undone, and the next fault still runs. On an error
+or on SIGTERM, the injector removes its rules and unpauses PostgreSQL.
+Stdlib only.
 
 """
 
@@ -57,8 +59,9 @@ F1_AT = (120, 180)
 F3_AT = 600
 F3_PAUSE_S = 30
 # The probe starts this long after the pause and is cut after
-# F3_PROBE_TIMEOUT_S: it outlasts the 10 s connect deadline and ends
-# before the unpause. The injector waits F3_PROBE_COLLECT_S for its answer.
+# F3_PROBE_TIMEOUT_S: it outlasts the 10 s connect deadline, and it ends
+# before the unpause (2 + 25 < 30) if compose exec starts it in under
+# 3 s. The injector waits F3_PROBE_COLLECT_S for its answer.
 F3_PROBE_AFTER_S = 2
 F3_PROBE_TIMEOUT_S = 25
 F3_PROBE_COLLECT_S = 10
@@ -86,26 +89,32 @@ HOLDER_SCRIPT = ("BEGIN;\nSELECT 1 FROM contests LIMIT 1;\n"
                  "\\! sleep 40\nCOMMIT;\n")
 # F3's probe: a fresh connection through CMS's own path (green psycopg2,
 # the connection defaults of cms.db.connect_options), outside any pool.
-# The elapsed time and connect_started_at (epoch seconds, to tell a
-# connect that fell outside the pause) start after the imports. It prints
-# one JSON line.
+# Just before the connect, it prints and flushes a JSON line with
+# connect_started_at (epoch seconds, to tell a connect that fell outside
+# the pause) and green (whether psycopg2 has a wait callback: a blocking
+# libpq applies connect_timeout itself, which proves nothing about the
+# green deadline), so that a probe that hangs still has them. After the
+# connect, it prints them again with the outcome and the elapsed time.
 PROBE_SCRIPT = """\
 import json
 import time
 
+import psycopg2.extensions
+
 import cms.io  # makes psycopg2 green, as in the services
 from cms.db.session import custom_psycopg2_connection
 
-connect_started_at = time.time()
+result = {"connect_started_at": time.time(),
+          "green": psycopg2.extensions.get_wait_callback() is not None}
+print(json.dumps(result), flush=True)
 start = time.monotonic()
 try:
     custom_psycopg2_connection().close()
-    result = {"outcome": "ok", "error": ""}
+    result.update(outcome="ok", error="")
 except Exception as error:
-    result = {"outcome": "error", "error": "%s: %s" % (
-        type(error).__name__, " ".join(str(error).split()))}
+    result.update(outcome="error", error="%s: %s" % (
+        type(error).__name__, " ".join(str(error).split())))
 result["elapsed_s"] = round(time.monotonic() - start, 1)
-result["connect_started_at"] = connect_started_at
 print(json.dumps(result))
 """
 SETUP_DB_MESSAGE = ("cmsSetupDB could not lock contests or ranking_groups "
@@ -252,9 +261,10 @@ class Injector:
             self.rules.append((pid, rule))
             self.run(iptables_argv(pid, "-I", rule))
         self.sleep(F2_DROP_S)
-        self._delete_rules()
+        removed = self._delete_rules()
         end = self.clock()
-        record = {"fault": "F2", "start": start, "end": end}
+        record = {"fault": "F2", "start": start, "end": end,
+                  "rules_removed": removed}
         self.records.append(record)
         self.save()
         self.sleep_until(end + F2_STEP_AFTER_S)
@@ -294,8 +304,14 @@ class Injector:
     def _probe_result(self) -> dict:
         """Collect the answer of the F3 probe, which ended before now.
 
-        return: {"elapsed_s", "outcome", "error"}; the outcome is "ok",
-            "error" or "hung" (cut by timeout(1), or not answering).
+        return: {"connect_started_at", "green", "outcome", "error",
+            "elapsed_s"}: connect_started_at (epoch seconds) and green
+            (whether psycopg2 had a wait callback) come from the line
+            the probe printed before its connect, and are missing if it
+            printed none; the outcome is "ok" or "error", from its last
+            line, or else "hung" (cut by timeout(1), or not answering)
+            or "error" (it ended without an answer), with elapsed_s
+            None.
 
         """
         probe = self.probe
@@ -304,19 +320,33 @@ class Injector:
         except subprocess.TimeoutExpired:
             probe.kill()
             self.probe = None
-            return {"elapsed_s": None, "outcome": "hung", "error": ""}
-        self.probe = None
-        for line in reversed(out.splitlines()):
+            hung = True
+            try:
+                # Reaps it, with what it printed before the kill.
+                out, err = probe.communicate(timeout=F3_PROBE_COLLECT_S)
+            except subprocess.TimeoutExpired as error:
+                # A child of docker still holds the pipe: what it
+                # printed so far.
+                out = (error.stdout or b"").decode("utf-8", "replace")
+                err = ""
+        else:
+            self.probe = None
+            # timeout(1) exits with 124 when it had to cut the command.
+            hung = probe.returncode == 124
+        before: dict = {}
+        for line in out.splitlines():
             try:
                 result = json.loads(line)
             except ValueError:
                 continue
             if isinstance(result, dict) and "outcome" in result:
                 return result
-        # timeout(1) exits with 124 when it had to cut the command.
-        if probe.returncode == 124:
-            return {"elapsed_s": None, "outcome": "hung", "error": ""}
-        return {"elapsed_s": None, "outcome": "error",
+            if isinstance(result, dict):
+                before = result
+        if hung:
+            return {**before, "elapsed_s": None, "outcome": "hung",
+                    "error": ""}
+        return {**before, "elapsed_s": None, "outcome": "error",
                 "error": "no answer (exit %s): %s"
                 % (probe.returncode, err.strip()[-300:])}
 
@@ -336,25 +366,36 @@ class Injector:
                 break
             self.sleep(1)
         start = self.clock()
-        setup = self.run(self.compose("exec", "-T", "cms", "cmsSetupDB"),
-                         check=False)
+        try:
+            setup = self.run(
+                self.compose("exec", "-T", "cms", "cmsSetupDB"),
+                check=False)
+        except subprocess.TimeoutExpired:
+            # Cut by run_command: no exit status, faultstats shows it as
+            # hung.
+            exit_status, output = None, ""
+        else:
+            exit_status, output = setup.returncode, setup.stdout + setup.stderr
         end = self.clock()
         self.holder.wait(timeout=60)
         self.holder = None
         self.records.append({
             "fault": "F4", "start": start, "end": end,
-            "holder_ready": ready, "exit_status": setup.returncode,
+            "holder_ready": ready, "exit_status": exit_status,
             "duration": round(end - start, 1),
-            "message": SETUP_DB_MESSAGE in setup.stdout + setup.stderr})
+            "message": SETUP_DB_MESSAGE in output})
 
-    def _delete_rules(self) -> None:
+    def _delete_rules(self) -> bool:
         """Delete the DROP rules in place, the last added first.
 
         A rule leaves the list only once its deletion was tried, so that
         a signal during it leaves the rule to cleanup. A deletion that
         fails or raises is reported, and the next one is tried.
 
+        return: whether every deletion worked.
+
         """
+        removed = True
         while self.rules:
             pid, rule = self.rules[-1]
             try:
@@ -362,11 +403,14 @@ class Injector:
                                    check=False)
             except Exception as error:
                 report("iptables -D %s raised %r" % (" ".join(rule), error))
+                removed = False
             else:
                 if deleted.returncode != 0:
                     report("iptables -D %s failed: %s"
                            % (" ".join(rule), deleted.stderr.strip()))
+                    removed = False
             self.rules.pop()
+        return removed
 
     def _unpause(self) -> None:
         """Unpause PostgreSQL if it is paused; report a failure."""
@@ -383,6 +427,7 @@ class Injector:
         if self.holder is not None:
             holder, self.holder = self.holder, None
             holder.kill()
+            holder.wait(timeout=10)
 
     def _end_probe(self) -> None:
         """Kill the F3 probe's client, if it is still running.
@@ -393,6 +438,7 @@ class Injector:
         if self.probe is not None:
             probe, self.probe = self.probe, None
             probe.kill()
+            probe.wait(timeout=10)
 
     def _guarded(self, what: str, step: Callable[[], None]) -> None:
         """Run a cleanup step; report an exception instead of raising."""
@@ -417,14 +463,34 @@ class Injector:
     def run_schedule(self, contest_start: float) -> None:
         """Inject every fault at its time, and record each one.
 
+        A fault that fails, or hangs until a command is cut, does not
+        stop the schedule: its error goes into its record (a new one if
+        it had not written its own yet) and to stderr, what it left in
+        place is undone, and the next fault runs.
+
         contest_start: the contest start, in epoch seconds.
 
         """
-        schedule = ((F1_AT[0], self.f1), (F1_AT[1], self.f1),
-                    (F3_AT, self.f3), (F4_AT, self.f4), (F2_AT, self.f2))
-        for offset, inject in schedule:
+        schedule = ((F1_AT[0], "F1", self.f1), (F1_AT[1], "F1", self.f1),
+                    (F3_AT, "F3", self.f3), (F4_AT, "F4", self.f4),
+                    (F2_AT, "F2", self.f2))
+        for offset, fault, inject in schedule:
             self.sleep_until(contest_start + offset)
-            inject()
+            recorded = len(self.records)
+            start = self.clock()
+            try:
+                inject()
+            except Exception as error:
+                if len(self.records) == recorded:
+                    self.records.append({"fault": fault, "start": start})
+                text = "%s: %s" % (type(error).__name__, error)
+                stderr = getattr(error, "stderr", None)
+                if isinstance(stderr, str) and stderr.strip():
+                    text += " (%s)" % stderr.strip()[-300:]
+                self.records[-1]["error"] = text
+                report("%s failed, the next fault still runs: %s"
+                       % (fault, text))
+                self.cleanup()
             self.save()
             print(json.dumps(self.records[-1]), flush=True)
 

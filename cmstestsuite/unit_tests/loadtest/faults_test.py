@@ -45,9 +45,14 @@ ANSWERS = {
 
 
 class FakeRunner:
-    """Stand in for run_command: record the commands and answer them."""
+    """Stand in for run_command: record the commands and answer them.
 
-    def __init__(self, answers: dict[str, tuple[int, str, str]]):
+    An answer is (returncode, stdout, stderr), or an exception to raise.
+
+    """
+
+    def __init__(self, answers: dict[str, tuple[int, str, str]
+                                     | Exception]):
         self.commands: list[list[str]] = []
         self.answers = answers
 
@@ -55,8 +60,11 @@ class FakeRunner:
                  check: bool = True) -> subprocess.CompletedProcess:
         self.commands.append(argv)
         joined = " ".join(argv)
-        for needle, (returncode, stdout, stderr) in self.answers.items():
+        for needle, answer in self.answers.items():
             if needle in joined:
+                if isinstance(answer, Exception):
+                    raise answer
+                returncode, stdout, stderr = answer
                 return subprocess.CompletedProcess(
                     argv, returncode, stdout, stderr)
         return subprocess.CompletedProcess(argv, 0, "", "")
@@ -124,10 +132,13 @@ class FakeStdin:
         pass
 
 
-# What the probe prints when the connect deadline ends its connect.
-PROBE_TIMED_OUT = (
-    '{"outcome": "error", "error": "OperationalError: timeout expired", '
-    '"connect_started_at": 1800000003.0, "elapsed_s": 10.1}\n')
+# What the probe prints before its connect, and then when the connect
+# deadline ends it.
+PROBE_CONNECTING = '{"connect_started_at": 1800000003.0, "green": true}\n'
+PROBE_TIMED_OUT = PROBE_CONNECTING + (
+    '{"connect_started_at": 1800000003.0, "green": true, '
+    '"outcome": "error", "error": "OperationalError: timeout expired", '
+    '"elapsed_s": 10.1}\n')
 
 
 class FakePopen:
@@ -137,20 +148,25 @@ class FakePopen:
         self.argv = argv
         self.stdin = FakeStdin()
         self.killed = False
+        self.waited_after_kill = False
         self.started_at: float | None = None
-        # communicate() answers (returncode, stdout, stderr), or raises
-        # it if it is an exception.
-        self.answer: tuple[int, str, str] | Exception = (
-            0, PROBE_TIMED_OUT, "")
+        # What each communicate() answers, in order (the last one
+        # repeats): (returncode, stdout, stderr), or an exception to
+        # raise.
+        self.answers: list[tuple[int, str, str] | Exception] = [
+            (0, PROBE_TIMED_OUT, "")]
         self.returncode: int | None = None
 
     def wait(self, timeout: float | None = None) -> int:
+        self.waited_after_kill = self.killed
         return 0
 
     def communicate(self, timeout: float | None = None) -> tuple[str, str]:
-        if isinstance(self.answer, Exception):
-            raise self.answer
-        self.returncode, stdout, stderr = self.answer
+        answer = (self.answers.pop(0) if len(self.answers) > 1
+                  else self.answers[0])
+        if isinstance(answer, Exception):
+            raise answer
+        self.returncode, stdout, stderr = answer
         return stdout, stderr
 
     def kill(self) -> None:
@@ -172,8 +188,8 @@ class InjectorTest(unittest.TestCase):
         self.out = os.path.join(directory, "faults.json")
         self.popens: list[FakePopen] = []
         # What the processes the injector starts answer, by the text
-        # their command holds.
-        self.popen_answers: dict[str, tuple[int, str, str] | Exception] = {}
+        # their command holds: one answer, or one per communicate().
+        self.popen_answers: dict[str, object] = {}
 
     def _injector(self, answers: dict | None = None,
                   time_source: FakeTime | None = None) -> faults.Injector:
@@ -185,7 +201,9 @@ class InjectorTest(unittest.TestCase):
             process.started_at = self.time.now
             for needle, answer in self.popen_answers.items():
                 if needle in " ".join(argv):
-                    process.answer = answer
+                    process.answers = (list(answer)
+                                       if isinstance(answer, list)
+                                       else [answer])
             self.popens.append(process)
             return process
 
@@ -235,6 +253,7 @@ class InjectorTest(unittest.TestCase):
         self.assertEqual(record["partition_step"],
                          record["end"] + faults.F2_STEP_AFTER_S)
         self.assertEqual(record["partition_step_terminated"], 2)
+        self.assertIs(record["rules_removed"], True)
         self.assertEqual(
             [command for command in self.runner.commands
              if command[0] == "sudo"],
@@ -245,6 +264,24 @@ class InjectorTest(unittest.TestCase):
         self.assertEqual(shlex.split(self.runner.commands[-1][3])[-1],
                          faults.PARTITION_STEP_SQL.format(end=record["end"]))
         self.assertEqual(injector.rules, [])
+
+    def test_f2_records_a_rule_it_could_not_remove(self):
+        for answer in ((1, "", "iptables: Bad rule\n"),
+                       OSError("sudo is gone")):
+            with self.subTest(answer=answer):
+                injector = self._injector(
+                    {"iptables -D OUTPUT": answer,
+                     "idle in transaction%": (0, "0\n", "")})
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors):
+                    injector.f2()
+                self.assertIs(injector.records[-1]["rules_removed"], False)
+                self.assertIn("iptables -D OUTPUT", errors.getvalue())
+                # The other rule is still deleted.
+                self.assertIn(
+                    faults.iptables_argv(4242, "-D", faults.DROP_RULES[0]),
+                    self.runner.commands)
+                self.assertEqual(injector.rules, [])
 
     def test_cleanup_after_an_interrupted_drop_removes_both_rules(self):
         injector = self._injector(
@@ -281,6 +318,7 @@ class InjectorTest(unittest.TestCase):
         self.assertFalse(probe.killed)
         injector.cleanup()
         self.assertTrue(probe.killed)
+        self.assertTrue(probe.waited_after_kill)
         self.assertIsNone(injector.probe)
 
     def test_f3_probes_a_fresh_connection_two_seconds_into_the_pause(self):
@@ -293,7 +331,7 @@ class InjectorTest(unittest.TestCase):
             record["probe"],
             {"outcome": "error", "error": "OperationalError: timeout "
              "expired", "connect_started_at": 1800000003.0,
-             "elapsed_s": 10.1})
+             "green": True, "elapsed_s": 10.1})
         probe = self.popens[0]
         self.assertEqual(probe.started_at, started + faults.F3_PROBE_AFTER_S)
         # Through the cms container, cut by timeout(1) before the unpause.
@@ -327,14 +365,51 @@ class InjectorTest(unittest.TestCase):
                          {"elapsed_s": None, "outcome": "hung",
                           "error": ""})
 
+    def test_f3_records_where_a_probe_cut_by_timeout_got_to(self):
+        # It printed the line before its connect, then hung in it.
+        injector = self._injector()
+        self.popen_answers["python3 -c"] = (124, PROBE_CONNECTING, "")
+        injector.f3()
+        self.assertEqual(injector.records[-1]["probe"],
+                         {"connect_started_at": 1800000003.0,
+                          "green": True, "elapsed_s": None,
+                          "outcome": "hung", "error": ""})
+
     def test_f3_records_a_probe_that_does_not_answer_as_hung(self):
+        # After the kill, communicate() reaps it and returns what it
+        # printed before.
+        self.popen_answers["python3 -c"] = [
+            subprocess.TimeoutExpired("probe", faults.F3_PROBE_COLLECT_S),
+            (-9, PROBE_CONNECTING, "")]
+        injector = self._injector()
+        injector.f3()
+        self.assertEqual(injector.records[-1]["probe"],
+                         {"connect_started_at": 1800000003.0,
+                          "green": True, "elapsed_s": None,
+                          "outcome": "hung", "error": ""})
+        self.assertTrue(self.popens[0].killed)
+        self.assertIsNone(injector.probe)
+
+    def test_f3_reads_a_killed_probe_whose_pipe_stays_open(self):
+        # A child of docker outlives the kill and holds the pipe: the
+        # second wait times out too, with what was printed so far.
+        self.popen_answers["python3 -c"] = [
+            subprocess.TimeoutExpired("probe", faults.F3_PROBE_COLLECT_S),
+            subprocess.TimeoutExpired("probe", faults.F3_PROBE_COLLECT_S,
+                                      output=PROBE_CONNECTING.encode())]
+        injector = self._injector()
+        injector.f3()
+        probe = injector.records[-1]["probe"]
+        self.assertEqual((probe["outcome"], probe["connect_started_at"]),
+                         ("hung", 1800000003.0))
+        # And with nothing printed, it has no connect time.
         self.popen_answers["python3 -c"] = subprocess.TimeoutExpired(
             "probe", faults.F3_PROBE_COLLECT_S)
         injector = self._injector()
         injector.f3()
-        self.assertEqual(injector.records[-1]["probe"]["outcome"], "hung")
-        self.assertTrue(self.popens[0].killed)
-        self.assertIsNone(injector.probe)
+        self.assertEqual(injector.records[-1]["probe"],
+                         {"elapsed_s": None, "outcome": "hung",
+                          "error": ""})
 
     def test_f3_records_a_probe_that_printed_nothing_as_an_error(self):
         self.popen_answers["python3 -c"] = (
@@ -346,7 +421,7 @@ class InjectorTest(unittest.TestCase):
         self.assertIn("no answer (exit 1)", probe["error"])
         self.assertIn("No module named 'cms'", probe["error"])
 
-    def test_the_probe_script_prints_one_json_line(self):
+    def test_the_probe_script_prints_a_line_before_and_after_it(self):
         # Run it against stand-ins for cms.io and the connection function.
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory)
@@ -354,22 +429,34 @@ class InjectorTest(unittest.TestCase):
             os.makedirs(os.path.join(directory, name))
             with open(os.path.join(directory, name, "__init__.py"), "w"):
                 pass
+        # cms.io makes psycopg2 green with a wait callback, as the real
+        # one does.
+        green_io = ("import psycopg2.extensions\n"
+                    "psycopg2.extensions.set_wait_callback(\n"
+                    "    lambda conn: None)\n")
+        connects = ("def custom_psycopg2_connection():\n"
+                    "    class Connection:\n"
+                    "        def close(self):\n"
+                    "            pass\n"
+                    "    return Connection()\n")
         cases = {
-            "ok": ("def custom_psycopg2_connection():\n"
-                   "    class Connection:\n"
-                   "        def close(self):\n"
-                   "            pass\n"
-                   "    return Connection()\n",
-                   {"outcome": "ok", "error": ""}),
-            "error": ("class OperationalError(Exception):\n"
+            "ok": (green_io, connects,
+                   {"outcome": "ok", "error": "", "green": True}),
+            "error": (green_io,
+                      "class OperationalError(Exception):\n"
                       "    pass\n"
                       "def custom_psycopg2_connection():\n"
                       "    raise OperationalError('timeout\\nexpired')\n",
-                      {"outcome": "error",
+                      {"outcome": "error", "green": True,
                        "error": "OperationalError: timeout expired"}),
+            "not green": ("", connects,
+                          {"outcome": "ok", "error": "", "green": False}),
         }
-        for name, (source, expected) in cases.items():
+        for name, (io_source, source, expected) in cases.items():
             with self.subTest(case=name):
+                with open(os.path.join(directory, "cms", "io",
+                                       "__init__.py"), "w") as f:
+                    f.write(io_source)
                 with open(os.path.join(directory, "cms", "db",
                                        "session.py"), "w") as f:
                     f.write(source)
@@ -380,8 +467,14 @@ class InjectorTest(unittest.TestCase):
                     cwd=directory, env={"PYTHONPATH": directory})
                 self.assertEqual(done.returncode, 0, done.stderr)
                 lines = done.stdout.splitlines()
-                self.assertEqual(len(lines), 1, done.stdout)
-                result = json.loads(lines[0])
+                self.assertEqual(len(lines), 2, done.stdout)
+                connecting, result = map(json.loads, lines)
+                # The line before the connect has what a hung probe
+                # needs.
+                self.assertEqual(
+                    connecting,
+                    {"connect_started_at": result["connect_started_at"],
+                     "green": expected["green"]})
                 elapsed = result.pop("elapsed_s")
                 connect_started_at = result.pop("connect_started_at")
                 self.assertEqual(result, expected)
@@ -389,6 +482,36 @@ class InjectorTest(unittest.TestCase):
                 # The time of the connect, in epoch seconds.
                 self.assertLessEqual(before, connect_started_at)
                 self.assertLessEqual(connect_started_at, time.time())
+
+    def test_the_probe_flushes_its_first_line_before_the_connect(self):
+        # A connect that never ends: the first line is already out when
+        # timeout(1) would cut it.
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        for name in ("cms", "cms/io", "cms/db"):
+            os.makedirs(os.path.join(directory, name))
+            with open(os.path.join(directory, name, "__init__.py"), "w"):
+                pass
+        with open(os.path.join(directory, "cms", "db", "session.py"),
+                  "w") as f:
+            f.write("import time\n"
+                    "def custom_psycopg2_connection():\n"
+                    "    time.sleep(30)\n")
+        probe = subprocess.Popen(
+            [sys.executable, "-c", faults.PROBE_SCRIPT],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            cwd=directory, env={"PYTHONPATH": directory})
+        self.addCleanup(probe.stdout.close)
+        self.addCleanup(probe.wait)
+        self.addCleanup(probe.kill)
+        started = time.monotonic()
+        line = probe.stdout.readline()
+        # Still in its 30 s connect: the line was flushed before it, not
+        # at the exit.
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertIsNone(probe.poll())
+        self.assertEqual(sorted(json.loads(line)),
+                         ["connect_started_at", "green"])
 
     def test_cleanup_after_a_signal_as_the_rule_goes_in_deletes_it(self):
         injector = self._injector()
@@ -453,6 +576,18 @@ class InjectorTest(unittest.TestCase):
         self.assertIn("psql", self.popens[0].argv[3])
         self.assertIsNone(injector.holder)
 
+    def test_f4_records_a_cmssetupdb_that_hung(self):
+        # run_command cuts it after 120 s.
+        injector = self._injector({
+            "application_name = ": (0, "1\n", ""),
+            "cmsSetupDB": subprocess.TimeoutExpired("cmsSetupDB", 120)})
+        injector.f4()
+        record = injector.records[-1]
+        self.assertEqual((record["exit_status"], record["message"]),
+                         (None, False))
+        self.assertIn("duration", record)
+        self.assertIsNone(injector.holder)
+
     def test_f4_records_that_the_holder_never_became_ready(self):
         injector = self._injector({"application_name = ": (0, "0\n", "")})
         injector.f4()
@@ -491,8 +626,10 @@ class InjectorTest(unittest.TestCase):
                 self.assertIsNone(injector.probe)
                 if broken != "kill":
                     self.assertTrue(holder.killed)
+                    self.assertTrue(holder.waited_after_kill)
                 if broken != "probe":
                     self.assertTrue(probe.killed)
+                    self.assertTrue(probe.waited_after_kill)
                 with open(self.out) as f:
                     self.assertEqual(json.load(f), injector.records)
 
@@ -513,6 +650,76 @@ class InjectorTest(unittest.TestCase):
         injector.save()
         with open(self.out) as f:
             self.assertEqual(json.load(f), injector.records)
+
+    def _schedule(self, fail_on: str) -> tuple[faults.Injector, str]:
+        """Run the whole schedule with one command that raises.
+
+        return: the injector, and what it reported to stderr.
+
+        """
+        answers = {"pg_terminate_backend": (0, "7\n", ""),
+                   "idle in transaction%": (0, "2\n", ""),
+                   "application_name = ": (0, "1\n", "")}
+        injector = self._injector(answers)
+        injector.run = self.runner = FailingRunner(
+            {**answers, **ANSWERS}, fail_on)
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors), \
+                contextlib.redirect_stdout(io.StringIO()):
+            injector.run_schedule(self.time.now)
+        return injector, errors.getvalue()
+
+    def test_a_fault_that_fails_does_not_stop_the_schedule(self):
+        # The pause takes effect, then its command raises.
+        injector, errors = self._schedule("default pause c0ffee")
+        self.assertEqual([record["fault"] for record in injector.records],
+                         ["F1", "F1", "F3", "F4", "F2"])
+        f3 = injector.records[2]
+        self.assertEqual(f3, {"fault": "F3", "start": f3["start"],
+                              "error": "OSError: the command could not "
+                              "run"})
+        self.assertEqual(
+            [record for record in injector.records if "error" in record],
+            [f3])
+        self.assertIn("F3 failed, the next fault still runs: OSError",
+                      errors)
+        # What it left in place is undone before the next fault.
+        commands = [" ".join(command) for command in self.runner.commands]
+        unpause = commands.index(" ".join(injector.docker("unpause",
+                                                          "c0ffee")))
+        setup_db = [index for index, command in enumerate(commands)
+                    if "cmsSetupDB" in command]
+        self.assertLess(unpause, setup_db[0])
+        self.assertIsNone(injector.paused)
+        # The probe never started; F4's holder is the only process.
+        self.assertEqual(len(self.popens), 1)
+        self.assertIn("psql", self.popens[0].argv[3])
+        with open(self.out) as f:
+            self.assertEqual(json.load(f), injector.records)
+
+    def test_a_fault_that_fails_after_its_record_keeps_it(self):
+        # F2's partition step fails after the drop was recorded.
+        injector, errors = self._schedule("idle in transaction%")
+        f2 = injector.records[-1]
+        self.assertEqual((f2["fault"], f2["rules_removed"]), ("F2", True))
+        self.assertIn("end", f2)
+        self.assertEqual(f2["error"], "OSError: the command could not run")
+        self.assertEqual(len(injector.records), 5)
+        self.assertIn("F2 failed", errors)
+
+    def test_a_failed_command_puts_its_stderr_in_the_record(self):
+        injector = self._injector({
+            "pg_terminate_backend": subprocess.CalledProcessError(
+                1, ["psql"], "", "psql: error: no such role\n"),
+            "idle in transaction%": (0, "2\n", ""),
+            "application_name = ": (0, "1\n", "")})
+        with contextlib.redirect_stderr(io.StringIO()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            injector.run_schedule(self.time.now)
+        self.assertEqual(
+            injector.records[0]["error"],
+            "CalledProcessError: Command '['psql']' returned non-zero exit "
+            "status 1. (psql: error: no such role)")
 
     def test_the_schedule_is_in_order_and_ends_before_the_end_burst(self):
         offsets = [faults.F1_AT[0], faults.F1_AT[1], faults.F3_AT,
