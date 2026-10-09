@@ -48,8 +48,14 @@ logger = logging.getLogger(__name__)
 
 FIELDS: tuple[str, ...] = ("username", "first_name", "last_name",
                            "password", "team", "group")
+# Without a password column, the participations get none of their own and
+# log in with the account password.
 REQUIRED: frozenset[str] = frozenset({"username", "first_name",
-                                      "last_name", "password"})
+                                      "last_name"})
+# The global import of users: accounts with their own password.
+USER_FIELDS: tuple[str, ...] = ("username", "first_name", "last_name",
+                                "password")
+USER_REQUIRED: frozenset[str] = frozenset(USER_FIELDS)
 LABELS = {"username": "el usuario", "first_name": "el nombre",
           "last_name": "el apellido", "password": "la contraseña",
           "team": "el equipo", "group": "el grupo"}
@@ -75,13 +81,15 @@ class ImportRow:
     line: the number of the row in the CSV, with the header as row 1. It
         is not the physical line: a quoted cell with a line break inside
         is still one row.
+    password: None when the file has no password column (a contest import
+        that leaves the participation passwords alone).
 
     """
     line: int
     username: str
     first_name: str
     last_name: str
-    password: str
+    password: str | None
     team: str | None
     group: str | None
 
@@ -102,13 +110,19 @@ def _data_records(reader: Iterator[list[str]]
             yield line, cells
 
 
-def read_rows(data: bytes, mapping: dict[str, str]
+def read_rows(data: bytes, mapping: dict[str, str],
+              fields: tuple[str, ...] = FIELDS,
+              required: frozenset[str] = REQUIRED
               ) -> tuple[list[ImportRow], list[str]]:
     """Parse the CSV and map its columns to the import fields.
 
     data: the raw file.
     mapping: import field -> header of the column that holds it ("" or
         missing for an unmapped optional field).
+    fields: the fields of the import; they include username, first_name,
+        last_name and password. A field out of them reads as None.
+    required: the fields that must be mapped and filled in every row. A
+        mapped password must be filled in every row too.
 
     return: the rows and the list of errors; if there is any error the
         rows must not be used. Errors never contain a data cell of the
@@ -154,10 +168,10 @@ def read_rows(data: bytes, mapping: dict[str, str]
     # the header chosen for the password is a real password: the messages
     # name the field instead of it, whichever field it comes up in.
     password_name = (mapping.get("password") or "").strip()
-    for field in FIELDS:
+    for field in fields:
         name = (mapping.get(field) or "").strip()
         if not name:
-            if field in REQUIRED:
+            if field in required:
                 errors.append("falta asignar la columna para %s (%s)"
                               % (LABELS[field], field))
             continue
@@ -177,6 +191,10 @@ def read_rows(data: bytes, mapping: dict[str, str]
     if errors:
         return [], errors
 
+    # A mapped password must be in every row, even where it is optional:
+    # an empty cell would be an empty password.
+    must_fill = required | ({"password"} & columns.keys())
+
     rows: list[ImportRow] = []
     seen: dict[str, int] = {}
     for line, cells in records:
@@ -188,9 +206,9 @@ def read_rows(data: bytes, mapping: dict[str, str]
             # (Tornado's get_argument), with this same str.strip().
             return cells[index].strip()
 
-        values = {field: cell(field) for field in FIELDS}
-        for field in FIELDS:
-            if field in REQUIRED and not values[field]:
+        values = {field: cell(field) for field in fields}
+        for field in fields:
+            if field in must_fill and not values[field]:
                 errors.append("fila %d: %s" % (line, EMPTY_MESSAGES[field]))
             elif field != "password" and "\x00" in values[field]:
                 # The database refuses NUL in a text, so the job would
@@ -223,8 +241,10 @@ def read_rows(data: bytes, mapping: dict[str, str]
         rows.append(ImportRow(
             line=line, username=username,
             first_name=values["first_name"],
-            last_name=values["last_name"], password=values["password"],
-            team=values["team"] or None, group=values["group"] or None))
+            last_name=values["last_name"],
+            password=values["password"] if "password" in columns else None,
+            team=values.get("team") or None,
+            group=values.get("group") or None))
     if not rows:
         return [], ["el archivo no tiene filas de datos"]
     return rows, errors

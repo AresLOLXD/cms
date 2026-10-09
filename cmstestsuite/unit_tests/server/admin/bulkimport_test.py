@@ -31,8 +31,9 @@ from unittest import mock
 from sqlalchemy import event, inspect, select
 
 from cms.db import Participation, SessionGen, User
-from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, ImportRow, \
-    apply_import, hash_passwords, plan_import, read_rows
+from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, USER_FIELDS, \
+    USER_REQUIRED, ImportRow, apply_import, hash_passwords, plan_import, \
+    read_rows
 from cms.server.contest.authentication import authenticate_request, \
     validate_login
 from cmscommon.datetime import make_datetime
@@ -41,11 +42,20 @@ from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 MAPPING = {"username": "usuario", "first_name": "nombre",
            "last_name": "apellido", "password": "contraseña",
            "team": "estado", "group": ""}
+USER_MAPPING = {"username": "usuario", "first_name": "nombre",
+                "last_name": "apellido", "password": "contraseña"}
 
 
 def csv_bytes(text: str, bom: bool = False) -> bytes:
     data = text.encode("utf-8")
     return (b"\xef\xbb\xbf" + data) if bom else data
+
+
+def read_user_rows(text: str, mapping: dict[str, str] | None = None):
+    """Read a CSV with the fields of the global users import."""
+    return read_rows(csv_bytes(text),
+                     USER_MAPPING if mapping is None else mapping,
+                     USER_FIELDS, USER_REQUIRED)
 
 
 class TestReadRows(unittest.TestCase):
@@ -73,23 +83,89 @@ class TestReadRows(unittest.TestCase):
         self.assertIsNone(rows[0].team)
 
     def test_unmapped_required_field(self):
-        mapping = dict(MAPPING, password="")
+        mapping = dict(MAPPING, username="")
         _, errors = read_rows(csv_bytes("usuario,nombre,apellido\n"),
                               mapping)
         self.assertIn(
-            "falta asignar la columna para la contraseña (password)", errors)
+            "falta asignar la columna para el usuario (username)", errors)
 
     def test_unmapped_required_fields_read_well_in_spanish(self):
-        for field, text in (
-                ("username", "el usuario"), ("first_name", "el nombre"),
-                ("last_name", "el apellido"), ("password", "la contraseña")):
-            with self.subTest(field=field):
-                _, errors = read_rows(
-                    csv_bytes("usuario,nombre,apellido,contraseña,estado\n"),
-                    dict(MAPPING, **{field: ""}))
-                self.assertEqual(
-                    errors,
-                    ["falta asignar la columna para %s (%s)" % (text, field)])
+        for fields, required, mapping, cases in (
+                (None, None, MAPPING, (
+                    ("username", "el usuario"), ("first_name", "el nombre"),
+                    ("last_name", "el apellido"))),
+                (USER_FIELDS, USER_REQUIRED, USER_MAPPING, (
+                    ("username", "el usuario"), ("first_name", "el nombre"),
+                    ("last_name", "el apellido"),
+                    ("password", "la contraseña")))):
+            for field, text in cases:
+                with self.subTest(fields=fields, field=field):
+                    args = () if fields is None else (fields, required)
+                    _, errors = read_rows(
+                        csv_bytes("usuario,nombre,apellido,contraseña,"
+                                  "estado\n"),
+                        dict(mapping, **{field: ""}), *args)
+                    self.assertEqual(
+                        errors,
+                        ["falta asignar la columna para %s (%s)"
+                         % (text, field)])
+
+    def test_the_contest_password_may_be_left_unmapped(self):
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,pw,JAL\n"), dict(MAPPING, password=""))
+        self.assertEqual(errors, [])
+        self.assertIsNone(rows[0].password)
+        self.assertEqual((rows[0].username, rows[0].team), ("ana", "JAL"))
+
+    def test_a_mapped_contest_password_still_needs_every_cell(self):
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,,\n"), MAPPING)
+        self.assertEqual(errors, ["fila 2: la contraseña está vacía"])
+
+    def test_the_global_fields(self):
+        # Extra columns, a team among them, are ignored.
+        rows, errors = read_user_rows(
+            "usuario,nombre,apellido,contraseña,estado,grupo\n"
+            "ana,Ana,López, pw ,JAL,tarde\n")
+        self.assertEqual(errors, [])
+        self.assertEqual(rows, [ImportRow(
+            line=2, username="ana", first_name="Ana", last_name="López",
+            password="pw", team=None, group=None)])
+
+    def test_the_global_password_column_is_exclusive_and_never_echoed(self):
+        # A file without a header row: its first row holds a password.
+        text = "ana,Ana,López,S3CRET\nbeto,Beto,Ruiz,pw2\n"
+        mapping = {"username": "ana", "first_name": "S3CRET",
+                   "last_name": "López", "password": "S3CRET"}
+        rows, errors = read_user_rows(text, mapping)
+        self.assertEqual(rows, [])
+        self.assertEqual(errors, ["la columna de la contraseña está "
+                                  "asignada a más de un campo"])
+
+    def test_the_global_rows_check_the_password_as_the_contest_does(self):
+        _, errors = read_user_rows(
+            "usuario,nombre,apellido,contraseña\n"
+            "ana,Ana,López,\n"
+            "beto,Beto,Ruiz,%s\n"
+            "carla,Carla,Sanz,a\tb\n" % ("ñ" * 37))
+        self.assertEqual(errors, [
+            "fila 2: la contraseña está vacía",
+            "fila 3: la contraseña pasa de 72 bytes",
+            "fila 4: la contraseña tiene caracteres no permitidos"])
+
+    def test_headerless_file_with_two_fields_on_one_column(self):
+        # The team and the group read the same column; the password has
+        # its own one and is never echoed.
+        text = "ana;Ana;López;s3cret;JAL\nbeto;Beto;Ruiz;pw;JAL\n"
+        mapping = {"username": "ana", "first_name": "Ana",
+                   "last_name": "López", "password": "s3cret",
+                   "team": "JAL", "group": "JAL"}
+        rows, errors = read_rows(csv_bytes(text), mapping)
+        self.assertEqual(errors, [])
+        self.assertEqual([(r.username, r.team, r.group) for r in rows],
+                         [("beto", "JAL", "JAL")])
 
     def test_mapping_to_a_missing_header(self):
         mapping = dict(MAPPING, team="equipo")

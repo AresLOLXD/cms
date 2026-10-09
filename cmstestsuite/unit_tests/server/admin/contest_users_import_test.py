@@ -203,8 +203,8 @@ class TestImportUsersPost(unittest.TestCase):
             handler.application.service.proxy_service.reinitialize)
 
     def test_errors_of_the_file_are_shown_and_nothing_starts(self):
-        # The password column is not assigned to any header.
-        mapping = {**MAPPING, "password": ""}
+        # The username column is not assigned to any header.
+        mapping = {**MAPPING, "username": ""}
         handler = make_handler(form=import_form("import", mapping))
         with mock.patch(MODULE + ".plan_import") as plan_import, \
                 mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
@@ -212,7 +212,7 @@ class TestImportUsersPost(unittest.TestCase):
 
         params = rendered_params(handler)
         self.assertEqual(len(params["errors"]), 1)
-        self.assertIn("password", params["errors"][0])
+        self.assertIn("username", params["errors"][0])
         self.assertIsNone(params["summary"])
         plan_import.assert_not_called()
         jobs.start.assert_not_called()
