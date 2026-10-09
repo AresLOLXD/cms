@@ -98,11 +98,12 @@ already have an account password:
   would get a random password and could never log in.
 
 When the file has a column whose header is one of those in the table above
-(`password`, `contraseña`, `contrasena`, `clave`), the page assigns it on its
-own every time you choose the file: the first time, again in step 3 of
-"Import step by step", and again after errors. Set the password selector
-back to "(sin asignar)" each time, and check it before pressing "Importar":
-otherwise the file's passwords replace the participation passwords.
+(`password`, `contraseña`, `contrasena`, `clave`), the page assigns it the
+first time you choose the file. Set the password selector to "(sin asignar)"
+before "Solo validar". After that, the page keeps it unassigned when you
+choose the file again (step 3 of "Import step by step") or after errors.
+Still check it before pressing "Importar": otherwise the file's passwords
+replace the participation passwords.
 
 ## Import step by step
 
@@ -130,7 +131,8 @@ otherwise the file's passwords replace the participation passwords.
    steps, so the page asks: "Vuelve a elegir el archivo para importarlo. Se
    conservan las columnas asignadas, salvo la de la contraseña: revísala." Your
    column choices are kept, except the password column, which is guessed again
-   from the headers in the table above. **Check it before going on.**
+   from the headers in the table above, unless you left it "(sin asignar)",
+   which is kept. **Check it before going on.**
 4. Press **"Importar"**. A progress bar shows "Procesando X de N". Both buttons
    are disabled after the first click, so a double click does not send the
    file twice.
@@ -237,7 +239,7 @@ groups are checked after the rest of the file.
 | "fila N: el usuario está vacío", "fila N: el nombre está vacío", "fila N: el apellido está vacío", "fila N: la contraseña está vacía" | Fill in the cell. |
 | "fila N: el usuario X está repetido (fila M)" | Each username may appear only once per file. |
 | "fila N: el usuario X tiene caracteres no permitidos (solo letras sin acentos, números, _ y -)" | Change the username to use only those characters. |
-| "fila N: el usuario X no existe; sin columna de contraseña solo se pueden inscribir usuarios que ya existen" | Import the accounts first on Users → "Importar CSV", or assign the password column. |
+| "fila N: el usuario X no existe; sin columna de contraseña solo se pueden inscribir usuarios que ya existen" | Import the account first on Users → "Importar CSV", fix the username if it is mistyped, or assign the password column. |
 | "fila N: el equipo X no existe" | Create the team in **Teams**, or fix the code. |
 | "fila N: el grupo X no existe en este concurso" | Create the group in **Contest → Groups**, or fix the name. |
 | "fila N: la contraseña pasa de 72 bytes" | Use a shorter password. |
@@ -315,9 +317,11 @@ bar and the errors work as in the contest import. Other columns, such as
 
 - A **new user** is created with the row's names and password.
 - An **existing user** gets the row's first name, last name and password.
-  If the password did not change, the stored hash is kept, so a contestant
-  logged in with it stays logged in. Nothing else of the user changes, and
-  no participation changes.
+  If the password did not change and the account password is stored as a
+  bcrypt hash, the stored hash is kept, so a contestant logged in with it
+  stays logged in. An account stored otherwise, for example one created by
+  hand with a plaintext password, is hashed again once. Nothing else of the
+  user changes, and no participation changes.
 
 The account password only logs in to the contests where the participation
 has no password of its own. To use it for a contest day, import the same
