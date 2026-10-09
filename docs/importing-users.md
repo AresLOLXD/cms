@@ -46,8 +46,9 @@ selector is labelled in Spanish with the name of the field in brackets, for
 example "Usuario (username)" for `username` and "Contraseña del día (password)"
 for `password`. If your headers are different, pick the right column yourself.
 Required fields are marked with `*`, and the page explains it with the legend
-"* obligatorio". **"(sin asignar)"** means no column. A column cannot be used
-for two fields.
+"* obligatorio". **"(sin asignar)"** means no column. A column can fill several
+fields, for example one column used as both the team and the group. Only the
+password column cannot be used for any other field.
 
 Cells are stripped of surrounding spaces, the password included, because CWS
 strips what the contestant types at the login. A password may have spaces
@@ -203,7 +204,7 @@ groups are checked after the rest of the file.
 | "el archivo no tiene filas de datos" | The file has no contestants below the header row. Blank rows do not count. |
 | "el archivo no es un CSV válido" | The file cannot be read as CSV. Save it again as "CSV UTF-8". |
 | "falta asignar la columna para …" (followed by the field) | Pick the column in the selector of that field. |
-| "la columna X está asignada a más de un campo" (for the password column: "la columna de la contraseña está asignada a más de un campo") | Give each field its own column. |
+| "la columna de la contraseña está asignada a más de un campo" | Give the password its own column: no other field may use it. |
 | "la columna X no está en el archivo" (for the password column: "la columna asignada a la contraseña no está en el archivo") | Pick the column again in the selector of that field, using the file you are uploading. |
 | "fila N: el usuario está vacío", "fila N: el nombre está vacío", "fila N: el apellido está vacío", "fila N: la contraseña está vacía" | Fill in the cell. |
 | "fila N: el usuario X está repetido (fila M)" | Each username may appear only once per file. |

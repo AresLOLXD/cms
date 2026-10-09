@@ -144,7 +144,12 @@ def read_rows(data: bytes, mapping: dict[str, str]
 
     errors: list[str] = []
     columns: dict[str, int] = {}
-    assigned: set[str] = set()
+
+    def report(message: str) -> None:
+        # A column shared by several fields is reported once.
+        if message not in errors:
+            errors.append(message)
+
     # Without a header row, the "header" is the first contestant's row, so
     # the header chosen for the password is a real password: the messages
     # name the field instead of it, whichever field it comes up in.
@@ -156,22 +161,19 @@ def read_rows(data: bytes, mapping: dict[str, str]
                 errors.append("falta asignar la columna para %s (%s)"
                               % (LABELS[field], field))
             continue
-        # A column used for two fields would let a cell of the password
-        # column reach an error message, for example as a repeated user.
-        if name in assigned:
-            message = "la columna %s está asignada a más de un campo" % (
-                "de la contraseña" if name == password_name else name)
-            if message not in errors:
-                errors.append(message)
-            continue
-        assigned.add(name)
         if name not in header:
-            errors.append(
+            report(
                 "la columna asignada a la contraseña no está en el archivo"
                 if name == password_name
                 else "la columna %s no está en el archivo" % name)
-            continue
-        columns[field] = header.index(name)
+        # Any column may feed several fields, except the password column:
+        # a cell of it read by another field could reach an error message,
+        # for example as a repeated user.
+        if name == password_name and field != "password":
+            report("la columna de la contraseña está asignada a más de un "
+                   "campo")
+        if name in header:
+            columns[field] = header.index(name)
     if errors:
         return [], errors
 
