@@ -171,13 +171,46 @@ class TestReadRows(unittest.TestCase):
             ["la columna de la contraseña está asignada a más de un campo"])
         self.assertFalse(any("SECRETPW" in e for e in errors))
 
-    def test_column_mapped_to_three_fields_is_reported_once(self):
-        mapping = dict(MAPPING, last_name="nombre", team="nombre")
-        _, errors = read_rows(csv_bytes(
+    def test_a_column_other_than_the_password_can_feed_several_fields(self):
+        # Read verbatim: whether a team or a group exists is checked later,
+        # by plan_import.
+        text = ("usuario,nombre,apellido,contraseña,estado\n"
+                "ana,Ana,López,pw,JAL\n")
+        rows, errors = read_rows(csv_bytes(text), dict(
+            MAPPING, last_name="estado", group="estado"))
+        self.assertEqual(errors, [])
+        self.assertEqual((rows[0].last_name, rows[0].team, rows[0].group),
+                         ("JAL", "JAL", "JAL"))
+        rows, errors = read_rows(csv_bytes(text), dict(
+            MAPPING, last_name="nombre", team="nombre"))
+        self.assertEqual(errors, [])
+        self.assertEqual((rows[0].first_name, rows[0].last_name,
+                          rows[0].team), ("Ana", "Ana", "Ana"))
+
+    def test_the_username_can_share_a_column_with_another_field(self):
+        rows, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
-            "ana,Ana,López,pw,\n"), mapping)
+            "ana,Ana,López,pw,\n"
+            "beto,Beto,Pérez,pw,\n"), dict(MAPPING, first_name="usuario"))
+        self.assertEqual(errors, [])
+        self.assertEqual([(r.username, r.first_name) for r in rows],
+                         [("ana", "ana"), ("beto", "beto")])
+
+    def test_a_shared_column_missing_from_the_file_is_reported_once(self):
+        _, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña\nana,A,L,pw\n"), dict(
+                MAPPING, team="equipo", group="equipo", last_name="equipo"))
+        self.assertEqual(errors, ["la columna equipo no está en el archivo"])
+
+    def test_password_column_used_by_several_fields_is_reported_once(self):
+        mapping = dict(MAPPING, username="contraseña", team="contraseña")
+        rows, errors = read_rows(csv_bytes(
+            "usuario,nombre,apellido,contraseña,estado\n"
+            "ana,Ana,López,SECRETPW,\n"), mapping)
+        self.assertEqual(rows, [])
         self.assertEqual(
-            errors, ["la columna nombre está asignada a más de un campo"])
+            errors,
+            ["la columna de la contraseña está asignada a más de un campo"])
 
     def test_password_header_is_never_echoed_when_mapped_twice(self):
         # Without a header row, the "header" is the first contestant's row,
@@ -223,9 +256,7 @@ class TestReadRows(unittest.TestCase):
         text = "usuario,nombre,apellido,contraseña,estado\nana,A,L,pw,\n"
         _, errors = read_rows(csv_bytes(text), dict(
             MAPPING, team="equipo", group="equipo"))
-        self.assertEqual(
-            errors, ["la columna equipo no está en el archivo",
-                     "la columna equipo está asignada a más de un campo"])
+        self.assertEqual(errors, ["la columna equipo no está en el archivo"])
 
     def test_usernames_the_database_refuses(self):
         # The Codename domain of the database: letters without accents,
