@@ -50,6 +50,10 @@ def stamp(moment: float) -> str:
             "%Y-%m-%d %H:%M:%S,%f")[:23]
 
 
+# The gating row of F3: the probe of faults.py.
+PROBE_ROW = "a new connection during the pause fails with 'timeout expired'"
+
+
 def record_line(moment: float, where: str, message: str) -> str:
     """Return a CMS log record, as the log files hold it."""
     return "%s - INFO [%s] %s\n" % (stamp(moment), where, message)
@@ -66,7 +70,9 @@ class FaultStatsTest(unittest.TestCase):
              "terminated": 9},
             {"fault": "F1", "start": START + 180, "end": START + 181,
              "terminated": 8},
-            {"fault": "F3", "start": START + 600, "end": START + 630},
+            {"fault": "F3", "start": START + 600, "end": START + 630,
+             "probe": {"elapsed_s": 10.1, "outcome": "error",
+                       "error": "OperationalError: timeout expired"}},
             {"fault": "F4", "start": START + 1000, "end": START + 1006,
              "holder_ready": True, "exit_status": 1, "duration": 6.0,
              "message": True},
@@ -181,6 +187,7 @@ class FaultStatsTest(unittest.TestCase):
             ("F2", "pages answer again after"): ("20.1 s", True),
             ("F2", "ES commits again after"): ("31.0 s", True),
             ("F2", "earlier submissions scored after"): ("200.0 s", True),
+            ("F3", PROBE_ROW): ("timeout expired after 10.1 s", True),
             ("F3", "'timeout expired' log lines"): ("1", True),
             ("F3", "longest CWS 500 answer"): ("10.0 s of 1", True),
             ("F3", "longest non-RWS request that started during the "
@@ -204,14 +211,13 @@ class FaultStatsTest(unittest.TestCase):
             ("80.0 s of 1", False))
         self.assertEqual(self._main()[0], 1)
 
-    def test_an_f3_without_timeout_expired_fails_its_row(self):
+    def test_an_f3_without_timeout_expired_lines_does_not_fail(self):
+        # Informational: the probe decides, a connect may not be needed.
         del self.logs["ContestWebServer-0"][2]
-        value, passed = self._rows()[("F3", "'timeout expired' log lines")]
-        self.assertFalse(passed)
-        self.assertTrue(value.startswith("0 ("), value)
-        self.assertIn("either none was attempted or the deadline did not "
-                      "fire", value)
-        self.assertEqual(self._main()[0], 1)
+        rows = self._rows()
+        self.assertEqual(rows[("F3", "'timeout expired' log lines")],
+                         ("0", True))
+        self.assertEqual(self._main()[0], 0)
 
     def test_an_f3_with_no_500_answers_passes_that_row(self):
         del self.logs["ContestWebServer-0"][0]
@@ -229,14 +235,15 @@ class FaultStatsTest(unittest.TestCase):
         self.assertEqual(self._rows()[("F3", "longest CWS 500 answer")],
                          ("20.0 s of 1", False))
 
-    def test_an_f3_request_that_waited_for_the_resume_fails_its_row(self):
+    def test_an_f3_request_that_waited_for_the_resume_does_not_fail(self):
+        # A pooled connection waits for the resume: informational.
         self.requests[0] = {"t": START + 601, "dur": 28.0, "status": 200,
                             "shard": "cms:8888"}
         self.assertEqual(
             self._rows()[("F3", "longest non-RWS request that started "
                           "during the pause")],
-            ("28.0 s of 1", False))
-        self.assertEqual(self._main()[0], 1)
+            ("28.0 s of 1", True))
+        self.assertEqual(self._main()[0], 0)
 
     def test_an_f3_with_no_request_in_the_pause_passes_that_row(self):
         # Only a ranking request lasted during the pause: not counted.
@@ -246,6 +253,61 @@ class FaultStatsTest(unittest.TestCase):
             self._rows()[("F3", "longest non-RWS request that started "
                           "during the pause")],
             ("no request started during the pause", True))
+
+    def _probe_row(self, probe) -> tuple[str, bool]:
+        if probe is None:
+            del self.faults[2]["probe"]
+        else:
+            self.faults[2]["probe"] = probe
+        return self._rows()[("F3", PROBE_ROW)]
+
+    def test_a_probe_that_timed_out_at_ten_seconds_passes(self):
+        for elapsed in (9.0, 10.0, 13.0):
+            with self.subTest(elapsed=elapsed):
+                self.assertEqual(
+                    self._probe_row({"elapsed_s": elapsed,
+                                     "outcome": "error", "error":
+                                     "OperationalError: timeout expired"}),
+                    ("timeout expired after %.1f s" % elapsed, True))
+
+    def test_a_probe_that_connected_fails_the_run(self):
+        value, passed = self._probe_row(
+            {"elapsed_s": 0.1, "outcome": "ok", "error": ""})
+        self.assertFalse(passed)
+        self.assertIn("the pause did not stall connects", value)
+        self.assertEqual(self._main()[0], 1)
+
+    def test_a_probe_that_hung_fails_the_run(self):
+        value, passed = self._probe_row(
+            {"elapsed_s": None, "outcome": "hung", "error": ""})
+        self.assertFalse(passed)
+        self.assertIn("the deadline did not fire", value)
+        self.assertEqual(self._main()[0], 1)
+
+    def test_a_probe_that_expired_too_late_or_too_soon_fails(self):
+        for elapsed, why in ((13.1, "did not fire at about 10 s"),
+                             (25.0, "did not fire at about 10 s"),
+                             (8.9, "earlier than the 10 s deadline")):
+            with self.subTest(elapsed=elapsed):
+                value, passed = self._probe_row(
+                    {"elapsed_s": elapsed, "outcome": "error",
+                     "error": "OperationalError: timeout expired"})
+                self.assertFalse(passed)
+                self.assertIn(why, value)
+
+    def test_a_probe_with_another_error_fails_the_run(self):
+        value, passed = self._probe_row(
+            {"elapsed_s": 0.2, "outcome": "error", "error":
+             "OperationalError: connection refused"})
+        self.assertFalse(passed)
+        self.assertIn("another error: OperationalError: connection refused",
+                      value)
+        self.assertEqual(self._main()[0], 1)
+
+    def test_a_missing_probe_fails_the_run(self):
+        self.assertEqual(self._probe_row(None),
+                         ("no probe was recorded", False))
+        self.assertEqual(self._main()[0], 1)
 
     def test_pages_are_measured_when_they_are_answered(self):
         # Started before the recovery, answered 25 s after it.

@@ -48,13 +48,14 @@ ES_LIMIT_S = 150
 SCORES_LIMIT_S = 420
 # F1: the logs name the lost connection within this many seconds.
 F1_WINDOW_S = 120
-# F3: a new connection fails at the connect deadline of 10 s. The slack
-# is how long after the pause its effects may still be logged, and, added
-# to the connect limit, how long a request that started during the pause
-# may last: one that waits for the resume instead lasts about the pause.
+# F3: a new connection fails at the connect deadline of 10 s. The probe
+# of faults.py must fail with "timeout expired" within these bounds; a
+# CWS 500 answer lasts at most F3_CONNECT_LIMIT_S; the slack is how long
+# after the pause its effects may still be logged.
+F3_PROBE_MIN_S = 9
+F3_PROBE_MAX_S = 13
 F3_CONNECT_LIMIT_S = 12
 F3_SLACK_S = 15
-F3_REQUEST_LIMIT_S = F3_CONNECT_LIMIT_S + F3_SLACK_S
 # F4: cmsSetupDB exits within 15 s, and CWS p99 stays at most 6 s from
 # its start to 5 s after it exits.
 F4_EXIT_LIMIT_S = 15
@@ -245,6 +246,46 @@ def _within(fault: str, what: str, seconds: float | None,
             seconds is not None and seconds <= limit)
 
 
+def probe_row(probe: dict | None) -> Row:
+    """Return the row of F3's probe: a new connection during the pause.
+
+    The pause must stall the connect, and the connect deadline must end
+    it with "timeout expired" at about 10 s.
+
+    probe: the probe's record in faults.json, or None if it has none.
+
+    return: the row; its value says what went wrong, if anything.
+
+    """
+    what = "a new connection during the pause fails with 'timeout expired'"
+    limit = "timeout expired at %g-%g s" % (F3_PROBE_MIN_S, F3_PROBE_MAX_S)
+    if probe is None:
+        return ("F3", what, "no probe was recorded", limit, False)
+    outcome = probe.get("outcome")
+    elapsed = probe.get("elapsed_s")
+    error = probe.get("error") or ""
+    if outcome == "ok":
+        value = ("connected after %s: the pause did not stall connects, "
+                 "so the fault did not apply" % fmt(elapsed))
+    elif outcome == "hung":
+        value = "hung, no answer in time: the deadline did not fire"
+    elif outcome != "error" or elapsed is None:
+        value = "unusable probe record: %s" % json.dumps(probe)
+    elif "timeout expired" not in error:
+        value = "failed after %s with another error: %s" % (
+            fmt(elapsed), error)
+    elif elapsed > F3_PROBE_MAX_S:
+        value = ("timeout expired after %s: the deadline did not fire "
+                 "at about 10 s" % fmt(elapsed))
+    elif elapsed < F3_PROBE_MIN_S:
+        value = ("timeout expired after %s: earlier than the 10 s "
+                 "deadline" % fmt(elapsed))
+    else:
+        return ("F3", what, "timeout expired after %s" % fmt(elapsed),
+                limit, True)
+    return ("F3", what, value, limit, False)
+
+
 def check(run_dir: str) -> list[Row]:
     """Return one row per criterion of a fault run.
 
@@ -327,40 +368,29 @@ def check(run_dir: str) -> list[Row]:
     if "end" not in f3:
         rows.append(("F3", "ran", "no", "yes", False))
     else:
+        rows.append(probe_row(f3.get("probe")))
+        # Shown for the reader, with no effect on the result: the probe
+        # decides. Requests may be served from pooled connections, which
+        # wait for the resume, and a connect may not have been needed.
         expired = sum(1 for t, line in every
                       if f3["start"] <= t <= f3["end"] + F3_SLACK_S
                       and "timeout expired" in line)
-        # A new connection must have failed at its deadline: with none,
-        # the run did not show the behaviour. There are two ways to have
-        # none: no connection was attempted, or the deadline did not fire
-        # and the attempts waited for the resume.
-        rows.append(("F3", "'timeout expired' log lines",
-                     str(expired) if expired else
-                     "0 (no new connection failed with 'timeout expired' "
-                     "during the pause: either none was attempted or the "
-                     "deadline did not fire)",
-                     "> 0", expired > 0))
+        rows.append(("F3", "'timeout expired' log lines", str(expired),
+                     "informational", True))
         answers = cws_500s(cws, f3["start"], f3["end"])
         if answers:
             rows.append(_longest("F3", "CWS 500 answer", answers,
                                  F3_CONNECT_LIMIT_S))
         else:
-            # The pages may have been served from open pooled
-            # connections; the row above carries the requirement.
             rows.append(("F3", "longest CWS 500 answer", "no 500 answers",
                          "<= %g s" % F3_CONNECT_LIMIT_S, True))
         lasted = [request["dur"] for request in requests
                   if f3["start"] <= request["t"] <= f3["end"]]
-        what = "longest non-RWS request that started during the pause"
-        limit = "<= %g s" % F3_REQUEST_LIMIT_S
-        if lasted:
-            rows.append(("F3", what,
-                         "%s of %d" % (fmt(max(lasted)), len(lasted)),
-                         limit, max(lasted) <= F3_REQUEST_LIMIT_S))
-        else:
-            rows.append(("F3", what,
-                         "no request started during the pause", limit,
-                         True))
+        rows.append(("F3", "longest non-RWS request that started during "
+                     "the pause",
+                     "%s of %d" % (fmt(max(lasted)), len(lasted)) if lasted
+                     else "no request started during the pause",
+                     "informational", True))
         rows.append(_within("F3", "pages answer again after",
                             first_after(pages, f3["end"]), PAGES_LIMIT_S))
 

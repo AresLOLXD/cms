@@ -22,7 +22,9 @@ It runs on the host, next to run.sh, while the driver runs. At fixed
 times after the contest start ("start" in users.json) it injects:
 
 - F1, at 120 and 180 s: pg_terminate_backend of every CMS backend;
-- F3, at 600 s: docker pause of PostgreSQL for 30 s;
+- F3, at 600 s: docker pause of PostgreSQL for 30 s; 2 s into it, a
+  probe in the cms container opens a fresh connection through CMS's own
+  path, which must fail with "timeout expired" at about 10 s;
 - F4, at 1000 s: cmsSetupDB while a psql session holds a read of
   contests, idle in its transaction;
 - F2, at 1080 s: a two-way DROP of PostgreSQL's port for 90 s, then,
@@ -54,6 +56,12 @@ from collections.abc import Callable
 F1_AT = (120, 180)
 F3_AT = 600
 F3_PAUSE_S = 30
+# The probe starts this long after the pause and is cut after
+# F3_PROBE_TIMEOUT_S: it outlasts the 10 s connect deadline and ends
+# before the unpause. The injector waits F3_PROBE_COLLECT_S for its answer.
+F3_PROBE_AFTER_S = 2
+F3_PROBE_TIMEOUT_S = 25
+F3_PROBE_COLLECT_S = 10
 F4_AT = 1000
 F2_AT = 1080
 F2_DROP_S = 90
@@ -76,6 +84,26 @@ HOLDER_READY_SQL = (
 # holder is idle in transaction for 40 s.
 HOLDER_SCRIPT = ("BEGIN;\nSELECT 1 FROM contests LIMIT 1;\n"
                  "\\! sleep 40\nCOMMIT;\n")
+# F3's probe: a fresh connection through CMS's own path (green psycopg2,
+# the connection defaults of cms.db.connect_options), outside any pool.
+# The elapsed time starts after the imports. It prints one JSON line.
+PROBE_SCRIPT = """\
+import json
+import time
+
+import cms.io  # makes psycopg2 green, as in the services
+from cms.db.session import custom_psycopg2_connection
+
+start = time.monotonic()
+try:
+    custom_psycopg2_connection().close()
+    result = {"outcome": "ok", "error": ""}
+except Exception as error:
+    result = {"outcome": "error", "error": "%s: %s" % (
+        type(error).__name__, " ".join(str(error).split()))}
+result["elapsed_s"] = round(time.monotonic() - start, 1)
+print(json.dumps(result))
+"""
 SETUP_DB_MESSAGE = ("cmsSetupDB could not lock contests or ranking_groups "
                     "within 5 s")
 # In PostgreSQL's namespace: what arrives at its port and what leaves
@@ -152,10 +180,12 @@ class Injector:
         self.clock = clock
         self.records: list[dict] = []
         # What is in place and must be undone: the DROP rules (with the
-        # pid of their namespace), the paused container, the holder.
+        # pid of their namespace), the paused container, the holder, the
+        # probe.
         self.rules: list[tuple[int, tuple[str, ...]]] = []
         self.paused: str | None = None
         self.holder: subprocess.Popen | None = None
+        self.probe: subprocess.Popen | None = None
 
     def docker(self, *args: str) -> list[str]:
         """Return a docker command for the rootful engine, as run.sh."""
@@ -229,17 +259,62 @@ class Injector:
             self.psql(PARTITION_STEP_SQL.format(end=end)))
 
     def f3(self) -> None:
-        """Pause PostgreSQL: its kernel still answers, it does not."""
+        """Pause PostgreSQL: its kernel still answers, it does not.
+
+        Two seconds in, a probe tries a fresh connection from the cms
+        container. A connect now reaches a kernel that completes the
+        handshake and a PostgreSQL that never answers, so only the
+        connect deadline ends it ("timeout expired", at about 10 s). The
+        probe runs in the background: the unpause is not delayed by it.
+
+        """
         container = self.db_container()
         start = self.clock()
         # Recorded before the pause, as the rules of f2.
         self.paused = container
         self.run(self.docker("pause", container))
-        self.sleep(F3_PAUSE_S)
+        self.sleep(F3_PROBE_AFTER_S)
+        self.probe = self.popen(
+            self.compose("exec", "-T", "cms", "timeout",
+                         str(F3_PROBE_TIMEOUT_S), "python3", "-c",
+                         PROBE_SCRIPT),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True)
+        self.sleep(F3_PAUSE_S - F3_PROBE_AFTER_S)
         self.run(self.docker("unpause", container))
         self.paused = None
         self.records.append({"fault": "F3", "start": start,
-                             "end": self.clock()})
+                             "end": self.clock(),
+                             "probe": self._probe_result()})
+
+    def _probe_result(self) -> dict:
+        """Collect the answer of the F3 probe, which ended before now.
+
+        return: {"elapsed_s", "outcome", "error"}; the outcome is "ok",
+            "error" or "hung" (cut by timeout(1), or not answering).
+
+        """
+        probe = self.probe
+        try:
+            out, err = probe.communicate(timeout=F3_PROBE_COLLECT_S)
+        except subprocess.TimeoutExpired:
+            probe.kill()
+            self.probe = None
+            return {"elapsed_s": None, "outcome": "hung", "error": ""}
+        self.probe = None
+        for line in reversed(out.splitlines()):
+            try:
+                result = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(result, dict) and "outcome" in result:
+                return result
+        # timeout(1) exits with 124 when it had to cut the command.
+        if probe.returncode == 124:
+            return {"elapsed_s": None, "outcome": "hung", "error": ""}
+        return {"elapsed_s": None, "outcome": "error",
+                "error": "no answer (exit %s): %s"
+                % (probe.returncode, err.strip()[-300:])}
 
     def f4(self) -> None:
         """Run cmsSetupDB while a psql session holds a read of contests."""
@@ -305,6 +380,16 @@ class Injector:
             holder, self.holder = self.holder, None
             holder.kill()
 
+    def _end_probe(self) -> None:
+        """Kill the F3 probe's client, if it is still running.
+
+        The probe in the container ends by itself: timeout(1) cuts it.
+
+        """
+        if self.probe is not None:
+            probe, self.probe = self.probe, None
+            probe.kill()
+
     def _guarded(self, what: str, step: Callable[[], None]) -> None:
         """Run a cleanup step; report an exception instead of raising."""
         try:
@@ -322,6 +407,7 @@ class Injector:
         self._delete_rules()
         self._guarded("docker unpause", self._unpause)
         self._guarded("ending the holder", self._end_holder)
+        self._guarded("ending the probe", self._end_probe)
         self._guarded("saving faults.json", self.save)
 
     def run_schedule(self, contest_start: float) -> None:
