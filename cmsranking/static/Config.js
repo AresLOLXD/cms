@@ -80,7 +80,7 @@ var Config = new function () {
 };
 
 var PublicConfig = {
-    show_id_column: false
+    show_id_column: true
 };
 
 $.ajax({

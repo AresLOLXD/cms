@@ -187,7 +187,7 @@ realm_name = "Scoreboard"
 buffer_size = 100
 
 [public]
-show_id_column = false
+show_id_column = true
 """
 
 

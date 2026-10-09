@@ -395,7 +395,7 @@ abbr {
 }
 
 #Scoreboard_cols col.user_id {
-    width: 48px;
+    width: 8em;
 }
 
 #Scoreboard_cols col.team {
@@ -453,6 +453,12 @@ abbr {
     text-align: left;
     padding: 0 0.5em;
     cursor: pointer;
+}
+
+/* Long usernames have no spaces, so let them break anywhere instead of
+   overflowing into the neighbouring cells. */
+#Scoreboard_body tr td.user_id {
+    overflow-wrap: break-word;
 }
 
 #Scoreboard_head tr th.sel {
