@@ -36,6 +36,7 @@ import os
 import re
 import threading
 from collections.abc import Callable, Iterator
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -72,6 +73,7 @@ HASH_THREADS = 4
 # spaces when CWS reads the login form, so such a password could never
 # match.
 PASSWORD_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+T = TypeVar("T")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -312,7 +314,8 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
     rows: the rows from read_rows, without errors.
 
     return: the plan, or None and the errors (the contest does not exist
-        or has no main group, or a team or a group is unknown).
+        or has no main group, or a team or a group is unknown, or a user
+        does not exist and the rows have no password).
 
     """
     with session.no_autoflush:
@@ -325,6 +328,10 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         groups = dict(session.execute(
             select(Group.name, Group.id)
             .filter(Group.contest_id == contest_id)).all())
+        usernames = [row.username for row in rows]
+        existing = set(session.execute(
+            select(User.username).filter(User.username.in_(usernames))
+        ).scalars())
         errors: list[str] = []
         for row in rows:
             if row.team is not None and row.team not in teams:
@@ -333,12 +340,15 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
             if row.group is not None and row.group not in groups:
                 errors.append("fila %d: el grupo %s no existe en este "
                               "concurso" % (row.line, row.group))
+            # A new user would get a random account password, and with no
+            # participation password nothing could log in.
+            if row.password is None and row.username not in existing:
+                errors.append(
+                    "fila %d: el usuario %s no existe; sin columna de "
+                    "contraseña solo se pueden inscribir usuarios que ya "
+                    "existen" % (row.line, row.username))
         if errors:
             return None, errors
-        usernames = [row.username for row in rows]
-        existing = set(session.execute(
-            select(User.username).filter(User.username.in_(usernames))
-        ).scalars())
         current = session.execute(
             select(User.username, Participation.team_id,
                    Participation.group_id, Participation.password)
@@ -388,43 +398,41 @@ def _lower_thread_priority() -> None:
         pass
 
 
-def hash_passwords(rows: list[ImportRow], new_users: set[str],
-                   stored_passwords: dict[str, str],
-                   progress: Callable[[], None]
-                   ) -> dict[str, tuple[str, str | None]]:
-    """Hash every password of the import, a few at a time.
+def _hash_or_keep(password: str, stored: str | None) -> str:
+    """Hash a password, unless the stored bcrypt hash still matches it.
+
+    The CWS cookie holds the stored string, and a new hash of the same
+    password is another string (bcrypt salts it), so replacing it would
+    log the contestant out. Checking costs about as much as hashing.
+
+    password: the password of the row.
+    stored: the authentication string stored now, if any.
+
+    return: the authentication string to store.
+
+    """
+    if stored is not None and stored.startswith("bcrypt:") \
+            and validate_password(stored, password):
+        return stored
+    return hash_password(password, "bcrypt")
+
+
+def _hash_in_pool(rows: list[ImportRow],
+                  work: Callable[[ImportRow], tuple[str, T]],
+                  progress: Callable[[], None]) -> dict[str, T]:
+    """Run the hashing work of every row, a few rows at a time.
 
     bcrypt costs about 0.2 s per password and releases the GIL, so a
     small pool divides the wait.
 
-    A participation keeps its stored bcrypt password when the row's
-    password still matches it. The CWS cookie holds the stored string,
-    and a new hash of the same password is another string (bcrypt salts
-    it), so replacing it would log the contestant out. Checking costs
-    about as much as hashing, so it is done in the pool too.
-
     rows: the rows to import.
-    new_users: the usernames that do not exist yet.
-    stored_passwords: username -> participation password stored in the
-        contest, from the plan.
+    work: hashes one row; returns its username and what it computed.
     progress: called once each time a row is done.
 
-    return: username -> (participation password, account password or
-        None), both as authentication strings.
+    return: username -> what work computed for it.
 
     """
-    def work(row: ImportRow) -> tuple[str, tuple[str, str | None]]:
-        stored = stored_passwords.get(row.username)
-        if stored is not None and stored.startswith("bcrypt:") \
-                and validate_password(stored, row.password):
-            participation = stored
-        else:
-            participation = hash_password(row.password, "bcrypt")
-        account = hash_password(generate_random_password(), "bcrypt") \
-            if row.username in new_users else None
-        return row.username, (participation, account)
-
-    result: dict[str, tuple[str, str | None]] = {}
+    result: dict[str, T] = {}
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=HASH_THREADS,
             thread_name_prefix="aws-import-hash",
@@ -432,8 +440,8 @@ def hash_passwords(rows: list[ImportRow], new_users: set[str],
         try:
             for future in concurrent.futures.as_completed(
                     [pool.submit(work, row) for row in rows]):
-                username, hashes = future.result()
-                result[username] = hashes
+                username, value = future.result()
+                result[username] = value
                 progress()
         except BaseException:
             # Do not hash the rows still queued for a result nobody will
@@ -443,16 +451,49 @@ def hash_passwords(rows: list[ImportRow], new_users: set[str],
     return result
 
 
+def hash_passwords(rows: list[ImportRow], new_users: set[str],
+                   stored_passwords: dict[str, str],
+                   progress: Callable[[], None]
+                   ) -> dict[str, tuple[str | None, str | None]]:
+    """Hash every password of a contest import, a few at a time.
+
+    A participation keeps its stored bcrypt password when the row's
+    password still matches it (see _hash_or_keep).
+
+    rows: the rows to import.
+    new_users: the usernames that do not exist yet.
+    stored_passwords: username -> participation password stored in the
+        contest, from the plan.
+    progress: called once each time a row is done.
+
+    return: username -> (participation password, or None for a row
+        without password; account password, or None for an existing
+        user), both as authentication strings.
+
+    """
+    def work(row: ImportRow
+             ) -> tuple[str, tuple[str | None, str | None]]:
+        participation = None if row.password is None else _hash_or_keep(
+            row.password, stored_passwords.get(row.username))
+        account = hash_password(generate_random_password(), "bcrypt") \
+            if row.username in new_users else None
+        return row.username, (participation, account)
+
+    return _hash_in_pool(rows, work, progress)
+
+
 def apply_import(session: Session, contest_id: int, rows: list[ImportRow],
                  plan: ImportPlan,
-                 hashes: dict[str, tuple[str, str | None]]) -> None:
+                 hashes: dict[str, tuple[str | None, str | None]]
+                 ) -> None:
     """Write the import into the session; the caller commits.
 
     session: the session of the transaction.
     contest_id: the contest of the participations.
     rows: the rows to import.
     plan: from plan_import, made in this same process just before.
-    hashes: from hash_passwords.
+    hashes: from hash_passwords; a None participation password leaves the
+        participation's alone.
 
     """
     usernames = [row.username for row in rows]
@@ -480,6 +521,10 @@ def apply_import(session: Session, contest_id: int, rows: list[ImportRow],
         if participation is None:
             participation = Participation(contest=contest, user=user)
             session.add(participation)
-        participation.password = participation_hash
+        # Without a password column, an existing participation keeps its
+        # password and a new one has none, so the account password logs
+        # in.
+        if participation_hash is not None:
+            participation.password = participation_hash
         participation.team_id = team_id
         participation.group_id = group_id
