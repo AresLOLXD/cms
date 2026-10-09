@@ -33,6 +33,16 @@ var escapeHTML = (function() {
     return escapeHTML;
 })();
 
+// Reverses ProxyService.encode_id to show a username instead of its RWS key:
+// every character outside [A-Za-z0-9] was replaced by "_" plus its code point
+// in lowercase hex. Usernames only contain letters, digits, "_" and "-", so the
+// code is always two hex digits and a literal "_" never appears unencoded.
+var decodeUsername = function(key) {
+    return String(key).replace(/_([0-9a-f]{2})/g, function(match, hex) {
+        return String.fromCharCode(parseInt(hex, 16));
+    });
+};
+
 var Scoreboard = new function () {
     var self = this;
 
@@ -195,7 +205,7 @@ var Scoreboard = new function () {
     <th class=\"rank\">Rank</th> \
     <th colspan=\"10\" class=\"f_name\">First Name</th> \
     <th colspan=\"10\" class=\"l_name\">Last Name</th>" +
-            (PublicConfig.show_id_column ? "<th class=\"user_id\">ID</th>" : "") +
+            (PublicConfig.show_id_column ? "<th class=\"user_id\">Username</th>" : "") +
             "<th class=\"team\">Team</th>";
 
         var contests = DataStore.contest_list;
@@ -245,7 +255,7 @@ var Scoreboard = new function () {
     <td class=\"rank\">" + user["rank"] + "</td> \
     <td colspan=\"10\" class=\"f_name\">" + escapeHTML(user["f_name"]) + "</td> \
     <td colspan=\"10\" class=\"l_name\">" + escapeHTML(user["l_name"]) + "</td>" +
-            (PublicConfig.show_id_column ? "<td class=\"user_id\">" + user["key"] + "</td>" : "");
+            (PublicConfig.show_id_column ? "<td class=\"user_id\">" + escapeHTML(decodeUsername(user["key"])) + "</td>" : "");
 
         if (user['team']) {
             result += " \
