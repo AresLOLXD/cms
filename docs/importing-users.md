@@ -97,10 +97,12 @@ already have an account password:
   inscribir usuarios que ya existen" and nothing is applied: a new account
   would get a random password and could never log in.
 
-When the file has a column called `password` or `contraseña`, the page
-assigns it on its own: set it back to "(sin asignar)" before validating,
-and again after the page shows errors, since the password selector is
-always guessed again.
+When the file has a column whose header is one of those in the table above
+(`password`, `contraseña`, `contrasena`, `clave`), the page assigns it on its
+own every time you choose the file: the first time, again in step 3 of
+"Import step by step", and again after errors. Set the password selector
+back to "(sin asignar)" each time, and check it before pressing "Importar":
+otherwise the file's passwords replace the participation passwords.
 
 ## Import step by step
 
