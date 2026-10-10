@@ -28,4 +28,5 @@ buffer_size = 100
 
 # UI
 [public]
-show_id_column = false
+# Show the contestants' usernames in the scoreboard.
+show_id_column = true

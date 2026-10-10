@@ -34,10 +34,11 @@ from unittest import mock
 
 import tornado.web
 
-from cms.server.admin.bulkimport import FIELDS, MAX_BYTES, ImportPlan, \
-    read_rows
-from cms.server.admin.handlers.contestuser import ImportJobStatusHandler, \
-    ImportUsersHandler
+from cms.server.admin.bulkimport import FIELDS, MAX_BYTES, REQUIRED, \
+    USER_FIELDS, USER_REQUIRED, ImportPlan, UserImportPlan, read_rows
+from cms.server.admin.handlers.contestuser import \
+    GlobalImportJobStatusHandler, ImportGlobalUsersHandler, \
+    ImportJobStatusHandler, ImportUsersHandler
 from cms.server.admin.handlers import HANDLERS
 from cms.server.admin.importjobs import ImportJob, ImportJobStore
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
@@ -67,12 +68,21 @@ REPEATED_NOTICE = ("Ya tenías una importación en curso en este concurso; "
 # it is not one of the errors that say that nothing was applied.
 RUNNING_NOTICE = ("Hay una importación en curso para este concurso; "
                   "espera a que termine.")
+GLOBAL_RUNNING_NOTICE = ("Hay una importación de usuarios en curso; espera "
+                         "a que termine.")
+GLOBAL_REPEATED_NOTICE = ("Ya tenías una importación de usuarios en curso; "
+                          "este es su progreso. El archivo que acabas de "
+                          "enviar no se importó.")
 
 
 def make_plan() -> ImportPlan:
     return ImportPlan(new_users=["ana"], updated_users=[],
                       new_participations=["ana"], updated_participations=[],
                       teams={}, groups={}, main_group_id=1)
+
+
+def make_user_plan() -> UserImportPlan:
+    return UserImportPlan(new_users=["ana"], updated_users=[])
 
 
 def fake_url(*parts: object) -> str:
@@ -203,8 +213,8 @@ class TestImportUsersPost(unittest.TestCase):
             handler.application.service.proxy_service.reinitialize)
 
     def test_errors_of_the_file_are_shown_and_nothing_starts(self):
-        # The password column is not assigned to any header.
-        mapping = {**MAPPING, "password": ""}
+        # The username column is not assigned to any header.
+        mapping = {**MAPPING, "username": ""}
         handler = make_handler(form=import_form("import", mapping))
         with mock.patch(MODULE + ".plan_import") as plan_import, \
                 mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
@@ -212,7 +222,7 @@ class TestImportUsersPost(unittest.TestCase):
 
         params = rendered_params(handler)
         self.assertEqual(len(params["errors"]), 1)
-        self.assertIn("password", params["errors"][0])
+        self.assertIn("username", params["errors"][0])
         self.assertIsNone(params["summary"])
         plan_import.assert_not_called()
         jobs.start.assert_not_called()
@@ -560,6 +570,26 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
             self.assertIn('data-selected="ana"', html)
             self.assertNotIn(PASSWORD, html)
 
+    def test_a_field_on_the_password_header_does_not_echo_it(self):
+        # A file without a header row, with the team mapped to the
+        # password's "header": read_rows refuses it, and the page shown
+        # again must not carry the header in the team's select either.
+        headerless = ("ana,Ana,Pérez,%s\nbob,Bob,Ruiz,pw2\n"
+                      % PASSWORD).encode("utf-8")
+        mapping = {"username": "ana", "first_name": "Ana",
+                   "last_name": "Pérez", "password": PASSWORD,
+                   "team": PASSWORD}
+        handler = make_handler(data=headerless,
+                               form=import_form("validate", mapping))
+        handler._post_sync(str(CONTEST_ID))
+
+        html = self.render_last_page(handler)
+
+        self.assertIn("la columna de la contraseña está asignada a más de "
+                      "un campo", html)
+        self.assertIn('data-selected="ana"', html)
+        self.assertNotIn(PASSWORD, html)
+
 
 class TestLossesReachThePage(unittest.TestCase):
     """The counts of plan_import are what the warnings of the page show."""
@@ -730,6 +760,7 @@ class TestImportTemplates(unittest.TestCase):
         params.setdefault("contest", SimpleNamespace(id=CONTEST_ID,
                                                      name="Día 1"))
         params.setdefault("fields", FIELDS)
+        params.setdefault("required", REQUIRED)
         params.setdefault("mapping", {})
         params.setdefault("errors", [])
         params.setdefault("summary", None)
@@ -839,7 +870,7 @@ class TestImportTemplates(unittest.TestCase):
             "map_username": "Usuario (username) *",
             "map_first_name": "Nombre (first_name) *",
             "map_last_name": "Apellidos (last_name) *",
-            "map_password": "Contraseña del día (password) *",
+            "map_password": "Contraseña del día (password)",
             "map_team": "Equipo (team)",
             "map_group": "Grupo (group)"}
         for control, text in labels.items():
@@ -1014,6 +1045,48 @@ class TestImportTemplates(unittest.TestCase):
                   r'data-selected="" id="map_password">')
         self.assertIn('data-selected="usuario"', html)
 
+    def password_select(self, html: str) -> str:
+        """Return the password select of a rendered page, tag included."""
+        match = re.search(r'<select name="map_password".*?</select>', html,
+                          re.DOTALL)
+        self.assertIsNotNone(match)
+        return match.group(0)
+
+    def test_an_unassigned_password_is_marked_on_the_contest_page(self):
+        # Only a boolean reaches the page: the choice itself is "(sin
+        # asignar)", so there is no header to echo.
+        html = self.render_import(mapping={
+            "username": "usuario", "password": ""})
+
+        self.assertIn('data-unassigned="1"', self.password_select(html))
+        self.assertEqual(html.count('data-unassigned="1"'), 1)
+
+    def test_an_assigned_password_is_not_marked_nor_echoed(self):
+        html = self.render_import(mapping={
+            "username": "usuario", "password": "contraseña"})
+
+        self.assertNotIn('data-unassigned="1"', html)
+        self.assertNotIn("contraseña", self.password_select(html))
+
+    def test_the_first_visit_does_not_mark_the_password(self):
+        # Nothing was submitted yet, so the aliases guess the column.
+        self.assertNotIn('data-unassigned="1"', self.render_import())
+
+    def test_the_global_page_never_marks_the_password(self):
+        # There the password is required, and guessing it again helps.
+        html = self.render_import(
+            contest=None, fields=USER_FIELDS, required=USER_REQUIRED,
+            mapping={"username": "usuario", "password": ""})
+
+        self.assertIn('name="map_password"', html)
+        self.assertNotIn('data-unassigned="1"', html)
+
+    def test_the_script_keeps_the_password_only_if_it_was_unassigned(self):
+        html = self.render_import()
+
+        self.assertIn('var keepChoice = hasMapping && (field !== "password" '
+                      '|| select.hasAttribute("data-unassigned"));', html)
+
     def test_the_summary_of_a_validation_is_shown(self):
         html = self.render_import(summary=make_plan().summary())
 
@@ -1060,6 +1133,18 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn("Usuarios nuevos: 1", html)
         self.assertNotIn("perderá", html)
         self.assertNotIn("pasará", html)
+        self.assertNotIn('class="import-box import-warning"', html)
+
+    def test_a_summary_of_users_only_shows_neither_participations_nor_losses(
+            self):
+        # The summary of the global import has just the two user counts,
+        # and the page renders with StrictUndefined.
+        html = self.render_import(summary={"usuarios_nuevos": 1,
+                                           "usuarios_actualizados": 2})
+
+        self.assertIn("Usuarios nuevos: 1", html)
+        self.assertIn("Usuarios actualizados: 2", html)
+        self.assertNotIn("<li>Participaciones", html)
         self.assertNotIn('class="import-box import-warning"', html)
 
     def test_the_form_warns_that_empty_team_and_group_cells_replace(self):
@@ -1173,6 +1258,267 @@ class TestImportTemplates(unittest.TestCase):
             unassigned_users=[],
             admin=SimpleNamespace(permission_all=False))
         self.assertNotIn("Importar CSV", html)
+
+
+class TestTheContestPasswordIsOptional(unittest.TestCase):
+
+    def test_the_handler_passes_the_required_fields(self):
+        handler = make_handler(form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])):
+            handler._post_sync(str(CONTEST_ID))
+
+        self.assertEqual(rendered_params(handler)["required"], REQUIRED)
+
+    def test_without_a_password_column_the_rows_carry_none(self):
+        handler = make_handler(form=import_form(
+            "validate", {**MAPPING, "password": ""}))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])) as plan_import:
+            handler._post_sync(str(CONTEST_ID))
+
+        rows = plan_import.call_args.args[2]
+        self.assertEqual([row.password for row in rows], [None])
+        self.assertEqual(rendered_params(handler)["errors"], [])
+
+    def test_the_page_explains_an_unassigned_password(self):
+        html = TestImportTemplates().render_import()
+
+        self.assertIn("las participaciones nuevas entran con la contraseña "
+                      "de su cuenta", html)
+        self.assertNotIn("(password) *", html)
+
+    def test_the_page_after_an_error_keeps_the_password_unassigned(self):
+        handler = make_handler(form=import_form(
+            "import", {**MAPPING, "username": "", "password": ""}))
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            handler._post_sync(str(CONTEST_ID))
+
+        params = rendered_params(handler)
+        self.assertTrue(params["errors"])
+        jobs.start.assert_not_called()
+        template = AWS_ENVIRONMENT.get_template("contest_users_import.html")
+        html = "".join(template.blocks["core"](
+            template.new_context(dict(params))))
+        self.assertRegex(
+            html, r'<select name="map_password"[^>]*data-unassigned="1"')
+        self.assertNotIn(PASSWORD, html)
+
+
+class TestGlobalImportPage(unittest.TestCase):
+
+    def render(self, handler) -> str:
+        template = AWS_ENVIRONMENT.get_template("contest_users_import.html")
+        return "".join(template.blocks["core"](
+            template.new_context(dict(rendered_params(handler)))))
+
+    def test_validate_shows_the_summary_of_users_only(self):
+        handler = make_handler(ImportGlobalUsersHandler,
+                               form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_user_import",
+                        return_value=(make_user_plan(), [])) as plan, \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            handler._post_sync()
+
+        params = rendered_params(handler)
+        self.assertIsNone(params["contest"])
+        self.assertEqual(params["fields"], USER_FIELDS)
+        self.assertEqual(params["required"], USER_REQUIRED)
+        plan.assert_called_once_with(
+            handler.sql_session,
+            read_rows(CSV, MAPPING, USER_FIELDS, USER_REQUIRED)[0])
+        jobs.start.assert_not_called()
+        html = self.render(handler)
+        self.assertIn("Usuarios nuevos: 1", html)
+        # The script of the page names them, so look for the list item.
+        self.assertNotIn("<li>Participaciones nuevas", html)
+        self.assertIn('action="/users/import"', html)
+        self.assertIn("Contraseña (password) *", html)
+        self.assertNotIn("Contraseña del día", html)
+        self.assertNotIn('name="map_team"', html)
+        # The template wraps the sentence, which HTML shows as one line.
+        self.assertIn("La contraseña de la cuenta solo se usa en los "
+                      "concursos donde la participación no tiene "
+                      "contraseña propia.", " ".join(html.split()))
+        self.assertNotIn(PASSWORD, html)
+
+    def test_the_password_is_required(self):
+        handler = make_handler(ImportGlobalUsersHandler, form=import_form(
+            "validate", {**MAPPING, "password": ""}))
+        with mock.patch(MODULE + ".plan_user_import") as plan:
+            handler._post_sync()
+
+        self.assertEqual(rendered_params(handler)["errors"], [
+            "falta asignar la columna para la contraseña (password)"])
+        plan.assert_not_called()
+
+    def test_import_starts_a_global_job(self):
+        handler = make_handler(ImportGlobalUsersHandler,
+                               form=import_form("import"))
+        with mock.patch(MODULE + ".plan_user_import",
+                        return_value=(make_user_plan(), [])), \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.start.return_value = SimpleNamespace(id="job-1")
+            handler._post_sync()
+
+        jobs.start.assert_called_once_with(
+            ADMIN_ID, None,
+            read_rows(CSV, MAPPING, USER_FIELDS, USER_REQUIRED)[0],
+            mock.ANY)
+        handler.redirect.assert_called_once_with("/users/import?job=job-1")
+        on_done = jobs.start.call_args.args[3]
+        on_done()
+        handler.schedule_rpc.assert_called_once_with(
+            handler.application.service.proxy_service.reinitialize)
+
+    def test_a_running_global_import(self):
+        for owner, redirected in ((ADMIN_ID, True), (ADMIN_ID + 1, False)):
+            handler = make_handler(ImportGlobalUsersHandler,
+                                   form=import_form("import"))
+            with mock.patch(MODULE + ".plan_user_import",
+                            return_value=(make_user_plan(), [])), \
+                    mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+                jobs.start.side_effect = ValueError("running")
+                jobs.running_job.return_value = SimpleNamespace(
+                    id="job-1", owner_id=owner)
+                handler._post_sync()
+
+            jobs.running_job.assert_called_once_with(None)
+            if redirected:
+                handler.redirect.assert_called_once_with(
+                    "/users/import?job=job-1&repetido=1")
+            else:
+                self.assertIn(GLOBAL_RUNNING_NOTICE, self.render(handler))
+
+    def test_the_progress_of_a_global_job_and_its_urls(self):
+        handler = make_handler(ImportGlobalUsersHandler,
+                               form={"job": "job-1", "repetido": "1"})
+        job = SimpleNamespace(id="job-1", contest_id=None, processed=2,
+                              total=4)
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = job
+            handler._get_sync()
+
+        html = self.render(handler)
+        self.assertIn("Procesando 2 de 4", html)
+        self.assertIn(GLOBAL_REPEATED_NOTICE, html)
+        self.assertIn('data-status-url="/users/import/job-1/status"', html)
+        self.assertIn('data-users-url="/users"', html)
+        self.assertIn('data-import-url="/users/import"', html)
+
+    def test_a_contest_job_is_not_shown_on_the_global_page(self):
+        handler = make_handler(ImportGlobalUsersHandler, form={"job": "job-1"})
+        job = SimpleNamespace(id="job-1", contest_id=CONTEST_ID,
+                              processed=2, total=4)
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = job
+            handler._get_sync()
+
+        html = self.render(handler)
+        self.assertIn(NOT_FOUND, html)
+        self.assertNotIn("<progress", html)
+
+    def test_a_header_less_file_never_echoes_the_password(self):
+        headerless = ("ana,Ana,Pérez,%s\nbob,Bob,Ruiz,pw2\n"
+                      % PASSWORD).encode("utf-8")
+        for mapping in (
+                {"username": "ana", "first_name": "Ana",
+                 "last_name": "Pérez", "password": PASSWORD},
+                {"username": PASSWORD, "first_name": "Ana",
+                 "last_name": "Pérez", "password": PASSWORD}):
+            handler = make_handler(ImportGlobalUsersHandler,
+                                   data=headerless,
+                                   form=import_form("validate", mapping))
+            with mock.patch(MODULE + ".plan_user_import",
+                            return_value=(make_user_plan(), [])):
+                handler._post_sync()
+
+            self.assertNotIn(PASSWORD, self.render(handler), msg=mapping)
+
+
+class TestGlobalImportJobStatus(unittest.TestCase):
+
+    def setUp(self):
+        self.store = ImportJobStore()
+        patcher = mock.patch(MODULE + ".IMPORT_JOBS", self.store)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def start_job(self, contest_id: int | None) -> ImportJob:
+        rows = read_rows(CSV, MAPPING, USER_FIELDS, USER_REQUIRED)[0]
+        with mock.patch.object(ImportJobStore, "_run"):
+            return self.store.start(ADMIN_ID, contest_id, rows,
+                                    lambda: None)
+
+    def test_the_owner_gets_the_json_of_a_global_job(self):
+        job = self.start_job(None)
+        handler = make_handler(GlobalImportJobStatusHandler)
+
+        asyncio.run(handler.get(job.id))
+
+        body = handler.write.call_args.args[0]
+        self.assertEqual(json.loads(body), job.as_json())
+        self.assertNotIn(PASSWORD, body)
+        handler.set_header.assert_any_call("Cache-Control", "no-store")
+
+    def test_jobs_of_the_other_kind_or_owner_are_404(self):
+        global_job = self.start_job(None)
+        contest_job = self.start_job(CONTEST_ID)
+        cases = (
+            (GlobalImportJobStatusHandler, (contest_job.id,), ADMIN_ID),
+            (ImportJobStatusHandler, (str(CONTEST_ID), global_job.id),
+             ADMIN_ID),
+            (GlobalImportJobStatusHandler, (global_job.id,), ADMIN_ID + 1))
+        for handler_class, args, admin_id in cases:
+            handler = make_handler(handler_class, admin_id=admin_id)
+            with self.subTest(handler=handler_class.__name__, args=args):
+                with self.assertRaises(tornado.web.HTTPError) as caught:
+                    asyncio.run(handler.get(*args))
+                self.assertEqual(caught.exception.status_code, 404)
+                handler.write.assert_not_called()
+
+
+class TestGlobalImportRoutesAndPermissions(unittest.TestCase):
+
+    def route_of(self, handler_class) -> str:
+        (pattern,) = [route[0] for route in HANDLERS
+                      if route[1] is handler_class]
+        return pattern
+
+    def test_the_routes(self):
+        self.assertRegex("/users/import",
+                         "^%s$" % self.route_of(ImportGlobalUsersHandler))
+        pattern = self.route_of(GlobalImportJobStatusHandler)
+        for _ in range(200):
+            job_id = secrets.token_urlsafe(16)
+            url = Url("")("users", "import", job_id, "status")
+            match = re.fullmatch(pattern, url)
+            self.assertIsNotNone(match, msg=url)
+            self.assertEqual(match.groups(), (job_id,))
+
+    def test_everything_needs_all_permissions(self):
+        for handler_class, method, args in (
+                (ImportGlobalUsersHandler, "get", ()),
+                (ImportGlobalUsersHandler, "post", ()),
+                (GlobalImportJobStatusHandler, "get", ("job-1",))):
+            handler = make_handler(handler_class, permission_all=False)
+            handler._get_sync = mock.MagicMock()
+            handler._post_sync = mock.MagicMock()
+            with self.subTest(handler=handler_class.__name__, method=method):
+                # As in TestPermissions: the check raises on the call.
+                with self.assertRaises(tornado.web.HTTPError) as caught:
+                    getattr(handler, method)(*args)
+                self.assertEqual(caught.exception.status_code, 403)
+                handler._get_sync.assert_not_called()
+                handler._post_sync.assert_not_called()
+
+    def test_the_users_list_links_to_the_import_for_full_admins_only(self):
+        for permission_all in (True, False):
+            html = TestImportTemplates().render_core(
+                "users.html", user_list=[],
+                admin=SimpleNamespace(permission_all=permission_all))
+            self.assertEqual('<a href="/users/import">Importar CSV</a>'
+                             in html, permission_all)
 
 
 if __name__ == "__main__":

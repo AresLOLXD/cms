@@ -36,7 +36,8 @@ from collections.abc import Callable
 
 from cms.db import SessionGen
 from cms.server.admin.bulkimport import ImportRow, apply_import, \
-    hash_passwords, plan_import
+    apply_user_import, hash_account_passwords, hash_passwords, \
+    plan_import, plan_user_import
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +51,27 @@ APPLY_FAILED = "no se pudo aplicar la importación; no se guardó nada"
 _APPLY_LOCK = threading.Lock()
 
 
+def _describe(job: "ImportJob") -> str:
+    """Say what a job imports, for the log lines.
+
+    job: the job.
+
+    return: the words that follow "Bulk import" in a log line.
+
+    """
+    if job.contest_id is None:
+        return "of global users"
+    return "into contest %d" % job.contest_id
+
+
 @dataclasses.dataclass
 class ImportJob:
     """One import running (or finished) in this AWS process.
 
     id: the unguessable identifier the page uses to ask for the progress.
     owner_id: the id of the admin who started it.
-    contest_id: the contest the import goes to.
+    contest_id: the contest the import goes to, or None for a global
+        users import.
     total: the number of rows to import.
     created_at: when the job started, in the clock of the store.
     status: "running", "done" or "error".
@@ -68,7 +83,7 @@ class ImportJob:
     """
     id: str
     owner_id: int
-    contest_id: int
+    contest_id: int | None
     total: int
     created_at: float
     status: str = "running"
@@ -107,10 +122,11 @@ class ImportJobStore:
                        if j.created_at < cutoff]:
             del self._jobs[job_id]
 
-    def _find_running(self, contest_id: int) -> ImportJob | None:
-        """Find the job running for a contest; the caller holds the lock.
+    def _find_running(self, contest_id: int | None) -> ImportJob | None:
+        """Find the job running for a contest or for the global users import
+        (None); the caller holds the lock.
 
-        contest_id: the contest.
+        contest_id: the contest, or None for the global users import.
 
         return: the job, or None if there is none.
 
@@ -119,25 +135,30 @@ class ImportJobStore:
                      if j.contest_id == contest_id
                      and j.status == "running"), None)
 
-    def start(self, owner_id: int, contest_id: int, rows: list[ImportRow],
+    def start(self, owner_id: int, contest_id: int | None,
+              rows: list[ImportRow],
               on_done: Callable[[], None]) -> ImportJob:
-        """Start importing rows into a contest, in a thread.
+        """Start importing rows into a contest, or the global users import
+        when contest_id is None, in a thread.
 
         owner_id: the admin who starts it.
-        contest_id: the contest.
-        rows: the rows, already validated by read_rows and plan_import.
+        contest_id: the contest, or None for a global users import.
+        rows: the rows, already validated by read_rows and the plan step.
         on_done: called after the commit (to notify ProxyService).
 
         return: the job.
 
-        raise (ValueError): if a job is already running for the contest.
+        raise (ValueError): if a job is already running for the contest
+            (or, for None, a global users import).
 
         """
         with self._lock:
             self._evict()
             if self._find_running(contest_id) is not None:
                 raise ValueError(
-                    "ya hay una importación en curso para este concurso")
+                    "ya hay una importación de usuarios en curso"
+                    if contest_id is None
+                    else "ya hay una importación en curso para este concurso")
             job = ImportJob(id=secrets.token_urlsafe(16), owner_id=owner_id,
                             contest_id=contest_id, total=len(rows),
                             created_at=self._clock())
@@ -151,45 +172,57 @@ class ImportJobStore:
              on_done: Callable[[], None]) -> None:
         """Import the rows of a job; the body of its thread.
 
-        A failure is logged with the contest, the class of the exception
-        and the frames of its traceback, and nothing else: an exception
-        from the database carries the values of the rows (usernames,
-        names, password hashes) in its message and its parameters, and
-        those must not reach the AWS log.
+        A failure is logged with what the job imports (the contest or the
+        global users), the class of the exception and the frames of its
+        traceback, and nothing else: an exception from the database
+        carries the values of the rows (usernames, names, password
+        hashes) in its message and its parameters, and those must not
+        reach the AWS log.
 
         job: the job to run, updated as it goes.
         rows: the rows to import.
         on_done: called after the commit.
 
         """
+        global_import = job.contest_id is None
         try:
             with SessionGen() as session:
-                plan, errors = plan_import(session, job.contest_id, rows)
+                if global_import:
+                    plan, errors = plan_user_import(session, rows)
+                else:
+                    plan, errors = plan_import(session, job.contest_id, rows)
                 if plan is None:
                     job.error = "; ".join(errors)
                     job.status = "error"
                     return
-                # The plan holds only plain values and apply_import reads
-                # again what it writes, so no transaction stays open, idle,
-                # during the hashing.
+                # The plan holds only plain values and the apply steps read
+                # again what they write, so no transaction stays open,
+                # idle, during the hashing.
                 session.rollback()
 
                 def progress() -> None:
                     job.processed += 1
 
-                hashes = hash_passwords(rows, set(plan.new_users),
-                                        plan.stored_passwords, progress)
+                if global_import:
+                    hashes = hash_account_passwords(
+                        rows, plan.stored_passwords, progress)
+                else:
+                    hashes = hash_passwords(rows, set(plan.new_users),
+                                            plan.stored_passwords, progress)
                 with _APPLY_LOCK:
-                    apply_import(session, job.contest_id, rows, plan,
-                                 hashes)
+                    if global_import:
+                        apply_user_import(session, rows, hashes)
+                    else:
+                        apply_import(session, job.contest_id, rows, plan,
+                                     hashes)
                     session.commit()
             job.summary = plan.summary()
             job.status = "done"
-            logger.info("Bulk import into contest %d by admin %d: %s.",
-                        job.contest_id, job.owner_id, job.summary)
+            logger.info("Bulk import %s by admin %d: %s.",
+                        _describe(job), job.owner_id, job.summary)
         except Exception as exc:
-            logger.error("Bulk import into contest %d failed with %s.\n%s",
-                         job.contest_id, type(exc).__name__,
+            logger.error("Bulk import %s failed with %s.\n%s",
+                         _describe(job), type(exc).__name__,
                          "".join(traceback.format_tb(exc.__traceback__)))
             job.error = APPLY_FAILED
             job.status = "error"
@@ -200,17 +233,18 @@ class ImportJobStore:
         try:
             on_done()
         except Exception as exc:
-            logger.warning("Bulk import into contest %d was saved, but "
-                           "ProxyService was not notified (%s).",
-                           job.contest_id, type(exc).__name__)
+            logger.warning("Bulk import %s was saved, but ProxyService was "
+                           "not notified (%s).",
+                           _describe(job), type(exc).__name__)
 
-    def running_job(self, contest_id: int) -> ImportJob | None:
-        """Return the job that is running for a contest, if any.
+    def running_job(self, contest_id: int | None) -> ImportJob | None:
+        """Return the job that is running for a contest or for the global
+        users import (None), if any.
 
         It is the job that makes start() refuse another one, whoever
         started it.
 
-        contest_id: the contest.
+        contest_id: the contest, or None for the global users import.
 
         return: the job, or None.
 
