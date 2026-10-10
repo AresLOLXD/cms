@@ -85,8 +85,8 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
     If `db-init` fails, the new `cms` container does not start either, so
     CMS stays down until `./up.sh` succeeds: end the session that holds
     the lock, then run `./up.sh` again at once. Find that session with
-    the holder query (see "When the database misbehaves"), wait for it to
-    finish or end it, then run `./up.sh` again.
+    the holder query (see "When the database misbehaves"), end it, then
+    run `./up.sh` again.
   - Start any SQL you apply by hand with `SET lock_timeout = '5s';`, so
     that it gives up instead of making the contest wait behind its lock.
 - `./status.sh`: every container is `Up`, and every program in the
