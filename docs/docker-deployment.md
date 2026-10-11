@@ -223,6 +223,34 @@ Two harmless effects near the stop:
   proxy before the stop can gain at most the time it waited in the queue, up
   to 60 seconds; the same already happens in the middle of the contest.
 
+## Request body limits
+
+The reverse proxy is the only effective limit on the size of a request. The
+Contest Web Server and the Admin Web Server accept up to 100 MiB (the default
+of Tornado, the web framework they use), and they parse the body of a form
+before they check who sent it, so a large request costs them work even when it
+comes from someone who is not logged in. Set `max_size` in the `request_body`
+of each proxy site that forwards to them (see the Caddy example in
+"Submissions at the contest stop" above). A request over that size is refused
+by the proxy with a 413 or a connection reset: the person sees a browser error
+and no CMS page, and the CMS log shows nothing.
+
+- **Contestants.** Set `max_size` to at least the larger of 5 MB (a user test
+  can carry up to 5 MB of input) and the largest submission you expect. For an
+  OutputOnly task, that is the number of outputs times the size of the largest
+  output, plus about 1 KiB per output for the overhead of the form. Add a
+  margin. If you use `request_buffers` for the request time header, set it to
+  the same size: Caddy can hold up to that many bytes in memory for each
+  request in flight, so do not set `max_size` far above what you need.
+- **Admins.** `/admin/` needs its own limit, large enough for the largest
+  archive you import through the Admin Web Server.
+
+Because the Admin Web Server parses a body before it checks the login, anyone
+who can reach `/admin/` can make it parse a request of up to that size. We
+recommend that the proxy lets only your administrators reach `/admin/`, for
+example with Caddy's `basic_auth` or behind a VPN. This is only a
+recommendation: CMS works without it.
+
 ## Container resource limits
 
 The `cms` container is configured with `ulimits nofile 65536` to allow many
