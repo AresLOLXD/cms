@@ -31,6 +31,7 @@ import unittest
 
 from tornado.httpclient import AsyncHTTPClient, HTTPResponse
 from tornado.httpserver import HTTPServer
+from tornado.httputil import ParseBodyConfig, set_parse_body_config
 from tornado.netutil import bind_sockets
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -57,6 +58,9 @@ class MultipartFormLimitTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
         cls.aws = AdminWebServer(0)
 
     async def asyncSetUp(self):
