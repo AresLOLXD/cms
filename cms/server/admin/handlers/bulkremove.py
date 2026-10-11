@@ -24,8 +24,8 @@ import asyncio
 import logging
 
 from cms.db import Contest
-from cms.server.admin.bulkremove import RemovalPlan, parse_usernames, \
-    plan_removal, remove_participations, remove_users
+from cms.server.admin.bulkremove import MAX_PLAN_USERS, RemovalPlan, \
+    parse_usernames, plan_removal, remove_participations, remove_users
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
 
@@ -34,6 +34,9 @@ WRONG_COUNT = ("El número escrito no coincide con el número de usuarios. "
                "No se borró nada.")
 PLAN_CHANGED = ("La selección cambió desde la vista previa: revisa la "
                 "lista y confirma otra vez. No se borró nada.")
+PLAN_TOO_LARGE = "La selección es demasiado grande"
+PLAN_TOO_LARGE_TEXT = ("Son %d usuarios y el máximo por vez es %d. "
+                       "Divídela en listas más pequeñas.")
 MAX_ERROR_LENGTH = 300
 
 logger = logging.getLogger(__name__)
@@ -98,6 +101,13 @@ class _BulkRemoveHandler(BaseHandler):
             return
         plan = plan_removal(self.sql_session, contest_id=self._scope_id(),
                             user_ids=user_ids, usernames=usernames)
+        if len(plan.users) > MAX_PLAN_USERS:
+            # The confirmation form would carry more arguments than AWS
+            # parses, and the admin would get a bare 400 at confirm.
+            self._notify(PLAN_TOO_LARGE, PLAN_TOO_LARGE_TEXT
+                         % (len(plan.users), MAX_PLAN_USERS))
+            self.redirect(self._back_url)
+            return
         self._render_plan(plan, None)
 
     def _confirm(self, user_ids: list[int]) -> None:

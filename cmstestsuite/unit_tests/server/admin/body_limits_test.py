@@ -43,6 +43,7 @@ from cmstestsuite.unit_tests.server.formbodies import \
     MULTIPART_CONTENT_TYPE, URLENCODED_CONTENT_TYPE, multipart_body, \
     urlencoded_body
 
+from cms.server.admin.bulkremove import MAX_PLAN_USERS
 from cms.server.admin.server import AdminWebServer
 
 
@@ -84,6 +85,12 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
         response = await self.post(
             URLENCODED_CONTENT_TYPE, urlencoded_body(10_001))
         self.assertEqual(response.code, 400)
+
+    async def test_confirmation_form_of_the_largest_plan_is_parsed(self):
+        # One user_id per planned user, and the form's own 3 fields.
+        response = await self.post(
+            URLENCODED_CONTENT_TYPE, urlencoded_body(MAX_PLAN_USERS + 3))
+        self.assertEqual(response.code, 403)
 
     async def test_multipart_form_at_the_limit_is_parsed(self):
         # Tornado counts the empty preamble as a part: 10,000 parts are
