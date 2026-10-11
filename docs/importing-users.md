@@ -388,6 +388,11 @@ lista" notification that says "la lista pasa de 1 MB" or "la lista no está en
 UTF-8", and nothing is removed. With nothing ticked or listed, the
 notification is "No elegiste ningún usuario.".
 
+A removal takes at most 9,900 users at a time. With more, ticked or listed,
+the list page comes back with a "La selección es demasiado grande"
+notification that says how many users the selection has, and nothing is
+removed: split the selection into several smaller ones.
+
 ### The confirmation page
 
 These buttons remove nothing yet. They open a page, "Borrar usuarios" (or
