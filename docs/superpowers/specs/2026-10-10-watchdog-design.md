@@ -2,8 +2,8 @@
 
 **Date:** 2026-10-10
 **Issue:** #38 (wave C of the pre-10-10 risk audit).
-**Status:** Designed. A panel of three specialist subagents chose the approach, as the user asked on 2026-10-07 for backlog issues (see the Decision Record). A spec review followed (1 Critical, 11 Important and 20 Minor findings, all applied).
-**Target:** `beta`. The implementation branch starts from `beta` **after #39 stage 1 is merged there** (Decision Record, point 18). This spec commit is rebased onto that point.
+**Status:** Designed. A panel of three specialist subagents chose the approach, as the user asked on 2026-10-07 for backlog issues (see the Decision Record). A spec review followed (1 Critical, 11 Important and 20 Minor findings, all applied), then a re-check of the revision (1 Important and 10 Minor findings, all applied).
+**Target:** `beta`. The implementation branch starts from `beta` **after #39 stage 1 is merged there** (the architecture panelist's "Order" bullet in the Decision Record). This spec commit is rebased onto that point.
 
 ## Problem
 
@@ -36,14 +36,14 @@ The investigation, with file and line references, is in the session's `w38-findi
    - **CWS and AWS:**
      - with the Caddy profile of section 4, Caddy moves users off a hung shard within about 35 s;
      - the watchdog restarts the shard 65-90 s after the first missed probe, plus at most 10 s to stop it.
-   - **ES:** its locked section held for more than 180 s, with no database statement for 60 s, a holder thread that used less than 1 s of CPU in that minute, and no ES statement running on the server.
+   - **ES:** its locked section held for more than 180 s, with no database statement for 60 s, a holder thread that used less than 1 s of CPU in that minute, and no ES statement running on the server, apart from a lock wait.
    - **SS:** one execution longer than 180 s. **PS:** a send that has started no HTTP request for more than 180 s, while every ranking answers.
    - **Deviation from the agreed "about a minute":** the HTTP trip is about 1.5 minutes. It must stay above the 60 s pool and transport timeouts of the #39 ladder: below them it would restart shards that are about to heal by themselves. Caddy's failover delivers the minute that users see.
 2. **No restart storms.**
    - No restart while PostgreSQL is unreachable or out of connection slots, or while a lock holder blocks CMS.
    - No restart while several programs fail together.
    - A restart budget per program, and two overall ones: one for Workers, one for the other classes.
-3. **Evidence is kept before each action** (or each would-action in observe mode): a database activity snapshot, the holder's stack and the process state.
+3. **Evidence is attempted before each action** (or each would-action in observe mode), and a failure is alerted: a database activity snapshot, the holder's stack and the process state.
 4. **A busy Worker is never treated as hung.** Workers are judged only by ES's own verdict (`disabled_by_timeout`), never by `echo` or by how long they have been busy.
 5. **Programs left FATAL by a database outage are started again** once the database is back.
 6. **Observe mode comes first.**
@@ -61,7 +61,7 @@ The investigation, with file and line references, is in the session's `w38-findi
    - no action at all;
    - probes cost a few cheap requests every 15 s;
    - probe requests are logged at DEBUG;
-   - RPC probes reuse one connection per service, so a service logs "Established connection" only when the watchdog starts or after a failed probe.
+   - RPC probes reuse one connection per service, so a service logs "Established connection" only when the watchdog starts, after the service restarts, or after a failed probe.
 
 ## Decision Record
 
@@ -152,7 +152,7 @@ The investigation, with file and line references, is in the session's `w38-findi
 | Caddy `response_header_timeout` | 90 s (operations); 120 s (architecture); 180 s (infra) | **120 s**, the median. It must exceed `pool_timeout` (60 s) plus #39 stage 2's `lock_timeout` (30 s) plus handler time. Revisit when stage 2 lands |
 | AWS behind Caddy | a 300 s header timeout (operations); retries only, no timeout (infra) | **Retries only** (infra, tested): admin exports can be slow, and AWS has no failover target |
 | How long observe mode lasts | 14 days (operations); drills plus one session (architecture) | **A list of gates instead of a fixed time** (Rollout). It includes one session with users and 7 nightly restarts |
-| ES section trip | held for more than 180 s, with no statement from the holder for 60 s (all three agreed) | **Also: the holder thread used less than 1 s of CPU over the last 60 s, and no ES backend is running a statement on the server.** The spec review added both conditions, because one long statement, or long processing of a large result, also issues no statement for 60 s |
+| ES section trip | held for more than 180 s, with no statement from the holder for 60 s (all three agreed) | **Also: the holder thread used less than 1 s of CPU over the last 60 s, and no ES backend is running a statement on the server, apart from a lock wait.** The spec review added both conditions, because one long statement, or long processing of a large result, also issues no statement for 60 s. Its re-check let lock waits through, so that the lock-wait hold can name an ES blocker |
 | PS section trip | one execution longer than 300 s (all three agreed) | **No new HTTP request for 180 s inside a `send` section, while every ranking answers.** The spec review changed it, because one execution sends every type of every namespace and has no time bound while it makes progress |
 
 ## Design
@@ -357,7 +357,7 @@ The cycle is one asyncio loop with a monotonic 15 s schedule.
 
 1. **Measure the lag** between the scheduled and the actual start of the cycle.
    - If the lag is over 5 s, the cycle is **starved**. Its probes go to the evidence and to the near-miss statistics, and enter the miss windows as *unknown* (3.5). It makes no decisions.
-   - If 30 to 60 s passed since the previous cycle, the watchdog logs "paused for N s" and clears every miss window. This covers a short host pause, VM pause or `docker pause`. A longer pause ends in the self-guard's exit instead (3.11).
+   - If more than 30 s passed since the previous cycle, the watchdog logs "paused for N s" and clears every miss window. This covers a short host pause, VM pause or `docker pause`. A pause that runs more than 60 s past the self-guard's last re-arm ends in the self-guard's exit instead (3.11).
 2. **Gather the probes concurrently,** each under its own timeout (3.4):
    - the process source;
    - the DB gate and snapshot;
@@ -387,13 +387,14 @@ A wall-clock step (NTP) only shifts the budget windows and the ages computed fro
 | RPC | the CMS JSON-RPC wire format on asyncio streams, over one persistent connection per service: `health`, plus `workers_status` on ES | 3 s | an answer with no error |
 | Ranking | `GET / HTTP/1.0` | 5 s | any HTTP status line |
 | DB gate and snapshot | one `psql -X -A -t -v ON_ERROR_STOP=1` subprocess (3.4.1) | `PGCONNECT_TIMEOUT=3`, `statement_timeout=3000`, killed at 7 s | exit 0 and valid JSON |
-| `/proc` facts (evidence, plus the ES holder's CPU for R3) | State, `wchan`, per-thread states, and the change in utime+stime over the last cycle. While ES has a section, the holder thread's utime+stime from `/proc/<pid>/task/<tid>/stat`, kept for 60 s | none needed | — |
+| `/proc` facts (evidence, plus the ES holder's CPU for R3) | State, `wchan`, per-thread states, and the change in utime+stime over the last cycle. While ES has a section, the holder thread's utime+stime from `/proc/<pid>/task/<tid>/stat`, kept for 90 s | none needed | — |
 
 **RPC connections.**
 - The RPC server logs "Established connection with …" and "Terminated connection with …" at INFO for every connection (`cms/io/async_rpc.py:130`, `:166`). A new connection per probe would put two lines in every service's log 4 times a minute.
 - So the watchdog keeps one connection per probed service and sends one request at a time on it. ES's `workers_status` uses ES's connection.
 - On any timeout or error, it closes the connection and reconnects at the next cycle, so a late answer is never read.
-- "Established connection" therefore appears once when the watchdog starts, and again only after a failure.
+- **One exception: a stale connection.** After any restart of a service, the old connection is dead. On EOF, `ECONNRESET` or `EPIPE` before any byte of the answer, the probe reconnects once, at once, within the same probe timeout. Only a failure of the fresh connection counts as a miss.
+- "Established connection" therefore appears once when the watchdog starts, and again only after a failure or a restart of the service.
 - The `Log` alerts to LogService use a persistent connection of their own, in the same way (3.9). Otherwise each alert line would be followed by connection lines.
 
 ##### 3.4.1 The DB gate
@@ -408,7 +409,7 @@ A wall-clock step (NTP) only shifts the budget windows and the ages computed fro
 - The query returns a JSON array with one row per backend of the current database. It excludes the gate's own backend (`pid <> pg_backend_pid()`, as #39's `faults.py` `CMS_BACKENDS` does). Each row has:
   - `pid`, `application_name`, `client_port`;
   - `state`, `wait_event_type`, `wait_event`;
-  - the ages of `xact_start`, `query_start` and `state_change`;
+  - the ages of `backend_start`, `xact_start`, `query_start` and `state_change`;
   - `CASE WHEN wait_event_type = 'Lock' THEN pg_blocking_pids(pid) END`. Each `pg_blocking_pids` call takes the lock manager's partition locks, so the gate calls it only for lock waiters;
   - `left(query, 300)`.
 - **Permissions.** On an external PostgreSQL where the CMS role is not a superuser, many columns are NULL in the rows of other roles' sessions, for example an operator's `postgres` psql. `docs/docker-deployment.md` documents the fix: a superuser runs `GRANT pg_read_all_stats TO <cms role>;`. The H3 alert shows a NULL field as "unknown".
@@ -425,7 +426,7 @@ Rules turn observations into trips. A trip becomes an action only if no hold app
 |---|---|---|---|
 | R1 loop/HTTP | CWS N, AWS | the favicon probe failed in 5 of the last 6 known results | 3 of the last 6 |
 | R2 loop/RPC | ES, SS, PS, LogService, ResourceService | `health()` failed in 5 of the last 6 known results | 3 of the last 6 |
-| R3 ES section | ES | the oldest `busy` entry is a `post_finish_lock:*` section, and all of: (a) its `age_s` > 180 and its `idle_s` ≥ 60; (b) its holder thread's utime+stime, from `/proc/<pid>/task/<tid>/stat`, grew by less than 1 s over the last 60 s; (c) the snapshot shows no backend with `application_name = 'cmsEvaluationService 0'` in state `active` whose `wait_event` is NULL or anything other than `ClientWrite` | `age_s` > 90 |
+| R3 ES section | ES | the oldest `busy` entry is a `post_finish_lock:*` section, and all of: (a) its `age_s` > 180 and its `idle_s` ≥ 60; (b) its holder thread's utime+stime, from `/proc/<pid>/task/<tid>/stat`, grew by less than 1 s since the newest sample that is at least 60 s old; (c) the snapshot shows no backend with `application_name = 'cmsEvaluationService 0'` in state `active` whose `wait_event_type` is not `Lock` and whose `wait_event` is not `ClientWrite` (a NULL counts as "not") | `age_s` > 90 and `idle_s` ≥ 30 |
 | R3 SS section | SS | the `score` section's `age_s` > 180 | > 90 |
 | R3 PS section | PS | a `send` section's `idle_s` > 180, and every ranking answers its probe | `idle_s` > 90 |
 | R4 Worker | Worker N | (a) ES reports `disabled_by_timeout`, `now − disabled_at` ≥ 180 s, and the process started before `disabled_at`; or (b) the program has been RUNNING ≥ 300 s, ES has been up ≥ 120 s, at least one other Worker is connected, and this one is not | — |
@@ -433,7 +434,15 @@ Rules turn observations into trips. A trip becomes an action only if no hold app
 | Ranking | each configured ranking | `GET /` failed 3 cycles in a row | alert only, never an action |
 
 **Rules about the rules:**
-- **R3 for ES, why (b) and (c).** A long legitimate statement shows as `active` on the server and uses no client CPU. A write lost on a dead connection shows the backend `idle in transaction`, or no backend at all. Without a CPU sample of the holder thread from 60 s earlier, (b) is not met.
+- **R3 for ES, why (b) and (c).**
+  - A long legitimate statement shows as `active` on the server and uses no client CPU. A write lost on a dead connection shows the backend `idle in transaction`, or no backend at all.
+  - A lock wait passes (c) on purpose. ES then trips, and H3 holds the trip with the blocker's details. Without that trip, a lock blocking only ES would get no alert that names the blocker.
+  - (b) uses the newest CPU sample of the holder thread that is at least 60 s old. Without one, (b) is not met.
+- **Half a trip.** H4, the early WARNINGs and the Rollout's near-miss gates use half of each trip, defined per rule:
+  - R1 and R2: 3 misses among the last 6 known results;
+  - R3 ES: `age_s` > 90 and `idle_s` ≥ 30;
+  - R3 SS: `age_s` > 90;
+  - R3 PS: `idle_s` > 90.
 - **Invalidations.** An ES section whose holder is an invalidation (a re-evaluation) never trips R3. Past 180 s it alerts "re-evaluation still running for N min" every 5 minutes. The plan pins the exact outermost decorated name with a test that runs an invalidation and reads `health()`.
 - **Supervisord states.** Only RUNNING programs are judged. STOPPED, STOPPING, STARTING, BACKOFF, EXITED and UNKNOWN are never acted on: they belong to supervisord or to the operator. FATAL is handled only by R5.
 - **Windows.**
@@ -451,7 +460,7 @@ Rules turn observations into trips. A trip becomes an action only if no hold app
   - After a would-action, where the program never restarted, that grace is 120 s after the would-action (H6).
 - **Observe and enforce run the same policy.**
   - In observe mode, a would-action is booked in the ledger and the journal as if it had been done. The observe log predicts enforce's behaviour, including budget exhaustion. But nothing is cured in observe mode, so a would-action re-trips after each grace.
-  - In enforce mode, the would-actions of a class that is not enabled (H9) go to a shadow ledger instead. They are logged with the program's shadow count and never touch the real budgets.
+  - In enforce mode, the would-actions of a class that is not enabled (H9) go to a shadow ledger instead. They are logged with the program's shadow count and never touch the real budgets. H7's limits apply to the shadow ledger, so beyond them such a trip only alerts, as it would in observe mode.
 
 #### 3.6 Holds
 
@@ -464,15 +473,15 @@ Holds turn a trip into an alert and nothing else. They are checked in this order
 |---|---|
 | H1 supervisord | supervisord did not answer in this cycle |
 | H2 database | the gate is red. Restarts also wait until the gate has been green for 120 s in a row, and miss windows are cleared when it turns green, so a program must fail again *after* the database is back. R5 has its own condition (3.5) |
-| H3 lock wait | the snapshot shows a backend whose `application_name` starts with `cms`, with `wait_event_type = 'Lock'` and a statement older than 30 s. Restarting a waiter cures nothing. The alert names each blocker, from `pg_blocking_pids`: its pid, `application_name`, state, transaction age (a NULL field shows as "unknown", 3.4.1), and that ending it is a human decision |
-| H4 class correlation | 2 or more programs of the trip's class are failing: ≥ 3 misses among their last 6 known results, or a section older than half its trip. Programs that are over budget do not count. For Workers this means 2 or more R4 trips at once, which gives one alert |
+| H3 lock wait | the snapshot shows a backend whose `application_name` starts with `cms`, with `wait_event_type = 'Lock'` and a statement older than 30 s. Restarting a waiter cures nothing. The alert names each blocker, from `pg_blocking_pids`: its pid, `application_name`, state, transaction age (a NULL field shows as "unknown", 3.4.1), and that ending it is a human decision. A blocker whose `application_name` is a program the watchdog restarted is marked "orphan of pid N" (N, the old pid) only when its backend started before that program's new start time. The new process has the same `application_name`, so an unmarked blocker may be its own backend |
+| H4 class correlation | 2 or more programs of the trip's class are failing: ≥ 3 misses among their last 6 known results, or a section past half its trip (3.5). Programs that are over budget do not count. For Workers this means 2 or more R4 trips at once, which gives one alert |
 | H5 global | more than 1/3 of the programs probed directly over HTTP or RPC failed any probe in this cycle. Workers and rankings do not count, on either side of the fraction |
 | H6 grace | the program started less than 120 s ago (by its supervisord start time, whoever started it), or its last would-action was less than 120 s ago, or the watchdog itself started less than 120 s ago |
-| H7 budget | 2 restarts of this program, or 3 restarts in its pool, within the last 60 minutes (sliding). There are two pools: one for Workers, and one for web, core and infra together. FATAL starts count separately: 2 per program per 60 minutes. A ledger that does not parse counts as every budget exhausted (3.10). The alert says "will not restart X before HH:MM UTC" |
+| H7 budget | 2 restarts of this program, or 3 restarts in its pool, within the last 60 minutes (sliding). There are two pools: one for Workers, and one for web, core and infra together. FATAL starts count separately: 2 per program per 60 minutes. For a class that is not enabled in enforce mode (H9), the same limits apply to the shadow ledger's counts. A ledger that does not parse counts as every budget exhausted (3.10). The alert says "will not restart X before HH:MM UTC" |
 | H8 in flight | another action is in flight. A restart is in flight until its 30 s confirmation (3.7, step 7) ends, and a start batch until its last `startProcess` call returns. The later "did it help" line blocks nothing |
-| H9 class not enabled | enforce mode, but the class is not in `CMS_WATCHDOG_RESTART`. The action becomes a would-action, booked in the shadow ledger (3.10) |
+| H9 class not enabled | enforce mode, but the class is not in `CMS_WATCHDOG_RESTART`. The action becomes a would-action, booked in the shadow ledger (3.10), within H7's limits |
 
-A starved cycle makes no decisions at all (3.3), so it needs no hold. The spec review removed the starvation hold and renumbered the others. Its findings cite the old numbers: old H9 → H1, H6 → H3, H3 → H4, H4 → H5, H1 → H6 and H10 → H9. H2, H7 and H8 kept their numbers.
+A starved cycle makes no decisions at all (3.3), so it needs no hold. The spec review removed the starvation hold and renumbered the others. Its first-round findings cite the old numbers: old H9 → H1, H6 → H3, H3 → H4, H4 → H5, H1 → H6 and H10 → H9. H2, H7 and H8 kept their numbers.
 
 #### 3.7 Actions
 
@@ -520,7 +529,7 @@ Before every action or would-action (3.7, step 2):
    It is never a group signal: a group USR1 would reach a Worker's isolate keeper, which does not handle it, and kill it.
 
    The watchdog waits 1 s after the signal. faulthandler writes every thread's stack to stderr, which reaches `./logs.sh`.
-3. **A line in `log/watchdog/actions.jsonl`,** written at step 0 (3.7): time, mode, program, rule, action, and the evidence file name. This is the postmortem timeline.
+3. **A line in `log/watchdog/actions.jsonl`,** written at step 0 (3.7): time, mode, program, rule, action, and the planned evidence file name. The record marks that name as planned: the file is written later, at step 2, and does not exist if that step failed or never ran. This is the postmortem timeline.
 
 **A failed write.** If the evidence file or the journal line cannot be written (for example, `cms-logs` is full), the action goes on and the watchdog alerts. A full disk must not disable recovery.
 
@@ -541,7 +550,7 @@ Before every action or would-action (3.7, step 2):
 - **Not rate-limited:** state changes, meaning a trip, an action, "Resolved:", the gate turning red or green, a budget exhausted, and entering or leaving a hold.
 - **Hourly near-miss summary at INFO:**
   - for R1 and R2, per program: the largest number of misses in any window of 6 known results, and the probe latency p99;
-  - the longest ES section and its holder, marking invalidations, and the longest ES `idle_s` inside a section;
+  - the longest ES section and its holder, marking invalidations, the longest ES `idle_s` inside a section, and every ES section that passed half its trip (3.5);
   - the longest SS execution, marking the executions that overlapped an invalidation;
   - the longest PS `idle_s` inside a `send` section;
   - the number of red-gate cycles and of starved cycles.
@@ -565,13 +574,13 @@ Before every action or would-action (3.7, step 2):
 #### 3.11 Self-guard
 
 - `faulthandler.dump_traceback_later(60, exit=True)` is re-armed every cycle. A wedged watchdog dumps its stack and exits, supervisord restarts it, and the ledger keeps its budgets.
-- **Pauses.** Its timer counts on the monotonic clock, which keeps running through SIGSTOP and `docker pause`. A pause longer than 60 s therefore ends like this, on resume:
+- **Pauses.** Its timer counts on the monotonic clock, which keeps running through SIGSTOP and `docker pause`. A pause that runs more than 60 s past the last re-arm therefore ends like this, on resume:
   - the self-guard exits;
   - supervisord's autorestart starts the watchdog again;
   - the watchdog's own 120 s grace (H6) applies;
   - no action.
 
-  Only a pause of 30 to 60 s is logged as "paused for N s" (3.3).
+  A pause of more than 30 s that the self-guard survives is logged as "paused for N s" (3.3).
 - Every probe has a timeout, every subprocess is killed at its bound, and every supervisord call has a socket timeout.
 
 #### 3.12 Modes, knobs and kill switches
@@ -639,7 +648,7 @@ Every English edit is followed in `docs/locale/es/LC_MESSAGES/*.po`.
   - how to read the evidence directory;
   - `--snapshot` before a manual restart;
   - both kill switches.
-  - **After a restart, an H3 alert whose blocker has the restarted program's `application_name`:** this is the orphaned server backend of the killed process, which may still hold its locks. End it with the holder query and `pg_terminate_backend` of "When the database misbehaves" (#39).
+  - **After a restart, an H3 alert with a blocker marked "orphan of pid N":** this is the orphaned server backend of the killed process, which may still hold its locks. End it with the holder query and `pg_terminate_backend` of "When the database misbehaves" (#39). End only a blocker marked that way: an unmarked blocker with the same `application_name` may be the new process's own backend.
   - **Switching enforce on:** set `CMS_WATCHDOG_RESTART` explicitly in the same `.env` edit that sets `CMS_WATCHDOG=enforce`. List only the classes that passed their gates (Rollout).
   - **What contestants see when a CWS restarts:** a `/submit` cut off by a restart may have committed, so contestants should check their list before sending again. Up to 60 s of activity records are lost, and the restart times for the multi-device review are in `actions.jsonl`.
   - The game-day steps (Validation).
@@ -658,13 +667,17 @@ Unit tests run in the asyncio pytest group (`cmstestsuite/unit_tests/watchdog/`,
 - **`policy.py`:** table-driven scenarios with a fake clock. Each scenario is a list of observations and the expected decisions.
   - **Rules:**
     - R1-R5 each trip at exactly their threshold, and not one cycle earlier. The 5-of-6 window trips on a livelock pattern (miss, miss, pass, miss, miss, miss).
-    - An ES section with recent statements never trips. Neither does one whose holder thread used 1 s of CPU or more in the last 60 s, or one with an `active` ES backend that is not in `ClientWrite`. An invalidation holder only alerts.
+    - An ES section with recent statements never trips. Neither does one whose holder thread used 1 s of CPU or more in the last 60 s, or one with an `active` ES backend that is neither waiting on a lock nor in `ClientWrite`. An invalidation holder only alerts.
+    - An ES section waiting on a Lock gives an alert headed by H3, and no action.
+    - (b) with cycle jitter: it uses the newest CPU sample at least 60 s old, and still trips.
     - A PS `send` section that keeps starting requests never trips, however old it is. It trips at `idle_s` > 180.
     - Workers: a Worker that restarted after `disabled_at` is not tripped, and an unhealthy ES suppresses R4.
     - STOPPED, STARTING and BACKOFF are ignored. Unmanaged kinds are never acted on.
   - **Holds:**
     - Each hold H1-H9, alone.
     - The order: 2 CWS failing plus a lock wait give an alert headed by H3, which names the blocker and also lists H4.
+    - The orphan mark: a blocker with a restarted program's `application_name` is marked "orphan of pid N" only when its backend started before that program's new start time.
+    - H4 counts a section only past its rule's half trip: a PS batch that keeps sending, or an ES section that keeps issuing statements, does not count however old it is.
     - Sustained green: no restart for 120 s after the gate turns green, and windows cleared.
   - **Windows:**
     - Starved cycles: their results are unknown, and 4 starved misses plus 1 real miss do not trip.
@@ -677,7 +690,7 @@ Unit tests run in the asyncio pytest group (`cmstestsuite/unit_tests/watchdog/`,
   - **Budgets:**
     - Exhaustion, recovery after the window, and the 5-minute repeats.
     - The Workers pool and the pool of the other classes are separate, with 2 per program in both (H7).
-    - In enforce mode, H9's would-actions go to the shadow ledger, with per-program shadow counts, and never touch the real budgets (H9).
+    - In enforce mode, H9's would-actions go to the shadow ledger, with per-program shadow counts, and never touch the real budgets (H9). Beyond H7's limits on the shadow ledger, such a trip only alerts: no evidence, no USR1, no journal line.
   - **Incidents** open and close. In observe mode, a would-action's grace ends 120 s after it.
   - **Clocks:** a wall-clock step backwards gives ages of 0, never negative ones.
   - **Invariants across all scenarios:**
@@ -704,7 +717,8 @@ Unit tests run in the asyncio pytest group (`cmstestsuite/unit_tests/watchdog/`,
   - **HTTP** against a threaded `http.server`: 200, 404, a server that accepts and never answers, and a refused connection. A `0.0.0.0` listen address is probed at `127.0.0.1`.
   - **RPC** against a small asyncio server that speaks the CMS wire format:
     - one connection serves every cycle;
-    - after a timeout, the connection is closed, a late answer is never read, and the next cycle reconnects.
+    - after a timeout, the connection is closed, a late answer is never read, and the next cycle reconnects;
+    - after a server restart between cycles, the probe meets EOF on the old connection, reconnects at once within its timeout, and passes; only a failure of the fresh connection is a miss.
     - **Against a real `AsyncService`:** after the first cycle, further cycles add no INFO record.
   - **The DB gate** with the subprocess faked:
     - green; refused; timeout, after which the process is killed; "too many clients";
@@ -712,7 +726,7 @@ Unit tests run in the asyncio pytest group (`cmstestsuite/unit_tests/watchdog/`,
     - `sslmode` and `host` mapped to `PGSSLMODE` and `PGHOST`.
 
     Plus one test against the test PostgreSQL, which also checks that the gate's own backend is absent.
-  - **Snapshot parsing** from a fixture, including the NULL fields of another role's backend.
+  - **Snapshot parsing** from a fixture, including the NULL fields of another role's backend and the `backend_start` age.
 - **`control.py`:**
   - **The command parser:**
     - `cmsContestWebServer 2 -c 5`, `cmsWorker 0` and `cmsEvaluationService 0` parse to their kinds;
@@ -787,28 +801,30 @@ These run locally, only when the user allows them, as for #39. A run that needs 
 | D2 correlated web | STOP both CWS | no restart; one H4 alert every 5 min; SIGCONT gives "Resolved" lines and no action |
 | D3 hung AWS | STOP AWS | restarted; the Overview shows the line after recovery |
 | D4 DB outage and FATAL | (a) `docker pause` the db for 5 min and restart SS by hand: this leg checks only the gate and the holds, because a paused database never produces FATAL, only restart cycling. (b) `docker stop` the db for at least 10 min, so that failures are fast (name resolution or refusal), and restart SS by hand at its start | zero restarts while red; a red alert every 5 min; no restart decision for 120 s after green. In (a), SS cycles and never goes FATAL. In (b), SS goes FATAL, then an R5 batch starts it 30 s after green |
-| D5 lock holder | in psql, `BEGIN; LOCK TABLE submission_results IN ACCESS EXCLUSIVE MODE;` then submit a solution | an alert headed by H3 and naming the psql pid, even while 2 or more CWS shards fail (H4 listed after it); no ES restart; after COMMIT, "Resolved" and the submission is scored |
+| D5 lock holder | in psql, `BEGIN; LOCK TABLE submission_results IN <mode> MODE;` then submit a solution. (a) `ACCESS EXCLUSIVE`, which also blocks the CWS. (b) `EXCLUSIVE`, which blocks ES's writes but not the CWS's plain SELECTs | an alert headed by H3 and naming the psql pid: in (a) even while 2 or more CWS shards fail (H4 listed after it); in (b) from ES's R3 trip alone, with no CWS failing. No ES restart. After COMMIT, "Resolved" and the submission is scored |
 | D6 hung ES loop | STOP ES | R2 restart; the startup sweep re-enqueues; the submission's score is correct (checked in the DB) |
-| D7 ES stuck under its lock, and the ladder order | drop only ES's DB connections (client ports from the snapshot), with the single-port rules. (a) With #39's kill-switch URL suffix, R3 trips at about 180 s with no statements: a restart, and grading resumes. After the restart, an orphaned server backend may still hold its locks: expect an H3 alert naming it until it ends, and the runbook step that ends it. (b) With #39's defaults, the write fails at about 60 s, the lock is released, and nothing trips | as stated |
+| D7 ES stuck under its lock, and the ladder order | drop only ES's DB connections (client ports from the snapshot), with the single-port rules. (a) With #39's kill-switch URL suffix, R3 trips at about 180 s with no statements: a restart, and grading resumes. After the restart, an orphaned server backend may still hold its locks: expect an H3 alert that marks it "orphan of pid N" until it ends, and the runbook step that ends it. (b) With #39's defaults, the write fails at about 60 s, the lock is released, and nothing trips | as stated |
 | D8 long re-evaluation | re-evaluate a whole contest on the database a 1000-user harness run left | no restart; "re-evaluation still running" if it passes 180 s. Its duration and the longest ES `idle_s` inside a section are recorded as margins |
 | D9 hung ranking | replace RWS with a listener that accepts and never answers | PS never trips: each request ends within 125 s, under the 180 s idle trip, and the ranking fails its probe. A "ranking not answering" alert |
 | D10 stuck Worker | STOP a Worker in the middle of a job | ES disables it at ≥ 600 s. 180 s later: `killpg`, autorestart, reconnect, re-enabled. No `isolate` is left in `ps`, and the next `--init` on that box succeeds. Without `workers` in the list: an alert only |
-| D11 budget | STOP CWS 1 again after each restart; then hang three different programs of web, core and infra within an hour | exactly 2 restarts of CWS 1, then "will not restart before HH:MM" every 5 min; the 4th program is not restarted |
+| D11 budget | STOP CWS 1 again after each restart; then, within the same hour, hang two more programs of web, core and infra | exactly 2 restarts of CWS 1, then "will not restart before HH:MM" every 5 min. Of the two more programs, the first is restarted (pool 3/3), and the second gets an H7 hold |
 | D12 pauses | (a) STOP the watchdog for 45 s, then CONT; (b) STOP it for 5 min, then CONT; (c) `docker pause cms` for 120 s | (a) "paused for 45 s", windows cleared, no action. (b) `./status.sh` shows a stale heartbeat. On resume in (b) and (c): the self-guard dumps the watchdog's stack and exits, supervisord restarts it, and after its 120 s grace there is no action |
 | D13 operator actions | `./up.sh` recreate; `supervisorctl stop` of a CWS and of a Worker; `stop cmswatchdog` | no action within the grace; STOPPED programs are never started or counted; no actions while the watchdog is stopped |
 | D14 watchdog dies mid-restart | `kill -9` the watchdog right after the TERM, three times in a row | nothing is left STOPPED; each new watchdog keeps the ledger and re-detects after its grace; the ledger shows 2 restarts, then an H7 hold |
 | D15 SS stuck on a lost connection | while a submission is being scored, drop only SS's DB connections, with the single-port rules and #39's kill-switch URL suffix | SS trips R3 at about 180 s with no lock wait, is restarted, and scoring resumes |
 
-**Harness H: false positives under load, after #39 stage 1 is in `beta`.**
+**Harness L: false positives under load, after #39 stage 1 is in `beta`.** Its runs are named L1-L3, so that they never read as holds.
 - `run.sh --watchdog` runs `cmsWatchdog --mode observe --process-source proc` in the harness `cms` container.
 - It adds a `watchdog.md` row to the outputs: the WOULD lines, the trips and holds, and the probe latency p50 and p99.
-- **Every run** also requires that every expected program (ES, SS, PS, LogService, every CWS, AWS, every Worker) appears in `watchdog.json` in every cycle, and that every program the watchdog probes has non-empty probe latency samples.
+- **Every run** also requires that every expected program (ES, SS, PS, LogService, every CWS, AWS, every Worker) appears in `watchdog.json` in every cycle from the driver's start, and that every program the watchdog probes has non-empty probe latency samples.
+  - Earlier cycles may lack ProxyService: `start.sh` starts every other service (`cmstestsuite/loadtest/start.sh:19-20`), and `run.sh` starts ProxyService only once the contests exist (`run.sh:321-333`).
+  - The run fails if a program never appears, or if it disappears after it appeared.
 
 | Run | Pass |
 |---|---|
-| H1 `full1` (250 users) | zero WOULD lines and zero holds; the gate always green; favicon and `health()` p99 under 1/3 of their timeouts; every near-miss maximum under half its trip |
-| H2 1000 users | the same. The longest ES `idle_s` inside a section is recorded as a margin |
-| H3 `--faults` (#39 F1-F4) | the gate red only inside the F2 and F3 windows; holds logged there; zero WOULD lines; nothing for F1 and F4 |
+| L1 `full1` (250 users) | zero WOULD lines and zero holds; the gate always green; favicon and `health()` p99 under 1/3 of their timeouts; every near-miss maximum under half its trip (3.5) |
+| L2 1000 users | the same. The longest ES `idle_s` inside a section is recorded as a margin |
+| L3 `--faults` (#39 F1-F4) | the gate red only inside the F2 and F3 windows; holds logged there; zero WOULD lines; nothing for F1 and F4 |
 
 **Game day on production.** The operator runs it in a quiet window, from the runbook:
 - SIGSTOP CWS 3 for 120 s, then SS for 240 s;
@@ -823,12 +839,12 @@ Each step is its own deploy, never on a contest day, never within 3 days before 
 2. **#39 stage 1.**
 3. **#38 Parts 1 and 2,** in observe mode (the default).
 4. **Enforce,** for the classes that met these gates:
-   - D1-D15 pass on the deployed commit, and harness runs H1-H3 pass;
+   - D1-D15 pass on the deployed commit, and harness runs L1-L3 pass;
    - at least one session with real users (a contest, or a rehearsal of 2 hours or more) ran in observe mode;
    - every WOULD line is explained, and no correlation alert appeared outside known database events;
-   - near-miss maxima stayed under half of each trip:
+   - near-miss maxima stayed under half of each trip (3.5):
      - at most 2 misses in any 6-result window for R1 and R2;
-     - ES section under 90 s, with invalidation sections excluded;
+     - no ES section past `age_s` > 90 with `idle_s` ≥ 30, with invalidation sections excluded;
      - SS under 90 s, with executions that overlapped an invalidation excluded;
      - PS idle under 90 s;
    - the nightly 05:00 restart was observed at least 7 times (it exercises the gate);
