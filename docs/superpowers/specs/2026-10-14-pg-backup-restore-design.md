@@ -48,6 +48,18 @@ executables) is stored as PostgreSQL large objects referenced by
 - Restoring with `--clean --single-transaction` into the live database is
   rejected: with many large objects one transaction runs out of lock slots,
   and `--clean` leaves objects that are not in the dump.
+- Observed in the manual cms-live restore of 2026-10-14 (18 GB, 34876 large
+  objects, `pg_dump`/`pg_restore` 17.11 against the 16.15 server):
+  - the dump with `-j 16` on 16 vCPU took at most ~83 s; the restore with
+    `-j 16` on 6 vCPU took ~6 min;
+  - `pg_restore` 17 sends `SET transaction_timeout = 0` on every connection
+    and a 16 server rejects it (`unrecognized configuration parameter`):
+    once per worker and twice for the leader. The error is harmless, but
+    `--exit-on-error` aborts on it, and the final "errors ignored" count only
+    includes the leader's errors (2 of the 18 printed);
+  - restoring as `postgres` with `--role=<cms user> --no-owner --no-acl`
+    produced no other error, and every table and large object ended up owned
+    by the CMS user.
 
 ## Components
 
@@ -116,8 +128,10 @@ CMS. It is meant for the operator's machine after the `rsync`, or the server
 outside contest hours.
 
 1. `sha256sum -c SHA256SUMS`.
-2. Start a throwaway `postgres:<major from MANIFEST>` container with an
-   anonymous volume. A trap removes both, including on Ctrl+C.
+2. Start a throwaway `postgres:<pg_dump major from MANIFEST>` container with
+   an anonymous volume. A trap removes both, including on Ctrl+C. Using the
+   dump's major (17+) rather than the source server's avoids the
+   `transaction_timeout` error, so `--exit-on-error` stays safe here.
 3. `pg_restore -j <nproc> --no-owner --no-acl --exit-on-error`.
 4. Check, and fail on any mismatch:
    - per-table counts and the large object count equal the manifest exactly;
@@ -152,11 +166,16 @@ Restore:
 1. Drop a leftover `<db>_restore` if one exists. Create it with
    `OWNER <cms user> TEMPLATE template0` and the manifest's encoding and
    locale.
-2. `pg_restore -Fd -j N --no-owner --no-acl --exit-on-error` **as the CMS
-   user**, so the large objects are owned by that user. If they were owned by
-   `postgres`, CMS would get "permission denied for large object" on every
-   file. Use `PGOPTIONS='-c synchronous_commit=off'`. On failure, drop
-   `<db>_restore` and stop. The live database is untouched.
+2. `pg_restore -Fd -j N --no-owner --no-acl` **as the CMS user**, so the
+   large objects are owned by that user. If they were owned by `postgres`,
+   CMS would get "permission denied for large object" on every file. Use
+   `PGOPTIONS='-c synchronous_commit=off'`. When the server major is 17 or
+   newer, add `--exit-on-error`. When it is older, `--exit-on-error` cannot
+   be used (see the `transaction_timeout` fact above): capture stderr and
+   treat any `pg_restore: error:` other than the `transaction_timeout` one
+   as a failure. Do not rely on the "errors ignored" count, which leaves out
+   the workers. On failure, drop `<db>_restore` and stop. The live database
+   is untouched.
 3. Check that the counts equal the manifest exactly, and that no large object
    has an owner other than the CMS user. Run `vacuumdb --analyze-only`.
 4. Switch, the only downtime (about 1-3 minutes):
@@ -236,8 +255,10 @@ following `docs/locale/es/GLOSSARY.md`. The docs CI checks them.
   objects across workers against a 16 server, approach A would lose its
   advantage. The speed test detects this before merging.
 - **Restoring as a non-superuser.** `pg_restore` may stop on objects that
-  only a superuser can create (for example a comment on `plpgsql`). The end
-  to end test with the 16 server catches it. The fix is a `-L` list that
+  only a superuser can create (for example a comment on `plpgsql`). The
+  2026-10-14 manual restore ran every statement as the CMS user (`--role`)
+  with no such error, so the cms-live dump does not hit this. The end to end
+  test with the 16 server still checks it. The fix would be a `-L` list that
   leaves those entries out.
 - **Disk.** The restore needs room for two copies of the database until the
   operator drops the old one.
