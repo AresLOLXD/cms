@@ -437,11 +437,13 @@ class TestRPC(unittest.TestCase):
     def test_send_non_object_json(self):
         for payload in (b"null", b"[]", b'"x"'):
             with self.subTest(payload=payload):
+                count = len(self.servers)
                 sock = gevent.socket.create_connection((self.host, self.port))
                 sock.sendall(payload + b"\r\n")
-                self.sleep()
-                # Malformed messages cause the connection to be closed.
-                self.assertFalse(self.servers[-1].connected)
+                # Malformed messages cause the connection to be closed:
+                # wait for the server of this very connection to do so.
+                self.wait_until(lambda: len(self.servers) > count
+                                and not self.servers[count].connected)
                 sock.close()
 
     def spawn_custom_listener(
