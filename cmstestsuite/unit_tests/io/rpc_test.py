@@ -626,6 +626,44 @@ class TestRPC(unittest.TestCase):
         self.assertEqual(levels[:2], ["WARNING", "INFO"])
         self.assertEqual(set(levels[2:]), {"DEBUG"})
 
+    def test_answers_that_cannot_be_processed_are_malformed(self):
+        # An answer whose id isn't a string (a list can't even be looked
+        # up) and one nested too deep for json.loads (RecursionError,
+        # not ValueError) are malformed answers like the others: the
+        # client fails the call, drops the connection and reconnects,
+        # and the next call is answered.
+        bad_answers = {
+            "id that is a list":
+                b'{"__id": [], "__data": null, "__error": null}',
+            "JSON nested too deep": b"[" * 100_000 + b"]" * 100_000,
+        }
+        for name, bad_answer in bad_answers.items():
+            with self.subTest(name):
+                connections = []
+
+                def answer_badly(socket_: socket.socket, address: tuple,
+                                 bad_answer: bytes = bad_answer):
+                    connections.append(address)
+                    if len(connections) > 1:
+                        self.handle_new_connection(socket_, address)
+                        return
+                    socket_.makefile("rb").readline()
+                    socket_.sendall(bad_answer + b"\r\n")
+                    while socket_.recv(1024):
+                        pass
+
+                self.spawn_custom_listener(answer_badly)
+                client = self.get_client(
+                    ServiceCoord("Foo", 0), auto_retry=0.01)
+                self.stop_when_done(client)
+
+                first = client.echo(value=1)
+                first.wait(timeout=2)
+                self.assertIsInstance(first.exception, RPCError)
+                self.wait_until(
+                    lambda: len(connections) > 1 and client.connected)
+                self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
     def test_lines_read_after_a_drop_are_discarded(self):
         # Each connection gets, in one write, a malformed line and then
         # two well-formed answers with unknown ids. The client drops

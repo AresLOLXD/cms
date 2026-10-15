@@ -368,6 +368,46 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING", "DEBUG", "DEBUG", "INFO"])
 
+    async def test_answers_that_cannot_be_processed_are_malformed(self):
+        # An answer whose id isn't a string (a list can't even be looked
+        # up) and one nested too deep for json.loads (RecursionError,
+        # not ValueError) are malformed answers like the others: the
+        # client fails the call, drops the connection and reconnects,
+        # and the next call is answered.
+        bad_answers = {
+            "id that is a list":
+                b'{"__id": [], "__data": null, "__error": null}',
+            "JSON nested too deep": b"[" * 100_000 + b"]" * 100_000,
+        }
+        for name, bad_answer in bad_answers.items():
+            with self.subTest(name):
+                connections = 0
+
+                async def answer_badly(reader, writer, bad_answer=bad_answer):
+                    nonlocal connections
+                    connections += 1
+                    if connections > 1:
+                        await self._serve(reader, writer)
+                        return
+                    await reader.readuntil(b"\r\n")
+                    writer.write(bad_answer + b"\r\n")
+                    await writer.drain()
+                    await reader.read()
+                    writer.close()
+
+                port = await self._start_peer(answer_badly)
+                client = self._client(port)
+                client.connect()
+                self.assertTrue(await client.wait_for_connection(timeout=2))
+
+                with self.assertRaises(RPCError):
+                    await asyncio.wait_for(
+                        client.execute_rpc("echo", {"string": "x"}), 2)
+                await self._wait_until(
+                    lambda: connections > 1 and client.connected)
+                self.assertEqual(
+                    await client.execute_rpc("echo", {"string": "y"}), "y")
+
     async def test_lines_read_after_a_drop_are_discarded(self):
         # Each connection gets, in one write, a malformed line and then
         # two well-formed answers with unknown ids. The client drops

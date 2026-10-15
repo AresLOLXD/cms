@@ -710,7 +710,8 @@ class RemoteServiceClient(RemoteServiceBase):
         # Decode the incoming data.
         try:
             message = json.loads(data.decode('utf-8'))
-        except ValueError:
+        except (ValueError, RecursionError):
+            # RecursionError: JSON nested too deep to decode.
             self._drop_connection("Bad response received")
             self._bad_answers.failed(
                 "Cannot parse incoming message from %s, discarding.",
@@ -736,6 +737,14 @@ class RemoteServiceClient(RemoteServiceBase):
             self._bad_answers.failed(
                 "Response from %s is missing some fields, ignoring.",
                 self._repr_remote())
+            return
+        if not isinstance(response["__id"], str):
+            # Our requests' ids are strings: any other id (a list can't
+            # even be looked up) can't be the answer to one of them.
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Response from %s has an id that is not a string, "
+                "ignoring.", self._repr_remote())
             return
         if self._bad_answers.failing:
             self._bad_answers.succeeded(
