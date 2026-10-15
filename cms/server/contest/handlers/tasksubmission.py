@@ -50,6 +50,7 @@ from sqlalchemy.orm import joinedload
 
 from cms import config, FEEDBACK_LEVEL_FULL
 from cms.db import Submission, SubmissionResult
+from cms.db.connect_options import sqlstate
 from cms.grading.languagemanager import get_language
 from cms.grading.scoring import task_score
 from cms.server import multi_contest
@@ -400,17 +401,24 @@ class UseTokenHandler(ContestHandler):
 
         try:
             accept_token(self.sql_session, submission, self.timestamp)
+            # Read now: the rollback of a failed commit expires them.
+            username = self.current_user.user.username
+            task_name = task.name
             try:
                 self.sql_session.commit()
-            except IntegrityError:
-                # The submission's unique token refused this one: a
-                # request that accept_token's lock did not serialize
-                # with this one played a token on it first.
+            except IntegrityError as error:
                 self.sql_session.rollback()
+                # Anything but the submission's unique token (such as a
+                # foreign key, when an admin deletes the contestant
+                # meanwhile) is not a token played twice.
+                if sqlstate(error.orig) != "23505":  # unique_violation
+                    raise
+                # A request that accept_token's lock did not serialize
+                # with this one played a token on the submission first.
                 logger.warning("User %s played a token twice on a "
                                "submission of task %s; the second one "
                                "was refused at commit.",
-                               self.current_user.user.username, task.name)
+                               username, task_name)
                 raise TokenAlreadyPlayed(
                     N_("Token request discarded"),
                     N_("Your request has been discarded because "

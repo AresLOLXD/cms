@@ -494,6 +494,22 @@ class TestUseTokenHandler(unittest.TestCase):
         self.handler.redirect.assert_called_once_with(
             self.handler.contest_url())
 
+    def test_other_integrity_error_at_commit_is_raised(self):
+        # 23503, foreign_key_violation: an admin deleted the
+        # participation, the task or the contest meanwhile. That is no
+        # token played twice: roll back and let it be an error.
+        with self.assertNoLogs("cms.server.contest.handlers.tasksubmission",
+                               "WARNING"), \
+                self.assertRaises(IntegrityError):
+            self.post_with_commit_error("23503")
+
+        self.assertEqual(self.calls.mock_calls, [
+            call.sql_session.commit(),
+            call.sql_session.rollback()])
+        self.handler.notify_success.assert_not_called()
+        self.handler.schedule_rpc.assert_not_called()
+        self.handler.redirect.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
