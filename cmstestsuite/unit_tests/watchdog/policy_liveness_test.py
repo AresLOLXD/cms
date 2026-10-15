@@ -610,6 +610,21 @@ class TestPidCheck(unittest.TestCase):
                    for _ in range(int(ALERT_REPEAT_S / CYCLE_S) + 1)]
         self.assertEqual(emitted, [True] + [False] * 19 + [True])
 
+    def test_the_alert_keeps_its_limit_when_the_pid_changes(self):
+        # Another process holds ES's RPC port: supervisord's ES quits at
+        # once and is started again, so each cycle sees a new pid, and
+        # the other process answers health().
+        s = Scenario()
+        s.warm_up()
+        answer = {ES: {"pid": 777, "uptime_s": 9_999.0, "busy": []}}
+        emitted = []
+        for cycle in range(int(ALERT_REPEAT_S / CYCLE_S) + 1):
+            s.set(ES, pid=2000 + cycle, start_wall=s.wall + CYCLE_S - 1)
+            decisions = s.cycle(health=answer)
+            emitted.append(any(d.key == (ES, "pid")
+                               for d in alerts(decisions)))
+        self.assertEqual(emitted, [True] + [False] * 19 + [True])
+
     def test_the_same_pid_or_no_usable_pid_is_not_an_alert(self):
         s = Scenario()
         s.warm_up()
@@ -744,15 +759,42 @@ class TestHoldEpisodes(unittest.TestCase):
             warned.append(any(d.key == (CWS1, "R1 warning")
                               for d in alerts(decisions)))
             lines.append(held(decisions, CWS1))
-        # The new process has its own early warning, at its third miss,
-        # and its own first held line, at its trip: neither waits for
-        # the 5 minutes of the old process's last lines. Its budget
-        # (H7) is announced again too, when the grace of H6 ends.
-        self.assertEqual(warned, [False, False, True] + [False] * 6)
+        # The new process's first held line, at its trip, is entering a
+        # hold: it does not wait for the 5 minutes of the old process's
+        # last line. Its budget (H7) is announced again too, when the
+        # grace of H6 ends. Its early warning keeps the rate limit of
+        # the program's: the old process's went out 195 s before.
+        self.assertEqual(warned, [False] * 9)
         self.assertEqual([bool(line) for line in lines],
                          [False] * 4 + [True] + [False] * 3 + [True])
         self.assertEqual(lines[4][0].holds[:2], ("H6", "H7"))
         self.assertEqual(lines[8][0].holds[0], "H7")
+
+    def test_a_new_process_keeps_the_limit_of_the_early_warning(self):
+        s = Scenario()
+        s.warm_up()
+
+        def warned(decisions: list) -> bool:
+            return any(d.key == (CWS1, "R1 warning")
+                       for d in alerts(decisions))
+
+        s.cycle(fail=[CWS1])
+        s.cycle(fail=[CWS1])
+        self.assertTrue(warned(s.cycle(fail=[CWS1])))
+        s.cycle(fail=[CWS1])
+        self.assertTrue(
+            held(s.cycle(fail=[CWS1], supervisor_ok=False), CWS1))
+        # The operator restarts it by hand; the new process hangs too.
+        s.set(CWS1, pid=999, start_wall=s.wall + CYCLE_S)
+        history = [s.cycle(fail=[CWS1]) for _ in range(5)]
+        # Its third miss comes 75 s after the old process's early
+        # warning: that limit is the program's, whatever its process.
+        self.assertEqual([warned(d) for d in history], [False] * 5)
+        # Its trip is entering a hold: the first held line goes out at
+        # once, though the old process's went out 75 s before.
+        self.assertEqual([bool(held(d, CWS1)) for d in history],
+                         [False] * 4 + [True])
+        self.assertEqual(held(history[4], CWS1)[0].holds, ("H6",))
 
     def test_an_incident_that_resolves_ends_the_episode(self):
         s = self.episode()

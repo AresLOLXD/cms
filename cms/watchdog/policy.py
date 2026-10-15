@@ -1001,17 +1001,18 @@ class _Cycle:
                 program_state.window.append(not probe.ok)
 
     def _forget_episodes(self, name: str) -> None:
-        """Start afresh for a program that has a new process.
+        """End the hold episodes of a program that has a new process.
 
-        Its hold episodes and the rate limits of its alerts belong to the
-        old process: the new one's first early warning and first held
-        line are new problems. Its incident and its open alerts stay.
+        They belong to the old process: the new one's first held line is
+        entering a hold. The rate limits of the program's alerts stay,
+        or a program that supervisord starts again every few seconds
+        (another process holds its port) would give a line per cycle;
+        so do its incident and its open alerts.
 
         name: the program's name.
 
         """
-        for table in (self.state.held_headline, self.state.held_announced,
-                      self.state.alert_sent):
+        for table in (self.state.held_headline, self.state.held_announced):
             for key in [key for key in table if key[0] == name]:
                 del table[key]
 
