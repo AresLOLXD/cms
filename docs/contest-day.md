@@ -284,6 +284,11 @@ must print nothing.
    accepted" / "The contest has already ended." ("Envío no aceptado" / "La
    competencia ya finalizó." in Spanish). Tell the contestants beforehand
    not to leave their submissions for the last seconds.
+
+   A submission refused because another request from the same account was
+   being processed at the same moment ("Another request from your
+   account…", see "When something goes wrong") can be sent again only
+   before the stop: after it, that refusal is final.
 2. **Wait for the evaluation to finish.** The submissions made before the
    end are still being evaluated after it. In the load test the queue took 1
    to 5 minutes to drain with 8 workers. It is done when, on each contest's
@@ -323,6 +328,7 @@ must print nothing.
 | A page does not load | `./status.sh`, then `./logs.sh` | [docker-scripts.md](docker-scripts.md) |
 | A contestant gets an "Error 400" page when submitting, and the Contest Web Server log has a WARNING for a 400 on a `…/submit` path with `Invalid body` in it | For an OutputOnly task, ask them to use the zip form; also check the `max_size` of the reverse proxy. The page is generic, with a paragraph about tampering: tell the proctors it does not mean disqualification | "OutputOnly" in {doc}`Task types`; "Request body limits" in [docker-deployment.md](docker-deployment.md) |
 | A contestant gets a 413 or a connection reset when submitting, with no CMS page | The submission is over the `max_size` of the reverse proxy: raise it | "Request body limits" in [docker-deployment.md](docker-deployment.md) |
+| A contestant reports "Another request from your account was being processed at the same moment…" ("Otro pedido de su cuenta se estaba procesando en el mismo momento…" in Spanish) | Two devices, or a script, sent a request from that account at the same instant, and only one was accepted: they send it again. To confirm, check **Simultaneous activity** on the contest's **Activity** page and `./logs.sh cms \| grep "concurrent request"` | "During the contest" and "Last-second submissions" in "At the end" (above) |
 | A submission stays in **Cannot compile** or **Cannot evaluate** | Read the **Logs** table on **Overview** and the submission's page | [Troubleshooting](Troubleshooting.rst) |
 | In a task with `depends_on`, dependent subtasks are not zeroed as expected, or submissions finish late | Search the Evaluation Service log for "cannot be used" and "gates are holding each other" | [subtask-dependencies.md](subtask-dependencies.md) |
 | A contest is not listed for the contestants | Tick **Active** on it | [multi-contest.md](multi-contest.md) |
@@ -334,6 +340,8 @@ must print nothing.
 | ProxyService logs "Contest … still cannot be sent to the rankings" | Fix what the error names; the contest is sent again within about 6 minutes | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "Reinitializing the rankings failed." | Fix the cause, then **Regenerate** on the groups it lists, or on those of what you changed | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "accepted the visibility of group" | **Regenerate** on that group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| The logs say "EvaluationService cannot notify ScoringService,0 (…); nothing is lost, its sweeper will score these submissions." (then "still cannot notify", at most once a minute) | Run `./status.sh` and restart `cmsscoringservice` if it is not `RUNNING`, as in "A worker shows Connected: No". The Scoring Service's sweeper scores the submissions when it starts, otherwise within about 6 minutes (347 s). Do not press **Regenerate**: it scores nothing. Before publishing the final ranking, wait until **Submissions status** has no **Scoring...** row left | "During the contest" and "At the end" (above) |
+| The logs say "ScoringService cannot notify ProxyService,0 (…); nothing is lost, its sweeper will send these scores to the rankings." (then "still cannot notify") | Run `./status.sh` and restart `cmsproxyservice` if it is not `RUNNING`, as in "A worker shows Connected: No"; for what ProxyService itself logs, follow the ProxyService rows above. ProxyService's sweeper sends the scores to the rankings when it starts, otherwise within about 6 minutes | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | Pages show an error after about 10 seconds, and the logs say `timeout expired` | A new database connection got no answer: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out`, `Lost the database connection before the session's rollback` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | A deploy stops at `db-init`, and `./logs.sh db-init` shows `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, end it, then run `./up.sh` again | "When the database misbehaves" (above) |
