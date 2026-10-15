@@ -502,3 +502,33 @@ def test_ranking_credentials_match_the_proxy_service_url(
 
     assert ranking["username"] == unquote(proxy_url.username)
     assert ranking["password"] == unquote(proxy_url.password)
+
+
+def test_supervisord_every_program_stops_as_a_group_and_retries(
+        monkeypatch):
+    # stopasgroup and killasgroup: stopping a program also ends what it
+    # started (a Worker's isolate keeper). startretries=30: supervisord's
+    # backoff is linear, so a program that cannot start (the database is
+    # down) goes FATAL after about 8 minutes, not 7 seconds (#38).
+    _set(monkeypatch, {
+        "CMS_CWS_COUNT": "2", "CMS_WORKER_COUNT": "2",
+        "CMS_TELEGRAM_BOT_TOKEN": "t", "CMS_TELEGRAM_CHAT_ID": "c",
+        "CMS_LOADER_SESSION_SECRET": "s", "CMS_LOADER_ADMIN_USER": "u",
+        "CMS_LOADER_ADMIN_PASSWORD": "p"})
+    programs = _supervisord_programs(gc.generate_supervisord_conf())
+    assert {"cmstelegrambot", "cmsloader", "cmsworker1",
+            "cmscontestwebserver1"} <= set(programs)
+    for name, program in programs.items():
+        assert program["stopasgroup"] == "true", name
+        assert program["killasgroup"] == "true", name
+        assert program["startretries"] == "30", name
+        assert "startsecs" not in program, name
+
+
+def test_cms_toml_has_no_checker(monkeypatch):
+    # Nothing starts a Checker, so the Admin Web Server listed it as not
+    # running (#38).
+    _set(monkeypatch)
+    services = tomllib.loads(gc.generate_cms_toml())["services"]
+    assert "Checker" not in services
+    assert "LogService" in services

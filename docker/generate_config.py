@@ -139,7 +139,6 @@ two_phase_evaluation = {two_phase_evaluation}
 LogService = [["localhost", 29000]]
 ResourceService = [["localhost", 28000]]
 ScoringService = [["localhost", 28500]]
-Checker = [["localhost", 22000]]
 EvaluationService = [["{es_bind_host}", 25000]]
 Worker = [{worker_entries}]
 ContestWebServer = [{cws_entries}]
@@ -221,6 +220,13 @@ def generate_supervisord_conf() -> str:
             f"command={command}\n"
             "autostart=true\n"
             "autorestart=true\n"
+            # supervisord's backoff is linear: about 8 minutes of tries
+            # before FATAL, which outlasts a short database outage.
+            "startretries=30\n"
+            # A stop or a restart also ends what the program started
+            # (a Worker's isolate keeper, #38).
+            "stopasgroup=true\n"
+            "killasgroup=true\n"
             f"{stop_wait}"
             "stdout_logfile=/dev/stdout\n"
             "stdout_logfile_maxbytes=0\n"
@@ -291,7 +297,8 @@ def generate_supervisord_conf() -> str:
             f"directory=/home/cmsuser/cms-loader\n"
             f"command=/home/cmsuser/cms-loader/node_modules/.bin/tsx src/index.ts\n"
             f"environment={env_str}\n"
-            "autostart=true\nautorestart=true\n"
+            "autostart=true\nautorestart=true\nstartretries=30\n"
+            "stopasgroup=true\nkillasgroup=true\n"
             "stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n"
             "stderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n"
         )

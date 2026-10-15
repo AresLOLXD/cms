@@ -14,5 +14,14 @@ echo "── Container status ────────────────�
 echo ""
 
 echo "── Supervisor status ────────────────────────────────"
-"${COMPOSE_CMD[@]}" exec -T cms "${SUPERVISORCTL[@]}" status 2>/dev/null \
-  || echo "(container not running)"
+# supervisorctl status exits 3 when any program is not RUNNING (one you
+# stopped on purpose included), and it has no timeout of its own: it
+# hangs on a stopped supervisord.
+status=0
+"${COMPOSE_CMD[@]}" exec -T cms timeout 10 "${SUPERVISORCTL[@]}" status \
+  2>/dev/null || status=$?
+case $status in
+  0 | 3) ;;
+  124) echo "(supervisord did not answer in 10 s)" ;;
+  *) echo "(container not running)" ;;
+esac
