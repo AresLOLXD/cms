@@ -826,6 +826,9 @@ class _Cycle:
         self.running = [program for program in observation.programs
                         if program.managed and program.state == "RUNNING"]
         self.trips: list[Trip] = []
+        # The early warnings of this cycle, as Trips; _act_on_trips
+        # emits them once every program's misses are known (H4).
+        self.warnings: list[Trip] = []
         # Programs whose own probe failed in this cycle, or that a rule
         # without a probe tripped: they do not pass (incidents).
         self.failing: set[str] = set()
@@ -1030,17 +1033,15 @@ class _Cycle:
                     program, rule, "%d of its last %d %s failed"
                     % (misses, len(window), what)))
             elif misses >= MISSES_TO_WARN:
-                self._alert(
-                    (program.name, rule + " warning"), "WARNING",
-                    "Watchdog: early warning: %d of the last %d %s of %s "
-                    "failed; it is restarted at %d."
-                    % (misses, len(window), what, program.label,
-                       MISSES_TO_TRIP))
+                self.warnings.append(Trip(
+                    program, rule, "%d of the last %d %s of %s failed"
+                    % (misses, len(window), what, program.label)))
 
     # Holds and actions.
 
     def _act_on_trips(self) -> None:
         """Turn each trip into an action, or into an alert if held."""
+        self._early_warnings()
         held_workers: list[Trip] = []
         incidents = self.state.ledger.incidents
         for trip in self.trips:
@@ -1059,6 +1060,44 @@ class _Cycle:
                 self._restart(trip, shadow)
         if held_workers:
             self._held_workers(held_workers)
+
+    def _early_warnings(self) -> None:
+        """Emit the early warnings of the cycle (3.5, 3.9)."""
+        for warning in self.warnings:
+            program = warning.program
+            self._alert(
+                (program.name, warning.rule + " warning"), "WARNING",
+                "Watchdog: early warning: %s. %s"
+                % (warning.detail, self._outlook(program)))
+
+    def _outlook(self, program: ProgramFacts) -> str:
+        """Say what happens if program goes on failing, and the next step.
+
+        It does not promise a restart that observe mode, an H9 class or
+        a hold that applies now would not give.
+
+        program: the program with an early warning.
+
+        return: the sentences to add to the warning.
+
+        """
+        shadow = self.state.shadow_for(program.klass)
+        if self.state.mode == OBSERVE:
+            text = ("At %d misses, the latest included, the watchdog only "
+                    "logs the restart it would do (observe mode)."
+                    % MISSES_TO_TRIP)
+        elif shadow:
+            text = ("At %d misses, the latest included, the watchdog only "
+                    "logs the restart it would do (class %s is not in "
+                    "CMS_WATCHDOG_RESTART)." % (MISSES_TO_TRIP,
+                                                program.klass))
+        else:
+            text = ("At %d misses, the latest included, the watchdog "
+                    "restarts it." % MISSES_TO_TRIP)
+        holds = self._holds(program, shadow)
+        if holds:
+            text += " Right now %s applies: %s." % holds[0]
+        return text + " Check ./logs.sh for its log and stacks."
 
     def _holds(self, program: ProgramFacts,
                shadow: bool) -> list[tuple[str, str]]:
@@ -1212,8 +1251,9 @@ class _Cycle:
     def _global_failure(self) -> str:
         """Describe a failure of a third of the probed programs (H5)."""
         probed = [program for program in self.running
-                  if program.name in self.obs.http
-                  or program.name in self.obs.rpc]
+                  if program.kind in HEALTH_KINDS
+                  and (program.name in self.obs.http
+                       or program.name in self.obs.rpc)]
         failed = [program for program in probed
                   if any(not probes[program.name].ok
                          for probes in (self.obs.http, self.obs.rpc)

@@ -24,8 +24,8 @@ from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
     OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
     Probe, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, \
-    DEFAULT_PROGRAMS, ES, LS, RED, Scenario, actions, alerts, held, \
-    lock_wait_snapshot, program
+    DEFAULT_PROGRAMS, ES, LS, RED, W0, W1, Scenario, actions, alerts, \
+    held, lock_wait_snapshot, program
 
 
 def book(s: Scenario, name: str, label: str, wall: float,
@@ -120,6 +120,41 @@ class TestLivenessRules(unittest.TestCase):
         self.assertEqual(warning.key, (CWS1, "R1 warning"))
         self.assertIn("early warning: 3 of the last 6 favicon probes of "
                       "cmsContestWebServer 1 failed", warning.text)
+
+    def warning(self, s: Scenario, **kwargs):
+        """Fail CWS1 three times and return its early warning."""
+        s.warm_up()
+        s.cycle(fail=[CWS1])
+        s.cycle(fail=[CWS1])
+        [warning] = [d for d in alerts(s.cycle(fail=[CWS1], **kwargs))
+                     if d.key == (CWS1, "R1 warning")]
+        return warning
+
+    def test_the_early_warning_says_what_happens_at_five(self):
+        text = self.warning(Scenario()).text
+        self.assertIn("At 5 misses, the latest included, the watchdog "
+                      "restarts it.", text)
+        self.assertNotIn("only logs", text)
+        self.assertIn("Check ./logs.sh", text)
+
+    def test_the_early_warning_in_observe_mode_promises_no_restart(self):
+        text = self.warning(Scenario(mode=OBSERVE)).text
+        self.assertIn("the watchdog only logs the restart it would do "
+                      "(observe mode)", text)
+        self.assertNotIn("restarts it", text)
+        self.assertIn("Check ./logs.sh", text)
+
+    def test_the_early_warning_of_an_h9_class_promises_no_restart(self):
+        text = self.warning(Scenario(restart=("core", "infra"))).text
+        self.assertIn("only logs the restart it would do (class web is "
+                      "not in CMS_WATCHDOG_RESTART)", text)
+        self.assertNotIn("restarts it", text)
+
+    def test_the_early_warning_names_the_hold_that_applies_now(self):
+        text = self.warning(Scenario(), gate=RED).text
+        self.assertIn("Right now H2 applies: the database gate is red "
+                      "(refused).", text)
+        self.assertNotIn("held by", text)
 
     def test_starved_cycles_are_unknown_results(self):
         s = Scenario()
@@ -381,6 +416,20 @@ class TestHoldsAlone(unittest.TestCase):
             self.assertEqual(alert.holds, ("H5",))
             self.assertIn("3 of the 8 programs probed failed a probe",
                           alert.text)
+
+    def test_h5_does_not_count_workers(self):
+        s = Scenario()
+        s.warm_up()
+        failing = Probe(False, None, "timed out")
+        for _ in range(4):
+            s.cycle(fail=[CWS1, ES], probes={W0: failing, W1: failing})
+        decisions = s.cycle(fail=[CWS1, ES],
+                            probes={W0: failing, W1: failing})
+        # 2 of the 8 programs of the health kinds failed: no H5.
+        [restart] = actions(decisions)
+        self.assertEqual(restart.program, ES)
+        [alert] = held(decisions, CWS1)
+        self.assertEqual(alert.holds, ("H8",))
 
     def test_h6_the_program_just_started(self):
         s = Scenario()
