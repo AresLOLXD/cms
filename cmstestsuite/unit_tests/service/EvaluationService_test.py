@@ -382,8 +382,9 @@ class EvaluationServiceTest(
                 if record.levelno == logging.WARNING]
 
     def _unreachable_scoring_service(self):
-        """Make ES notify a ScoringService client that never connects,
-        so that each notification fails with RPCError.
+        """Make ES notify a ScoringService client that never connects.
+
+        So each notification fails with RPCError.
 
         """
         self.service.scoring_service = AsyncRemoteServiceClient(
@@ -399,8 +400,8 @@ class EvaluationServiceTest(
         self.assertEqual(
             logs.output,
             ["WARNING:cms.service.EvaluationService:EvaluationService "
-             "cannot notify ScoringService,0 (Write failed.); nothing is "
-             "lost, its sweeper will score these submissions."])
+             "cannot notify ScoringService,0 (RPCError: Write failed.); "
+             "nothing is lost, its sweeper will score these submissions."])
 
     async def test_scoring_notification_failures_warn_once_a_minute(self):
         self._unreachable_scoring_service()

@@ -49,7 +49,7 @@ FIRE_AND_FORGET_TIMEOUT = 30.0
 
 
 class NotificationFailureLatch:
-    """Log the failed notifications to one peer once per outage.
+    """Log the failed notifications to one peer without flooding the logs.
 
     It is for a service that tells a peer about each piece of work it
     has done, fire-and-forget, and drops the notifications that fail
@@ -134,10 +134,16 @@ class NotificationFailureLatch:
                             notification)
             return
 
-        reason = "no answer in time" if isinstance(error, TimeoutError) \
-            else str(error)
+        if isinstance(error, TimeoutError):
+            reason = "no answer in time"
+        else:
+            reason = "%s: %s" % (error.__class__.__name__, error)
         self._log.debug("%s did not notify %s of %s (%s).", self._source,
                         self._peer, notification, reason)
+        # A remote error carries the peer's traceback: the DEBUG line
+        # has it all, the WARNINGs only the first line, so they stay one
+        # line each (the peer's error is logged at ERROR anyway).
+        reason = reason.partition("\n")[0]
 
         now = monotonic()
         self._dropped += 1

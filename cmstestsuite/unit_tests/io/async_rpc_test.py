@@ -565,13 +565,32 @@ class TestNotificationFailureLatch(unittest.TestCase):
 
         self.assertEqual(
             self.warnings(logged),
-            ["EvaluationService cannot notify ScoringService,0 (Write "
-             "failed.); nothing is lost, its sweeper will score these "
+            ["EvaluationService cannot notify ScoringService,0 (RPCError: "
+             "Write failed.); nothing is lost, its sweeper will score these "
              "submissions."])
         # What the notification was about is only in the DEBUG line.
         self.assertIn(("DEBUG", "EvaluationService did not notify "
-                       "ScoringService,0 of submission 1 (Write failed.)."),
+                       "ScoringService,0 of submission 1 (RPCError: Write "
+                       "failed.)."),
                       logged)
+
+    def test_warning_has_only_the_first_line_of_a_remote_error(self):
+        # A remote error carries the peer's traceback.
+        error = RPCError("KeyError: 'Submission not found.'\n"
+                         "Traceback (most recent call last):\n"
+                         "  File \"ProxyService.py\", line 1\n"
+                         "KeyError: 'Submission not found.'\n")
+
+        logged = self.drop(1, error)
+
+        self.assertEqual(
+            self.warnings(logged),
+            ["EvaluationService cannot notify ScoringService,0 (RPCError: "
+             "KeyError: 'Submission not found.'); nothing is lost, its "
+             "sweeper will score these submissions."])
+        # The whole of it is in the DEBUG line.
+        debug, = [message for level, message in logged if level == "DEBUG"]
+        self.assertIn("Traceback (most recent call last):", debug)
 
     def test_failures_within_a_minute_are_debug_only(self):
         self.drop(1)
@@ -594,7 +613,8 @@ class TestNotificationFailureLatch(unittest.TestCase):
         self.assertRegex(
             reminder[0],
             r"^EvaluationService still cannot notify ScoringService,0 "
-            r"\(Write failed\.\): 3 notification\(s\) dropped since "
+            r"\(RPCError: Write failed\.\): 3 notification\(s\) dropped "
+            r"since "
             r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d; nothing is lost, its "
             r"sweeper will score these submissions\.$")
         # The next reminder is a minute after this one.

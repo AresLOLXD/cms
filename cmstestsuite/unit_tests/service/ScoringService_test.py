@@ -365,10 +365,11 @@ class ScoringServiceTest(
         self.assertEqual(client.pending_outgoing_requests_results, {})
 
     def _unreachable_proxy_service(self) -> ScoringExecutor:
-        """Make the executor notify a ProxyService client that never
-        connects, so that each notification fails with RPCError.
+        """Make SS notify a ProxyService client that never connects.
 
-        return: the executor.
+        So each notification fails with RPCError.
+
+        return: the executor, whose proxy_service it is.
 
         """
         executor = self.service.get_executor()
@@ -386,8 +387,8 @@ class ScoringServiceTest(
         self.assertEqual(
             logs.output,
             ["WARNING:cms.service.ScoringService:ScoringService cannot "
-             "notify ProxyService,0 (Write failed.); nothing is lost, its "
-             "sweeper will send these scores to the rankings."])
+             "notify ProxyService,0 (RPCError: Write failed.); nothing is "
+             "lost, its sweeper will send these scores to the rankings."])
 
     async def test_proxy_notification_failures_warn_once_a_minute(self):
         executor = self._unreachable_proxy_service()
