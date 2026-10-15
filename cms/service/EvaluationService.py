@@ -51,6 +51,7 @@ from cmscommon.datetime import make_timestamp
 from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
     SubmissionResult, Testcase, UserTest, UserTestResult, get_submissions, \
     get_submission_results, get_datasets_to_judge
+from cms.db import engine
 from cms.grading import subtaskdag, twophase
 from cms.grading.Job import Job, JobGroup
 from cms.grading.steps import EVALUATION_MESSAGES
@@ -268,20 +269,30 @@ def with_post_finish_lock(func):
     the same time. The outermost decorated call is a "section": when it
     ends (normally or with an exception), the loop actions it scheduled
     are handed to the event loop, still under the lock. Nested calls
-    leave them to the outermost one.
+    leave them to the outermost one. health() reports the section as
+    "post_finish_lock:<function name>" (see cms.io.health) until its
+    loop actions are handed over; threads waiting for the lock are not
+    reported.
 
     """
     @wraps(func)
     def wrapped(self, *args, **kwargs):
         with self.post_finish_lock:
             self._post_finish_depth += 1
+            if self._post_finish_depth == 1:
+                self._busy.start("post_finish_lock:" + func.__name__)
             try:
                 return func(self, *args, **kwargs)
             finally:
                 self._post_finish_depth -= 1
                 if self._post_finish_depth == 0:
-                    self._dequeued_in_section.clear()
-                    self._flush_loop_actions()
+                    # Its own finally: if either call raised, a stale
+                    # record would stay and look like a stuck section.
+                    try:
+                        self._dequeued_in_section.clear()
+                        self._flush_loop_actions()
+                    finally:
+                        self._busy.stop()
     return wrapped
 
 
@@ -348,8 +359,17 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
     # while results keep arriving.
     MAX_RESULT_AGE_SECONDS = 1
 
+    # How often the sweeper looks for missed operations. cmsWatchdog's
+    # ES section trip (180 s) must stay above it (#38).
+    SWEEPER_PERIOD_S = 117.0
+
     def __init__(self, shard: int, contest_id: int | None = None):
         super().__init__(shard)
+
+        # Every statement of the sync engine is a step of the section
+        # of its thread (see cms.io.health), so that health() tells a
+        # section that issues statements from one that waits.
+        self._busy.count_statements_of(engine)
 
         self.contest_id = contest_id
 
@@ -415,7 +435,7 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
             ServiceCoord("ScoringService", 0))
 
         self.add_executor(EvaluationExecutor(self))
-        self.start_sweeper(117.0)
+        self.start_sweeper(EvaluationService.SWEEPER_PERIOD_S)
 
         self.add_timeout(self.check_workers_timeout, None,
                          EvaluationService.WORKER_TIMEOUT_CHECK_TIME
@@ -640,6 +660,15 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
         """
         return self.get_executor().pool.get_status()
+
+    def _health_extra(self) -> dict:
+        """Add the length of the queue to health(), for the evidence.
+
+        return: {"queue": the number of operations waiting in the
+            queue}.
+
+        """
+        return {"queue": len(self.get_executor()._operation_queue)}
 
     async def check_workers_timeout(self):
         """We ask WorkerPool for the unresponsive workers, and we put

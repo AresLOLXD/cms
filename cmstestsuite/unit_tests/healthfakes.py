@@ -27,3 +27,7 @@ class FakeClock:
 
     def __call__(self) -> float:
         return self.now
+
+
+class StopHere(Exception):
+    """Ends a section on purpose."""
