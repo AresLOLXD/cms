@@ -402,6 +402,11 @@ class EvaluationServiceTest(
             ["WARNING:cms.service.EvaluationService:EvaluationService "
              "cannot notify ScoringService,0 (RPCError: Write failed.); "
              "nothing is lost, its sweeper will score these submissions."])
+        # The record points at the caller of the latch (the detailed
+        # log shows it), not at the latch.
+        self.assertEqual(
+            (logs.records[0].filename, logs.records[0].funcName),
+            ("EvaluationService.py", "_notify_scoring_service"))
 
     async def test_scoring_notification_failures_warn_once_a_minute(self):
         self._unreachable_scoring_service()

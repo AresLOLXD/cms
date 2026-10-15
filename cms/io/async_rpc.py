@@ -111,10 +111,14 @@ class NotificationFailureLatch:
         """Note that a notification reached the peer."""
         if self._dropped == 0:
             return
+        # stacklevel=2, here and in failed(): the records point at the
+        # caller, the method that sent the notification, as the
+        # detailed log shows it.
         self._log.log(logging.INFO if self._warned else logging.DEBUG,
                       "%s can notify %s again: %d notification(s) dropped "
                       "since %s.", self._source, self._peer, self._dropped,
-                      self._failing_since.strftime("%Y-%m-%d %H:%M:%S"))
+                      self._failing_since.strftime("%Y-%m-%d %H:%M:%S"),
+                      stacklevel=2)
         self._dropped = 0
         self._failing_since = None
         self._warned = False
@@ -131,7 +135,7 @@ class NotificationFailureLatch:
         if isinstance(error, ServiceNotConfiguredError):
             self._log.debug("%s did not notify %s of %s: it is not "
                             "configured.", self._source, self._peer,
-                            notification)
+                            notification, stacklevel=2)
             return
 
         if isinstance(error, TimeoutError):
@@ -139,7 +143,7 @@ class NotificationFailureLatch:
         else:
             reason = "%s: %s" % (error.__class__.__name__, error)
         self._log.debug("%s did not notify %s of %s (%s).", self._source,
-                        self._peer, notification, reason)
+                        self._peer, notification, reason, stacklevel=2)
         # A remote error carries the peer's traceback: the DEBUG line
         # has it all, the WARNINGs only the first line, so they stay one
         # line each (the peer's error is logged at ERROR anyway).
@@ -156,14 +160,15 @@ class NotificationFailureLatch:
         self._warned = True
         if self._dropped == 1:
             self._log.warning("%s cannot notify %s (%s); %s.", self._source,
-                              self._peer, reason, self._consequence)
+                              self._peer, reason, self._consequence,
+                              stacklevel=2)
         else:
             self._log.warning(
                 "%s still cannot notify %s (%s): %d notification(s) "
                 "dropped since %s; %s.", self._source, self._peer, reason,
                 self._dropped,
                 self._failing_since.strftime("%Y-%m-%d %H:%M:%S"),
-                self._consequence)
+                self._consequence, stacklevel=2)
 
 
 class AsyncRemoteServiceBase:
