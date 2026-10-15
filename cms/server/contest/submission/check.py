@@ -33,8 +33,10 @@ the current situation. Also include some support functions, which are
 exported as they may be of general interest.
 
 """
+import logging
+import typing
 from datetime import datetime, timedelta
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.sql import Select
 
 from cms.db import Task, Submission
@@ -42,6 +44,102 @@ from cms.db.contest import Contest
 from cms.db.session import Session
 from cms.db.user import Participation
 from cms.db.usertest import UserTest
+
+
+logger = logging.getLogger(__name__)
+
+
+# Dummy function to mark translatable strings.
+def N_(msgid):
+    return msgid
+
+
+# Key spaces of the advisory locks that serialize the limit checks of a
+# participation: the first key of the two-key form of
+# pg_try_advisory_xact_lock (an int32), the participation id being the
+# second. There is one per kind of request, so that a submission never
+# makes a token request of the same contestant fail.
+#
+# The fork's advisory lock namespaces are four ASCII letters read as a
+# big-endian int32, all below 2^31. Never reuse one for something else,
+# and keep this list in sync with the one in activity.py:
+# - ACTV 0x41435456: the activity log's flush (activity.py);
+# - SUBM 0x5355424D: the limit checks of accept_submission;
+# - UTST 0x55545354: the limit checks of accept_user_test;
+# - TOKN 0x544F4B4E: the checks of accept_token.
+SUBMISSION_LOCK_NAMESPACE = 0x5355424D  # "SUBM" in ASCII.
+USER_TEST_LOCK_NAMESPACE = 0x55545354  # "UTST" in ASCII.
+TOKEN_LOCK_NAMESPACE = 0x544F4B4E  # "TOKN" in ASCII.
+
+RequestKind = typing.Literal["submission", "user test", "token"]
+
+LIMIT_LOCK_NAMESPACES: dict[RequestKind, int] = {
+    "submission": SUBMISSION_LOCK_NAMESPACE,
+    "user test": USER_TEST_LOCK_NAMESPACE,
+    "token": TOKEN_LOCK_NAMESPACE,
+}
+
+TRY_LOCK_PARTICIPATION = text(
+    "SELECT pg_try_advisory_xact_lock("
+    "CAST(:ns AS integer), :participation_id)")
+
+# The text of the refusal of a request whose lock was taken (the
+# subject is the usual one of its kind of request).
+CONCURRENT_REQUEST_TEXT = N_(
+    "Another request from your account was being processed at the same "
+    "moment, so this one was not accepted. Wait a few seconds and try "
+    "again.")
+
+
+def try_lock_limit_checks(
+    sql_session: Session,
+    participation: Participation,
+    request_kind: RequestKind,
+) -> bool:
+    """Try to take the lock of a contestant's limits for this request.
+
+    Without it, two requests of the same contestant handled at the same
+    moment by two CWS shards would both pass a limit check (each one
+    reads the past requests before the other one commits) and both be
+    accepted, exceeding the limit. The lock is a transaction-level
+    advisory lock on the participation, in the namespace of the kind of
+    request, taken on the request's own session: the commit, the
+    rollback or the close of the session releases it. It is never
+    waited for: a shard's requests run on its event loop, so a wait
+    would stall the whole shard. If another request holds it, this one
+    is to be refused, and a retry a few seconds later is considered
+    anew. That refusal is logged at INFO.
+
+    The lock only protects a decision whose every input is a fresh SQL
+    statement, issued after the lock, on the request's own connection:
+    under PostgreSQL's default READ COMMITTED, each statement sees
+    whatever the previous holder committed. Under REPEATABLE READ or
+    SERIALIZABLE, the snapshot is taken by the transaction's first
+    statement, so the lock would have to come before the first query
+    of the handler's prepare().
+
+    Call it only where a request is accepted (before the checks that
+    read past requests), never from the checks themselves, as pages
+    that only show the limits call those too.
+
+    sql_session: the session of the request, which must end its
+        transaction as soon as the request is accepted or refused.
+    participation: the contestant sending the request.
+    request_kind: what the request is, which chooses the namespace.
+
+    return: whether the lock was taken; False means that another
+        request of the contestant holds it.
+
+    """
+    locked = sql_session.execute(TRY_LOCK_PARTICIPATION, {
+        "ns": LIMIT_LOCK_NAMESPACES[request_kind],
+        "participation_id": participation.id,
+    }).scalar_one()
+    if not locked:
+        logger.info("concurrent request rejected for %s (participation %d, "
+                    "%s)", participation.user.username, participation.id,
+                    request_kind)
+    return locked
 
 
 def _filter_submission_query(

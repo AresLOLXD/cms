@@ -67,6 +67,21 @@ The request will return an object with the ID of the new submission:
 
   {"id": /* string */}
 
+If the submission is refused, the request returns an object with the reason,
+in English, instead:
+
+.. sourcecode:: json
+
+  {"error": /* string */, "details": /* string */}
+
+The status code tells a script what to do next:
+
+- ``422``: the checks refused the submission, and ``details`` says why (for
+  example, too many submissions, submissions too frequent or invalid files).
+- ``409``: another request from the same account was being processed at the
+  same moment, so this one was refused without being checked. Send it again
+  after a few seconds: it is then checked as usual.
+
 
 List submissions
 ================

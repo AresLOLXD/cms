@@ -33,8 +33,9 @@ from .file_retrieval import ReceivedFile, InvalidArchive, \
     extract_files_from_archive, extract_files_from_tornado
 from .utils import fetch_file_digests_from_previous_submission, StorageFailed, \
     store_local_copy
-from .workflow import UnacceptableSubmission, accept_submission, \
-    TestingNotAllowed, UnacceptableUserTest, accept_user_test
+from .workflow import UnacceptableSubmission, ConcurrentSubmission, \
+    accept_submission, TestingNotAllowed, UnacceptableUserTest, \
+    accept_user_test
 
 
 __all__ = [
@@ -50,6 +51,6 @@ __all__ = [
     "fetch_file_digests_from_previous_submission", "StorageFailed",
     "store_local_copy",
     # workflow.py
-    "UnacceptableSubmission", "accept_submission", "TestingNotAllowed",
-    "UnacceptableUserTest", "accept_user_test",
+    "UnacceptableSubmission", "ConcurrentSubmission", "accept_submission",
+    "TestingNotAllowed", "UnacceptableUserTest", "accept_user_test",
 ]
