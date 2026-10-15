@@ -25,7 +25,7 @@ from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, \
     INVALIDATION_SECTION, OBSERVE, RESTART, SERVICES_POOL, Backend, \
     Booking, Gate, Probe
 from cmstestsuite.unit_tests.watchdog.scenario import ES, GREEN, HOLDER, \
-    PS, SS, W0, Scenario, actions, alerts, busy, held, \
+    PS, SS, W0, W1, Scenario, actions, alerts, busy, held, \
     lock_wait_snapshot, worker
 
 
@@ -274,10 +274,15 @@ class TestWorkerRule(unittest.TestCase):
     def test_a_worker_that_restarted_after_it_was_disabled_is_spared(self):
         s = Scenario()
         s.warm_up()
-        s.set(W0, start_wall=s.wall + 15 - 60, pid=905)
-        self.assertEqual(actions(s.cycle(workers={
-            "0": worker(False, s.wall + 15 - 200), "1": worker(True)})),
-            [])
+        # It started 150 s ago, after ES disabled it 200 s ago: past its
+        # own grace (H6), which would hold a trip, and short of the
+        # 300 s of the unconnected rule.
+        s.set(W0, start_wall=s.wall + 15 - 150, pid=905)
+        decisions = s.cycle(workers={
+            "0": worker(False, s.wall + 15 - 200), "1": worker(True)})
+        self.assertEqual(actions(decisions), [])
+        self.assertEqual(held(decisions, W0), [])
+        self.assertNotIn(W0, s.state.ledger.incidents)
 
     def test_a_worker_that_never_connects_trips(self):
         s = Scenario()
@@ -297,8 +302,13 @@ class TestWorkerRule(unittest.TestCase):
                 s.warm_up()
                 health = {ES: {"pid": 104, "uptime_s": uptime,
                                "busy": []}}
-                self.assertEqual(
-                    actions(s.cycle(workers=workers, health=health)), [])
+                decisions = s.cycle(workers=workers, health=health)
+                # No trip at all: H4 would hold two Workers that trip
+                # together, with no action either.
+                self.assertEqual(actions(decisions), [])
+                self.assertEqual(alerts(decisions), [])
+                for name in (W0, W1):
+                    self.assertNotIn(name, s.state.ledger.incidents)
 
     def test_the_unconnected_rule_trips_at_300_s_of_running(self):
         for running_s, expected in ((299, []), (300, [(W0, "R4")])):
