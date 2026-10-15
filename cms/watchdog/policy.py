@@ -1035,13 +1035,16 @@ class _Cycle:
                 program_state.window.append(not probe.ok)
 
     def _forget_episodes(self, name: str) -> None:
-        """End the hold episodes of a program that has a new process.
+        """End the hold episodes of a program.
 
-        They belong to the old process: the new one's first held line is
-        entering a hold. The rate limits of the program's alerts stay,
-        or a program that supervisord starts again every few seconds
-        (another process holds its port) would give a line per cycle;
-        so do its incident and its open alerts.
+        It runs when the program has a new process, and when the
+        watchdog restarts it or would restart it, whatever rule tripped:
+        the episodes belong to the old process, or to the trip that was
+        acted on, and the program's next held line is entering a hold.
+        The rate limits of the program's alerts stay, or a program that
+        supervisord starts again every few seconds (another process
+        holds its port) would give a line per cycle; so do its incident
+        and its open alerts.
 
         name: the program's name.
 
@@ -1170,7 +1173,8 @@ class _Cycle:
             self.trips.append(Trip(
                 program, "R3", "its locked section %s has been held for "
                 "%d s with no statement for %d s, under %d s of CPU in "
-                "the last minute and no statement running in the database"
+                "the last minute and no statement of it running in the "
+                "database, apart from a lock wait"
                 % (what, age_s, idle_s, ES_CPU_MIN_S)))
             return
         self.warnings.append(Trip(
@@ -1297,8 +1301,8 @@ class _Cycle:
         disabled_for = age(self.wall, disabled_at)
         if disabled_for < WORKER_DISABLED_TRIP_S:
             return ""
-        return ("EvaluationService disabled it for not answering %d s "
-                "ago, and it has not restarted since" % disabled_for)
+        return ("EvaluationService disabled it by timeout %d s ago, and "
+                "it has not restarted since" % disabled_for)
 
     def _never_connected(self, program: ProgramFacts, status: Mapping,
                          statuses: Mapping[str, Mapping],
@@ -1411,7 +1415,8 @@ class _Cycle:
         kind = warning.program.kind
         if kind == "EvaluationService":
             return ("Past %d s, with no statement for %d s, no CPU used by "
-                    "its thread and none of its statements running"
+                    "its thread and no statement of it running in the "
+                    "database apart from a lock wait"
                     % (SECTION_TRIP_S, ES_IDLE_TRIP_S))
         if kind == "ProxyService":
             return ("Past %d s with no request, while every ranking "

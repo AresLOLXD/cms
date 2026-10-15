@@ -112,6 +112,60 @@ class TestEvaluationServiceSection(unittest.TestCase):
         self.assertIn("fails R3", alert.text)
         self.assertIn("pid 900 ('psql'", alert.text)
 
+    def test_the_trip_does_not_count_a_lock_wait_as_running(self):
+        s = Scenario()
+        s.warm_up()
+        history = self.run_es(s, [200 + 15 * i for i in range(5)],
+                              gate=Gate(True, backends=lock_wait_snapshot()))
+        [alert] = held(history[4], ES)
+        self.assertIn(
+            "cmsEvaluationService 0 fails R3 (its locked section "
+            "post_finish_lock:_write_results_sync has been held for 260 s "
+            "with no statement for 70 s, under 1 s of CPU in the last "
+            "minute and no statement of it running in the database, "
+            "apart from a lock wait) but is held by H3: a database lock "
+            "wait: 'cmsEvaluationService 0' (pid 500): its statement has "
+            "been waiting 45 s on a lock", alert.text)
+
+    def test_a_warning_says_when_the_section_trips(self):
+        s = Scenario(mode=OBSERVE)
+        s.warm_up()
+        [warning] = [d for d in s.cycle(health={ES: es_busy(100.0, 40.0)})
+                     if d.key == (ES, "R3 warning")]
+        self.assertEqual(
+            warning.text,
+            "Watchdog: early warning: the locked section "
+            "post_finish_lock:_write_results_sync of cmsEvaluationService "
+            "0 has been held for 100 s with no statement for 40 s. Past "
+            "180 s, with no statement for 60 s, no CPU used by its thread "
+            "and no statement of it running in the database apart from a "
+            "lock wait, the watchdog only logs the restart it would do "
+            "(observe mode). Check ./logs.sh for its log; cmsWatchdog "
+            "--snapshot cmsevaluationservice writes its stacks.")
+
+    def test_the_warning_starts_past_90_s_with_30_s_idle(self):
+        for age_s, idle_s, warned in ((90.0, 100.0, False),
+                                      (91.0, 30.0, True),
+                                      (91.0, 29.9, False)):
+            with self.subTest(age_s=age_s, idle_s=idle_s):
+                s = Scenario()
+                s.warm_up()
+                decisions = s.cycle(health={ES: es_busy(age_s, idle_s)})
+                self.assertEqual([d.key for d in alerts(decisions)],
+                                 [(ES, "R3 warning")] if warned else [])
+
+    def test_it_trips_at_60_s_with_no_statement_exactly(self):
+        for idle_s, tripped in ((59.9, False), (60.0, True)):
+            with self.subTest(idle_s=idle_s):
+                s = Scenario()
+                s.warm_up()
+                # The fifth cycle is the first with a CPU sample 60 s
+                # old: the first one that can trip.
+                history = self.run_es(s, [200 + 15 * i for i in range(5)],
+                                      idle_s=idle_s)
+                self.assertEqual([bool(actions(d)) for d in history],
+                                 [False] * 4 + [tripped])
+
     def test_the_cpu_lookback_takes_the_newest_sample_60_s_old(self):
         s = Scenario()
         s.warm_up()
@@ -177,6 +231,21 @@ class TestScoringAndProxySections(unittest.TestCase):
             "has run for 100 s. Past 180 s, the watchdog only logs the "
             "restart it would do (observe mode). Check ./logs.sh for its "
             "log; cmsWatchdog --snapshot cmsscoringservice writes its "
+            "stacks.")
+
+    def test_a_send_warning_says_when_it_trips(self):
+        s = Scenario(mode=OBSERVE)
+        s.warm_up()
+        [warning] = [d for d in s.cycle(
+            health={PS: busy(107, "send", 500.0, 100.0)},
+            rankings=RANKINGS_OK) if d.key == (PS, "R3 warning")]
+        self.assertEqual(
+            warning.text,
+            "Watchdog: early warning: a send of cmsProxyService 0 to the "
+            "rankings has started no request for 100 s. Past 180 s with no "
+            "request, while every ranking answers, the watchdog only logs "
+            "the restart it would do (observe mode). Check ./logs.sh for "
+            "its log; cmsWatchdog --snapshot cmsproxyservice writes its "
             "stacks.")
 
     def test_ss_trips_past_180_s(self):
@@ -299,8 +368,7 @@ class TestWorkerRule(unittest.TestCase):
         [restart] = actions(s.cycle(workers={
             "0": worker(False, s.wall + 15 - 180), "1": worker(True)}))
         self.assertEqual((restart.program, restart.rule), (W0, "R4"))
-        self.assertIn("disabled it for not answering 180 s ago",
-                      restart.text)
+        self.assertIn("disabled it by timeout 180 s ago", restart.text)
 
     def test_a_worker_that_restarted_after_it_was_disabled_is_spared(self):
         s = Scenario()
@@ -340,6 +408,18 @@ class TestWorkerRule(unittest.TestCase):
                 self.assertEqual(alerts(decisions), [])
                 for name in (W0, W1):
                     self.assertNotIn(name, s.state.ledger.incidents)
+
+    def test_the_unconnected_rule_needs_es_up_for_120_s(self):
+        for uptime, expected in ((119.9, []), (120.0, [(W0, "R4")])):
+            with self.subTest(uptime=uptime):
+                s = Scenario()
+                s.warm_up()
+                decisions = actions(s.cycle(
+                    workers={"0": worker(False), "1": worker(True)},
+                    health={ES: {"pid": 104, "uptime_s": uptime,
+                                 "busy": []}}))
+                self.assertEqual(
+                    [(d.program, d.rule) for d in decisions], expected)
 
     def test_the_unconnected_rule_trips_at_300_s_of_running(self):
         for running_s, expected in ((299, []), (300, [(W0, "R4")])):
