@@ -667,7 +667,8 @@ class TestRPC(unittest.TestCase):
         # The peer stops reading, so the client's writes pile up
         # unsent, and then it sends a malformed line: the client must
         # drop the connection anyway, fail the calls stuck behind it,
-        # and reconnect.
+        # and reconnect. With a small, fixed send buffer, a few calls
+        # are enough, whatever the kernel's TCP buffer tuning.
         connections = []
         release = gevent.event.Event()
 
@@ -684,9 +685,10 @@ class TestRPC(unittest.TestCase):
         self.addCleanup(release.set)
         client = self.get_client(ServiceCoord("Foo", 0), auto_retry=0.05)
         self.stop_when_done(client)
+        client._socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 16384)
 
-        big = "x" * 900_000
-        calls = [gevent.spawn(client.echo, value=big) for _ in range(40)]
+        big = "x" * 500_000
+        calls = [gevent.spawn(client.echo, value=big) for _ in range(4)]
         gevent.joinall(calls, timeout=3)
 
         self.assertTrue(all(call.ready() for call in calls))

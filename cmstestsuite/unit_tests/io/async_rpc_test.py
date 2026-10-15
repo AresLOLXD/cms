@@ -406,7 +406,10 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
         # The peer stops reading (limit=1024 pauses its transport after
         # 2 KiB), so the client's writes pile up unsent, and then it
         # sends a malformed line: the client must drop the connection
-        # anyway, fail the calls stuck behind it, and reconnect.
+        # anyway, fail the calls stuck behind it, and reconnect. With
+        # a small, fixed send buffer, a few calls are enough to have
+        # data left unsent in the transport, whatever the kernel's TCP
+        # buffer tuning.
         connections = 0
         release = asyncio.Event()
 
@@ -426,11 +429,13 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
         client = self._client(port)
         client.connect()
         self.assertTrue(await client.wait_for_connection(timeout=2))
+        client._writer.get_extra_info("socket").setsockopt(
+            socket.SOL_SOCKET, socket.SO_SNDBUF, 16384)
 
-        big = "x" * 900_000
+        big = "x" * 500_000
         calls = [asyncio.create_task(
                      client.execute_rpc("echo", {"string": big}))
-                 for _ in range(40)]
+                 for _ in range(4)]
         results = await asyncio.wait_for(
             asyncio.gather(*calls, return_exceptions=True), 3)
 
