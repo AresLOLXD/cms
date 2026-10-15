@@ -76,7 +76,8 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
 
         Fire-and-forget: a failed notification is dropped, since
         ProxyService's sweeper sends the score anyway, and
-        proxy_notifications logs the failures once per outage (a
+        proxy_notifications logs the failures without flooding the logs
+        (at most one WARNING a minute, see NotificationFailureLatch; a
         ProxyService that is not configured, because rankings are
         disabled, is a normal state: only DEBUG). It doesn't wait for
         the answer longer than FIRE_AND_FORGET_TIMEOUT seconds, so a

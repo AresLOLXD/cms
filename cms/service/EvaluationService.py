@@ -946,11 +946,12 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         Fire-and-forget, matching the old RPC proxy's never-blocking
         behavior: a failed notification is dropped, since
         ScoringService's sweeper finds the evaluation anyway, and
-        scoring_notifications logs the failures once per outage. Like
-        WorkerPool._fire_and_forget, it doesn't wait for the answer
-        longer than FIRE_AND_FORGET_TIMEOUT seconds, so a ScoringService
-        that is connected but stuck can't leave the notifications
-        pending forever.
+        scoring_notifications logs the failures without flooding the
+        logs (at most one WARNING a minute, see
+        NotificationFailureLatch). Like WorkerPool._fire_and_forget, it
+        doesn't wait for the answer longer than FIRE_AND_FORGET_TIMEOUT
+        seconds, so a ScoringService that is connected but stuck can't
+        leave the notifications pending forever.
 
         Only reachable from compilation_ended/evaluation_ended, i.e. from
         code already running inside loop.run_in_executor, so the loop
