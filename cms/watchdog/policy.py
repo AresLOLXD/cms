@@ -1106,9 +1106,10 @@ class _Cycle:
                 self._restart(trip, shadow)
         if held_workers:
             self._held_workers(held_workers)
-        else:
-            # The Workers' H4 episode is over: the next one is entering
-            # a hold again.
+        elif not any(trip.program.kind == "Worker" for trip in self.trips):
+            # No Worker trips: the Workers' H4 episode is over, and the
+            # next one is entering a hold again. Another hold heading
+            # their trips for a while does not end it.
             for table in (self.state.held_headline,
                           self.state.alert_sent):
                 table.pop(WORKERS_H4_KEY, None)

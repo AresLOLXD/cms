@@ -19,6 +19,7 @@
 """Tests for cmsWatchdog's policy: liveness rules, holds, incidents."""
 
 import unittest
+from dataclasses import replace
 
 from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
     OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
@@ -811,10 +812,11 @@ class TestWorkersEpisode(unittest.TestCase):
     R4 is not a rule of decide() yet: the trips are given to a cycle.
     """
 
-    def cycle(self, s: Scenario, tripped: bool) -> list:
+    def cycle(self, s: Scenario, tripped: bool, gate: Gate = GREEN) -> list:
         s.mono += CYCLE_S
         s.wall += CYCLE_S
-        cycle = _Cycle(s.state, s.observation, s.mono, s.wall)
+        cycle = _Cycle(s.state, replace(s.observation, gate=gate), s.mono,
+                       s.wall)
         if tripped:
             cycle.trips = [Trip(s.programs[name], "R4", "disabled")
                            for name in (W0, W1)]
@@ -837,6 +839,21 @@ class TestWorkersEpisode(unittest.TestCase):
         # A new episode, 30 s after the first line, is a state change.
         [line] = [d for d in self.cycle(s, True) if d.key == key]
         self.assertEqual(line.holds, ("H4",))
+
+    def test_another_hold_heading_the_group_does_not_end_the_episode(self):
+        s = Scenario()
+        s.warm_up()
+        key = ("workers", "H4")
+        lock = Gate(True, backends=lock_wait_snapshot())
+        # Both Workers trip in every cycle; a lock wait comes and goes,
+        # so H3 heads their trips every other cycle and H4 the others.
+        history = [self.cycle(s, True, lock if cycle % 2 else GREEN)
+                   for cycle in range(int(ALERT_REPEAT_S / CYCLE_S) + 1)]
+        self.assertEqual([line.holds[0] for line in held(history[1], W0)],
+                         ["H3"])
+        self.assertEqual(
+            [any(d.key == key for d in decisions) for decisions in history],
+            [True] + [False] * 19 + [True])
 
 
 class TestOrphanMark(unittest.TestCase):
