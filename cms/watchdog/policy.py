@@ -775,6 +775,13 @@ HOLD_HINTS: dict[str, str] = {
     "H7": "Restart it by hand if needed, after cmsWatchdog --snapshot.",
     "H8": "Nothing to do: another action is running.",
 }
+# The next step of the line about Workers held together: the hints
+# about one program, said of several.
+WORKERS_HOLD_HINTS: dict[str, str] = {
+    **HOLD_HINTS,
+    "H6": "Nothing to do yet: they are still starting.",
+    "H7": "Restart them by hand if needed, after cmsWatchdog --snapshot.",
+}
 
 
 def _other_holds(holds: Sequence[tuple[str, str]]) -> str:
@@ -1644,8 +1651,16 @@ class _Cycle:
                     "cycle" % (len(failed), len(probed)))
         return ""
 
-    def _grace(self, program: ProgramFacts) -> str:
-        """Describe why program is still in its grace (H6), or ""."""
+    def _grace(self, program: ProgramFacts, named: bool = False) -> str:
+        """Describe why program is still in its grace (H6), or "".
+
+        program: the program that tripped.
+        named: whether the reason must name the program, for a line
+            about several programs.
+
+        return: the reason, or "" if H6 does not apply.
+
+        """
         since_start = self.mono - self.state.started_mono
         if since_start < GRACE_S:
             return "the watchdog itself started %d s ago" % since_start
@@ -1658,6 +1673,10 @@ class _Cycle:
                 and program_state.last_action_mono is not None:
             since_action = self.mono - program_state.last_action_mono
             if since_action < GRACE_S:
+                if named:
+                    return ("the watchdog's last action or would-action "
+                            "on %s was %d s ago"
+                            % (program.label, since_action))
                 return ("its last action or would-action was %d s ago"
                         % since_action)
         return ""
@@ -1762,6 +1781,11 @@ class _Cycle:
                     known.append(reason)
         if headline == "H4":
             why = "a correlated failure is left to a human"
+        elif headline == "H6":
+            # Its reason about the last action does not name the Worker.
+            why = _listed(list(dict.fromkeys(
+                self._grace(item[0].program, named=True)
+                for item in group)), "; ")
         else:
             why = _listed(reasons[headline], "; ")
         others = [(code, reasons[code][0]) for code in HOLDS
@@ -1770,7 +1794,7 @@ class _Cycle:
         text = ("Watchdog: %d Workers trip R4 together (%s) and are held "
                 "by %s: %s." % (len(group), labels, headline, why))
         text += _other_holds([(headline, why)] + others)
-        text += " " + HOLD_HINTS[headline]
+        text += " " + WORKERS_HOLD_HINTS[headline]
         # A Worker that joins the group is no state change: the line
         # would repeat as the Workers trip one after the other.
         self._held_alert(WORKERS_KEY, text,

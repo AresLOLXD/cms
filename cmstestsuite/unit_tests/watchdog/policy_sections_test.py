@@ -21,9 +21,9 @@
 import unittest
 
 from cms.service.EvaluationService import EvaluationService
-from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, \
+from cms.watchdog.policy import ALERT_REPEAT_S, BUDGET_WINDOW_S, CYCLE_S, \
     INVALIDATION_SECTION, OBSERVE, PASSES_TO_RESOLVE, RESTART, \
-    SERVICES_POOL, WORKERS_POOL, Backend, Booking, Gate, Probe
+    SERVICES_POOL, WORKERS_POOL, Backend, Booking, Gate, Probe, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import DEFAULT_PROGRAMS, \
     ES, GREEN, HOLDER, PS, SS, W0, W1, Scenario, actions, alerts, busy, \
     held, lock_wait_snapshot, program, worker
@@ -485,6 +485,15 @@ class TestWorkersEpisode(unittest.TestCase):
     def grouped(self, decisions: list) -> bool:
         return any(d.key == self.KEY for d in decisions)
 
+    @staticmethod
+    def use_up_budgets(s: Scenario) -> None:
+        """Book 2 restarts of each Worker 100 s ago: H7, and no H4."""
+        for name, label in ((W0, "cmsWorker 0"), (W1, "cmsWorker 1")):
+            for _ in range(2):
+                s.state.ledger.book(Booking(
+                    s.wall - 100, name, label, WORKERS_POOL, RESTART, "R4",
+                    False, 1), False)
+
     def test_a_second_episode_is_entering_a_hold_again(self):
         s = Scenario()
         s.warm_up()
@@ -658,14 +667,41 @@ class TestWorkersEpisode(unittest.TestCase):
         self.assertEqual(lines(), [])
         self.assertEqual(lines(gate=lock), [])
         # Both Workers use their budget up: so is H7's first line.
-        for name, label in ((W0, "cmsWorker 0"), (W1, "cmsWorker 1")):
-            for _ in range(2):
-                s.state.ledger.book(Booking(
-                    s.wall - 100, name, label, WORKERS_POOL, RESTART, "R4",
-                    False, 1), False)
+        self.use_up_budgets(s)
         self.assertEqual(lines(), ["H7"])
         self.assertEqual(lines(), [])
         self.assertEqual(list(s.state.held_headline), [self.KEY])
+
+    def test_a_budget_group_line_is_about_several_workers(self):
+        s = Scenario()
+        s.warm_up()
+        self.use_up_budgets(s)
+        free = hhmm_utc(s.wall - 100 + BUDGET_WINDOW_S)
+        why = ("at most 2 restarts of a program, and 3 of its pool, in 60 "
+               "minutes")
+        [line] = held(s.cycle(workers=self.both(s)), "workers")
+        self.assertEqual(
+            line.text,
+            "Watchdog: 2 Workers trip R4 together (cmsWorker 0, cmsWorker "
+            "1) and are held by H7: will not restart cmsWorker 0 before "
+            "%s: %s; will not restart cmsWorker 1 before %s: %s. Restart "
+            "them by hand if needed, after cmsWatchdog --snapshot."
+            % (free, why, free, why))
+
+    def test_a_grace_group_line_names_the_workers(self):
+        s = Scenario()
+        s.warm_up()
+        self.use_up_budgets(s)
+        s.state.programs[W0].last_action_mono = s.mono - CYCLE_S
+        s.state.programs[W1].last_action_mono = s.mono
+        [line] = held(s.cycle(workers=self.both(s)), "workers")
+        self.assertEqual(
+            line.text,
+            "Watchdog: 2 Workers trip R4 together (cmsWorker 0, cmsWorker "
+            "1) and are held by H6: the watchdog's last action or "
+            "would-action on cmsWorker 0 was 30 s ago; the watchdog's last "
+            "action or would-action on cmsWorker 1 was 15 s ago. Also: H7. "
+            "Nothing to do yet: they are still starting.")
 
     def test_a_worker_held_alone_keeps_its_own_line(self):
         s = Scenario()
