@@ -25,6 +25,7 @@ import functools
 import json
 import logging
 import socket
+from time import monotonic
 import traceback
 from typing import Any
 import typing
@@ -61,6 +62,80 @@ class ServiceNotConfiguredError(RPCError):
 
     """
     pass
+
+
+class FailureSeriesLog:
+    """Log the series of a failure a client meets at each retry.
+
+    It is for a failure that comes back every auto_retry seconds while
+    it lasts (a name that doesn't resolve, a peer that answers
+    garbage), so that it can't flood the logs. The first failure of a
+    series is a WARNING, the others are DEBUG, and the first success
+    after them is an INFO. A WARNING is logged at most once every
+    WARNING_INTERVAL seconds, across series too, so that a failure
+    that comes and goes can't flood the logs either: a series that
+    starts sooner logs DEBUG until the interval is over, and then one
+    WARNING. Its end is an INFO only if it logged a WARNING, so that
+    each WARNING has its INFO, and DEBUG otherwise.
+
+    It exists because that rule needs more state than a bool per
+    failure (whether a series is going on, whether it warned, and when
+    the last WARNING was), and both stacks must apply it alike. The
+    state is per instance, never module-level: each client has its own,
+    one per kind of failure. It lives here, in the lower layer, so that
+    cms.io.async_rpc can use it too.
+
+    """
+
+    WARNING_INTERVAL = 60.0
+
+    def __init__(self, log: logging.Logger):
+        """Prepare to log a series of failures.
+
+        log: the logger to log to (the client's).
+
+        """
+        self._log = log
+        # Whether a series is going on and whether it logged a WARNING,
+        # and when (in monotonic() seconds) the last WARNING was.
+        self.failing = False
+        self._warned = False
+        self._last_warning: float | None = None
+
+    def failed(self, message: str, *args: object, exc_info: bool = False):
+        """Log a failure, as a WARNING or as DEBUG.
+
+        message: the message to log, %-formatted with args.
+        exc_info: whether to log the exception being handled too.
+
+        """
+        # stacklevel=2: the record points at the caller, the client
+        # method that met the failure, as the detailed log shows it.
+        now = monotonic()
+        if not self._warned and (
+                self._last_warning is None
+                or now - self._last_warning >= self.WARNING_INTERVAL):
+            self._warned = True
+            self._last_warning = now
+            self._log.warning(message, *args, exc_info=exc_info,
+                              stacklevel=2)
+        else:
+            self._log.debug(message, *args, exc_info=exc_info,
+                            stacklevel=2)
+        self.failing = True
+
+    def succeeded(self, message: str, *args: object):
+        """Log the end of the series going on, if any.
+
+        message: the message to log, %-formatted with args.
+
+        """
+        if not self.failing:
+            return
+        self._log.log(logging.INFO if self._warned else logging.DEBUG,
+                      message, *args, stacklevel=2)
+        self.failing = False
+        self._warned = False
 
 
 _T = typing.TypeVar("_T", bound=Callable)
@@ -404,8 +479,10 @@ class RemoteServiceServer(RemoteServiceBase):
         request: the JSON-decoded request.
 
         """
-        # Validate the request.
-        if not {"__id", "__method", "__data"}.issubset(request.keys()):
+        # Validate the request (json.loads() may give any JSON value,
+        # not only an object).
+        if (not isinstance(request, dict)
+                or not {"__id", "__method", "__data"}.issubset(request)):
             self.disconnect("Bad request received")
             logger.warning("Request is missing some fields, ignoring.")
             return
@@ -493,6 +570,12 @@ class RemoteServiceClient(RemoteServiceBase):
 
         self._loop = None
 
+        # The failures to resolve the peer's name, and the malformed
+        # answers: each comes back at every retry while it lasts, so
+        # they are logged a series at a time.
+        self._resolve_failures = FailureSeriesLog(logger)
+        self._bad_answers = FailureSeriesLog(logger)
+
     def _repr_remote(self):
         """See RemoteServiceBase._repr_remote."""
         return f"{self.remote_address} ({self.remote_service_coord})"
@@ -518,9 +601,19 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.remote_address.ip,
                 self.remote_address.port,
                 type=socket.SOCK_STREAM)
-        except socket.gaierror:
-            logger.warning("Cannot resolve %s.", self.remote_address)
-            raise
+        except OSError as error:
+            # Not connected, as when the connection is refused: _run
+            # tries again after auto_retry seconds, if it has to.
+            if self._resolve_failures.failing:
+                self._resolve_failures.failed(
+                    "Still cannot resolve %s: %s.", self.remote_address,
+                    error)
+            else:
+                self._resolve_failures.failed(
+                    "Cannot resolve %s.", self.remote_address)
+            return
+        self._resolve_failures.succeeded(
+            "%s resolves again.", self.remote_address)
 
         for family, type, proto, _canonname, sockaddr in addresses:
             try:
@@ -548,6 +641,10 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.run()
             if self.auto_retry is None:
                 break
+            # However the connection ended, wait before the next one: a
+            # peer that accepts and then closes at once would otherwise
+            # be reconnected to as fast as the loop can go.
+            gevent.sleep(self.auto_retry)
 
     def connect(self):
         """Connect and start the main loop.
@@ -563,13 +660,26 @@ class RemoteServiceClient(RemoteServiceBase):
             self._loop.kill()
             self._loop = None
 
+    def _drop_connection(self, reason: str):
+        """Close the connection, but not for good.
+
+        Unlike disconnect(), it leaves the connect loop running: run()
+        stops reading the connection, and _run reconnects after
+        auto_retry seconds, if it has to.
+
+        reason: why, for the log.
+
+        """
+        super().disconnect(reason=reason)
+
     def run(self):
         """Start listening for responses, and go on forever.
 
-        Read messages from the socket and issue greenlets to parse
-        them, determine the request they're for and fill the results.
-        This method won't return as long as there's something to read,
-        it's therefore advisable to spawn a greenlet to call it.
+        Read messages from the socket and process each one (parse it,
+        determine the request it's for and fill the result) before
+        reading the next. This method won't return as long as there's
+        something to read, it's therefore advisable to spawn a greenlet
+        to call it.
 
         """
         while True:
@@ -582,7 +692,41 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.finalize("Connection closed.")
                 break
 
-            gevent.spawn(self.process_data, data)
+            # Not in a greenlet of its own, unlike the server's requests
+            # (an answer only fills a result, with no I/O but logs): an
+            # answer read just before the end of the connection is then
+            # delivered before finalize() fails the calls still pending,
+            # even if finalize() yields; and once a malformed answer has
+            # dropped the connection, the next _read() raises "Not
+            # connected." and run() stops, so no later line of that
+            # connection is processed.
+            self._process_answer(data)
+
+    def _process_answer(self, data: bytes):
+        """Process a line read by run(), whatever goes wrong.
+
+        Nothing that goes wrong processing an answer may stay unseen
+        or leave a call waiting: an unexpected error (a bug, since
+        malformed answers are handled) is logged with its traceback,
+        through the malformed-answer series, and the connection is
+        dropped as for a malformed answer. That fails the calls still
+        pending, this answer's included (it leaves them only once
+        nothing else can go wrong, and is resolved at once), and the
+        client reconnects.
+
+        As run() calls it inline, it also keeps the connect loop alive.
+        GreenletExit isn't an Exception, so disconnect() still ends it.
+
+        data: the line.
+
+        """
+        try:
+            self.process_data(data)
+        except Exception:
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Cannot process the answer from %s, discarding it.",
+                self._repr_remote(), exc_info=True)
 
     def process_data(self, data: bytes):
         """Handle the message.
@@ -596,9 +740,12 @@ class RemoteServiceClient(RemoteServiceBase):
         # Decode the incoming data.
         try:
             message = json.loads(data.decode('utf-8'))
-        except ValueError:
-            self.disconnect("Bad response received")
-            logger.warning("Cannot parse incoming message, discarding.")
+        except (ValueError, RecursionError):
+            # RecursionError: JSON nested too deep to decode.
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Cannot parse incoming message from %s, discarding.",
+                self._repr_remote())
             return
 
         self.process_incoming_response(message)
@@ -612,11 +759,26 @@ class RemoteServiceClient(RemoteServiceBase):
         response: the JSON-decoded response.
 
         """
-        # Validate the response.
-        if not {"__id", "__data", "__error"}.issubset(response.keys()):
-            self.disconnect("Bad response received")
-            logger.warning("Response is missing some fields, ignoring.")
+        # Validate the response (json.loads() may give any JSON value,
+        # not only an object).
+        if (not isinstance(response, dict)
+                or not {"__id", "__data", "__error"}.issubset(response)):
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Response from %s is missing some fields, ignoring.",
+                self._repr_remote())
             return
+        if not isinstance(response["__id"], str):
+            # Our requests' ids are strings: any other id (a list can't
+            # even be looked up) can't be the answer to one of them.
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Response from %s has an id that is not a string, "
+                "ignoring.", self._repr_remote())
+            return
+        if self._bad_answers.failing:
+            self._bad_answers.succeeded(
+                "%s sends well-formed answers again.", self._repr_remote())
 
         # Determine the ID.
         id_ = response["__id"]
@@ -630,10 +792,14 @@ class RemoteServiceClient(RemoteServiceBase):
         error = response["__error"]
 
         if error is not None:
+            # Resolve the call before logging: the record can yield (a
+            # LogServiceHandler's RPC write), and a disconnect() then
+            # kills this greenlet, the reading one, before it gets
+            # further.
+            result.set_exception(RPCError(error))
             err_msg = "%s signaled RPC for method %s was unsuccessful: %s." % (
                 self.remote_service_coord, request["__method"], error)
             logger.error(err_msg)
-            result.set_exception(RPCError(error))
         else:
             result.set(response["__data"])
 
