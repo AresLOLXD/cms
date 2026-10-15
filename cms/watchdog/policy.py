@@ -90,6 +90,9 @@ FATAL_RED_LOOKBACK_S = 15.0
 # Holds (3.6).
 GREEN_BEFORE_RESTART_S = 120.0
 LOCK_WAIT_S = 30.0
+# H3's line names at most this many waiting sessions, and this many
+# blockers of each, so that it stays a line.
+LOCK_WAIT_LISTED = 3
 GLOBAL_FAILING_FRACTION = 1 / 3
 GRACE_S = 120.0
 BUDGET_WINDOW_S = 3600.0
@@ -1098,23 +1101,34 @@ class _Cycle:
         if not gate.green:
             return ""
         by_pid = {backend.pid: backend for backend in gate.backends}
+        # A statement age that is not a finite number is unknown: it
+        # does not make a wait.
+        waiters = sorted(
+            (backend for backend in gate.backends
+             if (backend.application_name or "").startswith("cms")
+             and backend.wait_event_type == "Lock"
+             and is_number(backend.query_age_s)
+             and backend.query_age_s > LOCK_WAIT_S),
+            key=lambda backend: -backend.query_age_s)
+        if not waiters:
+            return ""
         waits = []
-        for backend in gate.backends:
-            if not (backend.application_name or "").startswith("cms") \
-                    or backend.wait_event_type != "Lock" \
-                    or backend.query_age_s is None \
-                    or backend.query_age_s <= LOCK_WAIT_S:
-                continue
+        for backend in waiters[:LOCK_WAIT_LISTED]:
             blockers = "; ".join(
                 self._blocker(by_pid.get(pid), pid)
-                for pid in backend.blocked_by) \
+                for pid in backend.blocked_by[:LOCK_WAIT_LISTED]) \
                 or "a session the snapshot does not show"
+            if len(backend.blocked_by) > LOCK_WAIT_LISTED:
+                blockers += "; and %d more" % (
+                    len(backend.blocked_by) - LOCK_WAIT_LISTED)
             waits.append(
-                "'%s' (pid %d) has waited %d s on a lock held by %s"
+                "'%s' (pid %d): its statement has been waiting %d s on a "
+                "lock held by %s"
                 % (backend.application_name, backend.pid,
                    backend.query_age_s, blockers))
-        if not waits:
-            return ""
+        if len(waiters) > LOCK_WAIT_LISTED:
+            waits.append("and %d more sessions are waiting too"
+                         % (len(waiters) - LOCK_WAIT_LISTED))
         return ("a database lock wait: %s. Ending a blocker is a human "
                 "decision" % "; ".join(waits))
 
@@ -1126,9 +1140,13 @@ class _Cycle:
         def shown(value: object, form: str = "%s") -> str:
             return "unknown" if value is None else form % value
 
+        xact_age_s = backend.xact_age_s
+        if not is_number(xact_age_s):
+            xact_age_s = None
+
         text = "pid %d ('%s', %s, transaction open %s)" % (
             pid, shown(backend.application_name), shown(backend.state),
-            shown(backend.xact_age_s, "%d s"))
+            shown(xact_age_s, "%d s"))
         orphan_of = self._orphan_of(backend)
         if orphan_of is not None:
             text += ", orphan of pid %d" % orphan_of
@@ -1138,9 +1156,9 @@ class _Cycle:
         """Return the old pid if backend is an orphan of a restart (H3).
 
         It is one when its application_name is that of a program the
-        watchdog restarted and it started before that program's new
-        process: the new process has the same application_name, so a
-        younger backend may be its own.
+        watchdog restarted and it started more than GATE_KILL_S before
+        that program's new process: the new process has the same
+        application_name, so a younger backend may be its own.
 
         backend: a blocker.
 
@@ -1148,7 +1166,7 @@ class _Cycle:
 
         """
         if backend.application_name is None \
-                or backend.backend_age_s is None:
+                or not is_number(backend.backend_age_s):
             return None
         restart = self.state.ledger.last_restart_of(
             backend.application_name)
@@ -1157,7 +1175,11 @@ class _Cycle:
         if restart is None or program is None \
                 or program.start_wall is None:
             return None
-        if self.wall - backend.backend_age_s < program.start_wall:
+        # The snapshot's ages are measured a little after the cycle
+        # starts: a backend the new process opened as it started must
+        # not look older than the process.
+        if self.wall - backend.backend_age_s \
+                < program.start_wall - GATE_KILL_S:
             return restart.pid
         return None
 

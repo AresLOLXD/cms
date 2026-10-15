@@ -20,9 +20,9 @@
 
 import unittest
 
-from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, OBSERVE, \
-    RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, Probe, \
-    hhmm_utc
+from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
+    OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
+    Probe, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, \
     DEFAULT_PROGRAMS, ES, LS, RED, Scenario, actions, alerts, held, \
     lock_wait_snapshot, program
@@ -245,9 +245,9 @@ class TestHoldsAlone(unittest.TestCase):
         alert = self.assertHeldBy(decisions, "H3")
         self.assertEqual(alert.holds, ("H3",))
         self.assertIn(
-            "'cmsEvaluationService 0' (pid 500) has waited 45 s on a lock "
-            "held by pid 900 ('psql', idle in transaction, transaction "
-            "open 300 s)", alert.text)
+            "'cmsEvaluationService 0' (pid 500): its statement has been "
+            "waiting 45 s on a lock held by pid 900 ('psql', idle in "
+            "transaction, transaction open 300 s)", alert.text)
         self.assertIn("Ending a blocker is a human decision", alert.text)
         self.assertNotIn("orphan", alert.text)
 
@@ -264,6 +264,68 @@ class TestHoldsAlone(unittest.TestCase):
         self.assertIn(
             "pid 901 ('unknown', unknown, transaction open unknown)",
             alert.text)
+
+    def test_h3_lists_at_most_3_blockers_of_a_waiter(self):
+        s = Scenario()
+        s.warm_up()
+        snapshot = (
+            Backend(pid=500, application_name="cmsContestWebServer 0",
+                    wait_event_type="Lock", query_age_s=40.0,
+                    blocked_by=(901, 902, 903, 904, 905)),
+        ) + tuple(Backend(pid=pid, application_name="psql",
+                          state="idle in transaction", xact_age_s=100.0)
+                  for pid in range(901, 906))
+        alert = self.assertHeldBy(
+            trip(s, gate=Gate(True, backends=snapshot)), "H3")
+        for pid in (901, 902, 903):
+            self.assertIn("pid %d ('psql'" % pid, alert.text)
+        for pid in (904, 905):
+            self.assertNotIn("pid %d" % pid, alert.text)
+        self.assertIn("; and 2 more", alert.text)
+
+    def test_h3_lists_at_most_3_waiters_longest_first(self):
+        s = Scenario()
+        s.warm_up()
+        snapshot = tuple(
+            Backend(pid=500 + i, application_name="cmsWorker %d" % i,
+                    wait_event_type="Lock", query_age_s=40.0 + i,
+                    blocked_by=(900,))
+            for i in range(5)
+        ) + (Backend(pid=900, application_name="psql",
+                     state="idle in transaction", xact_age_s=100.0),)
+        alert = self.assertHeldBy(
+            trip(s, gate=Gate(True, backends=snapshot)), "H3")
+        for pid in (504, 503, 502):
+            self.assertIn("(pid %d)" % pid, alert.text)
+        for pid in (501, 500):
+            self.assertNotIn("(pid %d)" % pid, alert.text)
+        self.assertIn("and 2 more sessions are waiting too", alert.text)
+
+    def test_h3_treats_a_non_finite_age_as_unknown(self):
+        for value in (float("nan"), float("inf")):
+            with self.subTest(value=value):
+                s = Scenario()
+                s.warm_up()
+                # The orphan mark looks at the blocker's backend age too.
+                book(s, ES, "cmsEvaluationService 0", s.wall - 10, 99)
+                s.set(ES, pid=204, start_wall=s.wall + 5 * CYCLE_S - 50)
+                snapshot = (
+                    Backend(pid=500, application_name="cmsWorker 0",
+                            wait_event_type="Lock", query_age_s=value,
+                            blocked_by=(900,)),
+                    Backend(pid=501, application_name="cmsWorker 1",
+                            wait_event_type="Lock", query_age_s=45.0,
+                            blocked_by=(900,)),
+                    Backend(pid=900,
+                            application_name="cmsEvaluationService 0",
+                            state="idle in transaction", xact_age_s=value,
+                            backend_age_s=value))
+                alert = self.assertHeldBy(
+                    trip(s, gate=Gate(True, backends=snapshot)), "H3")
+                self.assertIn("(pid 501)", alert.text)
+                self.assertNotIn("(pid 500)", alert.text)
+                self.assertIn("transaction open unknown)", alert.text)
+                self.assertNotIn("orphan", alert.text)
 
     def test_h3_ignores_a_short_wait_and_a_session_of_another_program(
             self):
@@ -430,6 +492,17 @@ class TestOrphanMark(unittest.TestCase):
 
     def test_a_younger_backend_may_be_the_new_process_own(self):
         self.assertNotIn("orphan", self.blocker_text(10.0))
+
+    def test_a_backend_opened_within_the_margin_is_not_an_orphan(self):
+        # The new process started 50 s before the cycle. A backend of
+        # the process that opened up to GATE_KILL_S earlier cannot be
+        # told from one the new process opened as it started: the
+        # snapshot's ages are measured a little after the cycle starts.
+        self.assertNotIn("orphan", self.blocker_text(50 + GATE_KILL_S - 1))
+
+    def test_a_backend_opened_before_the_margin_is_an_orphan(self):
+        self.assertIn("orphan of pid 99",
+                      self.blocker_text(50 + GATE_KILL_S + 1))
 
 
 class TestBudgets(unittest.TestCase):
