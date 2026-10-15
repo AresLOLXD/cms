@@ -138,6 +138,22 @@ class TestLivenessRules(unittest.TestCase):
         [restart] = actions(s.cycle(fail=[CWS1]))
         self.assertEqual(restart.program, CWS1)
 
+    def test_a_starved_cycle_does_not_track_the_gate(self):
+        s = Scenario()
+        s.warm_up()
+        for _ in range(4):
+            s.cycle(fail=[CWS1])
+        green_cycles = s.state.green_cycles
+        # Its gate timed out because the watchdog was starved: no line,
+        # no red interval, no cleared window, no wait for H2.
+        self.assertEqual(s.cycle(fail=[CWS1], gate=RED, lag_s=6.0), [])
+        self.assertEqual(s.state.ledger.red, [])
+        self.assertEqual(s.state.near_miss.red_cycles, 0)
+        self.assertEqual(s.state.green_cycles, green_cycles)
+        self.assertEqual(sum(s.state.programs[CWS1].window), 4)
+        [restart] = actions(s.cycle(fail=[CWS1]))
+        self.assertEqual(restart.program, CWS1)
+
     def test_a_pause_clears_the_windows(self):
         s = Scenario()
         s.warm_up()
@@ -315,8 +331,8 @@ class TestHoldsAlone(unittest.TestCase):
 
     def test_h6_the_watchdog_just_started(self):
         s = Scenario()
-        # The gate was green long before: only H6 holds.
-        s.state.green_since_mono = s.mono - 1000
+        # A fresh watchdog did not see the database turn green: it does
+        # not assume it was red, so H2 does not hold; only H6 does.
         alert = self.assertHeldBy(trip(s), "H6")
         self.assertEqual(alert.holds, ("H6",))
         self.assertIn("the watchdog itself started 60 s ago", alert.text)
@@ -444,12 +460,34 @@ class TestBudgets(unittest.TestCase):
                          [7])
         [would] = actions(history[7])
         self.assertTrue(would.would and would.shadow)
-        [alert] = held(history[15], CWS1)
+        # The headline changed from H6 to H7 within 5 minutes of the
+        # last line: no new line, but the open alert says why.
+        self.assertEqual(held(history[15], CWS1), [])
+        alert = s.state.open_alerts[(CWS1, "R1")]
         self.assertEqual(alert.holds[0], "H7")
         self.assertIn("(in the shadow ledger)", alert.text)
         self.assertEqual(s.state.ledger.real, [])
         self.assertEqual(s.state.ledger.count(CWS1, RESTART, True, s.wall),
                          2)
+
+    def test_a_flapping_headline_is_rate_limited(self):
+        s = Scenario()
+        s.warm_up()
+        for wall in (s.wall - 600, s.wall - 300):
+            book(s, CWS1, "cmsContestWebServer 1", wall, 109)
+        # ES and LogService fail every other cycle: CWS1 is held by H5
+        # in those, and by H7 (its budget) in the others.
+        headlines = []
+        emitted = []
+        for cycle in range(5 + int(ALERT_REPEAT_S / CYCLE_S)):
+            failing = [CWS1, ES, LS] if cycle % 2 == 0 else [CWS1]
+            decisions = s.cycle(fail=failing)
+            if cycle >= 4:
+                emitted.append(bool(held(decisions, CWS1)))
+                headlines.append(
+                    s.state.held_headline[(CWS1, "R1")])
+        self.assertEqual(headlines[:3], ["H5", "H7", "H5"])
+        self.assertEqual(emitted, [True] + [False] * 19 + [True])
 
     def test_observe_mode_re_trips_after_each_grace(self):
         s = Scenario(mode=OBSERVE)
@@ -458,7 +496,7 @@ class TestBudgets(unittest.TestCase):
         history = [s.cycle(fail=[CWS1]) for _ in range(16)]
         self.assertEqual([i for i, d in enumerate(history) if actions(d)],
                          [7])
-        self.assertEqual(held(history[15], CWS1)[0].holds[0], "H7")
+        self.assertEqual(s.state.open_alerts[(CWS1, "R1")].holds[0], "H7")
         self.assertEqual(len(s.state.ledger.real), 2)
 
 

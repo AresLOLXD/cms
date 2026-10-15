@@ -686,7 +686,9 @@ class PolicyState:
     ledger: what survives a restart (main.py saves and loads it).
     programs: a ProgramState by program name.
     started_mono: when the watchdog's first cycle ran (H6).
-    green_since_mono: when the gate last turned green; None while red.
+    green_since_mono: when the gate last turned green as the watchdog
+        saw it, or at its first green cycle as if long enough ago for
+        H2; None while red.
     green_cycles: how many cycles in a row the gate has been green.
     holder_samples: (mono, tid, cpu_s) samples of ES's holder thread.
     ranking_misses: failed cycles in a row, by ranking address.
@@ -836,7 +838,10 @@ class _Cycle:
         if state.summary_mono is None:
             state.summary_mono = self.mono
         state.ledger.prune(self.wall)
-        self._track_gate()
+        # A starved cycle's gate may have timed out for the watchdog's
+        # own starvation: it opens no red interval and closes none.
+        if not self.starved:
+            self._track_gate()
         self._track_pause()
         self._track_programs()
         if self.starved:
@@ -921,7 +926,10 @@ class _Cycle:
                 "%d s red; restarts wait %d s more."
                 % (age(self.wall, started), GREEN_BEFORE_RESTART_S))
         elif state.green_since_mono is None:
-            state.green_since_mono = self.mono
+            # The watchdog's first green cycle: it did not see the
+            # database turn green, so H2 has nothing to wait for (H6
+            # holds the watchdog's own startup).
+            state.green_since_mono = self.mono - GREEN_BEFORE_RESTART_S
             state.green_cycles = 1
         else:
             state.green_cycles += 1
@@ -1250,8 +1258,10 @@ class _Cycle:
         if lock_wait and headline != "H3":
             text += " H3: %s." % lock_wait
         text += " " + HOLD_HINTS[headline]
+        # Entering a hold is a state change; a change of headline within
+        # one is not, or a flapping hold would give a line per cycle.
         self._alert(key, "WARNING", text,
-                    change=opened or previous != headline, holds=codes,
+                    change=opened or previous is None, holds=codes,
                     keep_open=True)
 
     def _held_workers(self, trips: list[Trip]) -> None:
