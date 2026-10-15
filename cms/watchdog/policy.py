@@ -782,6 +782,14 @@ WORKERS_HOLD_HINTS: dict[str, str] = {
     "H6": "Nothing to do yet: they are still starting.",
     "H7": "Restart them by hand if needed, after cmsWatchdog --snapshot.",
 }
+# The next step of a held R5 start: a FATAL program runs no process, so
+# cmsWatchdog --snapshot has no stacks to write; its log says why it
+# failed.
+FATAL_HOLD_HINTS: dict[str, str] = {
+    **HOLD_HINTS,
+    "H7": ("Check ./logs.sh, then start it by hand with supervisorctl if "
+           "needed."),
+}
 
 
 def _other_holds(holds: Sequence[tuple[str, str]]) -> str:
@@ -924,15 +932,26 @@ class _Cycle:
         self._track_pause()
         self._track_programs()
         self._record_holder_cpu()
+        self._near_miss()
         if self.starved:
             state.near_miss.starved_cycles += 1
+            self._summary()
             return
         self._check_pids()
         self._liveness_trips()
         self._section_trips()
         self._worker_trips()
+        self._ranking_alerts()
+        self._absent_alerts()
+        # Before the actions: a restart decided in this cycle would
+        # replace the one whose outcome this line reports.
+        self._did_it_help()
+        # Before the restarts: after an outage, starting what it left
+        # FATAL comes first, and a restart in the same cycle gets H8.
+        self._fatal_starts()
         self._act_on_trips()
         self._update_incidents()
+        self._summary()
 
     # Alerts.
 
@@ -1373,6 +1392,228 @@ class _Cycle:
         return ("it has not connected to EvaluationService in %d s of "
                 "running, while other Workers have" % running_for)
 
+    # Rankings.
+
+    def _ranking_alerts(self) -> None:
+        """Alert about a ranking that does not answer (alert only)."""
+        misses = self.state.ranking_misses
+        for address, probe in self.obs.rankings.items():
+            previous = misses.get(address, 0)
+            misses[address] = 0 if probe.ok else previous + 1
+            key = ("ranking " + address, "ranking")
+            if misses[address] >= RANKING_MISSES_TO_ALERT:
+                self._alert(
+                    key, "WARNING",
+                    "Watchdog: ranking %s does not answer (%d cycles in a "
+                    "row: %s). The watchdog cannot restart it: check the "
+                    "ranking container with ./status.sh and ./logs.sh "
+                    "ranking." % (address, misses[address],
+                                  probe.error or "no detail"),
+                    change=misses[address] == RANKING_MISSES_TO_ALERT,
+                    keep_open=True)
+            elif probe.ok and previous >= RANKING_MISSES_TO_ALERT:
+                self._resolve_key(
+                    key, "Resolved: ranking %s answers again." % address)
+
+    def _absent_alerts(self) -> None:
+        """Alert about a program the /proc source no longer sees (3.2).
+
+        Only the harness's /proc source reports ABSENT; it cannot start
+        anything, so this is an alert and nothing else.
+
+        """
+        for program in self.obs.programs:
+            if program.managed and program.state == "ABSENT":
+                self._alert(
+                    (program.name, "absent"), "WARNING",
+                    "Watchdog: %s is gone: no process runs it any more, "
+                    "and the /proc source cannot start it." % program.label)
+
+    # R5.
+
+    def _fatal_starts(self) -> None:
+        """Apply R5: start what a database outage left FATAL (3.5).
+
+        R5 obeys H1, H2 (its own FATAL_GREEN_CYCLES of green, read from
+        green_cycles), H6 (the watchdog's own startup only), H7 (the
+        FATAL budget), H8 and H9. A held start is a held trip: it opens
+        the program's incident, and _held writes its line under the
+        same rules as R1-R4's ("... fails R5 (FATAL after a database
+        outage) but is held by H<n>: ...").
+
+        """
+        eligible = []
+        for program in self.obs.programs:
+            if not program.managed or program.state != "FATAL":
+                continue
+            if program.start_wall is not None \
+                    and self.state.ledger.red_since(
+                        program.start_wall - FATAL_RED_LOOKBACK_S):
+                eligible.append(program)
+            else:
+                self._alert(
+                    (program.name, "R5"), "ERROR",
+                    "Watchdog: %s is FATAL and the database answered when "
+                    "it last started: it is left to you. Read ./logs.sh, "
+                    "fix the cause, then start it with supervisorctl."
+                    % program.label)
+        if not eligible or not self.obs.gate.green \
+                or self.state.green_cycles < FATAL_GREEN_CYCLES:
+            return
+        since_start = self.mono - self.state.started_mono
+        incidents = self.state.ledger.incidents
+        batches: dict[bool, list[ProgramFacts]] = {False: [], True: []}
+        for program in sorted(eligible, key=lambda p: (
+                CLASS_ORDER.index(p.klass), p.name)):
+            shadow = self.state.shadow_for(program.klass)
+            holds = []
+            if not self.obs.supervisor_ok:
+                holds.append(("H1",
+                              "supervisord did not answer in this cycle"))
+            if since_start < GRACE_S:
+                holds.append(("H6", "the watchdog itself started %d s ago"
+                              % since_start))
+            budget = self._budget(program, START, shadow)
+            if budget:
+                holds.append(("H7", budget))
+            if self.acted or self.obs.in_flight:
+                holds.append(("H8", "another action is in flight"))
+            opened = program.name not in incidents
+            if opened:
+                incidents[program.name] = {
+                    "rule": "R5", "opened": self.wall, "passes": 0}
+            if holds:
+                self._held(Trip(program, "R5",
+                                "FATAL after a database outage"),
+                           holds, opened)
+            else:
+                batches[shadow].append(program)
+        for shadow in (False, True):
+            batch = batches[shadow]
+            if not batch:
+                continue
+            would = self.state.mode == OBSERVE or shadow
+            for program in batch:
+                self.state.ledger.book(Booking(
+                    self.wall, program.name, program.label,
+                    pool_of(program.klass), START, "R5", would), shadow)
+                # Like a restart, a start ends the program's hold
+                # episodes.
+                self._forget_episodes(program.name)
+            self.acted = True
+            self.decisions.append(Decision(
+                START, text="FATAL after a database outage",
+                key=("-", "R5"),
+                programs=tuple(program.name for program in batch),
+                rule="R5", would=would, shadow=shadow))
+
+    # After a restart.
+
+    def _did_it_help(self) -> None:
+        """Say whether each restart helped (3.7, step 8).
+
+        At the first pass of a new pid, "X answers again"; after
+        DID_IT_HELP_S without one, "X is still failing". Would-actions
+        get no line: nothing was restarted. A program that a rule could
+        not judge in this cycle gets no line in it: whether it answers
+        is unknown.
+
+        """
+        tripped = {trip.program.name for trip in self.trips}
+        by_name = {program.name: program for program in self.obs.programs}
+        for name, program_state in self.state.programs.items():
+            if program_state.restarted_mono is None \
+                    or name in self.unjudged:
+                continue
+            program = by_name.get(name)
+            label = program.label if program is not None else name
+            elapsed = self.mono - program_state.restarted_mono
+            if program is not None and program.state == "RUNNING" \
+                    and program.pid != program_state.restarted_pid \
+                    and name not in self.failing and name not in tripped:
+                text = "Watchdog: %s answers again %d s after the " \
+                    "restart." % (label, elapsed)
+            elif elapsed >= DID_IT_HELP_S:
+                text = ("Watchdog: %s is still failing %d s after the "
+                        "restart: look at its evidence file and "
+                        "./logs.sh." % (label, elapsed))
+            else:
+                continue
+            program_state.restarted_mono = None
+            self.decisions.append(Decision(ALERT, text=text,
+                                           key=(name, "help")))
+
+    # The hourly summary.
+
+    def _near_miss(self) -> None:
+        """Feed this hour's near-miss statistics (starved cycles too)."""
+        stats = self.state.near_miss
+        invalidating = any(
+            sections and sections[0]["what"] == INVALIDATION_SECTION
+            for sections in (busy_sections(self.obs.health.get(program.name))
+                             for program in self.running
+                             if program.kind == "EvaluationService"))
+        for program in self.running:
+            window = self.state.programs[program.name].window
+            probe = self._liveness_probe(program)
+            if probe is not None:
+                stats.misses[program.label] = max(
+                    stats.misses.get(program.label, 0), sum(window))
+                if probe.ok and probe.latency_s is not None:
+                    stats.latencies.setdefault(program.label, []).append(
+                        probe.latency_s)
+            sections = busy_sections(self.obs.health.get(program.name))
+            if program.kind == "EvaluationService" and sections:
+                self._es_near_miss(sections[0])
+            for section in sections:
+                if program.kind == "ScoringService" \
+                        and section["what"] == "score":
+                    key = "%s@%d" % (section["tid"], round(
+                        (self.wall - section["age_s"]) / 10))
+                    if invalidating:
+                        stats.ss_overlapping.add(key)
+                    if stats.ss_longest is None \
+                            or section["age_s"] > stats.ss_longest[0]:
+                        stats.ss_longest = (section["age_s"], key)
+                if program.kind == "ProxyService" \
+                        and section["what"] == "send":
+                    stats.ps_idle_s = max(stats.ps_idle_s,
+                                          section["idle_s"])
+
+    def _es_near_miss(self, section: dict) -> None:
+        """Feed the statistics of ES's oldest section."""
+        stats = self.state.near_miss
+        what = section["what"]
+        if not what.startswith(ES_SECTION_PREFIX):
+            return
+        if stats.es_longest is None or section["age_s"] > \
+                stats.es_longest[0]:
+            stats.es_longest = (section["age_s"], what)
+        if what == INVALIDATION_SECTION:
+            return
+        stats.es_idle_s = max(stats.es_idle_s, section["idle_s"])
+        if section["age_s"] > SECTION_WARN_S \
+                and section["idle_s"] >= ES_IDLE_WARN_S:
+            # One entry per section, with its largest values: the key is
+            # its holder and its start (as for the SS executions).
+            start = self.wall - section["age_s"]
+            key = "%s@%d" % (section["tid"], round(start / 10))
+            _, start, age_s, idle_s = stats.es_half.get(
+                key, (what, start, 0.0, 0.0))
+            stats.es_half[key] = (what, start,
+                                  max(age_s, section["age_s"]),
+                                  max(idle_s, section["idle_s"]))
+
+    def _summary(self) -> None:
+        """Emit the hourly near-miss summary at INFO, and start over."""
+        if self.mono - self.state.summary_mono < SUMMARY_PERIOD_S:
+            return
+        self.decisions.append(Decision(
+            ALERT, level="INFO", key=("-", "summary"),
+            text=summary_text(self.state.near_miss)))
+        self.state.near_miss = NearMiss()
+        self.state.summary_mono = self.mono
+
     # Holds and actions.
 
     def _act_on_trips(self) -> None:
@@ -1715,7 +1956,8 @@ class _Cycle:
         text = "Watchdog: %s fails %s (%s) but is held by %s: %s." % (
             program.label, trip.rule, trip.detail, headline, reason)
         text += _other_holds(holds)
-        text += " " + HOLD_HINTS[headline]
+        hints = FATAL_HOLD_HINTS if trip.rule == "R5" else HOLD_HINTS
+        text += " " + hints[headline]
         self._held_alert((program.name, trip.rule), text,
                          [code for code, _ in holds], opened)
 
@@ -1886,3 +2128,78 @@ class _Cycle:
             text="Resolved: %d Workers pass their checks again: %s "
                  "(incidents of %s, the first opened at %s)."
                  % (len(workers), labels, rules, hhmm_utc(first))))
+
+
+def summary_text(stats: NearMiss) -> str:
+    """Return the line of the hourly near-miss summary (3.9).
+
+    stats: this hour's statistics.
+
+    return: the line.
+
+    """
+    parts = []
+    for label in sorted(stats.misses):
+        latency = p99(stats.latencies.get(label, []))
+        parts.append("%s at most %d misses in 6, p99 %s" % (
+            label, stats.misses[label],
+            "n/a" if latency is None else "%.2f s" % latency))
+    if stats.es_longest is not None:
+        age_s, what = stats.es_longest
+        parts.append("longest ES section %d s (%s%s)" % (
+            age_s, what,
+            ", a re-evaluation" if what == INVALIDATION_SECTION else ""))
+    parts.append("longest ES idle_s in a section %d s" % stats.es_idle_s)
+    if stats.es_half:
+        parts.append("ES sections past half their trip: %s" % "; ".join(
+            "%s held %d s from %s, up to %d s with no statement" % (
+                what, age_s, hhmm_utc(start), idle_s)
+            for what, start, age_s, idle_s in sorted(
+                stats.es_half.values(), key=lambda entry: entry[1])))
+    if stats.ss_longest is not None:
+        age_s, key = stats.ss_longest
+        parts.append("longest SS execution %d s%s" % (
+            age_s, ", overlapping a re-evaluation"
+            if key in stats.ss_overlapping else ""))
+    parts.append("longest PS idle_s in a send %d s" % stats.ps_idle_s)
+    parts.append("%d red-gate cycles, %d starved cycles"
+                 % (stats.red_cycles, stats.starved_cycles))
+    return "Watchdog: hourly near-miss summary: %s." % "; ".join(parts)
+
+
+def program_status(state: PolicyState, observation: Observation,
+                   wall: float) -> list[dict]:
+    """Describe each program for the status file (3.10).
+
+    state: the state decide() returned for this cycle.
+    observation: this cycle's observation.
+    wall: now (epoch seconds).
+
+    return: one dict per program of the process source.
+
+    """
+    entries = []
+    for program in observation.programs:
+        program_state = state.programs.get(program.name)
+        http = observation.http.get(program.name)
+        rpc = observation.rpc.get(program.name)
+        entries.append({
+            "name": program.name,
+            "label": program.label if program.managed else None,
+            "kind": program.kind,
+            "state": program.state,
+            "pid": program.pid,
+            "misses": sum(program_state.window) if program_state else 0,
+            "known": len(program_state.window) if program_state else 0,
+            "http_ok": None if http is None else http.ok,
+            "http_latency_s": None if http is None else http.latency_s,
+            "rpc_ok": None if rpc is None else rpc.ok,
+            "rpc_latency_s": None if rpc is None else rpc.latency_s,
+            "sections": busy_sections(observation.health.get(program.name)),
+            "incident": state.ledger.incidents.get(program.name),
+            "restarts_last_hour": state.ledger.count(
+                program.name, RESTART, False, wall),
+            "shadow_restarts_last_hour": state.ledger.count(
+                program.name, RESTART, True, wall),
+        })
+    return entries
