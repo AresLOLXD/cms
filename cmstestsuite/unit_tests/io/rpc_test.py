@@ -24,6 +24,7 @@
 
 import socket
 import unittest
+from collections.abc import Callable
 from unittest.mock import Mock, patch
 
 import gevent
@@ -430,6 +431,145 @@ class TestRPC(unittest.TestCase):
         # Malformed messages cause the connection to be closed.
         self.assertFalse(self.servers[0].connected)
         sock.close()
+
+    def test_send_non_object_json(self):
+        for payload in (b"null", b"[]", b'"x"'):
+            with self.subTest(payload=payload):
+                sock = gevent.socket.create_connection((self.host, self.port))
+                sock.sendall(payload + b"\r\n")
+                self.sleep()
+                # Malformed messages cause the connection to be closed.
+                self.assertFalse(self.servers[-1].connected)
+                sock.close()
+
+    def spawn_custom_listener(
+        self, handle: Callable[[socket.socket, tuple], None]
+    ):
+        """Point the clients at a new listener with its own handler.
+
+        It is stopped when the test ends, after tearDown has
+        disconnected the clients.
+
+        handle: the handler of each new connection.
+
+        """
+        server = StreamServer(("127.0.0.1", 0), handle)
+        server.start()
+        self.addCleanup(server.stop)
+        self.mock.return_value = Address("127.0.0.1", server.server_port)
+
+    def stop_when_done(self, client: RemoteServiceClient):
+        """Kill the connect loop of client when the test ends."""
+        self.addCleanup(
+            lambda: client._loop is not None and client._loop.kill())
+
+    @staticmethod
+    def wait_until(predicate: Callable[[], bool], timeout: float = 2.0):
+        with gevent.Timeout(timeout, AssertionError("Condition not met.")):
+            while not predicate():
+                gevent.sleep(0.005)
+
+    @staticmethod
+    def flaky_getaddrinfo(failures: int) -> Callable:
+        """Return a getaddrinfo that fails failures times, then works."""
+        real_getaddrinfo = gevent.socket.getaddrinfo
+        calls = 0
+
+        def getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= failures:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return real_getaddrinfo(*args, **kwargs)
+
+        return getaddrinfo
+
+    def test_name_resolution_failures_do_not_end_the_loop(self):
+        with patch("cms.io.rpc.gevent.socket.getaddrinfo",
+                   self.flaky_getaddrinfo(2)):
+            with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+                client = self.get_client(
+                    ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+                self.stop_when_done(client)
+                self.assertTrue(client.wait_for_connection(timeout=2))
+
+        self.assertFalse(client._loop.dead)
+        self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+        # One WARNING for the outage, DEBUG for each retry, one INFO
+        # when it ends.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "resolve" in record.getMessage()],
+            ["WARNING", "DEBUG", "INFO"])
+
+    def test_one_shot_client_that_cannot_resolve_ends_quietly(self):
+        # Without auto_retry, it ends up not connected, as when the
+        # connection is refused.
+        with patch("cms.io.rpc.gevent.socket.getaddrinfo",
+                   self.flaky_getaddrinfo(1)):
+            with self.assertLogs("cms.io.rpc", "WARNING"):
+                client = self.get_client(ServiceCoord("Foo", 0), block=False)
+                client._loop.join(timeout=2)
+
+        self.assertTrue(client._loop.successful())
+        self.assertFalse(client.connected)
+
+    def test_malformed_answers_make_the_client_reconnect(self):
+        # Connection n gets bad_answers[n], unasked; once they are over,
+        # a real server answers.
+        bad_answers = [b"not json", b"null", b"[]", b'"x"', b'{"__id": 1}']
+        connections = []
+
+        def answer_badly(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > len(bad_answers):
+                self.handle_new_connection(socket_, address)
+                return
+            socket_.sendall(bad_answers[len(connections) - 1] + b"\r\n")
+            while socket_.recv(1024):
+                pass
+
+        self.spawn_custom_listener(answer_badly)
+
+        with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+            client = self.get_client(
+                ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+            self.stop_when_done(client)
+            self.wait_until(
+                lambda: len(connections) > len(bad_answers)
+                and client.connected)
+            self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertFalse(client._loop.dead)
+        # Only the first one is a WARNING, so that a peer that keeps
+        # answering garbage can't flood the logs.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "missing some fields" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+
+    def test_reconnects_no_faster_than_auto_retry(self):
+        # A peer that accepts and closes at once must not be
+        # reconnected to as fast as the loop can go.
+        auto_retry = 0.1
+        connections = []
+
+        def close_at_once(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            socket_.close()
+
+        self.spawn_custom_listener(close_at_once)
+
+        client = self.get_client(
+            ServiceCoord("Foo", 0), block=False, auto_retry=auto_retry)
+        self.stop_when_done(client)
+        gevent.sleep(1)
+
+        self.assertGreaterEqual(len(connections), 2)
+        self.assertLessEqual(len(connections), 1 / auto_retry + 2)
 
 
 if __name__ == "__main__":

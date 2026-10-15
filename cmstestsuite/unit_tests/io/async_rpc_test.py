@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import gc
 import logging
+import socket
 import unittest
 from unittest.mock import patch
 
@@ -135,6 +136,187 @@ class TestAsyncRpcReconnection(unittest.IsolatedAsyncioTestCase):
         client.disconnect()
         server2.close()
         await server2.wait_closed()
+
+
+class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
+    """The connect loop of a client with auto_retry keeps trying
+    whatever goes wrong with the peer, without hammering it.
+
+    """
+
+    async def _start_peer(self, handle_connection) -> int:
+        """Start a loopback server, stopped when the test ends.
+
+        handle_connection: the asyncio.start_server callback.
+
+        return: the port it listens on.
+
+        """
+        server = await asyncio.start_server(
+            handle_connection, "127.0.0.1", 0)
+
+        async def stop():
+            server.close()
+            await server.wait_closed()
+
+        self.addAsyncCleanup(stop)
+        return server.sockets[0].getsockname()[1]
+
+    def _client(
+        self, port: int, auto_retry: float | None = 0.05
+    ) -> AsyncRemoteServiceClient:
+        """Return a client of the peer at port, stopped when the test
+        ends (cleanups run in reverse, so before the peer stops).
+
+        """
+        with patch("cms.io.async_rpc.get_service_address",
+                   return_value=Address("127.0.0.1", port)):
+            client = AsyncRemoteServiceClient(
+                ServiceCoord("FakeLocalService", 0), auto_retry=auto_retry)
+
+        async def stop():
+            client.disconnect()
+            if client._loop_task is not None:
+                client._loop_task.cancel()
+                await asyncio.wait([client._loop_task])
+
+        self.addAsyncCleanup(stop)
+        return client
+
+    @staticmethod
+    async def _serve(reader, writer):
+        server_side = AsyncRemoteServiceServer(
+            FakeLocalService(), Address("127.0.0.1", 0))
+        server_side.initialize_streams(reader, writer, plus=None)
+        await server_side.run()
+
+    @staticmethod
+    async def _wait_until(predicate, timeout: float = 2.0):
+        async with asyncio.timeout(timeout):
+            while not predicate():
+                await asyncio.sleep(0.005)
+
+    @staticmethod
+    def _flaky_getaddrinfo(failures: int):
+        """Return a getaddrinfo that fails failures times, then works."""
+        real_getaddrinfo = asyncio.get_running_loop().getaddrinfo
+        calls = 0
+
+        async def getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= failures:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return await real_getaddrinfo(*args, **kwargs)
+
+        return getaddrinfo
+
+    async def test_name_resolution_failures_do_not_end_the_loop(self):
+        port = await self._start_peer(self._serve)
+        client = self._client(port)
+        loop = asyncio.get_running_loop()
+
+        with patch.object(loop, "getaddrinfo", self._flaky_getaddrinfo(2)):
+            with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+                client.connect()
+                self.assertTrue(await client.wait_for_connection(timeout=2))
+
+        self.assertFalse(client._loop_task.done())
+        self.assertEqual(
+            await client.execute_rpc("echo", {"string": "x"}), "x")
+        # One WARNING for the outage, DEBUG for each retry, one INFO
+        # when it ends.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "resolve" in record.getMessage()],
+            ["WARNING", "DEBUG", "INFO"])
+
+    async def test_one_shot_client_that_cannot_resolve_ends_quietly(self):
+        # Without auto_retry, it ends up not connected, as when the
+        # connection is refused.
+        port = await self._start_peer(self._serve)
+        client = self._client(port, auto_retry=None)
+        loop = asyncio.get_running_loop()
+
+        with patch.object(loop, "getaddrinfo", self._flaky_getaddrinfo(1)):
+            with self.assertLogs("cms.io.async_rpc", "WARNING"):
+                client.connect()
+                await asyncio.wait_for(asyncio.wait([client._loop_task]), 2)
+
+        self.assertIsNone(client._loop_task.exception())
+        self.assertFalse(client.connected)
+
+    async def test_malformed_answers_make_the_client_reconnect(self):
+        # Connection n gets bad_answers[n], unasked; once they are over,
+        # a real server answers.
+        bad_answers = [b"not json", b"null", b"[]", b'"x"', b'{"__id": 1}']
+        connections = 0
+
+        async def answer_badly(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > len(bad_answers):
+                await self._serve(reader, writer)
+                return
+            writer.write(bad_answers[connections - 1] + b"\r\n")
+            await writer.drain()
+            await reader.read()
+            writer.close()
+
+        port = await self._start_peer(answer_badly)
+        client = self._client(port)
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            client.connect()
+            await self._wait_until(
+                lambda: connections > len(bad_answers) and client.connected)
+            self.assertEqual(
+                await client.execute_rpc("echo", {"string": "x"}), "x")
+
+        self.assertFalse(client._loop_task.done())
+        # Only the first one is a WARNING, so that a peer that keeps
+        # answering garbage can't flood the logs.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "missing some fields" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+
+    async def test_reconnects_no_faster_than_auto_retry(self):
+        # A peer that accepts and closes at once must not be
+        # reconnected to as fast as the loop can go.
+        auto_retry = 0.1
+        connections = 0
+
+        async def close_at_once(_reader, writer):
+            nonlocal connections
+            connections += 1
+            writer.close()
+
+        port = await self._start_peer(close_at_once)
+        client = self._client(port, auto_retry=auto_retry)
+
+        client.connect()
+        await asyncio.sleep(1)
+
+        self.assertGreaterEqual(connections, 2)
+        self.assertLessEqual(connections, 1 / auto_retry + 2)
+
+    async def test_server_drops_a_peer_sending_a_non_object(self):
+        port = await self._start_peer(self._serve)
+
+        for payload in (b"null", b"[]", b'"x"'):
+            with self.subTest(payload=payload):
+                reader, writer = await asyncio.open_connection(
+                    "127.0.0.1", port)
+                # Before the peer stops, which waits for its connections.
+                self.addCleanup(writer.close)
+                writer.write(payload + b"\r\n")
+                # The server closes the connection.
+                self.assertEqual(
+                    await asyncio.wait_for(reader.read(), 2), b"")
 
 
 class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):

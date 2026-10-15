@@ -281,7 +281,9 @@ class AsyncRemoteServiceServer(AsyncRemoteServiceBase):
         await self.process_incoming_request(message)
 
     async def process_incoming_request(self, request: dict):
-        if not {"__id", "__method", "__data"}.issubset(request.keys()):
+        # json.loads() may give any JSON value, not only an object.
+        if not isinstance(request, dict) \
+                or not {"__id", "__method", "__data"}.issubset(request.keys()):
             self.disconnect("Bad request received")
             logger.warning("Request is missing some fields, ignoring.")
             return
@@ -338,6 +340,12 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
 
         self._loop_task: asyncio.Task | None = None
 
+        # Whether the last name resolution failed, and whether the last
+        # answer was malformed: only the first of a series is logged
+        # as a WARNING, the retries every auto_retry seconds as DEBUG.
+        self._cannot_resolve = False
+        self._bad_answers = False
+
     def _repr_remote(self):
         return f"{self.remote_address} ({self.remote_service_coord})"
 
@@ -354,9 +362,19 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             addresses = await asyncio.get_running_loop().getaddrinfo(
                 self.remote_address.ip, self.remote_address.port,
                 type=socket.SOCK_STREAM)
-        except OSError:
-            logger.warning("Cannot resolve %s.", self.remote_address)
-            raise
+        except OSError as error:
+            # Not connected, as when the connection is refused: _run
+            # tries again after auto_retry seconds, if it has to.
+            if self._cannot_resolve:
+                logger.debug("Still cannot resolve %s: %s.",
+                             self.remote_address, error)
+            else:
+                self._cannot_resolve = True
+                logger.warning("Cannot resolve %s.", self.remote_address)
+            return
+        if self._cannot_resolve:
+            self._cannot_resolve = False
+            logger.info("%s resolves again.", self.remote_address)
 
         for family, type_, proto, _canonname, sockaddr in addresses:
             host, port, *_rest = sockaddr
@@ -381,6 +399,10 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
                 await self.run()
             if self.auto_retry is None:
                 break
+            # However the connection ended, wait before the next one: a
+            # peer that accepts and then closes at once would otherwise
+            # be reconnected to as fast as the loop can go.
+            await asyncio.sleep(self.auto_retry)
 
     def connect(self):
         if self._loop_task is not None and not self._loop_task.done():
@@ -396,6 +418,34 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             if self._loop_task is not None:
                 self._loop_task.cancel()
                 self._loop_task = None
+
+    def _drop_connection(self, reason: str):
+        """Close the connection, but not for good.
+
+        Unlike disconnect(), it leaves the connect loop running: run()
+        then reads the end of the connection, and _run reconnects
+        after auto_retry seconds, if it has to.
+
+        reason: why, for the log.
+
+        """
+        super().disconnect(reason=reason)
+
+    def _log_bad_answer(self, message: str):
+        """Log that the peer sent a malformed answer.
+
+        Each one makes the client reconnect, so a peer that keeps
+        sending them would log one every auto_retry seconds: only the
+        first of a series is a WARNING, the others are DEBUG.
+
+        message: what was wrong with the answer.
+
+        """
+        if self._bad_answers:
+            logger.debug(message)
+        else:
+            self._bad_answers = True
+            logger.warning(message)
 
     async def run(self):
         while True:
@@ -414,17 +464,23 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         try:
             message = json.loads(data.decode('utf-8'))
         except ValueError:
-            self.disconnect("Bad response received")
-            logger.warning("Cannot parse incoming message, discarding.")
+            self._drop_connection("Bad response received")
+            self._log_bad_answer("Cannot parse incoming message, discarding.")
             return
 
         self.process_incoming_response(message)
 
     def process_incoming_response(self, response: dict):
-        if not {"__id", "__data", "__error"}.issubset(response.keys()):
-            self.disconnect("Bad response received")
-            logger.warning("Response is missing some fields, ignoring.")
+        # json.loads() may give any JSON value, not only an object.
+        if not isinstance(response, dict) \
+                or not {"__id", "__data", "__error"}.issubset(response.keys()):
+            self._drop_connection("Bad response received")
+            self._log_bad_answer("Response is missing some fields, ignoring.")
             return
+        if self._bad_answers:
+            self._bad_answers = False
+            logger.info("%s sends well-formed answers again.",
+                        self._repr_remote())
 
         id_ = response["__id"]
 

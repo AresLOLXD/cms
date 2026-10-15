@@ -404,8 +404,10 @@ class RemoteServiceServer(RemoteServiceBase):
         request: the JSON-decoded request.
 
         """
-        # Validate the request.
-        if not {"__id", "__method", "__data"}.issubset(request.keys()):
+        # Validate the request (json.loads() may give any JSON value,
+        # not only an object).
+        if not isinstance(request, dict) \
+                or not {"__id", "__method", "__data"}.issubset(request.keys()):
             self.disconnect("Bad request received")
             logger.warning("Request is missing some fields, ignoring.")
             return
@@ -493,6 +495,12 @@ class RemoteServiceClient(RemoteServiceBase):
 
         self._loop = None
 
+        # Whether the last name resolution failed, and whether the last
+        # answer was malformed: only the first of a series is logged
+        # as a WARNING, the retries every auto_retry seconds as DEBUG.
+        self._cannot_resolve = False
+        self._bad_answers = False
+
     def _repr_remote(self):
         """See RemoteServiceBase._repr_remote."""
         return f"{self.remote_address} ({self.remote_service_coord})"
@@ -518,9 +526,19 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.remote_address.ip,
                 self.remote_address.port,
                 type=socket.SOCK_STREAM)
-        except socket.gaierror:
-            logger.warning("Cannot resolve %s.", self.remote_address)
-            raise
+        except OSError as error:
+            # Not connected, as when the connection is refused: _run
+            # tries again after auto_retry seconds, if it has to.
+            if self._cannot_resolve:
+                logger.debug("Still cannot resolve %s: %s.",
+                             self.remote_address, error)
+            else:
+                self._cannot_resolve = True
+                logger.warning("Cannot resolve %s.", self.remote_address)
+            return
+        if self._cannot_resolve:
+            self._cannot_resolve = False
+            logger.info("%s resolves again.", self.remote_address)
 
         for family, type, proto, _canonname, sockaddr in addresses:
             try:
@@ -548,6 +566,10 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.run()
             if self.auto_retry is None:
                 break
+            # However the connection ended, wait before the next one: a
+            # peer that accepts and then closes at once would otherwise
+            # be reconnected to as fast as the loop can go.
+            gevent.sleep(self.auto_retry)
 
     def connect(self):
         """Connect and start the main loop.
@@ -562,6 +584,34 @@ class RemoteServiceClient(RemoteServiceBase):
         if super().disconnect(reason=reason):
             self._loop.kill()
             self._loop = None
+
+    def _drop_connection(self, reason: str):
+        """Close the connection, but not for good.
+
+        Unlike disconnect(), it leaves the connect loop running: run()
+        then reads the end of the connection, and _run reconnects
+        after auto_retry seconds, if it has to.
+
+        reason: why, for the log.
+
+        """
+        super().disconnect(reason=reason)
+
+    def _log_bad_answer(self, message: str):
+        """Log that the peer sent a malformed answer.
+
+        Each one makes the client reconnect, so a peer that keeps
+        sending them would log one every auto_retry seconds: only the
+        first of a series is a WARNING, the others are DEBUG.
+
+        message: what was wrong with the answer.
+
+        """
+        if self._bad_answers:
+            logger.debug(message)
+        else:
+            self._bad_answers = True
+            logger.warning(message)
 
     def run(self):
         """Start listening for responses, and go on forever.
@@ -597,8 +647,8 @@ class RemoteServiceClient(RemoteServiceBase):
         try:
             message = json.loads(data.decode('utf-8'))
         except ValueError:
-            self.disconnect("Bad response received")
-            logger.warning("Cannot parse incoming message, discarding.")
+            self._drop_connection("Bad response received")
+            self._log_bad_answer("Cannot parse incoming message, discarding.")
             return
 
         self.process_incoming_response(message)
@@ -612,11 +662,17 @@ class RemoteServiceClient(RemoteServiceBase):
         response: the JSON-decoded response.
 
         """
-        # Validate the response.
-        if not {"__id", "__data", "__error"}.issubset(response.keys()):
-            self.disconnect("Bad response received")
-            logger.warning("Response is missing some fields, ignoring.")
+        # Validate the response (json.loads() may give any JSON value,
+        # not only an object).
+        if not isinstance(response, dict) \
+                or not {"__id", "__data", "__error"}.issubset(response.keys()):
+            self._drop_connection("Bad response received")
+            self._log_bad_answer("Response is missing some fields, ignoring.")
             return
+        if self._bad_answers:
+            self._bad_answers = False
+            logger.info("%s sends well-formed answers again.",
+                        self._repr_remote())
 
         # Determine the ID.
         id_ = response["__id"]
