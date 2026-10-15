@@ -75,6 +75,40 @@ class TestLivenessRules(unittest.TestCase):
         [restart] = actions(s.cycle(fail=[CWS1]))
         self.assertEqual(restart.program, CWS1)
 
+    def test_a_program_that_answers_is_not_restarted_as_h3_lifts(self):
+        s = Scenario()
+        s.warm_up()
+        gate = Gate(True, backends=lock_wait_snapshot())
+        for _ in range(6):
+            self.assertEqual(
+                actions(s.cycle(fail=[CWS1], gate=gate)), [])
+        # The lock wait ends and CWS1 answers: 5 of the last 6 results
+        # are still misses, but the latest one is a pass.
+        self.assertEqual(actions(s.cycle()), [])
+        self.assertEqual(list(s.state.programs[CWS1].window),
+                         [True] * 5 + [False])
+        for _ in range(3):
+            self.assertEqual(actions(s.cycle()), [])
+
+    def test_a_program_that_answers_is_not_restarted_as_h5_lifts(self):
+        s = Scenario()
+        s.warm_up()
+        for _ in range(6):
+            self.assertEqual(
+                actions(s.cycle(fail=[CWS1, ES, LS])), [])
+        # The stall ends: every probe passes.
+        for _ in range(3):
+            self.assertEqual(actions(s.cycle()), [])
+
+    def test_a_program_that_still_fails_is_restarted_as_h3_lifts(self):
+        s = Scenario()
+        s.warm_up()
+        gate = Gate(True, backends=lock_wait_snapshot())
+        for _ in range(6):
+            s.cycle(fail=[CWS1], gate=gate)
+        [restart] = actions(s.cycle(fail=[CWS1]))
+        self.assertEqual((restart.program, restart.rule), (CWS1, "R1"))
+
     def test_three_misses_give_an_early_warning(self):
         s = Scenario()
         s.warm_up()

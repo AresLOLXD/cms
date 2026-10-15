@@ -1005,13 +1005,16 @@ class _Cycle:
             else:
                 continue
             probe = self._liveness_probe(program)
-            if probe is not None and not probe.ok:
+            missed_now = probe is not None and not probe.ok
+            if missed_now:
                 self.failing.add(program.name)
             window = self.state.programs[program.name].window
             misses = sum(window)
             if misses >= MISSES_TO_WARN:
                 self.half.add(program.name)
-            if misses >= MISSES_TO_TRIP:
+            # A program that answers in this cycle is never restarted in
+            # it, even when a hold has just lifted over 5 old misses.
+            if misses >= MISSES_TO_TRIP and missed_now:
                 self.trips.append(Trip(
                     program, rule, "%d of its last %d %s failed"
                     % (misses, len(window), what)))
