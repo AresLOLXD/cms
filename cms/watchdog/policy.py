@@ -29,6 +29,7 @@ docs/superpowers/specs/2026-10-10-watchdog-design.md.
 
 """
 
+import copy
 import json
 import math
 import time
@@ -718,3 +719,590 @@ class PolicyState:
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
         return self.mode == ENFORCE and klass not in self.restart_classes
+
+
+@dataclass(frozen=True)
+class Trip:
+    """A rule that tripped for a program in this cycle."""
+
+    program: ProgramFacts
+    rule: str
+    detail: str
+
+
+# The next step that an alert names for each headline hold (3.9).
+HOLD_HINTS: dict[str, str] = {
+    "H1": "Check ./status.sh.",
+    "H2": ("Nothing to do: the watchdog waits for the database (see "
+           "\"When the database misbehaves\")."),
+    "H3": ("End the blocker by hand only if it is stuck (see \"When the "
+           "watchdog alerts\")."),
+    "H4": ("Find what the failing programs share before restarting any "
+           "of them by hand."),
+    "H5": "Check the load of the server and of the database.",
+    "H6": "Nothing to do yet: it is still starting.",
+    "H7": "Restart it by hand if needed, after cmsWatchdog --snapshot.",
+    "H8": "Nothing to do: another action is running.",
+}
+
+
+def busy_sections(payload: object) -> list[dict]:
+    """Return the busy sections of a health() answer, oldest first.
+
+    A malformed answer, or a malformed entry of it, counts as no
+    section: no answer is trusted to be well formed.
+
+    payload: a health() answer, or None.
+
+    return: [{"what", "tid", "age_s", "idle_s", "statements"}]; tid and
+        statements are None when the answer lacks them.
+
+    """
+    if not isinstance(payload, Mapping):
+        return []
+    busy = payload.get("busy")
+    if not isinstance(busy, list):
+        return []
+    sections = []
+    for entry in busy:
+        if not isinstance(entry, Mapping):
+            continue
+        what = entry.get("what")
+        age_s = entry.get("age_s")
+        idle_s = entry.get("idle_s")
+        if not isinstance(what, str) or not is_number(age_s) \
+                or not is_number(idle_s):
+            continue
+        tid = entry.get("tid")
+        statements = entry.get("statements")
+        sections.append({
+            "what": what,
+            "tid": tid if isinstance(tid, int) and is_number(tid) else None,
+            "age_s": float(age_s),
+            "idle_s": float(idle_s),
+            "statements": statements if is_number(statements) else None,
+        })
+    sections.sort(key=lambda section: -section["age_s"])
+    return sections
+
+
+def decide(state: PolicyState, observation: Observation, mono: float,
+           wall: float) -> tuple[PolicyState, list[Decision]]:
+    """Turn one cycle's observation into decisions (3.3, step 3).
+
+    state: what the previous cycle left; it is not changed.
+    observation: what the probes saw in this cycle.
+    mono: the monotonic time of the cycle's start.
+    wall: the epoch time of the cycle's start.
+
+    return: the new state, and the decisions in order: the alerts to
+        emit now (already rate-limited), and at most one action (a
+        restart, or the R5 start batch with its H9 part).
+
+    """
+    cycle = _Cycle(copy.deepcopy(state), observation, mono, wall)
+    cycle.run()
+    return cycle.state, cycle.decisions
+
+
+class _Cycle:
+    """One call of decide(): the phases of a cycle, in order."""
+
+    def __init__(self, state: PolicyState, observation: Observation,
+                 mono: float, wall: float):
+        self.state = state
+        self.obs = observation
+        self.mono = mono
+        self.wall = wall
+        self.decisions: list[Decision] = []
+        # Whether this cycle decided an action (H8).
+        self.acted = False
+        self.starved = observation.lag_s > STARVED_LAG_S
+        self.running = [program for program in observation.programs
+                        if program.managed and program.state == "RUNNING"]
+        self.trips: list[Trip] = []
+        # Programs whose own probe failed in this cycle, or that a rule
+        # without a probe tripped: they do not pass (incidents).
+        self.failing: set[str] = set()
+        # Programs failing for H4: MISSES_TO_WARN misses or more, or a
+        # section past half its trip.
+        self.half: set[str] = set()
+
+    def run(self) -> None:
+        """Run the phases of the cycle, in order."""
+        state = self.state
+        if state.started_mono is None:
+            state.started_mono = self.mono
+        if state.summary_mono is None:
+            state.summary_mono = self.mono
+        state.ledger.prune(self.wall)
+        self._track_gate()
+        self._track_pause()
+        self._track_programs()
+        if self.starved:
+            state.near_miss.starved_cycles += 1
+            return
+        self._check_pids()
+        self._liveness_trips()
+        self._act_on_trips()
+        self._update_incidents()
+
+    # Alerts.
+
+    def _alert(self, key: tuple[str, str], level: str, text: str,
+               change: bool = False, holds: Sequence[str] = (),
+               keep_open: bool = False) -> None:
+        """Emit an alert, at most once per ALERT_REPEAT_S for its key.
+
+        key: (program name or "-", topic).
+        level: "INFO", "WARNING" or "ERROR".
+        text: the line.
+        change: whether it is a state change, emitted at once.
+        holds: for a held trip, the holds that apply.
+        keep_open: whether it stays open (and is sent again to a new
+            LogService) until it is resolved.
+
+        """
+        decision = Decision(ALERT, text=text, level=level, key=key,
+                            holds=tuple(holds))
+        if keep_open:
+            self.state.open_alerts[key] = decision
+        last = self.state.alert_sent.get(key)
+        if change or last is None or self.mono - last >= ALERT_REPEAT_S:
+            self.state.alert_sent[key] = self.mono
+            self.decisions.append(decision)
+
+    def _resolve_key(self, key: tuple[str, str], text: str) -> None:
+        """Close the alert key with a "Resolved:" line."""
+        for table in (self.state.open_alerts, self.state.alert_sent,
+                      self.state.held_headline):
+            table.pop(key, None)
+        self.decisions.append(Decision(ALERT, text=text, key=key))
+
+    def _resolve_program(self, name: str, text: str) -> None:
+        """Close every alert of a program with a "Resolved:" line."""
+        for table in (self.state.open_alerts, self.state.alert_sent,
+                      self.state.held_headline):
+            for key in [key for key in table if key[0] == name]:
+                del table[key]
+        self.decisions.append(
+            Decision(ALERT, text=text, key=(name, "resolved")))
+
+    # Bookkeeping.
+
+    def _track_gate(self) -> None:
+        """Keep the red intervals, the green streak and their alerts."""
+        state, gate = self.state, self.obs.gate
+        ledger = state.ledger
+        red_open = bool(ledger.red) and ledger.red[-1][1] is None
+        key = ("-", "gate")
+        if not gate.green:
+            state.green_since_mono = None
+            state.green_cycles = 0
+            if not red_open:
+                ledger.red.append([self.wall, None])
+            state.near_miss.red_cycles += 1
+            self._alert(
+                key, "ERROR",
+                "Watchdog: the database gate is red (%s: %s); the "
+                "watchdog restarts nothing while PostgreSQL does not "
+                "answer. See \"When the database misbehaves\"."
+                % (gate.reason, gate.detail or "no detail"),
+                change=not red_open, keep_open=True)
+            return
+        if red_open:
+            started = ledger.red[-1][0]
+            ledger.red[-1][1] = self.wall
+            self._clear_windows()
+            state.green_since_mono = self.mono
+            state.green_cycles = 1
+            self._resolve_key(
+                key, "Resolved: the database gate is green again after "
+                "%d s red; restarts wait %d s more."
+                % (age(self.wall, started), GREEN_BEFORE_RESTART_S))
+        elif state.green_since_mono is None:
+            state.green_since_mono = self.mono
+            state.green_cycles = 1
+        else:
+            state.green_cycles += 1
+
+    def _track_pause(self) -> None:
+        """Clear every window after a pause of the watchdog (3.3)."""
+        gap = self.obs.since_previous_s
+        if gap is not None and gap > PAUSE_S:
+            self._clear_windows()
+            self.decisions.append(Decision(
+                ALERT, key=("-", "pause"),
+                text="Watchdog: paused for %d s (a host, VM or container "
+                     "pause); its miss windows were cleared." % gap))
+
+    def _clear_windows(self) -> None:
+        """Forget every known liveness result."""
+        for program_state in self.state.programs.values():
+            program_state.window.clear()
+
+    def _track_programs(self) -> None:
+        """Note each running program's pid, history and liveness."""
+        for program in self.running:
+            program_state = self.state.programs.setdefault(
+                program.name, ProgramState())
+            if program_state.pid is not None \
+                    and program_state.pid != program.pid:
+                program_state.window.clear()
+            program_state.pid = program.pid
+            program_state.history.append(self._history_entry(program))
+            probe = self._liveness_probe(program)
+            # A starved cycle's result is unknown: no miss, no pass.
+            if probe is not None and not self.starved:
+                program_state.window.append(not probe.ok)
+
+    def _liveness_probe(self, program: ProgramFacts) -> Probe | None:
+        """Return the probe that R1 or R2 judges program on, if any."""
+        if program.kind in HTTP_KINDS:
+            return self.obs.http.get(program.name)
+        if program.kind in RPC_RULE_KINDS:
+            return self.obs.rpc.get(program.name)
+        return None
+
+    def _history_entry(self, program: ProgramFacts) -> dict:
+        """Describe what this cycle saw of program, for the evidence."""
+        entry: dict = {"wall": self.wall, "pid": program.pid,
+                       "starved": self.starved}
+        for channel, probes in (("http", self.obs.http),
+                                ("rpc", self.obs.rpc)):
+            probe = probes.get(program.name)
+            if probe is not None:
+                entry[channel] = asdict(probe)
+        sections = busy_sections(self.obs.health.get(program.name))
+        if sections:
+            entry["busy"] = sections
+        return entry
+
+    def _check_pids(self) -> None:
+        """Alert when another process answers on a program's port."""
+        for program in self.running:
+            payload = self.obs.health.get(program.name)
+            pid = (payload.get("pid") if isinstance(payload, Mapping)
+                   else None)
+            if isinstance(pid, int) and not isinstance(pid, bool) \
+                    and program.pid is not None and pid != program.pid:
+                self._alert(
+                    (program.name, "pid"), "WARNING",
+                    "Watchdog: pid %d answers on the RPC port of %s, "
+                    "which supervisord started as pid %d; the watchdog "
+                    "does nothing about it. Check ./status.sh and ps."
+                    % (pid, program.label, program.pid))
+
+    # R1 and R2.
+
+    def _liveness_trips(self) -> None:
+        """Apply R1 and R2, with their early warnings (3.5)."""
+        for program in self.running:
+            if program.kind in HTTP_KINDS:
+                rule, what = "R1", "favicon probes"
+            elif program.kind in RPC_RULE_KINDS:
+                rule, what = "R2", "health() calls"
+            else:
+                continue
+            probe = self._liveness_probe(program)
+            if probe is not None and not probe.ok:
+                self.failing.add(program.name)
+            window = self.state.programs[program.name].window
+            misses = sum(window)
+            if misses >= MISSES_TO_WARN:
+                self.half.add(program.name)
+            if misses >= MISSES_TO_TRIP:
+                self.trips.append(Trip(
+                    program, rule, "%d of its last %d %s failed"
+                    % (misses, len(window), what)))
+            elif misses >= MISSES_TO_WARN:
+                self._alert(
+                    (program.name, rule + " warning"), "WARNING",
+                    "Watchdog: early warning: %d of the last %d %s of %s "
+                    "failed; it is restarted at %d."
+                    % (misses, len(window), what, program.label,
+                       MISSES_TO_TRIP))
+
+    # Holds and actions.
+
+    def _act_on_trips(self) -> None:
+        """Turn each trip into an action, or into an alert if held."""
+        held_workers: list[Trip] = []
+        incidents = self.state.ledger.incidents
+        for trip in self.trips:
+            program = trip.program
+            opened = program.name not in incidents
+            if opened:
+                incidents[program.name] = {
+                    "rule": trip.rule, "opened": self.wall, "passes": 0}
+            shadow = self.state.shadow_for(program.klass)
+            holds = self._holds(program, shadow)
+            if holds and holds[0][0] == "H4" and program.kind == "Worker":
+                held_workers.append(trip)
+            elif holds:
+                self._held(trip, holds, opened)
+            else:
+                self._restart(trip, shadow)
+        if held_workers:
+            self._held_workers(held_workers)
+
+    def _holds(self, program: ProgramFacts,
+               shadow: bool) -> list[tuple[str, str]]:
+        """Return the holds that apply to a trip of program, in order.
+
+        program: the program that tripped.
+        shadow: whether its action goes to the shadow ledger (H9).
+
+        return: (code, reason) of each hold that applies. H9 is not in
+            it: it turns the action into a would-action instead.
+
+        """
+        obs, state = self.obs, self.state
+        holds = []
+        if not obs.supervisor_ok:
+            holds.append(("H1", "supervisord did not answer in this cycle"))
+        if not obs.gate.green:
+            holds.append(("H2", "the database gate is red (%s)"
+                          % obs.gate.reason))
+        elif self.mono - state.green_since_mono < GREEN_BEFORE_RESTART_S:
+            back = self.mono - state.green_since_mono
+            holds.append(("H2", "the database has been back for only %d s; "
+                          "restarts wait %d s"
+                          % (back, GREEN_BEFORE_RESTART_S)))
+        for code, reason in (
+                ("H3", self._lock_wait()),
+                ("H4", self._correlation(program)),
+                ("H5", self._global_failure()),
+                ("H6", self._grace(program)),
+                ("H7", self._budget(program, RESTART, shadow))):
+            if reason:
+                holds.append((code, reason))
+        if self.acted or obs.in_flight:
+            holds.append(("H8", "another action is in flight"))
+        return holds
+
+    def _lock_wait(self) -> str:
+        """Describe the lock waits of CMS backends (H3), or ""."""
+        gate = self.obs.gate
+        if not gate.green:
+            return ""
+        by_pid = {backend.pid: backend for backend in gate.backends}
+        waits = []
+        for backend in gate.backends:
+            if not (backend.application_name or "").startswith("cms") \
+                    or backend.wait_event_type != "Lock" \
+                    or backend.query_age_s is None \
+                    or backend.query_age_s <= LOCK_WAIT_S:
+                continue
+            blockers = "; ".join(
+                self._blocker(by_pid.get(pid), pid)
+                for pid in backend.blocked_by) \
+                or "a session the snapshot does not show"
+            waits.append(
+                "'%s' (pid %d) has waited %d s on a lock held by %s"
+                % (backend.application_name, backend.pid,
+                   backend.query_age_s, blockers))
+        if not waits:
+            return ""
+        return ("a database lock wait: %s. Ending a blocker is a human "
+                "decision" % "; ".join(waits))
+
+    def _blocker(self, backend: Backend | None, pid: int) -> str:
+        """Describe one blocker of a lock wait (H3)."""
+        if backend is None:
+            return "pid %d (not in the snapshot)" % pid
+
+        def shown(value: object, form: str = "%s") -> str:
+            return "unknown" if value is None else form % value
+
+        text = "pid %d ('%s', %s, transaction open %s)" % (
+            pid, shown(backend.application_name), shown(backend.state),
+            shown(backend.xact_age_s, "%d s"))
+        orphan_of = self._orphan_of(backend)
+        if orphan_of is not None:
+            text += ", orphan of pid %d" % orphan_of
+        return text
+
+    def _orphan_of(self, backend: Backend) -> int | None:
+        """Return the old pid if backend is an orphan of a restart (H3).
+
+        It is one when its application_name is that of a program the
+        watchdog restarted and it started before that program's new
+        process: the new process has the same application_name, so a
+        younger backend may be its own.
+
+        backend: a blocker.
+
+        return: the pid the watchdog restarted, or None.
+
+        """
+        if backend.application_name is None \
+                or backend.backend_age_s is None:
+            return None
+        restart = self.state.ledger.last_restart_of(
+            backend.application_name)
+        program = next((p for p in self.obs.programs if p.managed
+                        and p.label == backend.application_name), None)
+        if restart is None or program is None \
+                or program.start_wall is None:
+            return None
+        if self.wall - backend.backend_age_s < program.start_wall:
+            return restart.pid
+        return None
+
+    def _correlation(self, program: ProgramFacts) -> str:
+        """Describe a failure of program's whole class (H4), or ""."""
+        if program.kind == "Worker":
+            tripped = sorted({
+                trip.program.label for trip in self.trips
+                if trip.program.kind == "Worker"
+                and not self._over_budget(trip.program)})
+            if len(tripped) >= 2:
+                return "%d Workers trip together (%s)" % (
+                    len(tripped), ", ".join(tripped))
+            return ""
+        failing = sorted(
+            other.label for other in self.running
+            if other.kind != "Worker" and other.klass == program.klass
+            and other.name in self.half and not self._over_budget(other))
+        if len(failing) >= 2:
+            return "%d programs of class %s fail together (%s)" % (
+                len(failing), program.klass, ", ".join(failing))
+        return ""
+
+    def _over_budget(self, program: ProgramFacts) -> bool:
+        """Tell whether program used its own restart budget (H4)."""
+        return self.state.ledger.count(
+            program.name, RESTART, self.state.shadow_for(program.klass),
+            self.wall) >= PROGRAM_BUDGET
+
+    def _global_failure(self) -> str:
+        """Describe a failure of a third of the probed programs (H5)."""
+        probed = [program for program in self.running
+                  if program.name in self.obs.http
+                  or program.name in self.obs.rpc]
+        failed = [program for program in probed
+                  if any(not probes[program.name].ok
+                         for probes in (self.obs.http, self.obs.rpc)
+                         if program.name in probes)]
+        if probed and len(failed) > GLOBAL_FAILING_FRACTION * len(probed):
+            return ("%d of the %d programs probed failed a probe in this "
+                    "cycle" % (len(failed), len(probed)))
+        return ""
+
+    def _grace(self, program: ProgramFacts) -> str:
+        """Describe why program is still in its grace (H6), or ""."""
+        since_start = self.mono - self.state.started_mono
+        if since_start < GRACE_S:
+            return "the watchdog itself started %d s ago" % since_start
+        if program.start_wall is not None:
+            running_for = age(self.wall, program.start_wall)
+            if running_for < GRACE_S:
+                return "%s started %d s ago" % (program.label, running_for)
+        program_state = self.state.programs.get(program.name)
+        if program_state is not None \
+                and program_state.last_action_mono is not None:
+            since_action = self.mono - program_state.last_action_mono
+            if since_action < GRACE_S:
+                return ("its last action or would-action was %d s ago"
+                        % since_action)
+        return ""
+
+    def _budget(self, program: ProgramFacts, action: str,
+                shadow: bool) -> str:
+        """Describe why the budget holds action on program (H7), or ""."""
+        ledger = self.state.ledger
+        free = ledger.free_at(program.name, pool_of(program.klass), action,
+                              shadow, self.wall)
+        if free is None:
+            return ""
+        if ledger.exhausted_until is not None \
+                and self.wall < ledger.exhausted_until:
+            why = "its ledger did not parse, so every budget counts as used"
+        elif action == RESTART:
+            why = ("at most %d restarts of a program, and %d of its pool, "
+                   "in 60 minutes" % (PROGRAM_BUDGET, POOL_BUDGET))
+        else:
+            why = ("at most %d starts of a FATAL program in 60 minutes"
+                   % FATAL_PROGRAM_BUDGET)
+        return "will not %s %s before %s: %s%s" % (
+            "restart" if action == RESTART else "start", program.label,
+            hhmm_utc(free), why,
+            " (in the shadow ledger)" if shadow else "")
+
+    def _held(self, trip: Trip, holds: list[tuple[str, str]],
+              opened: bool) -> None:
+        """Alert about a held trip, headed by its first hold."""
+        program = trip.program
+        key = (program.name, trip.rule)
+        headline, reason = holds[0]
+        codes = [code for code, _ in holds]
+        previous = self.state.held_headline.get(key)
+        self.state.held_headline[key] = headline
+        text = "Watchdog: %s fails %s (%s) but is held by %s: %s." % (
+            program.label, trip.rule, trip.detail, headline, reason)
+        if len(codes) > 1:
+            text += " Also: %s." % ", ".join(codes[1:])
+        lock_wait = dict(holds).get("H3")
+        if lock_wait and headline != "H3":
+            text += " H3: %s." % lock_wait
+        text += " " + HOLD_HINTS[headline]
+        self._alert(key, "WARNING", text,
+                    change=opened or previous != headline, holds=codes,
+                    keep_open=True)
+
+    def _held_workers(self, trips: list[Trip]) -> None:
+        """Alert once about the Workers that H4 holds together."""
+        key = ("workers", "H4")
+        previous = self.state.held_headline.get(key)
+        self.state.held_headline[key] = "H4"
+        labels = ", ".join(sorted(trip.program.label for trip in trips))
+        self._alert(
+            key, "WARNING",
+            "Watchdog: %d Workers trip R4 together (%s) and are held by "
+            "H4: a correlated failure is left to a human. %s"
+            % (len(trips), labels, HOLD_HINTS["H4"]),
+            change=previous != "H4", holds=("H4",))
+
+    def _restart(self, trip: Trip, shadow: bool) -> None:
+        """Decide a restart, or a would-restart, and book it."""
+        program = trip.program
+        would = self.state.mode == OBSERVE or shadow
+        self.state.ledger.book(Booking(
+            self.wall, program.name, program.label, pool_of(program.klass),
+            RESTART, trip.rule, would, program.pid), shadow)
+        self.acted = True
+        program_state = self.state.programs[program.name]
+        program_state.last_action_mono = self.mono
+        if not would:
+            program_state.restarted_mono = self.mono
+            program_state.restarted_pid = program.pid
+        key = (program.name, trip.rule)
+        self.state.held_headline.pop(key, None)
+        self.state.alert_sent[key] = self.mono
+        self.decisions.append(Decision(
+            RESTART, text=trip.detail, key=key, program=program.name,
+            rule=trip.rule, would=would, shadow=shadow))
+
+    # Incidents.
+
+    def _update_incidents(self) -> None:
+        """Count the passes of the open incidents; close them after 2."""
+        tripped = {trip.program.name for trip in self.trips}
+        by_name = {program.name: program for program in self.obs.programs}
+        incidents = self.state.ledger.incidents
+        for name, incident in list(incidents.items()):
+            program = by_name.get(name)
+            if program is None or program.state != "RUNNING":
+                continue
+            if name in tripped or name in self.failing:
+                incident["passes"] = 0
+                continue
+            incident["passes"] += 1
+            if incident["passes"] >= PASSES_TO_RESOLVE:
+                del incidents[name]
+                self._resolve_program(
+                    name, "Resolved: %s passes its checks again "
+                    "(incident of %s, opened at %s)." % (
+                        program.label, incident["rule"],
+                        hhmm_utc(incident["opened"])))
