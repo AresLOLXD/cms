@@ -22,11 +22,16 @@
 
 import unittest
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
+
+from sqlalchemy import func, select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms import TOKEN_MODE_INFINITE, TOKEN_MODE_DISABLED, TOKEN_MODE_FINITE
+from cms.db import Session, Submission, Token
+from cms.server.contest.submission.check import CONCURRENT_REQUEST_TEXT, \
+    TOKEN_LOCK_NAMESPACE
 from cms.server.contest.tokening import accept_token, UnacceptableToken, \
     TokenAlreadyPlayed, tokens_available
 from cmscommon.datetime import make_datetime
@@ -257,6 +262,11 @@ class TestAcceptToken(DatabaseMixin, unittest.TestCase):
         self.tokens_available = patcher.start()
         self.addCleanup(patcher.stop)
 
+        patcher = patch("cms.server.contest.tokening.try_lock_limit_checks")
+        self.try_lock_limit_checks = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.try_lock_limit_checks.return_value = True
+
         self.timestamp = make_datetime()
 
     def call(self):
@@ -294,6 +304,121 @@ class TestAcceptToken(DatabaseMixin, unittest.TestCase):
                        timestamp=self.timestamp - timedelta(seconds=1))
         with self.assertRaises(TokenAlreadyPlayed):
             self.call()
+
+    def test_checks_run_under_the_lock(self):
+        self.tokens_available.return_value = (1, None, None)
+        calls = MagicMock()
+        calls.attach_mock(self.try_lock_limit_checks, "try_lock")
+        calls.attach_mock(self.tokens_available, "tokens_available")
+
+        self.call()
+
+        self.assertEqual(calls.mock_calls, [
+            call.try_lock(self.session, self.participation, "token"),
+            call.tokens_available(
+                self.participation, self.task, self.timestamp)])
+
+    def test_failure_due_to_concurrent_request(self):
+        self.tokens_available.return_value = (1, None, None)
+        self.try_lock_limit_checks.return_value = False
+
+        with self.assertRaises(UnacceptableToken) as raised:
+            self.call()
+
+        self.assertEqual(raised.exception.subject, "Token request discarded")
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.tokens_available.assert_not_called()
+        self.assertIsNone(self.submission.token)
+
+
+class TestAcceptTokenConcurrency(DatabaseMixin, unittest.TestCase):
+    """Two token requests of one contestant at the same moment, as two
+    CWS shards handle them: each one has its own session, and the real
+    checks run.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.contest = self.add_contest()
+        self.participation = self.add_participation(contest=self.contest)
+        self.task = self.add_task(
+            contest=self.contest, token_mode=TOKEN_MODE_INFINITE)
+        self.submissions = [
+            self.add_submission(participation=self.participation,
+                                task=self.task)
+            for _ in range(2)]
+        self.session.commit()
+        self.participation_id = self.participation.id
+        self.submission_ids = [s.id for s in self.submissions]
+        self.timestamp = make_datetime()
+
+        # The session of the request handled by the other shard.
+        self.other_session = Session()
+        self.addCleanup(self.other_session.close)
+
+    def play(self, session, submission_index, timestamp):
+        """Play a token on one of the submissions in the given session."""
+        return accept_token(
+            session,
+            session.get(Submission, self.submission_ids[submission_index]),
+            timestamp)
+
+    def count_tokens(self):
+        """Return how many tokens of the contestant were committed."""
+        with Session() as session:
+            return session.execute(
+                select(func.count(Token.id)).join(Submission)
+                .where(Submission.participation_id == self.participation_id)
+            ).scalar_one()
+
+    def test_concurrent_token_over_max_number_is_rejected_busy(self):
+        self.contest.token_mode = TOKEN_MODE_FINITE
+        self.contest.token_max_number = 1
+        self.session.commit()
+        self.play(self.session, 0, self.timestamp)
+
+        with self.assertRaises(UnacceptableToken) as raised, \
+                self.assertLogs("cms.server.contest.submission.check",
+                                "INFO") as logs:
+            self.play(self.other_session, 1, self.timestamp)
+        self.assertEqual(raised.exception.subject, "Token request discarded")
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.assertEqual(logs.output, [
+            "INFO:cms.server.contest.submission.check:concurrent request "
+            "rejected for %s (participation %d, token)" % (
+                self.participation.user.username, self.participation_id)])
+        self.other_session.rollback()
+        self.session.commit()
+
+        self.assertEqual(self.count_tokens(), 1)
+        # Sent again, it reads the committed token: the limit refuses it.
+        with self.assertRaisesRegex(UnacceptableToken, "no tokens available"):
+            self.play(self.other_session, 1, self.timestamp)
+
+    def test_concurrent_token_on_the_same_submission_is_rejected_busy(self):
+        # Without any limit: the lock is always taken for tokens.
+        self.play(self.session, 0, self.timestamp)
+
+        with self.assertRaises(UnacceptableToken) as raised:
+            self.play(self.other_session, 0, self.timestamp)
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.other_session.rollback()
+        self.session.commit()
+
+        self.assertEqual(self.count_tokens(), 1)
+        with self.assertRaises(TokenAlreadyPlayed):
+            self.play(self.other_session, 0, self.timestamp)
+
+    def test_uncontended_token_is_accepted_under_the_lock(self):
+        self.play(self.session, 0, self.timestamp)
+
+        self.assertEqual(self.held_advisory_locks(self.session),
+                         [(TOKEN_LOCK_NAMESPACE, self.participation_id)])
+        self.session.commit()
+        self.assertEqual(self.held_advisory_locks(self.session), [])
+        self.assertEqual(self.count_tokens(), 1)
 
 
 if __name__ == "__main__":

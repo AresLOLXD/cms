@@ -19,17 +19,21 @@
 import unittest
 from collections import namedtuple
 from datetime import timedelta
-from unittest.mock import MagicMock, PropertyMock, patch, sentinel, ANY
+from unittest.mock import MagicMock, PropertyMock, patch, sentinel, ANY, \
+    call
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms import config
-from cms.db import Submission, UserTest
+from cms.db import Participation, Session, Submission, Task, UserTest
 from cms.server.contest.submission import InvalidArchive, \
     InvalidFilesOrLanguage, StorageFailed, UnacceptableSubmission, \
-    accept_submission, TestingNotAllowed, UnacceptableUserTest, accept_user_test
+    ConcurrentSubmission, accept_submission, TestingNotAllowed, \
+    UnacceptableUserTest, accept_user_test
+from cms.server.contest.submission.check import CONCURRENT_REQUEST_TEXT, \
+    SUBMISSION_LOCK_NAMESPACE, USER_TEST_LOCK_NAMESPACE
 from cmscommon.datetime import make_datetime
 from cmscommon.digest import bytes_digest
 from cmstestsuite.unit_tests.testidgenerator import unique_long_id, \
@@ -108,6 +112,12 @@ class TestAcceptSubmission(DatabaseMixin, unittest.TestCase):
         self.check_min_interval = patcher.start()
         self.addCleanup(patcher.stop)
         self.check_min_interval.return_value = True
+
+        patcher = patch(
+            "cms.server.contest.submission.workflow.try_lock_limit_checks")
+        self.try_lock_limit_checks = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.try_lock_limit_checks.return_value = True
 
         patcher = patch(
             "cms.server.contest.submission.workflow.is_last_minutes")
@@ -303,6 +313,94 @@ class TestAcceptSubmission(DatabaseMixin, unittest.TestCase):
         self.is_last_minutes.assert_called_with(
             self.timestamp, self.participation)
 
+    def test_limit_checks_run_under_the_lock(self):
+        self.contest.max_submission_number = 1
+        self.task.min_submission_interval = timedelta(seconds=1)
+        calls = MagicMock()
+        calls.attach_mock(self.try_lock_limit_checks, "try_lock")
+        calls.attach_mock(self.check_max_number, "check_max_number")
+        calls.attach_mock(self.check_min_interval, "check_min_interval")
+
+        self.call()
+
+        self.assertEqual(
+            calls.mock_calls[0],
+            call.try_lock(self.session, self.participation, "submission"))
+        self.assertEqual(len(calls.mock_calls), 5)
+
+    def test_failure_due_to_concurrent_request(self):
+        self.task.max_submission_number = 1
+        self.try_lock_limit_checks.return_value = False
+
+        with self.assertRaises(ConcurrentSubmission) as raised:
+            self.call()
+
+        self.assertEqual(raised.exception.subject, "Submission not accepted")
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.check_max_number.assert_not_called()
+        self.file_cacher.put_file_content.assert_not_called()
+
+    def test_no_lock_without_limits(self):
+        self.call()
+
+        self.try_lock_limit_checks.assert_not_called()
+
+    def test_no_lock_for_an_unrestricted_participation(self):
+        self.participation.unrestricted = True
+        self.contest.max_submission_number = 1
+        self.task.min_submission_interval = timedelta(seconds=1)
+
+        self.call()
+
+        self.try_lock_limit_checks.assert_not_called()
+
+    def test_no_lock_with_both_overrides(self):
+        self.contest.max_submission_number = 1
+        self.task.min_submission_interval = timedelta(seconds=1)
+
+        accept_submission(
+            self.session, self.file_cacher, self.participation, self.task,
+            self.timestamp, self.tornado_files, self.language_name,
+            self.official, override_max_number=True,
+            override_min_interval=True)
+
+        self.try_lock_limit_checks.assert_not_called()
+
+    def test_lock_with_one_override(self):
+        self.contest.max_submission_number = 1
+        self.task.min_submission_interval = timedelta(seconds=1)
+
+        for override_max_number in (True, False):
+            with self.subTest(override_max_number=override_max_number):
+                self.try_lock_limit_checks.reset_mock()
+
+                accept_submission(
+                    self.session, self.file_cacher, self.participation,
+                    self.task, self.timestamp, self.tornado_files,
+                    self.language_name, self.official,
+                    override_max_number=override_max_number,
+                    override_min_interval=not override_max_number)
+
+                self.try_lock_limit_checks.assert_called_once_with(
+                    self.session, self.participation, "submission")
+
+    def test_no_lock_for_min_interval_in_last_minutes(self):
+        self.contest.min_submission_interval = timedelta(seconds=1)
+        self.is_last_minutes.return_value = True
+
+        self.call()
+
+        self.try_lock_limit_checks.assert_not_called()
+
+    def test_lock_for_max_number_in_last_minutes(self):
+        self.contest.max_submission_number = 1
+        self.is_last_minutes.return_value = True
+
+        self.call()
+
+        self.try_lock_limit_checks.assert_called_once_with(
+            self.session, self.participation, "submission")
+
     def test_failure_due_to_extract_files_from_tornado(self):
         self.extract_files_from_tornado.side_effect = InvalidArchive
 
@@ -448,6 +546,12 @@ class TestAcceptUserTest(DatabaseMixin, unittest.TestCase):
         self.check_min_interval = patcher.start()
         self.addCleanup(patcher.stop)
         self.check_min_interval.return_value = True
+
+        patcher = patch(
+            "cms.server.contest.submission.workflow.try_lock_limit_checks")
+        self.try_lock_limit_checks = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.try_lock_limit_checks.return_value = True
 
         patcher = patch(
             "cms.server.contest.submission.workflow.extract_files_from_tornado")
@@ -640,6 +744,47 @@ class TestAcceptUserTest(DatabaseMixin, unittest.TestCase):
             self.session, min_interval, self.timestamp, self.participation,
             task=self.task, cls=UserTest)
 
+    def test_limit_checks_run_under_the_lock(self):
+        self.contest.max_user_test_number = 1
+        self.task.min_user_test_interval = timedelta(seconds=1)
+        calls = MagicMock()
+        calls.attach_mock(self.try_lock_limit_checks, "try_lock")
+        calls.attach_mock(self.check_max_number, "check_max_number")
+        calls.attach_mock(self.check_min_interval, "check_min_interval")
+
+        self.call()
+
+        self.assertEqual(
+            calls.mock_calls[0],
+            call.try_lock(self.session, self.participation, "user test"))
+        self.assertEqual(len(calls.mock_calls), 5)
+
+    def test_failure_due_to_concurrent_request(self):
+        self.contest.min_user_test_interval = timedelta(seconds=1)
+        self.try_lock_limit_checks.return_value = False
+
+        with self.assertRaises(UnacceptableUserTest) as raised:
+            self.call()
+
+        self.assertEqual(raised.exception.subject, "Test not accepted")
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.check_min_interval.assert_not_called()
+        self.file_cacher.put_file_content.assert_not_called()
+
+    def test_no_lock_without_limits(self):
+        self.call()
+
+        self.try_lock_limit_checks.assert_not_called()
+
+    def test_no_lock_for_an_unrestricted_participation(self):
+        self.participation.unrestricted = True
+        self.contest.max_user_test_number = 1
+        self.task.min_user_test_interval = timedelta(seconds=1)
+
+        self.call()
+
+        self.try_lock_limit_checks.assert_not_called()
+
     def test_failure_due_to_extract_files_from_tornado(self):
         self.extract_files_from_tornado.side_effect = InvalidArchive
 
@@ -749,6 +894,189 @@ class TestAcceptUserTest(DatabaseMixin, unittest.TestCase):
         self.assertIn(content, {FOO_CONTENT, SPAM_CONTENT, INPUT_CONTENT})
         self.assertRegex(description, "foo.%l|spammock.1|input")
         self.assertIn(self.participation.user.username, description)
+
+
+class TestConcurrentRequests(DatabaseMixin, unittest.TestCase):
+    """Two requests of one contestant at the same moment, as two CWS
+    shards handle them: each one has its own session, and the real
+    limit checks run. Only the files, their storage and the task type
+    are replaced.
+
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.contest = self.add_contest()
+        self.participation = self.add_participation(contest=self.contest)
+        self.task = self.add_task(
+            submission_format=["foo.%l"], contest=self.contest)
+        self.dataset = self.add_dataset(task=self.task)
+        self.task.active_dataset = self.dataset
+        self.session.commit()
+        self.participation_id = self.participation.id
+        self.task_id = self.task.id
+        self.timestamp = make_datetime()
+
+        # The session of the request handled by the other shard.
+        self.other_session = Session()
+        self.addCleanup(self.other_session.close)
+
+        patcher = patch('cms.db.Dataset.task_type_object',
+                        new_callable=PropertyMock)
+        task_type = patcher.start().return_value
+        self.addCleanup(patcher.stop)
+        task_type.testable = True
+        task_type.get_user_managers.return_value = []
+
+        patcher = patch(
+            "cms.server.contest.submission.workflow.extract_files_from_tornado",
+            return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        # Every required file is sent.
+        language = make_language("MockLanguage", [".mock"])
+        patcher = patch(
+            "cms.server.contest.submission.workflow.match_files_and_language",
+            side_effect=lambda received_files, language_name, required,
+            allowed: ({codename: FOO_CONTENT for codename in required},
+                      language))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        for option in ("submit_local_copy", "tests_local_copy"):
+            patcher = patch.object(config.contest_web_server, option, False)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        self.file_cacher = MagicMock()
+        self.file_cacher.put_file_content.side_effect = \
+            lambda content, _: bytes_digest(content)
+
+    def submit(self, session, timestamp):
+        """Send a submission of the contestant in the given session."""
+        return accept_submission(
+            session, self.file_cacher,
+            session.get(Participation, self.participation_id),
+            session.get(Task, self.task_id), timestamp, {}, None, True)
+
+    def send_user_test(self, session, timestamp):
+        """Send a user test of the contestant in the given session."""
+        return accept_user_test(
+            session, self.file_cacher,
+            session.get(Participation, self.participation_id),
+            session.get(Task, self.task_id), timestamp, {}, None)
+
+    def assertBusyIsLogged(self, logs, request_kind):
+        """Assert that the refusal was logged, as the docs grep it."""
+        self.assertEqual(logs.output, [
+            "INFO:cms.server.contest.submission.check:concurrent request "
+            "rejected for %s (participation %d, %s)" % (
+                self.participation.user.username, self.participation_id,
+                request_kind)])
+
+    def count(self, cls):
+        """Return how many submissions or user tests were committed."""
+        with Session() as session:
+            return session.execute(
+                select(func.count(cls.id))
+                .where(cls.participation_id == self.participation_id)
+            ).scalar_one()
+
+    def test_concurrent_submission_over_max_number_is_rejected_busy(self):
+        self.contest.max_submission_number = 1
+        self.session.commit()
+        self.submit(self.session, self.timestamp)
+
+        with self.assertRaises(ConcurrentSubmission) as raised, \
+                self.assertLogs("cms.server.contest.submission.check",
+                                "INFO") as logs:
+            self.submit(self.other_session, self.timestamp)
+        self.assertEqual(raised.exception.subject, "Submission not accepted")
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.assertBusyIsLogged(logs, "submission")
+        self.other_session.rollback()
+        self.session.commit()
+
+        self.assertEqual(self.count(Submission), 1)
+        # Sent again, it reads the committed submission: the limit
+        # refuses it.
+        with self.assertRaisesRegex(UnacceptableSubmission,
+                                    "Too many submissions"):
+            self.submit(self.other_session, self.timestamp)
+
+    def test_concurrent_submission_within_min_interval_is_rejected_busy(self):
+        self.contest.min_submission_interval = timedelta(seconds=60)
+        self.session.commit()
+        self.submit(self.session, self.timestamp)
+
+        later = self.timestamp + timedelta(seconds=1)
+        with self.assertRaises(ConcurrentSubmission):
+            self.submit(self.other_session, later)
+        self.other_session.rollback()
+        self.session.commit()
+
+        self.assertEqual(self.count(Submission), 1)
+        with self.assertRaisesRegex(UnacceptableSubmission,
+                                    "Submissions too frequent"):
+            self.submit(self.other_session, later)
+
+    def test_concurrent_user_test_over_max_number_is_rejected_busy(self):
+        self.task.max_user_test_number = 1
+        self.session.commit()
+        self.send_user_test(self.session, self.timestamp)
+
+        with self.assertRaises(UnacceptableUserTest) as raised, \
+                self.assertLogs("cms.server.contest.submission.check",
+                                "INFO") as logs:
+            self.send_user_test(self.other_session, self.timestamp)
+        self.assertEqual(raised.exception.subject, "Test not accepted")
+        self.assertEqual(raised.exception.text, CONCURRENT_REQUEST_TEXT)
+        self.assertBusyIsLogged(logs, "user test")
+        self.other_session.rollback()
+        self.session.commit()
+
+        self.assertEqual(self.count(UserTest), 1)
+        with self.assertRaisesRegex(UnacceptableUserTest, "Too many tests"):
+            self.send_user_test(self.other_session, self.timestamp)
+
+    def test_submission_does_not_make_a_user_test_busy(self):
+        self.contest.max_submission_number = 1
+        self.contest.max_user_test_number = 1
+        self.session.commit()
+        self.submit(self.session, self.timestamp)
+
+        self.send_user_test(self.other_session, self.timestamp)
+
+    def test_without_limits_both_are_accepted_without_a_lock(self):
+        self.submit(self.session, self.timestamp)
+        self.send_user_test(self.session, self.timestamp)
+        self.submit(self.other_session, self.timestamp)
+        self.send_user_test(self.other_session, self.timestamp)
+
+        self.assertEqual(self.held_advisory_locks(self.session), [])
+        self.assertEqual(self.held_advisory_locks(self.other_session), [])
+        self.session.commit()
+        self.other_session.commit()
+        self.assertEqual(self.count(Submission), 2)
+        self.assertEqual(self.count(UserTest), 2)
+
+    def test_uncontended_requests_are_accepted_under_the_lock(self):
+        self.task.max_submission_number = 1
+        self.contest.min_user_test_interval = timedelta(seconds=60)
+        self.session.commit()
+
+        self.submit(self.session, self.timestamp)
+        self.send_user_test(self.session, self.timestamp)
+
+        self.assertEqual(self.held_advisory_locks(self.session), [
+            (SUBMISSION_LOCK_NAMESPACE, self.participation_id),
+            (USER_TEST_LOCK_NAMESPACE, self.participation_id)])
+        self.session.commit()
+        self.assertEqual(self.held_advisory_locks(self.session), [])
+        self.assertEqual(self.count(Submission), 1)
+        self.assertEqual(self.count(UserTest), 1)
 
 
 if __name__ == "__main__":

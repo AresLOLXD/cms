@@ -28,7 +28,7 @@
 
 """Procedures used by CWS to accept submissions and user tests."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import typing
 
@@ -48,7 +48,8 @@ from cms.db import (
 )
 from cms.db.filecacher import FileCacher
 from cmscommon.datetime import make_timestamp
-from .check import check_max_number, check_min_interval, is_last_minutes
+from .check import CONCURRENT_REQUEST_TEXT, check_max_number, \
+    check_min_interval, is_last_minutes, try_lock_limit_checks
 from .file_matching import InvalidFilesOrLanguage, match_files_and_language
 from .file_retrieval import InvalidArchive, extract_files_from_tornado
 from .utils import fetch_file_digests_from_previous_submission, StorageFailed, \
@@ -76,6 +77,17 @@ class UnacceptableSubmission(Exception):
         if self.text_params is None:
             return self.text
         return self.text % self.text_params
+
+
+class ConcurrentSubmission(UnacceptableSubmission):
+    """Raised when another request of the contestant holds the lock.
+
+    That request was being checked against the contestant's limits at
+    the same moment (see try_lock_limit_checks). Unlike the other
+    refusals, this one may not hold if the submission is sent again,
+    which is why the API answers it with another status code.
+
+    """
 
 
 def accept_submission(
@@ -113,6 +125,8 @@ def accept_submission(
 
     return: the resulting submission, if all went well.
 
+    raise (ConcurrentSubmission): if another request of the contestant
+        held the lock of their limits.
     raise (UnacceptableSubmission): if the contestant wasn't allowed to
         hand in a submission, if the provided data was invalid, if there
         were critical failures in the process.
@@ -121,7 +135,23 @@ def accept_submission(
     contest = participation.contest
     assert task.contest is contest
 
-    # Check whether the contestant is allowed to submit.
+    # Check whether the contestant is allowed to submit, under the lock
+    # of their limits if a check reads their past submissions.
+
+    check_interval = not override_min_interval \
+        and not is_last_minutes(timestamp, participation)
+    limits: list[int | timedelta | None] = []
+    if not override_max_number:
+        limits += [contest.max_submission_number, task.max_submission_number]
+    if check_interval:
+        limits += [contest.min_submission_interval,
+                   task.min_submission_interval]
+    if not participation.unrestricted \
+            and any(limit is not None for limit in limits):
+        if not try_lock_limit_checks(
+                sql_session, participation, "submission"):
+            raise ConcurrentSubmission(
+                N_("Submission not accepted"), CONCURRENT_REQUEST_TEXT)
 
     if not override_max_number:
         if not check_max_number(sql_session, contest.max_submission_number,
@@ -140,7 +170,7 @@ def accept_submission(
                    "at most %d submissions on this task."),
                 task.max_submission_number)
 
-    if not override_min_interval and not is_last_minutes(timestamp, participation):
+    if check_interval:
         if not check_min_interval(sql_session, contest.min_submission_interval,
                                   timestamp, participation, contest=contest):
             raise UnacceptableSubmission(
@@ -331,8 +361,9 @@ def accept_user_test(
 
     raise (TestingNotAllowed): if the task doesn't allow for any tests.
     raise (UnacceptableUserTest): if the contestant wasn't allowed to
-        hand in a user test, if the provided data was invalid, if there
-        were critical failures in the process.
+        hand in a user test (also if another request of the contestant
+        held the lock of their limits), if the provided data was
+        invalid, if there were critical failures in the process.
 
     """
     contest = participation.contest
@@ -344,7 +375,17 @@ def accept_user_test(
     if not task_type.testable:
         raise TestingNotAllowed()
 
-    # Check whether the contestant is allowed to send a test.
+    # Check whether the contestant is allowed to send a test, under the
+    # lock of their limits if a check reads their past tests.
+
+    limits = [contest.max_user_test_number, task.max_user_test_number,
+              contest.min_user_test_interval, task.min_user_test_interval]
+    if not participation.unrestricted \
+            and any(limit is not None for limit in limits):
+        if not try_lock_limit_checks(
+                sql_session, participation, "user test"):
+            raise UnacceptableUserTest(
+                N_("Test not accepted"), CONCURRENT_REQUEST_TEXT)
 
     if not check_max_number(sql_session, contest.max_user_test_number,
                             participation, contest=contest, cls=UserTest):
