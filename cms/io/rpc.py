@@ -78,7 +78,12 @@ class FailureSeriesLog:
     WARNING. Its end is an INFO only if it logged a WARNING, so that
     each WARNING has its INFO, and DEBUG otherwise.
 
-    The state is per instance: each client has its own.
+    It exists because that rule needs more state than a bool per
+    failure (whether a series is going on, whether it warned, and when
+    the last WARNING was), and both stacks must apply it alike. The
+    state is per instance, never module-level: each client has its own,
+    one per kind of failure. It lives here, in the lower layer, so that
+    cms.io.async_rpc can use it too.
 
     """
 
