@@ -61,6 +61,14 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(hhmm_utc(WALL), "08:00 UTC")
         self.assertEqual(hhmm_utc(WALL + 3000), "08:50 UTC")
 
+    def test_hhmm_utc_is_total(self):
+        # An alert line can always be formatted, whatever the clock or a
+        # file gave.
+        for wall in (float("nan"), float("inf"), -float("inf"), 1e300,
+                     1e18, 10 ** 400):
+            with self.subTest(wall=wall):
+                self.assertEqual(hhmm_utc(wall), "--:--")
+
     def test_p99(self):
         self.assertIsNone(p99([]))
         self.assertEqual(p99([0.5]), 0.5)
@@ -69,7 +77,8 @@ class TestHelpers(unittest.TestCase):
     def test_is_number(self):
         for value in (0, 1.5, -3):
             self.assertTrue(is_number(value))
-        for value in (True, None, "1", float("nan"), float("inf")):
+        for value in (True, None, "1", float("nan"), float("inf"),
+                      10 ** 400, -10 ** 400):
             self.assertFalse(is_number(value))
 
     def test_shadow_for(self):
@@ -207,6 +216,28 @@ class TestRedIntervals(unittest.TestCase):
             WALL - 20)
 
 
+def ledger_text(wall: str = "1800000000", program: str = '"es"',
+                pool: str = '"services"', action: str = '"restart"',
+                would: str = "false", pid: str = "4242",
+                red: str = "[]", incidents: str = "{}",
+                exhausted: str = "null") -> str:
+    """Return a ledger file with one booking, each field as JSON text."""
+    return (
+        '{"real": [{"wall": %s, "program": %s, "label": "cmsX 0",'
+        ' "pool": %s, "action": %s, "rule": "R1", "would": %s,'
+        ' "pid": %s}], "shadow": [], "red": %s, "incidents": %s,'
+        ' "exhausted_until": %s}'
+        % (wall, program, pool, action, would, pid, red, incidents,
+           exhausted))
+
+
+def incident_text(opened: str = "1800000000", passes: str = "1",
+                  rule: str = '"R1"') -> str:
+    """Return the incidents of a ledger file: one, by field."""
+    return '{"es": {"rule": %s, "opened": %s, "passes": %s}}' % (
+        rule, opened, passes)
+
+
 class TestLedgerFile(unittest.TestCase):
 
     def test_a_round_trip(self):
@@ -220,16 +251,104 @@ class TestLedgerFile(unittest.TestCase):
         ledger.exhausted_until = WALL + 100
         self.assertEqual(Ledger.from_json(ledger.to_json()), ledger)
 
+    def test_the_text_the_bad_cases_start_from_is_a_ledger(self):
+        ledger = Ledger.from_json(ledger_text(
+            red="[[1800000000, null]]", incidents=incident_text(),
+            exhausted="1800003600"))
+        self.assertEqual(ledger.real[0].wall, WALL)
+        self.assertEqual(ledger.real[0].pid, 4242)
+        self.assertEqual(ledger.incidents["es"]["passes"], 1)
+        self.assertEqual(ledger.exhausted_until, WALL + 3600)
+        self.assertIsNone(Ledger.from_json(ledger_text(
+            action='"start"', pid="null")).real[0].pid)
+
     def test_what_is_not_a_ledger(self):
         for text in ("", "{", "[]", "{}", '{"real": 3}',
                      '{"real": [{"wall": "x"}], "shadow": [], "red": [],'
                      ' "incidents": {}, "exhausted_until": null}',
                      '{"real": [], "shadow": [], "red": [[1]],'
-                     ' "incidents": {}, "exhausted_until": null}'):
-            with self.subTest(text=text):
+                     ' "incidents": {}, "exhausted_until": null}',
+                     # Not the right kind of container.
+                     '{"real": "", "shadow": [], "red": [],'
+                     ' "incidents": {}, "exhausted_until": null}',
+                     '{"real": {}, "shadow": [], "red": [],'
+                     ' "incidents": {}, "exhausted_until": null}',
+                     '{"real": [], "shadow": [], "red": [],'
+                     ' "incidents": [], "exhausted_until": null}',
+                     '{"real": [3], "shadow": [], "red": [],'
+                     ' "incidents": {}, "exhausted_until": null}',
+                     '{"real": [], "shadow": [], "red": [{}],'
+                     ' "incidents": {}, "exhausted_until": null}',
+                     '{"real": [], "shadow": [], "red": [],'
+                     ' "incidents": {"es": 3}, "exhausted_until": null}',
+                     # Nested deeper than the parser goes.
+                     "[" * 100_000,
+                     # A time that is not a number, or not a time.
+                     ledger_text(wall="NaN"),
+                     ledger_text(wall='"nan"'),
+                     ledger_text(wall='"1800000000"'),
+                     ledger_text(wall="true"),
+                     ledger_text(wall="null"),
+                     ledger_text(wall="-1"),
+                     ledger_text(wall="1e300"),
+                     ledger_text(wall="Infinity"),
+                     ledger_text(wall="1" + "0" * 399),
+                     ledger_text(red="[[NaN, null]]"),
+                     ledger_text(red="[[1800000000, Infinity]]"),
+                     ledger_text(red="[[1800000000, 1800000000, 1]]"),
+                     ledger_text(exhausted="Infinity"),
+                     ledger_text(exhausted="1e300"),
+                     ledger_text(exhausted="NaN"),
+                     ledger_text(exhausted='"1800003600"'),
+                     ledger_text(incidents=incident_text(opened="NaN")),
+                     ledger_text(incidents=incident_text(opened='"x"')),
+                     # A count or a pid that is not one.
+                     ledger_text(pid="1e400"),
+                     ledger_text(pid="4242.0"),
+                     ledger_text(pid="0"),
+                     ledger_text(pid="true"),
+                     ledger_text(pid='"4242"'),
+                     ledger_text(pid="1" + "0" * 399),
+                     ledger_text(incidents=incident_text(
+                         passes="Infinity")),
+                     ledger_text(incidents=incident_text(passes="1.5")),
+                     ledger_text(incidents=incident_text(passes="-1")),
+                     ledger_text(incidents=incident_text(passes="true")),
+                     ledger_text(incidents=incident_text(
+                         passes="1" + "0" * 399)),
+                     # A flag or a name that is not one.
+                     ledger_text(would='"false"'),
+                     ledger_text(would="0"),
+                     ledger_text(would="null"),
+                     ledger_text(program="null"),
+                     ledger_text(program="3"),
+                     ledger_text(pool="null"),
+                     ledger_text(pool='"nowhere"'),
+                     ledger_text(action="null"),
+                     ledger_text(action='"explode"'),
+                     ledger_text(incidents=incident_text(rule="null"))):
+            with self.subTest(text=text[:100]):
                 with self.assertRaises(LedgerError):
                     Ledger.from_json(text)
         self.assertTrue(issubclass(LedgerError, ValueError))
+
+    def test_a_nan_is_never_written(self):
+        for ledger in (self.ledger_with_wall(float("nan")),
+                       self.ledger_with_wall(float("inf")),
+                       Ledger(red=[[float("nan"), None]]),
+                       Ledger(exhausted_until=float("inf")),
+                       Ledger(incidents={"es": {"rule": "R1",
+                                                "opened": float("nan"),
+                                                "passes": 1}})):
+            with self.subTest(ledger=ledger):
+                with self.assertRaises(ValueError):
+                    ledger.to_json()
+
+    @staticmethod
+    def ledger_with_wall(wall: float) -> Ledger:
+        ledger = Ledger()
+        ledger.book(booking("cws1", wall), False)
+        return ledger
 
 
 if __name__ == "__main__":

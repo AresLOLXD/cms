@@ -35,6 +35,7 @@ import time
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from typing import TypeVar
 
 
 # The cycle (spec 3.3). Seconds, unless the name says otherwise.
@@ -159,8 +160,16 @@ def age(now: float, then: float) -> float:
 
 
 def hhmm_utc(wall: float) -> str:
-    """Return an epoch time as "HH:MM UTC"."""
-    return time.strftime("%H:%M UTC", time.gmtime(wall))
+    """Return an epoch time as "HH:MM UTC", or "--:--" if it has none.
+
+    A NaN, an infinity or a time the platform cannot represent has no
+    hour: the line that quotes it must still be written.
+
+    """
+    try:
+        return time.strftime("%H:%M UTC", time.gmtime(wall))
+    except (ValueError, OverflowError, OSError):
+        return "--:--"
 
 
 def p99(values: Sequence[float]) -> float | None:
@@ -172,9 +181,17 @@ def p99(values: Sequence[float]) -> float | None:
 
 
 def is_number(value: object) -> bool:
-    """Tell whether value is a finite int or float (not a bool)."""
-    return (isinstance(value, (int, float))
-            and not isinstance(value, bool) and math.isfinite(value))
+    """Tell whether value is a finite int or float (not a bool).
+
+    An int too large for a float is not a number the policy can use.
+
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -361,14 +378,81 @@ class LedgerError(ValueError):
     """A ledger file that does not parse."""
 
 
-def _booking(item: Mapping) -> Booking:
+# What a ledger file may hold: anything else is not a ledger. The times
+# are epoch seconds from 1970 to 2100, so that every one of them can be
+# written in an alert and none of them is so far away that it would
+# never age out.
+LEDGER_MAX_EPOCH_S = 4_102_444_800.0
+# Linux's PID_MAX_LIMIT.
+LEDGER_MAX_PID = 1 << 22
+LEDGER_MAX_PASSES = 1_000_000
+
+_Shape = TypeVar("_Shape")
+
+
+def _shape(value: object, kind: type[_Shape]) -> _Shape:
+    """Return value if it is a kind (list or dict), else raise."""
+    if not isinstance(value, kind):
+        raise ValueError("expected a %s, got %.40r" % (kind.__name__, value))
+    return value
+
+
+def _epoch(value: object) -> float:
+    """Return a time of a ledger file; raise if it is not a sane one."""
+    if not is_number(value) or not 0 <= value <= LEDGER_MAX_EPOCH_S:
+        raise ValueError("not a time: %.40r" % (value,))
+    return float(value)
+
+
+def _integer(value: object, low: int, high: int) -> int:
+    """Return an int of a ledger file between low and high."""
+    if isinstance(value, bool) or not isinstance(value, int) \
+            or not low <= value <= high:
+        raise ValueError("not an integer from %d to %d: %.40r"
+                         % (low, high, value))
+    return value
+
+
+def _text(value: object, allowed: Sequence[str] | None = None) -> str:
+    """Return a string of a ledger file, one of allowed if it is given."""
+    if not isinstance(value, str) or \
+            (allowed is not None and value not in allowed):
+        raise ValueError("not a valid string: %.40r" % (value,))
+    return value
+
+
+def _flag(value: object) -> bool:
+    """Return a bool of a ledger file: only true and false are one."""
+    if not isinstance(value, bool):
+        raise ValueError("not a boolean: %.40r" % (value,))
+    return value
+
+
+def _booking(item: object) -> Booking:
     """Read one booking of a ledger file."""
+    item = _shape(item, dict)
+    pid = item.get("pid")
     return Booking(
-        wall=float(item["wall"]), program=str(item["program"]),
-        label=str(item["label"]), pool=str(item["pool"]),
-        action=str(item["action"]), rule=str(item["rule"]),
-        would=bool(item["would"]),
-        pid=None if item.get("pid") is None else int(item["pid"]))
+        wall=_epoch(item["wall"]), program=_text(item["program"]),
+        label=_text(item["label"]),
+        pool=_text(item["pool"], (WORKERS_POOL, SERVICES_POOL)),
+        action=_text(item["action"], (RESTART, START)),
+        rule=_text(item["rule"]), would=_flag(item["would"]),
+        pid=None if pid is None else _integer(pid, 1, LEDGER_MAX_PID))
+
+
+def _interval(item: object) -> list:
+    """Read one red interval of a ledger file: [start, end or None]."""
+    start, end = _shape(item, list)
+    return [_epoch(start), None if end is None else _epoch(end)]
+
+
+def _incident(item: object) -> dict:
+    """Read one open incident of a ledger file."""
+    item = _shape(item, dict)
+    return {"rule": _text(item["rule"]),
+            "opened": _epoch(item["opened"]),
+            "passes": _integer(item["passes"], 0, LEDGER_MAX_PASSES)}
 
 
 @dataclass
@@ -484,14 +568,19 @@ class Ledger:
         return restarts[-1] if restarts else None
 
     def to_json(self) -> str:
-        """Return the ledger as the text of its file."""
+        """Return the ledger as the text of its file.
+
+        raise (ValueError): if a time is NaN or infinite, which is not
+            JSON and which from_json would not take back.
+
+        """
         return json.dumps({
             "real": [asdict(b) for b in self.real],
             "shadow": [asdict(b) for b in self.shadow],
             "red": self.red,
             "incidents": self.incidents,
             "exhausted_until": self.exhausted_until,
-        }, indent=1, sort_keys=True)
+        }, indent=1, sort_keys=True, allow_nan=False)
 
     @classmethod
     def from_json(cls, text: str) -> "Ledger":
@@ -501,24 +590,26 @@ class Ledger:
 
         return: the ledger.
 
-        raise (LedgerError): if text is not a ledger.
+        raise (LedgerError): if text is not a ledger: it does not
+            parse, or a field is missing, of the wrong type or out of
+            its range. Nothing else leaves for a bad text.
 
         """
         try:
-            data = json.loads(text)
+            data = _shape(json.loads(text), dict)
+            exhausted_until = data["exhausted_until"]
             return cls(
-                real=[_booking(item) for item in data["real"]],
-                shadow=[_booking(item) for item in data["shadow"]],
-                red=[[float(start), None if end is None else float(end)]
-                     for start, end in data["red"]],
+                real=[_booking(item) for item in _shape(data["real"], list)],
+                shadow=[_booking(item)
+                        for item in _shape(data["shadow"], list)],
+                red=[_interval(item) for item in _shape(data["red"], list)],
                 incidents={
-                    str(name): {"rule": str(incident["rule"]),
-                                "opened": float(incident["opened"]),
-                                "passes": int(incident["passes"])}
-                    for name, incident in data["incidents"].items()},
-                exhausted_until=(None if data["exhausted_until"] is None
-                                 else float(data["exhausted_until"])))
-        except (ValueError, KeyError, TypeError, AttributeError) as error:
+                    str(name): _incident(incident) for name, incident
+                    in _shape(data["incidents"], dict).items()},
+                exhausted_until=(None if exhausted_until is None
+                                 else _epoch(exhausted_until)))
+        except (ValueError, KeyError, TypeError, AttributeError,
+                ArithmeticError, RecursionError) as error:
             raise LedgerError("not a watchdog ledger: %s" % error) \
                 from error
 
