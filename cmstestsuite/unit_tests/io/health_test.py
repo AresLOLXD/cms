@@ -18,6 +18,7 @@
 
 """Tests for cms.io.health: busy sections and the USR1 stack dump."""
 
+import re
 import signal
 import subprocess
 import sys
@@ -25,10 +26,11 @@ import textwrap
 import threading
 import time
 import unittest
+from unittest import mock
 
 from sqlalchemy import create_engine, text
 
-from cms.io.health import STACK_FRAMES, BusyTracker
+from cms.io.health import BusyTracker
 from cmstestsuite.unit_tests.healthfakes import FakeClock
 
 
@@ -98,7 +100,27 @@ class TestBusyTracker(unittest.TestCase):
         stack = self.tracker.report(stack_after_s=30)[0]["stack"]
 
         self.assertIn("holder_section", stack)
-        self.assertLessEqual(stack.count('File "'), STACK_FRAMES)
+        self.release.set()
+        thread.join(5)
+
+    def test_the_stack_keeps_the_innermost_frames(self):
+        thread, _ = self._hold("post_finish_lock:x")
+        self.clock.now += 30
+
+        # The holder's full stack is about 6 frames deep, from the
+        # thread's _bootstrap down to the wait on the release event.
+        with mock.patch("cms.io.health.STACK_FRAMES", 3):
+            stack = self.tracker.report(stack_after_s=30)[0]["stack"]
+
+        functions = re.findall(r'^  File ".*", line \d+, in (.+)$',
+                               stack, re.MULTILINE)
+        self.assertEqual(len(functions), 3)
+        # The innermost frame is where the thread waits...
+        self.assertEqual(functions[-1], "wait")
+        self.assertIn("holder_section", functions)
+        # ...and the outermost frames, _bootstrap and _bootstrap_inner,
+        # are the ones dropped.
+        self.assertNotIn("_bootstrap", stack)
         self.release.set()
         thread.join(5)
 
