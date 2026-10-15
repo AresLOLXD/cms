@@ -150,6 +150,9 @@ URGENT_HOLDS: tuple[str, ...] = ("H3", "H7")
 GATE_ANSWERED_REASONS: tuple[str, ...] = ("refused", "too many clients",
                                           "authentication")
 
+# The alert key of the Workers that H4 holds together.
+WORKERS_H4_KEY = ("workers", "H4")
+
 # Decision.action and Booking.action.
 ALERT = "alert"
 RESTART = "restart"
@@ -924,7 +927,7 @@ class _Cycle:
             # A starved cycle's gate may have failed because of the
             # watchdog's own starvation (a timeout), and a green one
             # proves nothing in a cycle that decides nothing: neither
-            # opens or closes a red interval. A red that PostgreSQL
+            # opens nor closes a red interval. A red that PostgreSQL
             # answered is real and is tracked below. The statistics
             # count every red.
             if not gate.green:
@@ -989,12 +992,28 @@ class _Cycle:
             if program_state.pid is not None \
                     and program_state.pid != program.pid:
                 program_state.window.clear()
+                self._forget_episodes(program.name)
             program_state.pid = program.pid
             program_state.history.append(self._history_entry(program))
             probe = self._liveness_probe(program)
             # A starved cycle's result is unknown: no miss, no pass.
             if probe is not None and not self.starved:
                 program_state.window.append(not probe.ok)
+
+    def _forget_episodes(self, name: str) -> None:
+        """Start afresh for a program that has a new process.
+
+        Its hold episodes and the rate limits of its alerts belong to the
+        old process: the new one's first early warning and first held
+        line are new problems. Its incident and its open alerts stay.
+
+        name: the program's name.
+
+        """
+        for table in (self.state.held_headline, self.state.held_announced,
+                      self.state.alert_sent):
+            for key in [key for key in table if key[0] == name]:
+                del table[key]
 
     def _liveness_probe(self, program: ProgramFacts) -> Probe | None:
         """Return the probe that R1 or R2 judges program on, if any."""
@@ -1086,6 +1105,12 @@ class _Cycle:
                 self._restart(trip, shadow)
         if held_workers:
             self._held_workers(held_workers)
+        else:
+            # The Workers' H4 episode is over: the next one is entering
+            # a hold again.
+            for table in (self.state.held_headline,
+                          self.state.alert_sent):
+                table.pop(WORKERS_H4_KEY, None)
 
     def _early_warnings(self) -> None:
         """Emit the early warnings of the cycle (3.5, 3.9)."""
@@ -1122,6 +1147,9 @@ class _Cycle:
                 % (MISSES_TO_TRIP, what))
         if holds:
             text += " But %s applies now: %s." % holds[0]
+            if len(holds) > 1:
+                text += " Also: %s." % ", ".join(
+                    code for code, _ in holds[1:])
         return text + (" Check ./logs.sh for its log; cmsWatchdog "
                        "--snapshot %s writes its stacks." % program.name)
 
@@ -1360,7 +1388,7 @@ class _Cycle:
 
     def _held_workers(self, trips: list[Trip]) -> None:
         """Alert once about the Workers that H4 holds together."""
-        key = ("workers", "H4")
+        key = WORKERS_H4_KEY
         previous = self.state.held_headline.get(key)
         self.state.held_headline[key] = "H4"
         labels = ", ".join(sorted(trip.program.label for trip in trips))

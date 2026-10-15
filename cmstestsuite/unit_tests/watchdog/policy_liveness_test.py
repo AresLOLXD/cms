@@ -22,10 +22,10 @@ import unittest
 
 from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
     OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
-    Probe, busy_sections, hhmm_utc
+    Probe, Trip, _Cycle, busy_sections, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, \
-    DEFAULT_PROGRAMS, ES, LS, RED, W0, W1, Scenario, actions, alerts, \
-    held, lock_wait_snapshot, program
+    DEFAULT_PROGRAMS, ES, GREEN, LS, RED, W0, W1, Scenario, actions, \
+    alerts, held, lock_wait_snapshot, program
 
 
 def book(s: Scenario, name: str, label: str, wall: float,
@@ -163,6 +163,22 @@ class TestLivenessRules(unittest.TestCase):
         self.assertNotIn("restarts it", text)
         self.assertNotIn("held by", text)
 
+    def test_the_early_warning_lists_every_hold_that_applies(self):
+        s = Scenario()
+        s.warm_up()
+        for wall in (s.wall - 600, s.wall - 300):
+            book(s, CWS1, "cmsContestWebServer 1", wall, 109)
+        # 60 s old at the third miss: H6 holds, and the budget (H7) will
+        # go on holding after the grace.
+        s.set(CWS1, start_wall=s.wall - CYCLE_S)
+        s.cycle(fail=[CWS1])
+        s.cycle(fail=[CWS1])
+        [warning] = [d for d in alerts(s.cycle(fail=[CWS1]))
+                     if d.key == (CWS1, "R1 warning")]
+        self.assertIn("would restart it. But H6 applies now: "
+                      "cmsContestWebServer 1 started 60 s ago. Also: H7.",
+                      warning.text)
+
     def test_the_early_warning_in_observe_mode_names_the_hold_too(self):
         text = self.warning(Scenario(mode=OBSERVE), gate=RED).text
         self.assertIn("only logs the restart it would do (observe mode). "
@@ -207,6 +223,23 @@ class TestLivenessRules(unittest.TestCase):
                 self.assertEqual(sum(s.state.programs[CWS1].window), 4)
                 [restart] = actions(s.cycle(fail=[CWS1]))
                 self.assertEqual(restart.program, CWS1)
+
+    def test_a_starved_green_gate_leaves_an_open_red_interval_open(self):
+        # The reason of a green gate means nothing, whatever it holds.
+        for gate in (GREEN, Gate(True, "refused")):
+            with self.subTest(gate=gate):
+                s = Scenario()
+                s.warm_up()
+                self.assertEqual(len(s.cycle(gate=RED)), 1)
+                self.assertEqual(s.cycle(gate=gate, lag_s=6.0), [])
+                self.assertEqual(len(s.state.ledger.red), 1)
+                self.assertIsNone(s.state.ledger.red[0][1])
+                self.assertEqual(s.state.green_cycles, 0)
+                decisions = s.cycle()
+                self.assertTrue(any(
+                    d.text.startswith("Resolved: the database gate")
+                    for d in decisions))
+                self.assertIsNotNone(s.state.ledger.red[0][1])
 
     def test_a_starved_cycle_tracks_a_red_that_postgresql_answered(self):
         for reason in ("refused", "too many clients", "authentication"):
@@ -687,6 +720,40 @@ class TestHoldEpisodes(unittest.TestCase):
         self.assertEqual(restart.program, CWS1)
         self.assertNotIn((CWS1, "R1"), s.state.held_announced)
 
+    def test_a_new_process_starts_a_new_hold_episode(self):
+        s = Scenario()
+        s.warm_up()
+        book(s, CWS1, "cmsContestWebServer 1", s.wall - 600, 109)
+        trip(s)
+        for _ in range(7):
+            s.cycle(fail=[CWS1])
+        [budget] = held(s.cycle(fail=[CWS1]), CWS1)
+        self.assertEqual(budget.holds[0], "H7")
+        # The operator restarts it by hand; the new process hangs too.
+        s.set(CWS1, pid=999, start_wall=s.wall + CYCLE_S)
+        warned = []
+        lines = []
+        for cycle in range(9):
+            decisions = s.cycle(fail=[CWS1])
+            if cycle == 0:
+                # The old process's episode is over, its incident is not.
+                for table in (s.state.held_headline,
+                              s.state.held_announced):
+                    self.assertNotIn((CWS1, "R1"), table)
+                self.assertIn(CWS1, s.state.ledger.incidents)
+            warned.append(any(d.key == (CWS1, "R1 warning")
+                              for d in alerts(decisions)))
+            lines.append(held(decisions, CWS1))
+        # The new process has its own early warning, at its third miss,
+        # and its own first held line, at its trip: neither waits for
+        # the 5 minutes of the old process's last lines. Its budget
+        # (H7) is announced again too, when the grace of H6 ends.
+        self.assertEqual(warned, [False, False, True] + [False] * 6)
+        self.assertEqual([bool(line) for line in lines],
+                         [False] * 4 + [True] + [False] * 3 + [True])
+        self.assertEqual(lines[4][0].holds[:2], ("H6", "H7"))
+        self.assertEqual(lines[8][0].holds[0], "H7")
+
     def test_an_incident_that_resolves_ends_the_episode(self):
         s = self.episode()
         self.assertIn((CWS1, "R1"), s.state.held_announced)
@@ -694,6 +761,40 @@ class TestHoldEpisodes(unittest.TestCase):
         [resolved] = [d for d in s.cycle() if d.text.startswith("Resolved:")]
         self.assertIn("passes its checks again", resolved.text)
         self.assertEqual(s.state.held_announced, {})
+
+
+class TestWorkersEpisode(unittest.TestCase):
+    """H4's one alert for the Workers that trip R4 together.
+
+    R4 is not a rule of decide() yet: the trips are given to a cycle.
+    """
+
+    def cycle(self, s: Scenario, tripped: bool) -> list:
+        s.mono += CYCLE_S
+        s.wall += CYCLE_S
+        cycle = _Cycle(s.state, s.observation, s.mono, s.wall)
+        if tripped:
+            cycle.trips = [Trip(s.programs[name], "R4", "disabled")
+                           for name in (W0, W1)]
+        cycle._act_on_trips()
+        return cycle.decisions
+
+    def test_a_second_episode_is_entering_a_hold_again(self):
+        s = Scenario()
+        s.warm_up()
+        key = ("workers", "H4")
+        first = self.cycle(s, True)
+        [line] = [d for d in first if d.key == key]
+        self.assertEqual(line.holds, ("H4",))
+        # The same episode: the rate limit applies.
+        self.assertEqual(self.cycle(s, True), [])
+        # The Workers recover: the episode ends.
+        self.assertEqual(self.cycle(s, False), [])
+        self.assertNotIn(key, s.state.held_headline)
+        self.assertNotIn(key, s.state.alert_sent)
+        # A new episode, 30 s after the first line, is a state change.
+        [line] = [d for d in self.cycle(s, True) if d.key == key]
+        self.assertEqual(line.holds, ("H4",))
 
 
 class TestOrphanMark(unittest.TestCase):
