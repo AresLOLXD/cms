@@ -23,7 +23,7 @@ Database
 Services
 ========
 
-- *Symptom.* Some services log error messages like :samp:`Response is missing some fields, ignoring` then disconnect from other services.
+- *Symptom.* Some services log warnings like :samp:`Response from … is missing some fields, ignoring` (at most one a minute), and keep reconnecting to another service.
 
   *Possible cause.* It is possible that a service that was trying to establish a connection to another service residing on the same host was assigned by the kernel an outgoing port that is equal to the port it was trying to reach. This can be verified by looking for logs that resemble the following: :samp:`Established connection with 192.168.1.1:43210 (LogService,0) (local address: 192.168.1.1:43210)` (observe the same address repeated twice).
 
