@@ -140,8 +140,10 @@ class TestAsyncRpcReconnection(unittest.IsolatedAsyncioTestCase):
 
 
 class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
-    """The connect loop of a client with auto_retry keeps trying
-    whatever goes wrong with the peer, without hammering it.
+    """The connect loop of a client with auto_retry.
+
+    It keeps trying whatever goes wrong with the peer, without
+    hammering it.
 
     """
 
@@ -167,8 +169,9 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
     def _client(
         self, port: int, auto_retry: float | None = 0.05
     ) -> AsyncRemoteServiceClient:
-        """Return a client of the peer at port, stopped when the test
-        ends (cleanups run in reverse, so before the peer stops).
+        """Return a client of the peer at port, stopped at the end.
+
+        Cleanups run in reverse order, so it stops before the peer.
 
         """
         with patch("cms.io.async_rpc.get_service_address",
@@ -315,6 +318,12 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              or "missing some fields" in record.getMessage()
              or "well-formed" in record.getMessage()],
             ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+        # The WARNING names the peer: it's the only line of the series
+        # the Overview shows.
+        warning, = [record.getMessage() for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot parse" in record.getMessage()]
+        self.assertIn("(FakeLocalService,0)", warning)
 
     async def test_answer_after_garbage_on_dropped_connection_is_stale(
         self

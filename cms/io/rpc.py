@@ -471,8 +471,8 @@ class RemoteServiceServer(RemoteServiceBase):
         """
         # Validate the request (json.loads() may give any JSON value,
         # not only an object).
-        if not isinstance(request, dict) \
-                or not {"__id", "__method", "__data"}.issubset(request.keys()):
+        if (not isinstance(request, dict)
+                or not {"__id", "__method", "__data"}.issubset(request)):
             self.disconnect("Bad request received")
             logger.warning("Request is missing some fields, ignoring.")
             return
@@ -698,7 +698,8 @@ class RemoteServiceClient(RemoteServiceBase):
         except ValueError:
             self._drop_connection("Bad response received")
             self._bad_answers.failed(
-                "Cannot parse incoming message, discarding.")
+                "Cannot parse incoming message from %s, discarding.",
+                self._repr_remote())
             return
 
         self.process_incoming_response(message)
@@ -714,11 +715,12 @@ class RemoteServiceClient(RemoteServiceBase):
         """
         # Validate the response (json.loads() may give any JSON value,
         # not only an object).
-        if not isinstance(response, dict) \
-                or not {"__id", "__data", "__error"}.issubset(response.keys()):
+        if (not isinstance(response, dict)
+                or not {"__id", "__data", "__error"}.issubset(response)):
             self._drop_connection("Bad response received")
             self._bad_answers.failed(
-                "Response is missing some fields, ignoring.")
+                "Response from %s is missing some fields, ignoring.",
+                self._repr_remote())
             return
         # Only a well-formed answer on the live connection ends a
         # series: one read from the connection a malformed answer just

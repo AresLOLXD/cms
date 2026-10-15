@@ -552,6 +552,12 @@ class TestRPC(unittest.TestCase):
              or "missing some fields" in record.getMessage()
              or "well-formed" in record.getMessage()],
             ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+        # The WARNING names the peer: it's the only line of the series
+        # the Overview shows.
+        warning, = [record.getMessage() for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot parse" in record.getMessage()]
+        self.assertIn("(Foo,0)", warning)
 
     def test_answer_after_garbage_on_dropped_connection_is_stale(self):
         # Each connection gets a malformed line and then a well-formed
