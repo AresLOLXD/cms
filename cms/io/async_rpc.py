@@ -25,7 +25,8 @@ from weakref import WeakSet
 
 from cms.conf import Address, ServiceCoord
 from cms.util import get_service_address
-from cms.io.rpc import RPCError, ServiceNotConfiguredError
+from cms.io.rpc import FailureSeriesLog, RPCError, \
+    ServiceNotConfiguredError
 
 if typing.TYPE_CHECKING:
     from cms.io.async_service import AsyncService
@@ -441,11 +442,11 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
 
         self._loop_task: asyncio.Task | None = None
 
-        # Whether the last name resolution failed, and whether the last
-        # answer was malformed: only the first of a series is logged
-        # as a WARNING, the retries every auto_retry seconds as DEBUG.
-        self._cannot_resolve = False
-        self._bad_answers = False
+        # The failures to resolve the peer's name, and the malformed
+        # answers: each comes back at every retry while it lasts, so
+        # they are logged a series at a time.
+        self._resolve_failures = FailureSeriesLog(logger)
+        self._bad_answers = FailureSeriesLog(logger)
 
     def _repr_remote(self):
         return f"{self.remote_address} ({self.remote_service_coord})"
@@ -466,16 +467,16 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         except OSError as error:
             # Not connected, as when the connection is refused: _run
             # tries again after auto_retry seconds, if it has to.
-            if self._cannot_resolve:
-                logger.debug("Still cannot resolve %s: %s.",
-                             self.remote_address, error)
+            if self._resolve_failures.failing:
+                self._resolve_failures.failed(
+                    "Still cannot resolve %s: %s.", self.remote_address,
+                    error)
             else:
-                self._cannot_resolve = True
-                logger.warning("Cannot resolve %s.", self.remote_address)
+                self._resolve_failures.failed(
+                    "Cannot resolve %s.", self.remote_address)
             return
-        if self._cannot_resolve:
-            self._cannot_resolve = False
-            logger.info("%s resolves again.", self.remote_address)
+        self._resolve_failures.succeeded(
+            "%s resolves again.", self.remote_address)
 
         for family, type_, proto, _canonname, sockaddr in addresses:
             host, port, *_rest = sockaddr
@@ -537,22 +538,6 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             self._writer.transport.abort()
         super().disconnect(reason=reason)
 
-    def _log_bad_answer(self, message: str):
-        """Log that the peer sent a malformed answer.
-
-        Each one makes the client reconnect, so a peer that keeps
-        sending them would log one every auto_retry seconds: only the
-        first of a series is a WARNING, the others are DEBUG.
-
-        message: what was wrong with the answer.
-
-        """
-        if self._bad_answers:
-            logger.debug(message)
-        else:
-            self._bad_answers = True
-            logger.warning(message)
-
     async def run(self):
         while True:
             try:
@@ -571,7 +556,8 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             message = json.loads(data.decode('utf-8'))
         except ValueError:
             self._drop_connection("Bad response received")
-            self._log_bad_answer("Cannot parse incoming message, discarding.")
+            self._bad_answers.failed(
+                "Cannot parse incoming message, discarding.")
             return
 
         self.process_incoming_response(message)
@@ -581,15 +567,15 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         if not isinstance(response, dict) \
                 or not {"__id", "__data", "__error"}.issubset(response.keys()):
             self._drop_connection("Bad response received")
-            self._log_bad_answer("Response is missing some fields, ignoring.")
+            self._bad_answers.failed(
+                "Response is missing some fields, ignoring.")
             return
         # Only a well-formed answer on the live connection ends a
         # series: one read from the connection a malformed answer just
         # made us drop doesn't.
-        if self._bad_answers and self.connected:
-            self._bad_answers = False
-            logger.info("%s sends well-formed answers again.",
-                        self._repr_remote())
+        if self._bad_answers.failing and self.connected:
+            self._bad_answers.succeeded(
+                "%s sends well-formed answers again.", self._repr_remote())
 
         id_ = response["__id"]
 

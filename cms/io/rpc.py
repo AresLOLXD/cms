@@ -25,6 +25,7 @@ import functools
 import json
 import logging
 import socket
+from time import monotonic
 import traceback
 from typing import Any
 import typing
@@ -61,6 +62,70 @@ class ServiceNotConfiguredError(RPCError):
 
     """
     pass
+
+
+class FailureSeriesLog:
+    """Log the series of a failure a client meets at each retry.
+
+    It is for a failure that comes back every auto_retry seconds while
+    it lasts (a name that doesn't resolve, a peer that answers
+    garbage), so that it can't flood the logs. The first failure of a
+    series is a WARNING, the others are DEBUG, and the first success
+    after them is an INFO. A WARNING is logged at most once every
+    WARNING_INTERVAL seconds, across series too, so that a failure
+    that comes and goes can't flood the logs either: a series that
+    starts sooner logs DEBUG until the interval is over, and then one
+    WARNING. Its end is an INFO only if it logged a WARNING, so that
+    each WARNING has its INFO, and DEBUG otherwise.
+
+    The state is per instance: each client has its own.
+
+    """
+
+    WARNING_INTERVAL = 60.0
+
+    def __init__(self, log: logging.Logger):
+        """Prepare to log a series of failures.
+
+        log: the logger to log to (the client's).
+
+        """
+        self._log = log
+        # Whether a series is going on and whether it logged a WARNING,
+        # and when (in monotonic() seconds) the last WARNING was.
+        self.failing = False
+        self._warned = False
+        self._last_warning: float | None = None
+
+    def failed(self, message: str, *args: object):
+        """Log a failure, as a WARNING or as DEBUG.
+
+        message: the message to log, %-formatted with args.
+
+        """
+        now = monotonic()
+        if not self._warned and (
+                self._last_warning is None
+                or now - self._last_warning >= self.WARNING_INTERVAL):
+            self._warned = True
+            self._last_warning = now
+            self._log.warning(message, *args)
+        else:
+            self._log.debug(message, *args)
+        self.failing = True
+
+    def succeeded(self, message: str, *args: object):
+        """Log the end of the series going on, if any.
+
+        message: the message to log, %-formatted with args.
+
+        """
+        if not self.failing:
+            return
+        self._log.log(logging.INFO if self._warned else logging.DEBUG,
+                      message, *args)
+        self.failing = False
+        self._warned = False
 
 
 _T = typing.TypeVar("_T", bound=Callable)
@@ -495,11 +560,11 @@ class RemoteServiceClient(RemoteServiceBase):
 
         self._loop = None
 
-        # Whether the last name resolution failed, and whether the last
-        # answer was malformed: only the first of a series is logged
-        # as a WARNING, the retries every auto_retry seconds as DEBUG.
-        self._cannot_resolve = False
-        self._bad_answers = False
+        # The failures to resolve the peer's name, and the malformed
+        # answers: each comes back at every retry while it lasts, so
+        # they are logged a series at a time.
+        self._resolve_failures = FailureSeriesLog(logger)
+        self._bad_answers = FailureSeriesLog(logger)
 
     def _repr_remote(self):
         """See RemoteServiceBase._repr_remote."""
@@ -529,16 +594,16 @@ class RemoteServiceClient(RemoteServiceBase):
         except OSError as error:
             # Not connected, as when the connection is refused: _run
             # tries again after auto_retry seconds, if it has to.
-            if self._cannot_resolve:
-                logger.debug("Still cannot resolve %s: %s.",
-                             self.remote_address, error)
+            if self._resolve_failures.failing:
+                self._resolve_failures.failed(
+                    "Still cannot resolve %s: %s.", self.remote_address,
+                    error)
             else:
-                self._cannot_resolve = True
-                logger.warning("Cannot resolve %s.", self.remote_address)
+                self._resolve_failures.failed(
+                    "Cannot resolve %s.", self.remote_address)
             return
-        if self._cannot_resolve:
-            self._cannot_resolve = False
-            logger.info("%s resolves again.", self.remote_address)
+        self._resolve_failures.succeeded(
+            "%s resolves again.", self.remote_address)
 
         for family, type, proto, _canonname, sockaddr in addresses:
             try:
@@ -597,22 +662,6 @@ class RemoteServiceClient(RemoteServiceBase):
         """
         super().disconnect(reason=reason)
 
-    def _log_bad_answer(self, message: str):
-        """Log that the peer sent a malformed answer.
-
-        Each one makes the client reconnect, so a peer that keeps
-        sending them would log one every auto_retry seconds: only the
-        first of a series is a WARNING, the others are DEBUG.
-
-        message: what was wrong with the answer.
-
-        """
-        if self._bad_answers:
-            logger.debug(message)
-        else:
-            self._bad_answers = True
-            logger.warning(message)
-
     def run(self):
         """Start listening for responses, and go on forever.
 
@@ -648,7 +697,8 @@ class RemoteServiceClient(RemoteServiceBase):
             message = json.loads(data.decode('utf-8'))
         except ValueError:
             self._drop_connection("Bad response received")
-            self._log_bad_answer("Cannot parse incoming message, discarding.")
+            self._bad_answers.failed(
+                "Cannot parse incoming message, discarding.")
             return
 
         self.process_incoming_response(message)
@@ -667,15 +717,15 @@ class RemoteServiceClient(RemoteServiceBase):
         if not isinstance(response, dict) \
                 or not {"__id", "__data", "__error"}.issubset(response.keys()):
             self._drop_connection("Bad response received")
-            self._log_bad_answer("Response is missing some fields, ignoring.")
+            self._bad_answers.failed(
+                "Response is missing some fields, ignoring.")
             return
         # Only a well-formed answer on the live connection ends a
         # series: one read from the connection a malformed answer just
         # made us drop doesn't.
-        if self._bad_answers and self.connected:
-            self._bad_answers = False
-            logger.info("%s sends well-formed answers again.",
-                        self._repr_remote())
+        if self._bad_answers.failing and self.connected:
+            self._bad_answers.succeeded(
+                "%s sends well-formed answers again.", self._repr_remote())
 
         # Determine the ID.
         id_ = response["__id"]

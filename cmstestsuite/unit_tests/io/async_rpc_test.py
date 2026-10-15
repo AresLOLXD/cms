@@ -234,6 +234,36 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              if "resolve" in record.getMessage()],
             ["WARNING", "DEBUG", "INFO"])
 
+    async def test_flapping_name_resolution_warns_once(self):
+        # The name resolves at every other try, and the peer refuses the
+        # connection: each try is a new series of failures, but only
+        # one WARNING (and its INFO) is logged per WARNING_INTERVAL.
+        with socket.socket() as unused:
+            unused.bind(("127.0.0.1", 0))
+            port = unused.getsockname()[1]
+        client = self._client(port, auto_retry=0.01)
+        loop = asyncio.get_running_loop()
+        real_getaddrinfo = loop.getaddrinfo
+        calls = 0
+
+        async def flapping_getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls % 2 == 1:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return await real_getaddrinfo(*args, **kwargs)
+
+        with patch.object(loop, "getaddrinfo", flapping_getaddrinfo):
+            with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+                client.connect()
+                await self._wait_until(lambda: calls >= 10)
+
+        levels = [record.levelname for record in logs.records
+                  if "resolve" in record.getMessage()]
+        self.assertEqual(levels[:2], ["WARNING", "INFO"])
+        self.assertEqual(set(levels[2:]), {"DEBUG"})
+
     async def test_one_shot_client_that_cannot_resolve_ends_quietly(self):
         # Without auto_retry, it ends up not connected, as when the
         # connection is refused.

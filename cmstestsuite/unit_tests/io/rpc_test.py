@@ -22,6 +22,7 @@
 
 """
 
+import logging
 import socket
 import unittest
 from collections.abc import Callable
@@ -35,6 +36,7 @@ from gevent.server import StreamServer
 from cms import Address, ServiceCoord
 from cms.io import RPCError, rpc_method, RemoteServiceServer, \
     RemoteServiceClient
+from cms.io.rpc import FailureSeriesLog
 
 
 class MockService:
@@ -584,6 +586,37 @@ class TestRPC(unittest.TestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING", "DEBUG", "DEBUG", "INFO"])
 
+    def test_flapping_name_resolution_warns_once(self):
+        # The name resolves at every other try, and the peer refuses the
+        # connection: each try is a new series of failures, but only
+        # one WARNING (and its INFO) is logged per WARNING_INTERVAL.
+        with socket.socket() as unused:
+            unused.bind(("127.0.0.1", 0))
+            self.mock.return_value = Address(*unused.getsockname())
+        real_getaddrinfo = gevent.socket.getaddrinfo
+        calls = 0
+
+        def flapping_getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls % 2 == 1:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return real_getaddrinfo(*args, **kwargs)
+
+        with patch("cms.io.rpc.gevent.socket.getaddrinfo",
+                   flapping_getaddrinfo):
+            with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+                client = self.get_client(
+                    ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+                self.stop_when_done(client)
+                self.wait_until(lambda: calls >= 10)
+
+        levels = [record.levelname for record in logs.records
+                  if "resolve" in record.getMessage()]
+        self.assertEqual(levels[:2], ["WARNING", "INFO"])
+        self.assertEqual(set(levels[2:]), {"DEBUG"})
+
     def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading, so the client's writes pile up
         # unsent, and then it sends a malformed line: the client must
@@ -638,6 +671,67 @@ class TestRPC(unittest.TestCase):
 
         self.assertGreaterEqual(len(connections), 2)
         self.assertLessEqual(len(connections), 1 / auto_retry + 2)
+
+
+class TestFailureSeriesLog(unittest.TestCase):
+
+    def setUp(self):
+        self.now = 1000.0
+        patcher = patch("cms.io.rpc.monotonic", lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.logger = logging.getLogger("cmstestsuite.failureserieslog")
+        self.series = FailureSeriesLog(self.logger)
+
+    def log(self, *outcomes: bool) -> list[str]:
+        """Log a failure for each False, a success for each True.
+
+        return: the level names of what that logged.
+
+        """
+        records = []
+        handler = logging.Handler(logging.DEBUG)
+        handler.emit = records.append
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.DEBUG)
+        try:
+            for succeeded in outcomes:
+                if succeeded:
+                    self.series.succeeded("success")
+                else:
+                    self.series.failed("failure")
+        finally:
+            self.logger.removeHandler(handler)
+        return [record.levelname for record in records]
+
+    def test_series_is_a_warning_then_debug_then_an_info(self):
+        self.assertEqual(self.log(False, False, False, True),
+                         ["WARNING", "DEBUG", "DEBUG", "INFO"])
+        self.assertFalse(self.series.failing)
+
+    def test_success_without_failures_logs_nothing(self):
+        self.assertEqual(self.log(True), [])
+
+    def test_flapping_warns_once_a_minute(self):
+        self.assertEqual(self.log(False, True), ["WARNING", "INFO"])
+        for _ in range(4):
+            self.now += 1
+            self.assertEqual(self.log(False, True), ["DEBUG", "DEBUG"])
+
+        # A minute after the WARNING, a new series warns again.
+        self.now += 56
+        self.assertEqual(self.log(False, True), ["WARNING", "INFO"])
+
+    def test_series_started_too_soon_warns_once_the_minute_is_over(self):
+        self.log(False, True)
+        self.now += 10
+        self.assertEqual(self.log(False), ["DEBUG"])
+        self.now += 49
+        self.assertEqual(self.log(False), ["DEBUG"])
+        self.now += 1
+        self.assertEqual(self.log(False, False), ["WARNING", "DEBUG"])
+        self.assertEqual(self.log(True), ["INFO"])
 
 
 if __name__ == "__main__":
