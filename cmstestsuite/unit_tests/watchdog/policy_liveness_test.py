@@ -22,7 +22,7 @@ import unittest
 
 from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
     OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
-    Probe, hhmm_utc
+    Probe, busy_sections, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, \
     DEFAULT_PROGRAMS, ES, LS, RED, W0, W1, Scenario, actions, alerts, \
     held, lock_wait_snapshot, program
@@ -212,13 +212,15 @@ class TestLivenessRules(unittest.TestCase):
         self.assertEqual(list(s.state.programs[CWS1].window), [True])
 
     def test_only_running_managed_programs_are_judged(self):
+        # A kind that R1 judges, but without the shard that makes a
+        # program managed (a command that is not "cmsX <shard>").
+        unmanaged = "cmscontestwebserver"
         s = Scenario(programs=DEFAULT_PROGRAMS + (
-            program("cmstelegrambot", "TelegramBot", 0, 111),))
+            program(unmanaged, "ContestWebServer", None, 111),))
         s.warm_up()
         failing = Probe(False, None, "timed out")
         for _ in range(6):
-            self.assertEqual(
-                actions(s.cycle(probes={"cmstelegrambot": failing})), [])
+            self.assertEqual(actions(s.cycle(fail=[unmanaged])), [])
         for state in ("STOPPED", "STARTING", "BACKOFF", "EXITED",
                       "UNKNOWN"):
             s.set(CWS1, state=state, pid=None)
@@ -457,6 +459,17 @@ class TestHoldsAlone(unittest.TestCase):
         self.assertIn("its last action or would-action was 15 s ago",
                       alert.text)
 
+    def test_h6_the_last_real_action(self):
+        s = Scenario()
+        s.warm_up()
+        [restart] = actions(trip(s))
+        self.assertFalse(restart.would)
+        # The restart is not visible yet (the program keeps its start
+        # time): the action itself gives the grace, as in observe mode.
+        alert = self.assertHeldBy(s.cycle(fail=[CWS1]), "H6")
+        self.assertIn("its last action or would-action was 15 s ago",
+                      alert.text)
+
     def test_h7_the_budget(self):
         s = Scenario()
         s.warm_up()
@@ -488,6 +501,90 @@ class TestHoldsAlone(unittest.TestCase):
         self.assertEqual(s.state.ledger.real, [])
         self.assertEqual([b.program for b in s.state.ledger.shadow],
                          [CWS1])
+
+
+class TestPidCheck(unittest.TestCase):
+
+    @staticmethod
+    def answer(pid: object) -> dict:
+        return {CWS1: {"pid": pid, "uptime_s": 9_999.0, "busy": []}}
+
+    @staticmethod
+    def pid_alerts(decisions: list) -> list:
+        return [d for d in alerts(decisions) if d.key == (CWS1, "pid")]
+
+    def test_another_pid_on_the_port_is_an_alert_and_nothing_else(self):
+        s = Scenario()
+        s.warm_up()
+        decisions = s.cycle(health=self.answer(777))
+        [alert] = self.pid_alerts(decisions)
+        self.assertEqual(alert.level, "WARNING")
+        self.assertIn(
+            "pid 777 answers on the RPC port of cmsContestWebServer 1, "
+            "which supervisord started as pid 109", alert.text)
+        self.assertIn("Check ./status.sh and ps.", alert.text)
+        self.assertEqual(actions(decisions), [])
+
+    def test_the_alert_repeats_every_5_minutes(self):
+        s = Scenario()
+        s.warm_up()
+        emitted = [bool(self.pid_alerts(s.cycle(health=self.answer(777))))
+                   for _ in range(int(ALERT_REPEAT_S / CYCLE_S) + 1)]
+        self.assertEqual(emitted, [True] + [False] * 19 + [True])
+
+    def test_the_same_pid_or_no_usable_pid_is_not_an_alert(self):
+        s = Scenario()
+        s.warm_up()
+        # A bool, a float or a string is not a pid.
+        for value in (109, None, "777", True, 777.0, [777]):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.pid_alerts(s.cycle(health=self.answer(value))),
+                    [])
+        self.assertEqual(
+            self.pid_alerts(s.cycle(health={CWS1: [777]})), [])
+
+
+class TestBusySections(unittest.TestCase):
+
+    def test_an_answer_that_is_not_well_formed_has_no_section(self):
+        for payload in (None, "busy", 3, [], {}, {"busy": None},
+                        {"busy": "x"}, {"busy": {"what": "x"}},
+                        [{"busy": []}]):
+            with self.subTest(payload=payload):
+                self.assertEqual(busy_sections(payload), [])
+
+    def test_a_malformed_entry_is_skipped_and_the_others_are_kept(self):
+        good = {"what": "score", "age_s": 5, "idle_s": 2}
+        payload = {"busy": [
+            1, "x", None, [good],
+            {"what": 3, "age_s": 1, "idle_s": 1},
+            {"what": "a", "age_s": "1", "idle_s": 1},
+            {"what": "a", "age_s": float("nan"), "idle_s": 1},
+            {"what": "a", "age_s": 1, "idle_s": float("inf")},
+            {"what": "a", "age_s": True, "idle_s": 1},
+            {"what": "a", "idle_s": 1},
+            {"what": "a", "age_s": 1},
+            good]}
+        self.assertEqual(busy_sections(payload), [
+            {"what": "score", "tid": None, "age_s": 5.0, "idle_s": 2.0,
+             "statements": None}])
+
+    def test_sections_come_oldest_first_with_checked_optional_fields(self):
+        payload = {"busy": [
+            {"what": "young", "age_s": 10, "idle_s": 1.5, "tid": 7,
+             "statements": 3},
+            {"what": "old", "age_s": 200.5, "idle_s": 4, "tid": True,
+             "statements": "many"},
+            {"what": "middle", "age_s": 50, "idle_s": 0, "tid": 7.0,
+             "statements": None}]}
+        self.assertEqual(busy_sections(payload), [
+            {"what": "old", "tid": None, "age_s": 200.5, "idle_s": 4.0,
+             "statements": None},
+            {"what": "middle", "tid": None, "age_s": 50.0, "idle_s": 0.0,
+             "statements": None},
+            {"what": "young", "tid": 7, "age_s": 10.0, "idle_s": 1.5,
+             "statements": 3}])
 
 
 class TestHoldOrder(unittest.TestCase):
