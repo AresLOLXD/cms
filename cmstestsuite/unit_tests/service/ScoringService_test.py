@@ -3,6 +3,7 @@
 """Tests for cms.service.ScoringService."""
 
 import asyncio
+import logging
 import threading
 import time
 import unittest
@@ -13,7 +14,8 @@ from sqlalchemy import text
 import cms.service.ScoringService as ScoringServiceModule
 from cms.conf import Address, ServiceCoord
 from cms.db import Session, SubmissionResult
-from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
+from cms.io.async_rpc import AsyncFakeRemoteServiceClient, \
+    AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.rpc import rpc_method
 from cms.service.ScoringService import ScoringExecutor, ScoringService
 from cms.service.scoringoperations import ScoringOperation
@@ -334,12 +336,13 @@ class ScoringServiceTest(
         entry = await executor._pop()
 
         # The service's own executor may score what earlier tests left
-        # behind meanwhile, and notify the same peer: look for ours.
-        ours = "submission %d was scored" % submission.id
+        # behind meanwhile, and notify the same peer: look for ours,
+        # which is only in a DEBUG line.
+        ours = "of the score of submission %d " % submission.id
         with patch.object(
                 ScoringServiceModule, "FIRE_AND_FORGET_TIMEOUT", 0.05):
             with self.assertLogs(
-                    "cms.service.ScoringService", level="WARNING") as logs:
+                    "cms.service.ScoringService", level="DEBUG") as logs:
                 await executor.execute(entry)
                 for _ in range(200):
                     if any(ours in line for line in logs.output) \
@@ -353,8 +356,85 @@ class ScoringServiceTest(
                        for request in peer.requests])
         self.assertEqual(
             len([line for line in logs.output if ours in line]), 1)
+        warnings = [record.getMessage() for record in logs.records
+                    if record.levelno == logging.WARNING]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("cannot notify ProxyService,0 (no answer in time)",
+                      warnings[0])
         self.assertEqual(client.pending_outgoing_requests, {})
         self.assertEqual(client.pending_outgoing_requests_results, {})
+
+    def _unreachable_proxy_service(self) -> ScoringExecutor:
+        """Make the executor notify a ProxyService client that never
+        connects, so that each notification fails with RPCError.
+
+        return: the executor.
+
+        """
+        executor = self.service.get_executor()
+        executor.proxy_service = AsyncRemoteServiceClient(
+            ServiceCoord("ProxyService", 0))
+        return executor
+
+    async def test_failed_proxy_notification_is_a_warning(self):
+        executor = self._unreachable_proxy_service()
+
+        with self.assertLogs(
+                "cms.service.ScoringService", level="WARNING") as logs:
+            await executor._notify_proxy(1)
+
+        self.assertEqual(
+            logs.output,
+            ["WARNING:cms.service.ScoringService:ScoringService cannot "
+             "notify ProxyService,0 (Write failed.); nothing is lost, its "
+             "sweeper will send these scores to the rankings."])
+
+    async def test_proxy_notification_failures_warn_once_a_minute(self):
+        executor = self._unreachable_proxy_service()
+        now = 1000.0
+
+        with patch("cms.io.async_rpc.monotonic", lambda: now):
+            with self.assertLogs(
+                    "cms.service.ScoringService", level="WARNING") as logs:
+                await executor._notify_proxy(1)
+                now += 59
+                await executor._notify_proxy(2)
+                self.assertEqual(len(logs.records), 1)
+                now += 2
+                await executor._notify_proxy(3)
+
+        self.assertEqual(len(logs.records), 2)
+        self.assertIn("still cannot notify ProxyService,0", logs.output[1])
+        self.assertIn("3 notification(s) dropped", logs.output[1])
+
+    async def test_proxy_notification_success_after_failures_is_an_info(
+        self
+    ):
+        executor = self._unreachable_proxy_service()
+        with self.assertLogs("cms.service.ScoringService", "WARNING"):
+            await executor._notify_proxy(1)
+            await executor._notify_proxy(2)
+        executor.proxy_service = self.proxy_client
+
+        with self.assertLogs(
+                "cms.service.ScoringService", level="INFO") as logs:
+            await executor._notify_proxy(3)
+
+        self.assertIn(
+            "ScoringService can notify ProxyService,0 again: 2 "
+            "notification(s) dropped since", "\n".join(logs.output))
+        self.assertEqual(
+            self.proxy_service_stub.submission_scored_calls, [3])
+
+    async def test_proxy_notification_to_unconfigured_service_is_quiet(
+        self
+    ):
+        executor = self.service.get_executor()
+        executor.proxy_service = AsyncFakeRemoteServiceClient(
+            ServiceCoord("ProxyService", 0))
+
+        with self.assertNoLogs("cms.service.ScoringService", level="WARNING"):
+            await executor._notify_proxy(1)
 
     async def test_missing_operations_finds_and_enqueues_unscored_result(self):
         submission, dataset, _ = self._build_submission_result(

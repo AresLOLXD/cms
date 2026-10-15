@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import patch
 
 from cms.io.async_rpc import AsyncFakeRemoteServiceClient, \
-    AsyncRemoteServiceServer, AsyncRemoteServiceClient
+    AsyncRemoteServiceServer, AsyncRemoteServiceClient, \
+    NotificationFailureLatch
 from cms.io.rpc import rpc_method, RPCError, ServiceNotConfiguredError
 from cms.conf import Address, ServiceCoord
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
@@ -412,6 +413,119 @@ class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RPCError):
             await asyncio.wait_for(call, timeout=2)
         self.assert_nothing_pending()
+
+
+class TestNotificationFailureLatch(unittest.TestCase):
+
+    def setUp(self):
+        self.now = 1000.0
+        patcher = patch("cms.io.async_rpc.monotonic", lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.logger = logging.getLogger("cmstestsuite.notificationlatch")
+        self.latch = NotificationFailureLatch(
+            self.logger, "EvaluationService",
+            ServiceCoord("ScoringService", 0),
+            "nothing is lost, its sweeper will score these submissions")
+
+    def drop(self, submission_id: int, error: Exception | None = None):
+        """Make the notification about submission_id fail.
+
+        return: the (level name, message) pairs it logged.
+
+        """
+        if error is None:
+            error = RPCError("Write failed.")
+        with self.assertLogs(self.logger, "DEBUG") as logs:
+            self.latch.failed("submission %d" % submission_id, error)
+        return [(record.levelname, record.getMessage())
+                for record in logs.records]
+
+    def warnings(self, logged: list[tuple[str, str]]) -> list[str]:
+        return [message for level, message in logged if level == "WARNING"]
+
+    def test_first_failure_is_a_warning_naming_both_ends(self):
+        logged = self.drop(1)
+
+        self.assertEqual(
+            self.warnings(logged),
+            ["EvaluationService cannot notify ScoringService,0 (Write "
+             "failed.); nothing is lost, its sweeper will score these "
+             "submissions."])
+        # What the notification was about is only in the DEBUG line.
+        self.assertIn(("DEBUG", "EvaluationService did not notify "
+                       "ScoringService,0 of submission 1 (Write failed.)."),
+                      logged)
+
+    def test_failures_within_a_minute_are_debug_only(self):
+        self.drop(1)
+        self.now += 59
+
+        logged = self.drop(2)
+
+        self.assertEqual([level for level, _message in logged], ["DEBUG"])
+        self.assertIn("submission 2", logged[0][1])
+
+    def test_failures_after_a_minute_give_a_reminder_with_the_count(self):
+        self.drop(1)
+        self.now += 30
+        self.drop(2)
+        self.now += 31
+
+        reminder = self.warnings(self.drop(3))
+
+        self.assertEqual(len(reminder), 1)
+        self.assertRegex(
+            reminder[0],
+            r"^EvaluationService still cannot notify ScoringService,0 "
+            r"\(Write failed\.\): 3 notification\(s\) dropped since "
+            r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d; nothing is lost, its "
+            r"sweeper will score these submissions\.$")
+        # The next reminder is a minute after this one.
+        self.now += 59
+        self.assertEqual(self.warnings(self.drop(4)), [])
+        self.now += 1
+        reminder = self.warnings(self.drop(5))
+        self.assertEqual(len(reminder), 1)
+        self.assertIn("5 notification(s) dropped", reminder[0])
+
+    def test_success_after_failures_is_an_info_with_the_count(self):
+        self.drop(1)
+        self.drop(2)
+
+        with self.assertLogs(self.logger, "DEBUG") as logs:
+            self.latch.succeeded()
+
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(logs.records[0].levelname, "INFO")
+        self.assertRegex(
+            logs.records[0].getMessage(),
+            r"^EvaluationService can notify ScoringService,0 again: 2 "
+            r"notification\(s\) dropped since \d{4}-\d\d-\d\d "
+            r"\d\d:\d\d:\d\d\.$")
+        # The next failure starts a new outage.
+        self.assertEqual(len(self.warnings(self.drop(3))), 1)
+
+    def test_success_without_failures_logs_nothing(self):
+        with self.assertNoLogs(self.logger, "DEBUG"):
+            self.latch.succeeded()
+
+    def test_peer_not_configured_is_debug_and_not_counted(self):
+        logged = self.drop(1, ServiceNotConfiguredError("Not configured."))
+
+        self.assertEqual(
+            logged, [("DEBUG", "EvaluationService did not notify "
+                      "ScoringService,0 of submission 1: it is not "
+                      "configured.")])
+        with self.assertNoLogs(self.logger, "DEBUG"):
+            self.latch.succeeded()
+
+    def test_no_answer_in_time_is_a_failure(self):
+        warnings = self.warnings(self.drop(1, TimeoutError()))
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("(no answer in time)", warnings[0])
 
 
 class TestFakeRemoteServiceClient(unittest.IsolatedAsyncioTestCase):

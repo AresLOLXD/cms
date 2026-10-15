@@ -13,9 +13,11 @@ cms.io.rpc.RemoteServiceServer/Client with no adapter.
 
 import asyncio
 from collections.abc import Callable
+from datetime import datetime
 import json
 import logging
 import socket
+from time import monotonic
 import traceback
 import typing
 import uuid
@@ -43,6 +45,105 @@ MAX_MESSAGE_SIZE = 1024 * 1024
 # peer that is connected but stuck, nothing else would ever end the
 # call: it would stay pending, together with its request, for good.
 FIRE_AND_FORGET_TIMEOUT = 30.0
+
+
+class NotificationFailureLatch:
+    """Log the failed notifications to one peer once per outage.
+
+    It is for a service that tells a peer about each piece of work it
+    has done, fire-and-forget, and drops the notifications that fail
+    because the peer's sweeper finds that work anyway (EvaluationService
+    with ScoringService, ScoringService with ProxyService). Logging
+    every dropped notification would flood the logs for as long as the
+    peer is down or stuck, and logging none hides that it is. So it
+    logs:
+    - the first failure as a WARNING, naming both ends, why it failed
+      and what that costs;
+    - while the failures last, a reminder WARNING at most every
+      REMINDER_INTERVAL seconds, with how many notifications were
+      dropped since when;
+    - the first success after them as an INFO, with that count;
+    - each failure as a DEBUG line saying what it was about.
+    A peer that is not configured (ServiceNotConfiguredError) is not
+    failing: that is only a DEBUG line, and it is not counted.
+
+    schedule_rpc (cms.server.util) doesn't use it, and keeps logging
+    every failure: the admin actions it notifies about are rare.
+
+    """
+
+    REMINDER_INTERVAL = 60.0
+
+    def __init__(
+        self, log: logging.Logger, source: str, peer: ServiceCoord,
+        consequence: str,
+    ):
+        """Prepare to log the notifications from source to peer.
+
+        log: the logger to log to (the caller's).
+        source: the name of the service that sends the notifications.
+        peer: the service that receives them.
+        consequence: what the failures cost, which ends the WARNINGs
+            (e.g. "nothing is lost, its sweeper will score these
+            submissions").
+
+        """
+        self._log = log
+        self._source = source
+        self._peer = peer
+        self._consequence = consequence
+        # How many notifications were dropped since the last success
+        # (or the start), since when, and when the last WARNING was
+        # logged (in monotonic() seconds).
+        self._dropped = 0
+        self._failing_since: datetime | None = None
+        self._last_warning = 0.0
+
+    def succeeded(self):
+        """Note that a notification reached the peer."""
+        if self._dropped == 0:
+            return
+        self._log.info("%s can notify %s again: %d notification(s) dropped "
+                       "since %s.", self._source, self._peer, self._dropped,
+                       self._failing_since.strftime("%Y-%m-%d %H:%M:%S"))
+        self._dropped = 0
+        self._failing_since = None
+
+    def failed(self, notification: str, error: Exception):
+        """Note that a notification did not reach the peer.
+
+        notification: what it was about, for the DEBUG line (e.g. "the
+            evaluation of submission 1 on dataset 2").
+        error: why: the RPCError its call raised, or the TimeoutError
+            of giving up on the answer.
+
+        """
+        if isinstance(error, ServiceNotConfiguredError):
+            self._log.debug("%s did not notify %s of %s: it is not "
+                            "configured.", self._source, self._peer,
+                            notification)
+            return
+
+        reason = "no answer in time" if isinstance(error, TimeoutError) \
+            else str(error)
+        self._log.debug("%s did not notify %s of %s (%s).", self._source,
+                        self._peer, notification, reason)
+
+        now = monotonic()
+        self._dropped += 1
+        if self._dropped == 1:
+            self._failing_since = datetime.now()
+            self._last_warning = now
+            self._log.warning("%s cannot notify %s (%s); %s.", self._source,
+                              self._peer, reason, self._consequence)
+        elif now - self._last_warning >= self.REMINDER_INTERVAL:
+            self._last_warning = now
+            self._log.warning(
+                "%s still cannot notify %s (%s): %d notification(s) "
+                "dropped since %s; %s.", self._source, self._peer, reason,
+                self._dropped,
+                self._failing_since.strftime("%Y-%m-%d %H:%M:%S"),
+                self._consequence)
 
 
 class AsyncRemoteServiceBase:

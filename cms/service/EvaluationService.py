@@ -54,7 +54,7 @@ from cms.db import SessionGen, Digest, Dataset, Evaluation, Submission, \
 from cms.grading import subtaskdag, twophase
 from cms.grading.Job import Job, JobGroup
 from cms.grading.steps import EVALUATION_MESSAGES
-from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
+from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT, NotificationFailureLatch
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
@@ -413,6 +413,9 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
         self.scoring_service = self.connect_to(
             ServiceCoord("ScoringService", 0))
+        self.scoring_notifications = NotificationFailureLatch(
+            logger, "EvaluationService", ServiceCoord("ScoringService", 0),
+            "nothing is lost, its sweeper will score these submissions")
 
         self.add_executor(EvaluationExecutor(self))
         self.start_sweeper(117.0)
@@ -941,12 +944,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         """Tell ScoringService about a new evaluation, safely from any thread.
 
         Fire-and-forget, matching the old RPC proxy's never-blocking
-        behavior; swallows RPCError like WorkerPool._fire_and_forget does
-        for the same reason (ScoringService being briefly unreachable is
-        not worth surfacing as an error here). Like it, it doesn't wait
-        for the answer longer than FIRE_AND_FORGET_TIMEOUT seconds, so a
-        ScoringService that is connected but stuck can't leave the
-        notifications pending forever.
+        behavior: a failed notification is dropped, since
+        ScoringService's sweeper finds the evaluation anyway, and
+        scoring_notifications logs the failures once per outage. Like
+        WorkerPool._fire_and_forget, it doesn't wait for the answer
+        longer than FIRE_AND_FORGET_TIMEOUT seconds, so a ScoringService
+        that is connected but stuck can't leave the notifications
+        pending forever.
 
         Only reachable from compilation_ended/evaluation_ended, i.e. from
         code already running inside loop.run_in_executor, so the loop
@@ -963,14 +967,12 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 self.scoring_service.new_evaluation(
                     submission_id=submission_id, dataset_id=dataset_id),
                 FIRE_AND_FORGET_TIMEOUT)
-        except RPCError:
-            pass
-        except asyncio.TimeoutError:
-            # Not lost: ScoringService's sweeper finds the evaluation.
-            logger.warning("ScoringService gave no answer in %s seconds to "
-                           "the notification of the evaluation of "
-                           "submission %d on dataset %d, giving up on it.",
-                           FIRE_AND_FORGET_TIMEOUT, submission_id, dataset_id)
+        except (RPCError, asyncio.TimeoutError) as error:
+            self.scoring_notifications.failed(
+                "the evaluation of submission %d on dataset %d"
+                % (submission_id, dataset_id), error)
+        else:
+            self.scoring_notifications.succeeded()
 
     async def action_finished(self, data: dict, shard: int, error=None,
                               dispatch_id: int | None = None):
