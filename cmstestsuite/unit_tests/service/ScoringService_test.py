@@ -426,6 +426,22 @@ class ScoringServiceTest(
         self.assertEqual(
             self.proxy_service_stub.submission_scored_calls, [3])
 
+    async def test_flapping_proxy_service_warns_once_a_minute(self):
+        # Each failed notification starts an outage that the next one,
+        # which succeeds, ends: one WARNING and its INFO in all.
+        with self.assertLogs(
+                "cms.service.ScoringService", level="INFO") as logs:
+            for submission_id in range(3):
+                executor = self._unreachable_proxy_service()
+                await executor._notify_proxy(submission_id)
+                executor.proxy_service = self.proxy_client
+                await executor._notify_proxy(submission_id)
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "notify ProxyService,0" in record.getMessage()],
+            ["WARNING", "INFO"])
+
     async def test_proxy_notification_to_unconfigured_service_is_quiet(
         self
     ):

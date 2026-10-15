@@ -441,6 +441,24 @@ class EvaluationServiceTest(
         self.assertEqual(
             self.scoring_service_stub.new_evaluation_calls, [(5, 2)])
 
+    async def test_flapping_scoring_service_warns_once_a_minute(self):
+        # Each failed notification starts an outage that the next one,
+        # which succeeds, ends: one WARNING and its INFO in all.
+        connected_client = self.service.scoring_service
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            for submission_id in range(3):
+                self._unreachable_scoring_service()
+                await self.service._notify_scoring_service(submission_id, 2)
+                self.service.scoring_service = connected_client
+                await self.service._notify_scoring_service(submission_id, 2)
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "notify ScoringService,0" in record.getMessage()],
+            ["WARNING", "INFO"])
+
     async def test_scoring_notification_to_unconfigured_service_is_quiet(
         self
     ):

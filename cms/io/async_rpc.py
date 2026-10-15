@@ -60,11 +60,16 @@ class NotificationFailureLatch:
     logs:
     - the first failure as a WARNING, naming both ends, why it failed
       and what that costs;
-    - while the failures last, a reminder WARNING at most every
-      REMINDER_INTERVAL seconds, with how many notifications were
-      dropped since when;
+    - while the failures last, a reminder WARNING, with how many
+      notifications were dropped since when;
     - the first success after them as an INFO, with that count;
     - each failure as a DEBUG line saying what it was about.
+    A WARNING is logged at most once every WARNING_INTERVAL seconds,
+    across outages too, so that a peer that flaps between failing and
+    not can't flood the logs either: an outage that starts sooner logs
+    only DEBUG until the interval is over, and then a reminder. Its end
+    is an INFO only if it logged a WARNING, so that each WARNING has
+    its INFO, and DEBUG otherwise.
     A peer that is not configured (ServiceNotConfiguredError) is not
     failing: that is only a DEBUG line, and it is not counted.
 
@@ -73,7 +78,7 @@ class NotificationFailureLatch:
 
     """
 
-    REMINDER_INTERVAL = 60.0
+    WARNING_INTERVAL = 60.0
 
     def __init__(
         self, log: logging.Logger, source: str, peer: ServiceCoord,
@@ -94,21 +99,25 @@ class NotificationFailureLatch:
         self._peer = peer
         self._consequence = consequence
         # How many notifications were dropped since the last success
-        # (or the start), since when, and when the last WARNING was
-        # logged (in monotonic() seconds).
+        # (or the start), since when, and whether that outage logged a
+        # WARNING; and when the last WARNING was (in monotonic()
+        # seconds), whatever the outage.
         self._dropped = 0
         self._failing_since: datetime | None = None
-        self._last_warning = 0.0
+        self._warned = False
+        self._last_warning: float | None = None
 
     def succeeded(self):
         """Note that a notification reached the peer."""
         if self._dropped == 0:
             return
-        self._log.info("%s can notify %s again: %d notification(s) dropped "
-                       "since %s.", self._source, self._peer, self._dropped,
-                       self._failing_since.strftime("%Y-%m-%d %H:%M:%S"))
+        self._log.log(logging.INFO if self._warned else logging.DEBUG,
+                      "%s can notify %s again: %d notification(s) dropped "
+                      "since %s.", self._source, self._peer, self._dropped,
+                      self._failing_since.strftime("%Y-%m-%d %H:%M:%S"))
         self._dropped = 0
         self._failing_since = None
+        self._warned = False
 
     def failed(self, notification: str, error: Exception):
         """Note that a notification did not reach the peer.
@@ -134,11 +143,15 @@ class NotificationFailureLatch:
         self._dropped += 1
         if self._dropped == 1:
             self._failing_since = datetime.now()
-            self._last_warning = now
+        if (self._last_warning is not None
+                and now - self._last_warning < self.WARNING_INTERVAL):
+            return
+        self._last_warning = now
+        self._warned = True
+        if self._dropped == 1:
             self._log.warning("%s cannot notify %s (%s); %s.", self._source,
                               self._peer, reason, self._consequence)
-        elif now - self._last_warning >= self.REMINDER_INTERVAL:
-            self._last_warning = now
+        else:
             self._log.warning(
                 "%s still cannot notify %s (%s): %d notification(s) "
                 "dropped since %s; %s.", self._source, self._peer, reason,

@@ -619,8 +619,58 @@ class TestNotificationFailureLatch(unittest.TestCase):
             r"^EvaluationService can notify ScoringService,0 again: 2 "
             r"notification\(s\) dropped since \d{4}-\d\d-\d\d "
             r"\d\d:\d\d:\d\d\.$")
-        # The next failure starts a new outage.
+        # A minute after the WARNING, the next failure starts a new
+        # outage with a WARNING of its own.
+        self.now += 60
         self.assertEqual(len(self.warnings(self.drop(3))), 1)
+
+    def succeed(self) -> list[tuple[str, str]]:
+        """Make a notification succeed.
+
+        return: the (level name, message) pairs it logged.
+
+        """
+        with self.assertLogs(self.logger, "DEBUG") as logs:
+            self.latch.succeeded()
+        return [(record.levelname, record.getMessage())
+                for record in logs.records]
+
+    def test_flapping_peer_warns_once_a_minute(self):
+        # Each failure starts a new outage, which a success ends at
+        # once: still one WARNING (and its INFO) a minute, not a pair
+        # per flap.
+        logged = []
+        for submission_id in range(5):
+            logged += self.drop(submission_id) + self.succeed()
+            self.now += 1
+
+        # Each failure has its DEBUG line, the first flap its WARNING
+        # and its INFO, and the other ends of outage are DEBUG.
+        levels = [level for level, _message in logged]
+        self.assertEqual(levels[:3], ["DEBUG", "WARNING", "INFO"])
+        self.assertEqual(levels[3:], ["DEBUG"] * 8)
+        # A minute after the WARNING, an outage warns again.
+        self.now += 55
+        self.assertEqual(len(self.warnings(self.drop(5))), 1)
+
+    def test_outage_started_too_soon_warns_once_the_minute_is_over(self):
+        self.drop(1)
+        self.succeed()
+        self.now += 10
+        self.assertEqual(self.warnings(self.drop(2)), [])
+        self.now += 49
+        self.assertEqual(self.warnings(self.drop(3)), [])
+        self.now += 1
+
+        warnings = self.warnings(self.drop(4))
+
+        # Its first WARNING is a reminder: it has been failing for a
+        # while already.
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("still cannot notify ScoringService,0", warnings[0])
+        self.assertIn("3 notification(s) dropped", warnings[0])
+        self.assertEqual([level for level, _message in self.succeed()],
+                         ["INFO"])
 
     def test_success_without_failures_logs_nothing(self):
         with self.assertNoLogs(self.logger, "DEBUG"):
