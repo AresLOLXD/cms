@@ -403,7 +403,7 @@ class UseTokenHandler(ContestHandler):
             accept_token(self.sql_session, submission, self.timestamp)
             # Read now: the rollback of a failed commit expires them.
             username = self.current_user.user.username
-            task_name = task.name
+            logged_task_name = task.name
             try:
                 self.sql_session.commit()
             except IntegrityError as error:
@@ -418,7 +418,7 @@ class UseTokenHandler(ContestHandler):
                 logger.warning("User %s played a token twice on a "
                                "submission of task %s; the second one "
                                "was refused at commit.",
-                               username, task_name)
+                               username, logged_task_name)
                 raise TokenAlreadyPlayed(
                     N_("Token request discarded"),
                     N_("Your request has been discarded because "
