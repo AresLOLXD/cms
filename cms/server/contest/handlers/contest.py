@@ -274,10 +274,12 @@ class ContestHandler(BaseHandler):
         if self.contest_url is not None:
             ret["contest_url"] = self.contest_url
 
+        # The phase is decided by when the request arrived, not by when
+        # its handler ran.
         if self.current_user is None:
-            ret["phase"] = self.contest.main_group.phase(self.timestamp)
+            ret["phase"] = self.contest.main_group.phase(self.arrival_time)
         else:
-            ret["phase"] = self.current_user.group.phase(self.timestamp)
+            ret["phase"] = self.current_user.group.phase(self.arrival_time)
 
         ret["questions_enabled"] = self.contest.allow_questions
         ret["testing_enabled"] = self.contest.allow_user_tests
@@ -290,7 +292,7 @@ class ContestHandler(BaseHandler):
             ret["user"] = participation.user
 
             res = compute_actual_phase(
-                self.timestamp, group.start, group.stop,
+                self.arrival_time, group.start, group.stop,
                 group.analysis_start if group.analysis_enabled else None,
                 group.analysis_stop if group.analysis_enabled else None,
                 group.per_user_time, participation.starting_time,

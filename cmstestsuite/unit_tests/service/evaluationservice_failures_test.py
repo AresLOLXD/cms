@@ -440,9 +440,11 @@ class EvaluationServiceFailurePathsTest(
         calls: list[tuple] = []
         real_action_finished = self.service.action_finished
 
-        async def recording_action_finished(data, shard, error=None):
+        async def recording_action_finished(data, shard, error=None,
+                                            dispatch_id=None):
             calls.append((data, shard, error))
-            return await real_action_finished(data, shard, error)
+            return await real_action_finished(data, shard, error,
+                                              dispatch_id=dispatch_id)
 
         self.service.action_finished = recording_action_finished
         return calls
@@ -623,13 +625,13 @@ class EvaluationServiceFailurePathsTest(
         self.assertIsNone(self._load_result(fixture).compilation_outcome)
         self.assertEqual(self.notifications.call_count, 0)
 
-    async def test_rpc_error_after_check_workers_connection_is_swallowed(self):
+    async def test_rpc_error_after_check_workers_connection_is_ignored(self):
         # The connection to a worker drops in the middle of a job, and
         # check_workers_connection (on its timer) looks at the pool just
         # before the failed RPC reaches action_finished. The operation is
         # queued again by the first, and the late action_finished finds
-        # the worker released already: it fails, and the pool logs that
-        # without letting it escape.
+        # the worker released already: the answer is stale, and the pool
+        # ignores it without an error.
         fixture = self._add_fixture()
         worker = ControllableWorker()
         worker.answers_released.clear()
@@ -639,16 +641,17 @@ class EvaluationServiceFailurePathsTest(
                              "the job to reach the worker")
         finished = self._record_action_finished()
         executor = self.service.get_executor()
+        dispatch = self.pool._current_dispatch[0]
 
         client.disconnect()
-        with self.assertLogs("cms.service.workerpool", level="ERROR") as logs:
+        with self.assertLogs("cms.service.workerpool", level="INFO") as logs:
             # Nothing runs between the two: the RPC error is only
             # delivered when the loop next gets control.
             await self.service.check_workers_connection()
             await self._wait_for(
                 lambda: len(finished) == 1, "action_finished to be called")
             await self._wait_for(
-                lambda: len(logs.records) == 2, "the failure to be logged")
+                lambda: len(logs.records) == 1, "the answer to be ignored")
         await self._wait_for(
             lambda: executor._currently_executing == [fixture.compilation()],
             "the operation to be held for a worker")
@@ -658,9 +661,10 @@ class EvaluationServiceFailurePathsTest(
         self.assertEqual(shard, 0)
         self.assertIsNotNone(error)
         self.assertEqual(
-            [record.getMessage() for record in logs.records],
-            ["Trying to release worker while it's inactive.",
-             "Unexpected error in action_finished for worker 0."])
+            [(record.levelname, record.getMessage())
+             for record in logs.records],
+            [("INFO", "Ignoring a stale answer from worker 0 "
+                      "(job group %s; current: None)." % dispatch)])
         # The operation is queued again, exactly once (held for a worker,
         # as the only one is disconnected), and nothing else happened.
         self.assertEqual(executor._currently_executing,
@@ -824,9 +828,11 @@ class EvaluationServiceFailurePathsTest(
         self._gates.append(answer_arrived)
         real_action_finished = self.service.action_finished
 
-        async def signalling_action_finished(data, shard, error=None):
+        async def signalling_action_finished(data, shard, error=None,
+                                             dispatch_id=None):
             answer_arrived.set()
-            await real_action_finished(data, shard, error)
+            await real_action_finished(data, shard, error,
+                                       dispatch_id=dispatch_id)
 
         self.service.action_finished = signalling_action_finished
         real_get_relevant_operations = \

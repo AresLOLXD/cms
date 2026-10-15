@@ -17,3 +17,8 @@ dumps/
 # reads it on the host; nothing in the image build needs it, or .env.example.
 **/.env
 **/.env.*
+# Load-test output: run results (gigabytes, with the throwaway users'
+# plaintext passwords) and the rendered config of the last run (its
+# secret key and database password).
+cmstestsuite/loadtest/out/
+cmstestsuite/loadtest/run/

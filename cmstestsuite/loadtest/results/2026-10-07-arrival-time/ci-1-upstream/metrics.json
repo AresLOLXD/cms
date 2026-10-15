@@ -1,0 +1,35 @@
+{
+ "cpu_mean_by_container": {
+  "cmsload-upstream-cms-1": 99.4,
+  "cmsload-upstream-db-1": 13.0,
+  "cmsload-upstream-driver-1": 2.7,
+  "cmsload-upstream-ranking-1": 0.1
+ },
+ "drain_after_stop_s": 989.0,
+ "http_errors": 0,
+ "login_failures": 0,
+ "login_p50": 0.284,
+ "login_p95": 1.046,
+ "mem_last_by_container": {
+  "cmsload-upstream-cms-1": "982.9MiB",
+  "cmsload-upstream-db-1": "119.6MiB",
+  "cmsload-upstream-driver-1": "1.371MiB",
+  "cmsload-upstream-ranking-1": "40.55MiB"
+ },
+ "peak_pg_connections": 54,
+ "profile": "portable",
+ "run": "ci-1-upstream",
+ "rws_mismatches": 0,
+ "rws_pairs": 700,
+ "score_mismatches": 1,
+ "scored_max": 991.5,
+ "scored_p50": 152.4,
+ "scored_p95": 900.1,
+ "submissions_rejected": 1,
+ "submissions_sent": 1108,
+ "submit_end_p95": 10.995,
+ "submit_p50": 0.493,
+ "submit_p95": 7.078,
+ "target": "upstream",
+ "users": 250
+}

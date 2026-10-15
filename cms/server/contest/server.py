@@ -136,6 +136,12 @@ class ContestWebServer(WebService):
         self.add_timeout(self.activity_recorder.flush, None,
                          config.contest_web_server.activity_flush_interval)
 
+        # Name of a header in which a trusted front proxy writes when it
+        # received each request (see cms/server/request_time.py). Empty:
+        # off.
+        self.request_time_header: str = \
+            config.contest_web_server.request_time_header
+
     async def _async_run(self) -> bool:
         try:
             return await super()._async_run()

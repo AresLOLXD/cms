@@ -30,6 +30,7 @@
 """
 
 from datetime import datetime
+import itertools
 import os.path
 import pickle
 
@@ -129,7 +130,8 @@ def store_local_copy(
     about the user, the task and the contest of the submission. The
     files are organized in directories (one for each contestant, named
     as their usernames) and their names are the dates and times of the
-    submissions. The files' contents are pickle-encoded tuples whose
+    submissions, with a suffix ("-1", "-2", ...) if a file with that
+    name exists already. The files' contents are pickle-encoded tuples whose
     first three elements are the contest ID, the user ID and the task ID
     and whose fourth element is a dict describing the files.
 
@@ -150,8 +152,20 @@ def store_local_copy(
                             participation.user.username)
         if not os.path.exists(path):
             os.makedirs(path)
-        with open(os.path.join(path, "%s" % timestamp), "wb") as f:
-            pickle.dump((participation.contest.id, participation.user.id,
-                         task.id, files), f)
+        base_name = os.path.join(path, "%s" % timestamp)
+        # Two submissions of a user can have the same timestamp (a proxy
+        # time header has a resolution of a millisecond): never overwrite
+        # a copy, add a suffix instead.
+        for attempt in itertools.count():
+            name = base_name if attempt == 0 else "%s-%d" % (base_name,
+                                                             attempt)
+            try:
+                f = open(name, "xb")
+            except FileExistsError:
+                continue
+            with f:
+                pickle.dump((participation.contest.id, participation.user.id,
+                             task.id, files), f)
+            break
     except OSError as e:
         raise StorageFailed("Failed to store local copy of submission: %s", e)

@@ -1,0 +1,8 @@
+# process census at the end of the run, 2026-10-07T05:45:15Z
+cmsLogService expected=1 found=1
+cmsScoringService expected=1 found=1
+cmsEvaluationService expected=1 found=1
+cmsWorker expected=8 found=8
+cmsContestWebServer expected=4 found=4
+cmsAdminWebServer expected=1 found=1
+cmsProxyService expected=1 found=1

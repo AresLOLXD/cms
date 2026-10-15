@@ -32,11 +32,20 @@ Use `make_psycopg_green()` to enable gevent support in Psycopg.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# The fork changes this vendored file: gevent_wait_callback enforces
+# connect_timeout during a connect (see connect_deadline, #39).
+
+import time
 from contextlib import contextmanager
 
 import psycopg2
 from gevent.socket import wait_read, wait_write
 from psycopg2 import extensions
+
+
+# Libpq's floor for connect_timeout: a positive value under 2 s acts as
+# 2 s.
+MIN_CONNECT_TIMEOUT_S = 2
 
 
 def make_psycopg_green():
@@ -69,19 +78,86 @@ def is_psycopg_green():
     return extensions.get_wait_callback() == gevent_wait_callback
 
 
+def connect_deadline(conn: extensions.connection) -> float | None:
+    """Return when the connect a wait callback serves must give up.
+
+    Libpq leaves connect_timeout to the application when it connects
+    without blocking, as green psycopg2 does. The value is the
+    connection's own connect_timeout, so that a URL's value (0
+    included) applies: 0, none or a value that is not an integer means
+    no deadline (blocking libpq rejects the last one; green libpq
+    ignores it, so such a connect has no deadline, as before #39), and
+    a positive value under MIN_CONNECT_TIMEOUT_S counts as that, as in
+    libpq.
+    Limits: with a multi-host URL the deadline covers the whole
+    connect, not each host; a DNS lookup that blocks before the socket
+    exists is not covered.
+
+    conn: the connection the callback waits for, before its first
+        poll(): its status leaves STATUS_SETUP as soon as the connect
+        makes progress.
+
+    return: the time.monotonic() deadline, or None when the call is not
+        a connect or has no deadline.
+
+    """
+    if conn.status != extensions.STATUS_SETUP:
+        return None
+    try:
+        seconds = int(extensions.parse_dsn(conn.dsn).get("connect_timeout"))
+    except (TypeError, ValueError):
+        # Absent, or not an integer: blocking libpq rejects the latter;
+        # green libpq ignores it, so such a connect has no deadline, as
+        # before #39.
+        return None
+    if seconds <= 0:
+        return None
+    return time.monotonic() + max(seconds, MIN_CONNECT_TIMEOUT_S)
+
+
 def gevent_wait_callback(conn, timeout=None):
-    """A wait callback useful to allow gevent to work with Psycopg."""
+    """A wait callback useful to allow gevent to work with Psycopg.
+
+    During a connect it also enforces connect_timeout (see
+    connect_deadline): it closes the connection and raises
+    psycopg2.OperationalError("timeout expired"), libpq's own message.
+    It never bounds a query: a client-side cut would not cancel the
+    server's work.
+
+    raise (psycopg2.OperationalError): when the connect_timeout of a
+        connect runs out.
+
+    """
+    deadline = connect_deadline(conn)
     while 1:
         state = conn.poll()
         if state == extensions.POLL_OK:
             break
         elif state == extensions.POLL_READ:
-            wait_read(conn.fileno(), timeout=timeout)
+            wait = wait_read
         elif state == extensions.POLL_WRITE:
-            wait_write(conn.fileno(), timeout=timeout)
+            wait = wait_write
         else:
             raise psycopg2.OperationalError(
                 "Bad result from poll: %r" % state)
+        if deadline is None:
+            wait(conn.fileno(), timeout=timeout)
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            try:
+                wait(conn.fileno(), timeout=remaining)
+                continue
+            except TimeoutError:
+                # gevent's socket.timeout.
+                pass
+        # Close now: gevent keeps the last timeout error, and with it
+        # this frame, so the socket would stay open until the next one.
+        # Reachable only during a connect: psycopg2 holds the
+        # connection's lock while a query waits, so close() there would
+        # deadlock.
+        conn.close()
+        raise psycopg2.OperationalError("timeout expired")
 
 
 @contextmanager

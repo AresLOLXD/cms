@@ -1,0 +1,7 @@
+{"submissions": [
+  {"id": 1, "opaque_id": 11, "user": "a001", "task": "suma", "timestamp": 1550.5, "status": "scored", "compilation_outcome": "ok", "compilation_tries": 1, "evaluation_tries": 1, "score": 100.0, "scored_at": 1556.0, "evaluations": 12},
+  {"id": 2, "opaque_id": 12, "user": "a002", "task": "libre", "timestamp": 1560.5, "status": "scored", "compilation_outcome": "ok", "compilation_tries": 1, "evaluation_tries": 1, "score": 75.0, "scored_at": 1630.0, "evaluations": 9}],
+ "task_scores": [
+  {"contest": "loada", "user": "a001", "task": "suma", "score": 100.0, "partial": false},
+  {"contest": "loada", "user": "a002", "task": "libre", "score": 75.0, "partial": false},
+  {"contest": "loadb", "user": "b001", "task": "sumab", "score": 40.0, "partial": true}]}

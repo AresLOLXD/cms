@@ -1,0 +1,22 @@
+import java.io.*;
+import java.util.*;
+
+public class TASKNAME {
+    public static void main(String[] args) throws IOException {
+        DataInputStream in = new DataInputStream(new BufferedInputStream(System.in, 1 << 16));
+        int n = (int) readLong(in);
+        long s = 0;
+        for (int i = 0; i < n; i++) s += readLong(in);
+        System.out.println(s);
+    }
+
+    private static long readLong(DataInputStream in) throws IOException {
+        int c = in.read();
+        while (c != '-' && (c < '0' || c > '9')) c = in.read();
+        boolean neg = false;
+        if (c == '-') { neg = true; c = in.read(); }
+        long r = 0;
+        while (c >= '0' && c <= '9') { r = r * 10 + (c - '0'); c = in.read(); }
+        return neg ? -r : r;
+    }
+}

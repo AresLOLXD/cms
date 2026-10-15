@@ -40,6 +40,8 @@ from tornado.web import HTTPError, RequestHandler
 
 from cms.db import Session
 from cms.db.filecacher import TombstoneError
+from cms.server.request_time import (MAX_SKEW, parse_request_time_header,
+                                     request_arrival_time)
 from cmscommon.datetime import make_datetime
 
 if typing.TYPE_CHECKING:
@@ -265,7 +267,28 @@ class CommonRequestHandler(RequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # When the handler was built. This is the time of everything
+        # but the decisions taken at the stop (see arrival_time).
         self.timestamp = make_datetime()
+        # When the request arrived, if a trusted proxy says so in the
+        # header the service names; else the same as the timestamp. Only
+        # the phase of the contest and the submissions and tests use it.
+        self.arrival_time = self.timestamp
+        header_name = getattr(self.service, "request_time_header", "")
+        if isinstance(header_name, str) and header_name:
+            header_time = parse_request_time_header(
+                self.request.headers.get(header_name))
+            self.arrival_time = request_arrival_time(
+                self.timestamp, header_time)
+            delay = (self.timestamp - self.arrival_time).total_seconds()
+            if delay > 1:
+                note = ""
+                if header_time < self.timestamp - MAX_SKEW:
+                    note = " (clamped to %d s)" % MAX_SKEW.total_seconds()
+                logger.info("Request %s %s arrived %.1f s before its handler "
+                            "ran, as its %s header says%s.",
+                            self.request.method, self.request.path, delay,
+                            header_name, note)
         self.sql_session = Session()
         self.r_params = None
         self.contest = None

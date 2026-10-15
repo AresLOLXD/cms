@@ -33,6 +33,7 @@ from cmscontrib.updaters.fork_multi_contest import \
     apply_fork_multi_contest_update
 from cmscontrib.updaters.fork_activity_intervals import \
     apply_fork_activity_intervals_update
+from cmscontrib.updaters.fork_ddl import SchemaLockTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -155,13 +156,23 @@ def offer_sample_contest() -> bool:
 def setup_db() -> bool:
     """Initialize or update DB schema, create first admin, offer sample contest.
 
-    return: True on success, False if a required step failed.
+    return: True on success, False if a required step failed. A fork
+        schema update that waited 5 s for one lock is one: that update
+        changed nothing, though an earlier one may already be applied.
+        The 5 s bound is per lock wait, so the setup can wait longer in
+        all.
 
     """
     init_db()  # raises on failure; return value is always True
     # init_db creates missing tables but never alters existing ones.
-    apply_fork_multi_contest_update()
-    apply_fork_activity_intervals_update()
+    try:
+        apply_fork_multi_contest_update()
+        apply_fork_activity_intervals_update()
+    except SchemaLockTimeout as error:
+        # One line for the operator, no traceback; scripts/cmsSetupDB
+        # exits 1 on False.
+        logger.critical("%s", error)
+        return False
     if not ensure_first_admin():
         return False
     offer_sample_contest()

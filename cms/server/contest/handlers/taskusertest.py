@@ -121,7 +121,7 @@ class UserTestInterfaceHandler(ContestHandler):
 class UserTestHandler(ContestHandler):
 
     @tornado.web.authenticated
-    @actual_phase_required(0)
+    @actual_phase_required(0, refusal_subject=N_("Test not accepted"))
     @multi_contest
     def post(self, task_name):
         if not self.r_params["testing_enabled"]:
@@ -136,7 +136,7 @@ class UserTestHandler(ContestHandler):
         try:
             user_test = accept_user_test(
                 self.sql_session, self.service.file_cacher, self.current_user,
-                task, self.timestamp, self.request.files,
+                task, self.arrival_time, self.request.files,
                 self.get_argument("language", None))
             self.sql_session.commit()
         except TestingNotAllowed:

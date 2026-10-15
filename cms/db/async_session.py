@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession as _AsyncSession, async_sessionmaker, create_async_engine)
 
 from cms.conf import config
+from .connect_options import log_rollback_error, with_connection_defaults
 
 
 def _async_database_url() -> URL:
@@ -83,10 +84,12 @@ def _async_database_url() -> URL:
 
 
 # Mirrors cms/db/__init__.py's sync `engine = create_engine(...)` call:
-# created once at import time, connects lazily on first actual use.
+# created once at import time, connects lazily on first actual use. The
+# connection defaults are added here, so that _async_database_url()
+# stays the plain driver swap.
 async_engine = create_async_engine(
-    _async_database_url(), echo=config.database.debug,
-    pool_timeout=60, pool_recycle=120)
+    with_connection_defaults(_async_database_url()),
+    echo=config.database.debug, pool_timeout=60, pool_recycle=120)
 
 AsyncSession = async_sessionmaker(async_engine)
 
@@ -131,15 +134,21 @@ class AsyncSessionGen:
 
     async def __aexit__(
         self,
-        unused1: type[BaseException] | None,
-        unused2: BaseException | None,
-        unused3: TracebackType | None,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> None:
         # try/finally so that if rollback() itself raises (e.g. a second
         # asyncio.CancelledError landing while it is suspended during a
         # shutdown that cancels tasks), the session's connection is
-        # still returned to the pool rather than held until GC.
+        # still returned to the pool rather than held until GC. A
+        # rollback error on a lost connection must not hide the block's
+        # own error either (see log_rollback_error); a CancelledError is
+        # not an Exception, so it still propagates.
         try:
             await self.session.rollback()
+        except Exception as error:
+            if not log_rollback_error(error, exc_value is not None):
+                raise
         finally:
             await self.session.close()

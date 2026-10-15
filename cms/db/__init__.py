@@ -32,9 +32,11 @@
 import logging
 
 from sqlalchemy import create_engine, select, MetaData
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import configure_mappers, joinedload, subqueryload
 
 from cms import config
+from .connect_options import with_connection_defaults
 
 
 logger = logging.getLogger(__name__)
@@ -87,8 +89,9 @@ __all__ = [
 
 version = 49
 
-engine = create_engine(config.database.url, echo=config.database.debug,
-                       pool_timeout=60, pool_recycle=120)
+engine = create_engine(
+    with_connection_defaults(make_url(config.database.url)),
+    echo=config.database.debug, pool_timeout=60, pool_recycle=120)
 
 metadata = MetaData()
 

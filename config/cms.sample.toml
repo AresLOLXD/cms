@@ -69,6 +69,12 @@ TelegramBot = []
 
 [database]
 # Connection string for the database.
+# Every connection also gets these libpq settings, unless the URL's own
+# query sets them: connect_timeout=10 (seconds), keepalives=1,
+# keepalives_idle=30 and keepalives_interval=10 (seconds),
+# keepalives_count=3, tcp_user_timeout=60000 (milliseconds, not
+# seconds), and fallback_application_name, the program's name. For
+# example, "...?keepalives_idle=60" changes only that one.
 url = "postgresql+psycopg2://cmsuser:your_password_here@localhost:5432/cmsdb"
 
 # Whether SQLAlchemy prints DB queries on stdout.
@@ -131,6 +137,17 @@ cookie_duration = 10800
 # example, if you're using nginx as a load balancer, you will likely
 # want to set this value to 1.
 num_proxies_used = 0
+
+# Name of a header in which a front proxy writes when it received each
+# request, so that a submission that reached the proxy before the contest
+# stop is accepted even if CWS handles it later (e.g. nginx:
+# proxy_set_header X-Request-Start "t=${msec}";). Set it only if every
+# request reaches CWS through that proxy, which must overwrite the
+# header and write it after it holds the whole request body (nginx does
+# with proxy_request_buffering on, the default), and if the proxy and CWS
+# share a clock. Only the contest phase and the time stored for
+# submissions and tests use it. Empty: off.
+#request_time_header = "X-Request-Start"
 
 # If CWSs write submissions to disk before storing them in the DB, and
 # where to save them. %s = DATA_DIR.

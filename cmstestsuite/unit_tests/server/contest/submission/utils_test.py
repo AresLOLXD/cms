@@ -17,6 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import pickle
 import stat
 import unittest
 from datetime import timedelta
@@ -220,13 +221,34 @@ class TestStoreLocalCopy(DatabaseMixin, FileSystemMixin, unittest.TestCase):
         store_local_copy(self.base_dir, self.participation, self.task,
                          self.timestamp,
                          {"foo.%l": content_a, "bar.txt": content_b})
-        # Giving the same user and timestamp would actually overwrite.
         store_local_copy(self.base_dir, self.participation, self.task,
                          self.timestamp + timedelta(seconds=1),
                          {"foo.%l": content_c})
         self.assertSomeFileContains(content_a, in_=self.base_dir)
         self.assertSomeFileContains(content_b, in_=self.base_dir)
         self.assertSomeFileContains(content_c, in_=self.base_dir)
+
+    def test_same_timestamp_does_not_overwrite(self):
+        # With a proxy time header the timestamps have a resolution of a
+        # millisecond, so two submissions of a user can share a name.
+        contents = [self.generate_content() for _ in range(3)]
+        for content in contents:
+            store_local_copy(self.base_dir, self.participation, self.task,
+                             self.timestamp, {"foo.%l": content})
+
+        user_dir = os.path.join(self.base_dir,
+                                self.participation.user.username)
+        name = "%s" % self.timestamp
+        self.assertEqual(sorted(os.listdir(user_dir)),
+                         [name, name + "-1", name + "-2"])
+        for filename, content in zip([name, name + "-1", name + "-2"],
+                                     contents):
+            with self.subTest(filename=filename):
+                with open(os.path.join(user_dir, filename), "rb") as f:
+                    stored = pickle.load(f)
+                self.assertEqual(
+                    stored, (self.contest.id, self.participation.user.id,
+                             self.task.id, {"foo.%l": content}))
 
     def test_success_with_data_dir(self):
         content = self.generate_content()

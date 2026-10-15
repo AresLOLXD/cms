@@ -1,0 +1,412 @@
+name: loadtest
+
+# Run the load-test harness (cmstestsuite/loadtest/, see its README) on
+# GitHub-hosted runners: the pushed commit (target fork) against stock
+# upstream CMS at UPSTREAM_REF (target upstream). Start it by pushing the
+# commit to test to a loadtest/ branch, and delete the branch afterwards:
+#   git push origin <commit>:refs/heads/loadtest/<topic>
+#   git push origin --delete loadtest/<topic>
+# (workflow_dispatch would need this file on the default branch first.)
+#
+# Two more branch prefixes run something else, and not the pair and
+# compare jobs:
+# - loadtest/faults-<topic>: the "faults" job, a fault run of the fork
+#   (run.sh --faults, see the README), smoke-sized, once per profile;
+# - loadtest/runner-check-<topic>: the "runner-check" job, which checks in
+#   5 minutes that a runner can drop a container's traffic with nsenter
+#   and iptables, and pause the container.
+#
+# The scenario is the env block below: the run.sh options of the same
+# names. Change it in the commit you push. Each "pair" job is one repeat
+# on its own runner (ubuntu-24.04: 4 vCPUs, 16 GB): it builds both images,
+# then runs fork and upstream one after the other, fork first in odd
+# repeats and upstream first in even ones (2 and 2), so that the shared
+# runner cancels the runner-to-runner variation. The full profile runs
+# the fork only. "compare" puts the metrics of every run side by side.
+#
+# Cost: standard runners are free on this public repository; the 4 pair
+# jobs take 4 of the 20 concurrent jobs GitHub Free allows. Duration:
+# about 30 min with the README's smoke values (measured); about 1.5 h
+# with the defaults below, estimated from the local runs (5 min of image
+# builds, then two runs of 30-40 min per job), not yet measured on a
+# runner.
+on:
+  push:
+    branches:
+      - "loadtest/**"
+
+# The jobs only check the repository out and pass artifacts to each other.
+permissions:
+  contents: read
+
+# The knob names must not reuse the variables compose.yml interpolates
+# (LOAD_TARGET, LOAD_DB_PASSWORD, LOAD_RWS_PASSWORD, LOAD_SECRET_KEY,
+# LOAD_WORKER_COUNT, LOAD_CWS_COUNT): shell variables override the
+# --env-file that run.sh writes.
+env:
+  LOAD_USERS_A: "175"
+  LOAD_USERS_B: "75"
+  LOAD_LOGIN_WINDOW: "150"
+  LOAD_CONTEST: "1500"
+  LOAD_END_BURST: "300"
+  LOAD_RATE: "45"
+  LOAD_END_BURST_FACTOR: "1.0"
+  LOAD_WORKERS: "8"
+  LOAD_CWS: "4"
+  # A header name simulates a front proxy that stamps the arrival time of
+  # each submit (the fork's CWS reads it, upstream ignores it with a
+  # warning); empty leaves the option off.
+  LOAD_REQUEST_TIME_HEADER: ""
+  # Longest delay in seconds between two status polls of a submission, as
+  # the fork's page caps it. The driver emulates the browser, so it applies
+  # to both targets; empty leaves the option off (no limit, like upstream's
+  # page).
+  LOAD_POLL_CAP: ""
+  # portable or full; full has no upstream counterpart.
+  LOAD_PROFILE: portable
+  # The merge-base of the fork and upstream, as in the README.
+  UPSTREAM_REF: cc9dfafb
+
+jobs:
+  pair:
+    if: >-
+      ${{ !startsWith(github.ref_name, 'loadtest/faults')
+      && !startsWith(github.ref_name, 'loadtest/runner-check') }}
+    runs-on: ubuntu-24.04
+    # Under the 6 h limit of a job. The Run step has its own, shorter
+    # timeout, so that a hung run fails that step and the summary and the
+    # upload still run.
+    timeout-minutes: 330
+
+    strategy:
+      # Every repeat is a sample: one failure must not cancel the others.
+      fail-fast: false
+      matrix:
+        repeat: [1, 2, 3, 4]
+
+    env:
+      REPEAT: ${{ matrix.repeat }}
+
+    defaults:
+      run:
+        # bash with pipefail, so that "run.sh | tee" fails when run.sh does.
+        shell: bash
+        working-directory: cmstestsuite/loadtest
+
+    steps:
+      # build.sh takes the source with "git archive <ref>": UPSTREAM_REF
+      # must be in the history.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Record the runner and the run order
+        run: |
+          if [[ $LOAD_PROFILE == full ]]; then
+            order=fork
+          elif ((REPEAT % 2)); then
+            order="fork upstream"
+          else
+            order="upstream fork"
+          fi
+          echo "ORDER=$order" >>"$GITHUB_ENV"
+          mkdir -p out
+          {
+            echo "repeat $REPEAT, run order: $order"
+            echo "nproc: $(nproc)"
+            lscpu | grep '^Model name'
+            echo "kernel: $(uname -r)"
+            free -g
+            df -h /
+            env | grep -E '^(LOAD_|UPSTREAM_REF=)' | sort
+          } | tee out/runner.txt
+
+      - name: Build the fork image
+        run: ./build.sh fork HEAD
+
+      - name: Build the upstream image
+        if: env.LOAD_PROFILE != 'full'
+        run: ./build.sh upstream "$UPSTREAM_REF"
+
+      # One target after the other, with a teardown in between: run.sh
+      # refuses to start while another target's stack is up. A failed run
+      # does not stop the other one.
+      - name: Run ${{ env.ORDER }}
+        timeout-minutes: 240
+        run: |
+          failed=0
+          extra=()
+          if [[ -n $LOAD_REQUEST_TIME_HEADER ]]; then
+            extra=(--request-time-header "$LOAD_REQUEST_TIME_HEADER")
+          fi
+          if [[ -n $LOAD_POLL_CAP ]]; then
+            extra+=(--poll-cap "$LOAD_POLL_CAP")
+          fi
+          for target in $ORDER; do
+            name=ci-$REPEAT-$target
+            echo "::group::$name"
+            began=$(date -u +%FT%TZ)
+            rc=0
+            ./run.sh --target "$target" --profile "$LOAD_PROFILE" \
+                --name "$name" --users-a "$LOAD_USERS_A" \
+                --users-b "$LOAD_USERS_B" \
+                --login-window "$LOAD_LOGIN_WINDOW" \
+                --contest "$LOAD_CONTEST" --end-burst "$LOAD_END_BURST" \
+                --rate "$LOAD_RATE" \
+                --end-burst-factor "$LOAD_END_BURST_FACTOR" \
+                --workers "$LOAD_WORKERS" --cws "$LOAD_CWS" \
+                "${extra[@]}" 2>&1 |
+              tee "out/run-$name.log" || rc=$?
+            disk=$(df -h --output=used,avail / | tail -1)
+            ./teardown.sh "$target" 2>&1 | tee -a "out/run-$name.log" || rc=$?
+            echo "::endgroup::"
+            echo "$name: $began to $(date -u +%FT%TZ), exit $rc;" \
+                "disk used and free before the teardown:$disk" |
+              tee -a out/runner.txt
+            if ((rc != 0)); then
+              echo "::error::$name failed (exit $rc)"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Summarize the runs
+        if: always()
+        run: |
+          shopt -s nullglob
+          {
+            echo "## Repeat $REPEAT"
+            echo
+            echo '```'
+            cat out/runner.txt 2>/dev/null ||
+              echo "(no runner.txt: an early step failed)"
+            echo '```'
+            for dir in out/ci-*/; do
+              name=$(basename "$dir")
+              echo
+              echo "### $name"
+              echo
+              if [[ ! -f $dir/metrics.json ]]; then
+                echo "No metrics.json: the run did not finish, see" \
+                    "run-$name.log in the artifact."
+                continue
+              fi
+              {
+                sed -n '3,4p' "$dir/summary.md"
+                grep -e '^Login failures' -e '^Submissions sent' \
+                    -e '^Never scored' -e '^Rows not identified' \
+                    -e '^Score mismatches' -e '^Final RWS' "$dir/summary.md"
+                (cd "$dir" &&
+                  grep -s -H SHORT processes_start.txt processes_end.txt)
+              } | sed 's/^/- /' || true
+              echo
+              python3 compare.py "$dir" || echo "(compare.py failed)"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+          # The disk use at the end. The jobs need about 10 GB (the images
+          # and their build cache); the runners had 86 GB free in 2026-10.
+          df -h /
+          docker system df || true
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-${{ matrix.repeat }}
+          path: cmstestsuite/loadtest/out/
+          # A re-run of the job replaces the artifact of the failed attempt.
+          overwrite: true
+          retention-days: 30
+
+  compare:
+    needs: pair
+    # Compare what there is, even if a repeat failed.
+    if: ${{ !cancelled() && needs.pair.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    env:
+      # success, or failure if a repeat failed (its artifact may be
+      # missing or incomplete).
+      PAIR_RESULT: ${{ needs.pair.result }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: loadtest-*
+          path: results
+
+      # --median groups by target only: every run here has the same
+      # profile, LOAD_PROFILE.
+      - name: Compare the runs
+        run: |
+          shopt -s nullglob
+          runs=()
+          missing=()
+          for dir in results/*/ci-*-fork results/*/ci-*-upstream; do
+            if [[ -f $dir/metrics.json ]]; then
+              runs+=("$dir")
+            else
+              missing+=("${dir##*/}")
+            fi
+          done
+          if ((${#runs[@]} == 0)); then
+            echo "No run has a metrics.json (pair jobs: $PAIR_RESULT)" |
+              tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          {
+            echo "Pair jobs: $PAIR_RESULT; runs with a metrics.json:" \
+                "${#runs[@]}."
+            echo
+            echo "## Median per target, profile $LOAD_PROFILE"
+            echo
+            python3 cmstestsuite/loadtest/compare.py "${runs[@]}" --median
+            echo
+            echo "## Every run"
+            echo
+            python3 cmstestsuite/loadtest/compare.py "${runs[@]}"
+            if ((${#missing[@]})); then
+              echo
+              echo "No metrics.json (the run did not finish): ${missing[*]}"
+            fi
+          } >compare.md
+          cat compare.md >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the comparison
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-compare
+          path: compare.md
+          overwrite: true
+          retention-days: 30
+
+  # A fault run (run.sh --faults): smoke-sized load, the fork only, one
+  # job per profile. faults.md, in the summary and the artifact, has the
+  # pass or FAIL of every criterion; a FAIL does not fail the job.
+  faults:
+    if: ${{ startsWith(github.ref_name, 'loadtest/faults') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [portable, full]
+
+    env:
+      PROFILE: ${{ matrix.profile }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmstestsuite/loadtest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Record the runner
+        run: |
+          mkdir -p out
+          {
+            echo "fault run, profile $PROFILE"
+            echo "nproc: $(nproc)"
+            lscpu | grep '^Model name'
+            echo "kernel: $(uname -r)"
+          } | tee out/runner.txt
+
+      - name: Build the fork image
+        run: ./build.sh fork HEAD
+
+      # The README's smoke values, but a 2100 s contest: the faults and
+      # their recovery end about 1770 s after the start (faults.py).
+      - name: Run with faults
+        timeout-minutes: 120
+        run: |
+          name=faults-$PROFILE
+          rc=0
+          ./run.sh --target fork --profile "$PROFILE" --name "$name" \
+              --users-a 14 --users-b 6 --login-window 60 --contest 2100 \
+              --end-burst 120 --rate 10 --workers "$LOAD_WORKERS" \
+              --cws "$LOAD_CWS" --faults 2>&1 |
+            tee "out/run-$name.log" || rc=$?
+          ./teardown.sh fork 2>&1 | tee -a "out/run-$name.log" || rc=$?
+          exit "$rc"
+
+      - name: Summarize the run
+        if: always()
+        run: |
+          shopt -s nullglob
+          {
+            echo "## Fault run, profile $PROFILE"
+            echo
+            for file in out/faults-*/faults.md; do cat "$file"; done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-faults-${{ matrix.profile }}
+          path: cmstestsuite/loadtest/out/
+          overwrite: true
+          retention-days: 30
+
+  # Can this runner inject the faults of a fault run? It checks nsenter
+  # and iptables in a container's network namespace (the DROP rules must
+  # block the container's port from outside and leave its loopback
+  # alone) and docker pause, and says whether sch_netem is loaded.
+  runner-check:
+    if: ${{ startsWith(github.ref_name, 'loadtest/runner-check') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check nsenter, iptables and docker pause
+        run: |
+          dc() { sg docker -c "$(printf '%q ' docker --context default "$@")"; }
+          probe() { timeout 3 bash -c "exec 3<>/dev/tcp/$1/5432"; }
+          rules() {
+            sudo nsenter -t "$pid" -n iptables "$1" INPUT ! -i lo \
+                -p tcp --dport 5432 -j DROP
+            sudo nsenter -t "$pid" -n iptables "$1" OUTPUT ! -o lo \
+                -p tcp --sport 5432 -j DROP
+          }
+          dc run -d --name netcheck -e POSTGRES_PASSWORD=check \
+              docker.io/postgres:17-alpine
+          for _ in $(seq 30); do
+            dc exec netcheck pg_isready -h 127.0.0.1 -q && break
+            sleep 1
+          done
+          pid=$(dc inspect -f '{{.State.Pid}}' netcheck)
+          ip=$(dc inspect -f '{{.NetworkSettings.IPAddress}}' netcheck)
+          probe "$ip"
+          echo "port 5432 is open before the rules"
+          rules -I
+          sudo nsenter -t "$pid" -n iptables -S
+          if probe "$ip"; then
+            echo "::error::the DROP rules did not block port 5432"
+            exit 1
+          fi
+          echo "port 5432 is blocked by the rules"
+          dc exec netcheck pg_isready -h 127.0.0.1 -q
+          echo "the loopback inside the namespace still works"
+          rules -D
+          probe "$ip"
+          echo "port 5432 is open again"
+          dc pause netcheck
+          dc unpause netcheck
+          echo "docker pause and unpause work"
+          dc rm -f netcheck
+          sudo iptables --version
+          if lsmod | grep -qw sch_netem; then
+            echo "sch_netem: loaded"
+          else
+            echo "sch_netem: not loaded"
+          fi

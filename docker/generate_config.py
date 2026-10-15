@@ -9,6 +9,7 @@ write only cms_ranking.toml (used by the standalone ranking container).
 """
 
 import os
+import re
 import sys
 from urllib.parse import quote as _url_quote
 
@@ -95,6 +96,14 @@ def generate_cms_toml() -> str:
         )
         sys.exit(1)
 
+    request_time_header = _get("CMS_CWS_REQUEST_TIME_HEADER", "")
+    if request_time_header and not re.fullmatch(
+            r"[A-Za-z0-9-]+", request_time_header):
+        print(f"ERROR: CMS_CWS_REQUEST_TIME_HEADER must be a header name "
+              f"(letters, digits and '-'), got {request_time_header!r}.",
+              file=sys.stderr)
+        sys.exit(1)
+
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
     cws_http_port = _get_int("CMS_CWS_HTTP_PORT", 8888)
@@ -153,6 +162,7 @@ listen_address = {cws_addrs}
 listen_port = {cws_ports}
 num_proxies_used = {num_proxies}
 cookie_duration = {cookie_duration}
+request_time_header = "{_toml_str(request_time_header)}"
 
 [admin_web_server]
 listen_address = "{listen_addr}"

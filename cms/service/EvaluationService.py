@@ -39,10 +39,12 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, \
+    PendingRollbackError
 
 from cms import ServiceCoord, get_service_shards
 from cms.db.session import Session
+from cms.db.connect_options import describe_error, is_disconnect, sqlstate
 from cms.io.priorityqueue import PriorityQueue, QueueEntry, QueueEntryDict, \
     QueueItem
 from cmscommon.datetime import make_timestamp
@@ -57,6 +59,7 @@ from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.rpc import rpc_method, RPCError
 from .esoperations import ESOperation, get_relevant_operations, \
     any_dataset_declares_dependencies, \
+    get_submission_results_to_finalize, \
     get_submission_results_to_evaluate, get_submissions_compilation_operations, \
     get_submissions_operations, get_user_tests_operations, \
     outcomes_for_screening, submission_get_operations, \
@@ -282,6 +285,26 @@ def with_post_finish_lock(func):
     return wrapped
 
 
+def _lost_connection(error: BaseException) -> bool:
+    """Tell whether a results write failed because the database is gone.
+
+    A disconnect (see is_disconnect) counts, and so does a failed
+    connect: SQLAlchemy raises it as an OperationalError whose driver
+    error has no SQLSTATE ("Connection refused", the connect deadline's
+    "timeout expired"), without marking it invalidated. Once a
+    disconnect has emptied the pool, that is what every flush meets
+    until PostgreSQL answers again.
+
+    error: the error that ended the write.
+
+    return: whether the batch was lost to the connection, not to its
+        data.
+
+    """
+    return is_disconnect(error) or (
+        isinstance(error, OperationalError) and sqlstate(error.orig) is None)
+
+
 class Result:
     """An object grouping the results obtained from a worker for an
     operation.
@@ -485,13 +508,30 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                                 operation, priority, submission.timestamp):
                             new_operations += 1
                 else:
-                    logger.info("Result %d(%d) has already all evaluations, "
-                                "finalizing it.", submission.id, dataset.id)
-                    submission_result.set_evaluation_outcome()
-                    submission_result.sa_session.commit()
-                    self.evaluation_ended(submission_result)
+                    self._finalize_complete_result(submission_result)
 
         return new_operations
+
+    def _finalize_complete_result(
+        self, submission_result: SubmissionResult
+    ) -> None:
+        """Set the outcome of a result that has every evaluation.
+
+        Commit it, then do what follows an evaluation (evaluation_ended:
+        notify ScoringService). Called holding post_finish_lock, by
+        submission_enqueue_operations() and by the plain sweep of
+        _missing_operations_sync().
+
+        submission_result: a result with an evaluation for each testcase
+            of its dataset, and no outcome yet.
+
+        """
+        logger.info("Result %d(%d) has already all evaluations, "
+                    "finalizing it.", submission_result.submission_id,
+                    submission_result.dataset_id)
+        submission_result.set_evaluation_outcome()
+        submission_result.sa_session.commit()
+        self.evaluation_ended(submission_result)
 
     def user_test_enqueue_operations(self, user_test: UserTest) -> int:
         """Push in queue the operations required by a user test.
@@ -562,6 +602,26 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                         get_submissions_operations(session, self.contest_id):
                     if self._enqueue_sync(operation, priority, timestamp):
                         counter += 1
+
+                # A write cut between the two commits of
+                # _write_results_sync (or an ES crash there) leaves a
+                # result with every evaluation but no outcome, which no
+                # operation finalizes on this path; the gated path above
+                # does it in submission_enqueue_operations().
+                # post_finish_lock keeps this from seeing the normal gap
+                # between those commits.
+                for submission_result in get_submission_results_to_finalize(
+                        session, self.contest_id):
+                    # evaluation_ended() of an earlier result of the same
+                    # submission (another dataset to judge) may have done
+                    # it.
+                    if not submission_result.evaluated():
+                        self._finalize_complete_result(submission_result)
+                    logger.warning(
+                        "Finalized result %d(%d): all its evaluations were "
+                        "stored but its outcome was not (a write was cut).",
+                        submission_result.submission_id,
+                        submission_result.dataset_id)
 
             for operation, priority, timestamp in \
                     get_user_tests_operations(session, self.contest_id):
@@ -912,20 +972,25 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                            "submission %d on dataset %d, giving up on it.",
                            FIRE_AND_FORGET_TIMEOUT, submission_id, dataset_id)
 
-    async def action_finished(self, data: dict, shard: int, error=None):
+    async def action_finished(self, data: dict, shard: int, error=None,
+                              dispatch_id: int | None = None):
         """Callback from a worker, to signal that is finished some
         action (compilation or evaluation).
 
         data: the JobGroup, exported to dict.
         shard: the shard finishing the action.
+        dispatch_id: the job group this answer belongs to (see
+            WorkerPool.acquire_worker), or None if unknown.
 
         """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, self._action_finished_sync, data, shard, error)
+            None, self._action_finished_sync, data, shard, error,
+            dispatch_id)
 
     @with_post_finish_lock
-    def _action_finished_sync(self, data: dict, shard: int, error=None):
+    def _action_finished_sync(self, data: dict, shard: int, error=None,
+                              dispatch_id: int | None = None):
         """Do the work of action_finished(), synchronously.
 
         Runs inside loop.run_in_executor.
@@ -939,7 +1004,8 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # this method and do nothing because in that case we know the
         # operation has returned to the queue and perhaps already been
         # reassigned to another worker.
-        to_ignore = self.get_executor().pool.release_worker(shard)
+        to_ignore = self.get_executor().pool.release_worker(
+            shard, dispatch_id)
         if to_ignore is True:
             logger.info("Ignored result from worker %s as requested.", shard)
             return
@@ -994,15 +1060,19 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
 
         Runs inside loop.run_in_executor, holding post_finish_lock for
         its entire duration. Everything this calls internally --
-        write_results_one_object_and_type, write_results_one_row,
-        _advance_two_phase, compilation_ended, evaluation_ended,
-        user_test_compilation_ended, user_test_evaluation_ended,
-        submission_enqueue_operations, user_test_enqueue_operations,
-        _enqueue_sync -- runs as plain synchronous nested calls on this
-        same background thread; none of them may become `async def` or
-        call `await` anywhere in this call graph (see the module-level
-        note at the top of this file about why post_finish_lock is a real
-        threading.RLock, never held across an await).
+        _write_results_in_session, write_results_one_object_and_type,
+        write_results_one_row, _advance_two_phase, compilation_ended,
+        evaluation_ended, user_test_compilation_ended,
+        user_test_evaluation_ended, submission_enqueue_operations,
+        user_test_enqueue_operations, _enqueue_sync -- runs as plain
+        synchronous nested calls on this same background thread; none of
+        them may become `async def` or call `await` anywhere in this
+        call graph (see the module-level note at the top of this file
+        about why post_finish_lock is a real threading.RLock, never held
+        across an await).
+
+        A lost database connection (see _lost_connection) drops the
+        batch with one ERROR line; the sweeper redoes its results.
 
         """
         # Results purged by an invalidation after a flush took them.
@@ -1019,13 +1089,42 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         # operation type (i.e., group together the testcase
         # evaluations for the same submission and dataset).
         by_object_and_type: defaultdict[
-            tuple[str, int, int], list[tuple[ESOperation, Result]]
+            tuple[str, int, int, bool], list[tuple[ESOperation, Result]]
         ]
         by_object_and_type = defaultdict(list)
         for operation, result in items:
             t = (operation.type_, operation.object_id, operation.dataset_id, operation.archive_sandbox)
             by_object_and_type[t].append((operation, result))
 
+        try:
+            self._write_results_in_session(by_object_and_type)
+        except Exception as error:
+            # Not the results' fault: drop the batch with one line, and
+            # the sweeper redoes it (see _lost_connection).
+            if not _lost_connection(error):
+                raise
+            logger.error(
+                "Lost the database connection while writing worker "
+                "results (%s); the sweeper will redo them within about 2 "
+                "minutes.", describe_error(error))
+            return
+
+        logger.info("Done")
+
+    def _write_results_in_session(
+        self,
+        by_object_and_type: dict[
+            tuple[str, int, int, bool], list[tuple[ESOperation, Result]]],
+    ) -> None:
+        """Write the results of _write_results_sync() in one session.
+
+        Called only by _write_results_sync(), holding post_finish_lock;
+        the same rule applies: nothing in this call graph may await.
+
+        by_object_and_type: the results, grouped by (operation type,
+            object id, dataset id, archive_sandbox).
+
+        """
         with SessionGen() as session:
             for key, operation_results in by_object_and_type.items():
                 type_, object_id, dataset_id, archive_sandbox = key
@@ -1160,8 +1259,6 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                         continue
                     self.user_test_evaluation_ended(user_test_result)
 
-        logger.info("Done")
-
     def write_results_one_object_and_type(
         self,
         session: Session,
@@ -1176,6 +1273,11 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         operation_results: all the operations and corresponding worker
             results we have received for the given object_result
 
+        raise (sqlalchemy.exc.DBAPIError): on a lost connection (see
+            cms.db.connect_options.is_disconnect), which stops the loop.
+        raise (sqlalchemy.exc.PendingRollbackError): if the transaction
+            can no longer be used, which stops the loop too.
+
         """
         for operation, result in operation_results:
             logger.info("Writing result to db for %s", operation)
@@ -1187,7 +1289,13 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 logger.warning(
                     "Integrity error while inserting worker result.",
                     exc_info=True)
-            except Exception:
+            except Exception as error:
+                # A lost connection, or a transaction it left unusable,
+                # is not this row's fault, and no later row can succeed:
+                # stop, and let _write_results_sync drop the batch.
+                if is_disconnect(error) \
+                        or isinstance(error, PendingRollbackError):
+                    raise
                 # Defend against any exception. A poisonous results that fails
                 # here is attempted again without limits, thus can enter in
                 # all batches to write. Without the catch-all, it will prevent

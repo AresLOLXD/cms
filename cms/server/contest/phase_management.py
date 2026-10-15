@@ -202,10 +202,33 @@ def compute_actual_phase(
             actual_start, actual_stop)
 
 
-def actual_phase_required(*actual_phases: int):
+# Dummy function to mark translatable strings.
+def N_(msgid: str) -> str:
+    return msgid
+
+
+def phase_refusal_text(actual_phase: int) -> str:
+    """Return why a request is refused in the given actual phase.
+
+    actual_phase (int): a phase from compute_actual_phase, other than 0.
+
+    return (str): an untranslated message id.
+
+    """
+    if actual_phase < 0:
+        return N_("The contest hasn't started yet.")
+    return N_("The contest has already ended.")
+
+
+def actual_phase_required(
+    *actual_phases: int, refusal_subject: str | None = None
+):
     """Return decorator filtering out requests in the wrong phase.
 
     actual_phases: the phases in which the request can pass.
+    refusal_subject: the untranslated subject of the error notification
+        shown to the contestant when a non-API request is refused; if
+        None, the contestant is redirected without any notification.
 
     return: the decorator.
 
@@ -234,7 +257,10 @@ def actual_phase_required(*actual_phases: int):
                     else:
                         self.json({"error": "Wrong contest phase"}, 403)
                 else:
-                    # TODO maybe return some error code?
+                    if refusal_subject is not None:
+                        self.notify_error(
+                            refusal_subject,
+                            phase_refusal_text(self.r_params["actual_phase"]))
                     self.redirect(self.contest_url())
             else:
                 return func(self, *args, **kwargs)
