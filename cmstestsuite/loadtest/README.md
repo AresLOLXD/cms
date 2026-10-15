@@ -394,6 +394,50 @@ git push origin --delete loadtest/<topic>
   about 5 minutes of that. With the defaults it takes about 1.5 hours,
   an estimate from the local runs, not yet measured on a runner.
 
+## Fault runs
+
+`run.sh --faults` (fork target only, `--contest` of 2100 s or more) also
+starts `faults.py` on the host, next to the driver. It injects the
+database faults of #39 at fixed times after the contest start, and
+writes their start and end times to `out/<name>/faults.json`:
+
+| Time (s) | Fault |
+|---|---|
+| 120, 180 | F1: `pg_terminate_backend` of every CMS backend (`application_name LIKE 'cms%'`) |
+| 600 | F3: `docker pause` of PostgreSQL for 30 s; 2 s in, a probe opens a fresh connection |
+| 1000 | F4: `cmsSetupDB` while a `psql` session holds `BEGIN; SELECT 1 FROM contests LIMIT 1;` idle |
+| 1080 | F2: an iptables DROP of PostgreSQL's port, both ways, for 90 s, in its network namespace (`sudo nsenter`); 180 s after its end, the runbook's partition step |
+
+After the run, `faultstats.py out/<name>` checks the pass criteria of
+`docs/superpowers/specs/2026-10-08-db-transport-timeouts-design.md` and
+writes `out/<name>/faults.md`: one row per criterion, `pass` or `FAIL`.
+After F2 and F3, each CWS shard has its own "pages answer again" row, so
+one frozen shard fails the run even while the others answer.
+
+F3's probe runs in the `cms` container and opens a new connection
+through CMS's own path (green psycopg2, the connection defaults, no pool)
+while PostgreSQL is paused. F3 passes only if that connect began inside
+the pause, in a green psycopg2, and failed with `timeout expired` at
+about 10 s, which proves the connect deadline. Any other probe fails it,
+and its row says why: it connected at once (the pause did not stall
+connects), it connected only after the resume or hung (the deadline did
+not fire), or it never reached its connect (inconclusive). The
+`timeout expired` log lines and the requests that started during the
+pause are for information only, since pooled connections just wait for
+the resume.
+
+The injector needs passwordless `sudo`, as GitHub runners have. A fault
+that fails or hangs gets its error in its record (its row fails), what
+it left in place is undone, and the next fault still runs. If the
+injector stops on an error or on SIGTERM (`run.sh` sends it at the end
+of the run), it removes its rules and unpauses PostgreSQL first.
+
+On GitHub Actions, push the commit to a `loadtest/faults-<topic>` branch:
+the `faults` job runs the fork once per profile, smoke-sized, and shows
+`faults.md` in its summary (a `FAIL` does not fail the job). A
+`loadtest/runner-check-<topic>` branch runs only the 5-minute check that
+a runner can use `nsenter`, `iptables` and `docker pause`.
+
 ## Limits
 
 - **One host:** the driver, the database, RWS and every CMS service share

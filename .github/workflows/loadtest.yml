@@ -8,6 +8,14 @@ name: loadtest
 #   git push origin --delete loadtest/<topic>
 # (workflow_dispatch would need this file on the default branch first.)
 #
+# Two more branch prefixes run something else, and not the pair and
+# compare jobs:
+# - loadtest/faults-<topic>: the "faults" job, a fault run of the fork
+#   (run.sh --faults, see the README), smoke-sized, once per profile;
+# - loadtest/runner-check-<topic>: the "runner-check" job, which checks in
+#   5 minutes that a runner can drop a container's traffic with nsenter
+#   and iptables, and pause the container.
+#
 # The scenario is the env block below: the run.sh options of the same
 # names. Change it in the commit you push. Each "pair" job is one repeat
 # on its own runner (ubuntu-24.04: 4 vCPUs, 16 GB): it builds both images,
@@ -61,6 +69,9 @@ env:
 
 jobs:
   pair:
+    if: >-
+      ${{ !startsWith(github.ref_name, 'loadtest/faults')
+      && !startsWith(github.ref_name, 'loadtest/runner-check') }}
     runs-on: ubuntu-24.04
     # Under the 6 h limit of a job. The Run step has its own, shorter
     # timeout, so that a hung run fails that step and the summary and the
@@ -210,7 +221,7 @@ jobs:
   compare:
     needs: pair
     # Compare what there is, even if a repeat failed.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.pair.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -271,3 +282,131 @@ jobs:
           path: compare.md
           overwrite: true
           retention-days: 30
+
+  # A fault run (run.sh --faults): smoke-sized load, the fork only, one
+  # job per profile. faults.md, in the summary and the artifact, has the
+  # pass or FAIL of every criterion; a FAIL does not fail the job.
+  faults:
+    if: ${{ startsWith(github.ref_name, 'loadtest/faults') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [portable, full]
+
+    env:
+      PROFILE: ${{ matrix.profile }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmstestsuite/loadtest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Record the runner
+        run: |
+          mkdir -p out
+          {
+            echo "fault run, profile $PROFILE"
+            echo "nproc: $(nproc)"
+            lscpu | grep '^Model name'
+            echo "kernel: $(uname -r)"
+          } | tee out/runner.txt
+
+      - name: Build the fork image
+        run: ./build.sh fork HEAD
+
+      # The README's smoke values, but a 2100 s contest: the faults and
+      # their recovery end about 1770 s after the start (faults.py).
+      - name: Run with faults
+        timeout-minutes: 120
+        run: |
+          name=faults-$PROFILE
+          rc=0
+          ./run.sh --target fork --profile "$PROFILE" --name "$name" \
+              --users-a 14 --users-b 6 --login-window 60 --contest 2100 \
+              --end-burst 120 --rate 10 --workers "$LOAD_WORKERS" \
+              --cws "$LOAD_CWS" --faults 2>&1 |
+            tee "out/run-$name.log" || rc=$?
+          ./teardown.sh fork 2>&1 | tee -a "out/run-$name.log" || rc=$?
+          exit "$rc"
+
+      - name: Summarize the run
+        if: always()
+        run: |
+          shopt -s nullglob
+          {
+            echo "## Fault run, profile $PROFILE"
+            echo
+            for file in out/faults-*/faults.md; do cat "$file"; done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-faults-${{ matrix.profile }}
+          path: cmstestsuite/loadtest/out/
+          overwrite: true
+          retention-days: 30
+
+  # Can this runner inject the faults of a fault run? It checks nsenter
+  # and iptables in a container's network namespace (the DROP rules must
+  # block the container's port from outside and leave its loopback
+  # alone) and docker pause, and says whether sch_netem is loaded.
+  runner-check:
+    if: ${{ startsWith(github.ref_name, 'loadtest/runner-check') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check nsenter, iptables and docker pause
+        run: |
+          dc() { sg docker -c "$(printf '%q ' docker --context default "$@")"; }
+          probe() { timeout 3 bash -c "exec 3<>/dev/tcp/$1/5432"; }
+          rules() {
+            sudo nsenter -t "$pid" -n iptables "$1" INPUT ! -i lo \
+                -p tcp --dport 5432 -j DROP
+            sudo nsenter -t "$pid" -n iptables "$1" OUTPUT ! -o lo \
+                -p tcp --sport 5432 -j DROP
+          }
+          dc run -d --name netcheck -e POSTGRES_PASSWORD=check \
+              docker.io/postgres:17-alpine
+          for _ in $(seq 30); do
+            dc exec netcheck pg_isready -h 127.0.0.1 -q && break
+            sleep 1
+          done
+          pid=$(dc inspect -f '{{.State.Pid}}' netcheck)
+          ip=$(dc inspect -f '{{.NetworkSettings.IPAddress}}' netcheck)
+          probe "$ip"
+          echo "port 5432 is open before the rules"
+          rules -I
+          sudo nsenter -t "$pid" -n iptables -S
+          if probe "$ip"; then
+            echo "::error::the DROP rules did not block port 5432"
+            exit 1
+          fi
+          echo "port 5432 is blocked by the rules"
+          dc exec netcheck pg_isready -h 127.0.0.1 -q
+          echo "the loopback inside the namespace still works"
+          rules -D
+          probe "$ip"
+          echo "port 5432 is open again"
+          dc pause netcheck
+          dc unpause netcheck
+          echo "docker pause and unpause work"
+          dc rm -f netcheck
+          sudo iptables --version
+          if lsmod | grep -qw sch_netem; then
+            echo "sch_netem: loaded"
+          else
+            echo "sch_netem: not loaded"
+          fi

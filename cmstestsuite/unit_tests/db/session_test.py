@@ -22,7 +22,14 @@ import unittest
 from unittest.mock import patch
 
 from cms import config
+from cms.db import connect_options
 from cms.db.session import custom_psycopg2_connection
+
+
+# custom_psycopg2_connection() adds the connection defaults (#39) under
+# the URL's own query.
+DEFAULTS = {**connect_options.LIBPQ_DEFAULTS,
+            "fallback_application_name": connect_options.PROGRAM_NAME}
 
 
 def _patch_db(s):
@@ -44,7 +51,8 @@ class TestCustomPsycopg2Connect(unittest.TestCase):
                 port=5433,
                 user="usrn",
                 password="pwd",
-                database="dbname")
+                database="dbname",
+                **DEFAULTS)
 
     def test_network_missing_port(self, connect):
         # If port is missing, the default 5432 is used.
@@ -56,7 +64,8 @@ class TestCustomPsycopg2Connect(unittest.TestCase):
                 port=5432,
                 user="usrn",
                 password="pwd",
-                database="dbname")
+                database="dbname",
+                **DEFAULTS)
 
     def test_unix_domain_socket(self, connect):
         with _patch_db("postgresql+psycopg2://usrn:pwd@/dbname"):
@@ -67,7 +76,8 @@ class TestCustomPsycopg2Connect(unittest.TestCase):
                 port=None,
                 user="usrn",
                 password="pwd",
-                database="dbname")
+                database="dbname",
+                **DEFAULTS)
 
     def test_unix_domain_socket_custom_dir(self, connect):
         with _patch_db("postgresql+psycopg2://"
@@ -79,7 +89,8 @@ class TestCustomPsycopg2Connect(unittest.TestCase):
                 port=None,
                 user="usrn",
                 password="pwd",
-                database="dbname")
+                database="dbname",
+                **DEFAULTS)
 
     def test_missing_password(self, connect):
         with _patch_db("postgresql+psycopg2://u@h:1/db"):
@@ -90,7 +101,19 @@ class TestCustomPsycopg2Connect(unittest.TestCase):
                 port=1,
                 user="u",
                 password=None,
-                database="db")
+                database="db",
+                **DEFAULTS)
+
+    def test_a_url_keyword_overrides_its_default(self, connect):
+        with _patch_db("postgresql+psycopg2://u@h:1/db?keepalives_idle=5"):
+            custom_psycopg2_connection()
+            connect.assert_called_once_with(
+                host="h",
+                port=1,
+                user="u",
+                password=None,
+                database="db",
+                **{**DEFAULTS, "keepalives_idle": "5"})
 
     def test_not_psycopg2(self, connect):
         with _patch_db("sqlite://file"):

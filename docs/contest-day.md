@@ -72,7 +72,23 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 
 ## Before the start
 
-- Do not rebuild or update the deployment on the day.
+- Do not rebuild or update the deployment on the day. If you must deploy in
+  an emergency:
+  - Do not deploy while `./export.sh` or another CLI tool is running.
+  - The deploy can stop at `db-init` with
+    `cmsSetupDB could not lock … within 5 s`: another session is using a
+    table that the update changes, and that update changes nothing (an
+    earlier update of the same run may already be applied). `./up.sh`
+    does not print that message: `./logs.sh db-init` shows it. Meanwhile
+    the contest is down: Compose stops the running `cms` container before
+    `db-init` runs, and starts the new one only after `db-init` succeeds.
+    If `db-init` fails, the new `cms` container does not start either, so
+    CMS stays down until `./up.sh` succeeds: end the session that holds
+    the lock, then run `./up.sh` again at once. Find that session with
+    the holder query (see "When the database misbehaves"), end it, then
+    run `./up.sh` again.
+  - Start any SQL you apply by hand with `SET lock_timeout = '5s';`, so
+    that it gives up instead of making the contest wait behind its lock.
 - `./status.sh`: every container is `Up`, and every program in the
   supervisor list is `RUNNING`.
 - In the Admin Web Server, open **Overview**. The **Workers status** title
@@ -115,7 +131,8 @@ Common problems:
 
 - **A scoreboard does not match the database:** press **Regenerate** on its
   ranking group (see "When a scoreboard is wrong" in
-  [multi-contest.md](multi-contest.md)).
+  [multi-contest.md](multi-contest.md)). Not while database errors
+  continue: a failed regenerate can leave the scoreboard empty.
 - **A worker shows Connected: No:** its job goes back to the queue by itself
   within seconds. Restart that worker, numbered from 0 as in the **Shard**
   column:
@@ -141,6 +158,107 @@ Common problems:
   out of database connections (see [Troubleshooting](Troubleshooting.rst)).
 - **Extending a contest:** the hide and freeze times of a ranking group are
   absolute. Move them by hand to match the new end.
+
+## When the database misbehaves
+
+CMS does not wait forever for PostgreSQL. A new connection that gets no
+answer fails after 10 seconds with `timeout expired`. A call on a
+connection that died fails within about a minute, with
+`server closed the connection unexpectedly`,
+`could not receive data from server` or `Connection timed out`. Pages then
+show an error instead of hanging, and every service reconnects by itself
+once PostgreSQL answers again.
+
+The driver's error text is in `./logs.sh --tail 2000 cms`. The **Logs**
+table on **Overview** shows only the message of each line, not the error
+text that follows it.
+
+### PostgreSQL does not answer
+
+1. Check from inside the `cms` container, with the URL of `.env` without
+   its `+psycopg2` (the command strips it, as `contest.sh` does):
+
+   ```bash
+   docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+       exec -T cms bash -c 'timeout 5 pg_isready -t 3 -d "${CMS_DB_URL/+psycopg2/}"'
+   ```
+
+   Without `-d`, `pg_isready` checks the container's own socket instead.
+2. Then check PostgreSQL itself on its host: its status, its log and the
+   free disk space.
+3. Do not restart CMS while PostgreSQL does not answer, and do not edit
+   `.env` because a log line says
+   `Is the connection string in cms.toml correct?`.
+4. Once PostgreSQL answers, CMS recovers by itself: pages within a
+   minute, grading within about 2 minutes and scores within about 6
+   minutes. Then run `./status.sh`: every program must be `RUNNING`. If
+   one is not, restart it with the `supervisorctl` command of "A worker
+   shows Connected: No" (above), with the program's name from
+   `./status.sh` instead of `cmsworker<shard>`.
+5. If grading or scoring has not resumed 3 minutes after PostgreSQL
+   answers, run the holder query (below) and end every session whose
+   `open_for` is longer than the time since the outage began and whose
+   `state` is `idle in transaction`, or `active` with `wait_event_type`
+   `Client` (it waits for a client that is gone). After a network cut,
+   PostgreSQL can keep such a transaction, and its locks, for about 2
+   hours.
+6. Do not press **Regenerate** while database errors continue: a failed
+   regenerate can leave a scoreboard empty until it is pressed again.
+
+### PostgreSQL is stalled
+
+Pages and grading freeze, new connections fail with `timeout expired`,
+and `pg_isready` reports `no response`. PostgreSQL itself is stuck,
+usually on its disk. No CMS timeout can cut this, and restarting CMS does
+not help: check the disk and the PostgreSQL log on its host.
+
+### The holder query
+
+It lists the open transactions, the oldest first, with the program that
+holds each one (`application_name`, for example `cmsContestWebServer 2`)
+and the sessions that wait for it (`blocked_by`). Run it from the `cms`
+container:
+
+```bash
+docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+    exec -T cms bash -c 'psql "${CMS_DB_URL/+psycopg2/}" -c "SELECT pid, application_name, state, wait_event_type, now() - xact_start AS open_for, pg_blocking_pids(pid) AS blocked_by, left(query, 60) AS query FROM pg_stat_activity WHERE datname = current_database() AND xact_start IS NOT NULL ORDER BY xact_start;"'
+```
+
+Or run the same `SELECT` with `psql` on the database host.
+
+To end a session, run `SELECT pg_terminate_backend(<pid>);` the same way.
+The `cms` role can end its own sessions; ending another role's session
+needs a superuser.
+
+### Switching the timeouts off
+
+If these errors show up under normal load while PostgreSQL is healthy,
+add this suffix to `CMS_DB_URL` in `.env`, with `&` instead of its `?` if
+the URL already has a `?`:
+
+```text
+?connect_timeout=0&keepalives_idle=7200&keepalives_interval=75&keepalives_count=9&tcp_user_timeout=0
+```
+
+Then run `./up.sh` and choose no rebuild (1): it recreates the
+containers, so every service restarts. CMS then waits for PostgreSQL
+without a short limit again, as before. The suffix does not switch off the
+5-second lock limit of `cmsSetupDB` (see "Before the start").
+
+### Checking the settings after a deploy
+
+A new connection must get these settings. In the `cms` container:
+
+```bash
+docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+    exec -T cms python3 -c 'import os, socket; from cms.db import custom_psycopg2_connection; c = custom_psycopg2_connection(); s = socket.socket(fileno=os.dup(c.fileno())); print("TCP_USER_TIMEOUT", s.getsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT)); s.close(); k = c.cursor(); k.execute("SHOW application_name"); print("application_name", k.fetchone()[0])'
+```
+
+It must print `TCP_USER_TIMEOUT 60000` (or the value that `CMS_DB_URL`
+sets) and a non-empty `application_name`: here `-c`, the name of a
+`python3 -c` program. Then
+`./logs.sh --tail 2000 cms | grep -E 'timeout expired|closed the connection|Lost the database|Connection timed out|could not receive data from server'`
+must print nothing.
 
 ## At the end
 
@@ -191,7 +309,7 @@ Common problems:
 
 | Symptom | What to do | Details |
 |---------|------------|---------|
-| A scoreboard is missing scores or shows a contest it should not | **Regenerate** on its ranking group | [multi-contest.md](multi-contest.md) |
+| A scoreboard is missing scores or shows a contest it should not | **Regenerate** on its ranking group, unless database errors continue | [multi-contest.md](multi-contest.md) |
 | A scoreboard stopped updating and ProxyService logs "rejected the visibility" | Follow "Failure mode" | [multi-contest.md](multi-contest.md) |
 | A page does not load | `./status.sh`, then `./logs.sh` | [docker-scripts.md](docker-scripts.md) |
 | A submission stays in **Cannot compile** or **Cannot evaluate** | Read the **Logs** table on **Overview** and the submission's page | [Troubleshooting](Troubleshooting.rst) |
@@ -205,3 +323,7 @@ Common problems:
 | ProxyService logs "Contest … still cannot be sent to the rankings" | Fix what the error names; the contest is sent again within about 6 minutes | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "Reinitializing the rankings failed." | Fix the cause, then **Regenerate** on the groups it lists, or on those of what you changed | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "accepted the visibility of group" | **Regenerate** on that group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| Pages show an error after about 10 seconds, and the logs say `timeout expired` | A new database connection got no answer: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
+| The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out`, `Lost the database connection before the session's rollback` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
+| A deploy stops at `db-init`, and `./logs.sh db-init` shows `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, end it, then run `./up.sh` again | "When the database misbehaves" (above) |
+| The logs say `Finalized result … (a write was cut)` | Nothing: the Evaluation Service completed a result whose outcome write was cut. If it repeats for many results, follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
