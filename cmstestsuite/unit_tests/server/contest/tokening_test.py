@@ -25,11 +25,13 @@ from datetime import timedelta
 from unittest.mock import MagicMock, call, patch
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 from cms import TOKEN_MODE_INFINITE, TOKEN_MODE_DISABLED, TOKEN_MODE_FINITE
 from cms.db import Session, Submission, Token
+from cms.server.contest.handlers.tasksubmission import UseTokenHandler
 from cms.server.contest.submission.check import CONCURRENT_REQUEST_TEXT, \
     TOKEN_LOCK_NAMESPACE
 from cms.server.contest.tokening import accept_token, UnacceptableToken, \
@@ -419,6 +421,52 @@ class TestAcceptTokenConcurrency(DatabaseMixin, unittest.TestCase):
         self.session.commit()
         self.assertEqual(self.held_advisory_locks(self.session), [])
         self.assertEqual(self.count_tokens(), 1)
+
+
+class TestUseTokenHandler(unittest.TestCase):
+    """The handler body runs for real; only the database and
+    accept_token are replaced.
+
+    """
+
+    def test_duplicate_token_at_commit_is_shown_as_already_played(self):
+        # A second token on the submission, refused by the unique
+        # constraint at the commit: a request that the lock in
+        # accept_token did not serialize with this one played it.
+        handler = UseTokenHandler.__new__(UseTokenHandler)
+        handler._current_user = MagicMock()
+        handler.impersonated_by_admin = False
+        handler.is_multi_contest = lambda: False
+        handler.r_params = {"actual_phase": 0}
+        handler.timestamp = make_datetime()
+        handler.application = MagicMock()
+        handler.get_task = MagicMock()
+        handler.get_submission = MagicMock()
+        handler.contest_url = MagicMock()
+        handler.redirect = MagicMock()
+        handler.schedule_rpc = MagicMock()
+        handler.notify_success = MagicMock()
+        handler.notify_error = MagicMock()
+        calls = MagicMock()
+        handler.sql_session = calls.sql_session
+        handler.sql_session.commit.side_effect = IntegrityError(
+            "INSERT INTO tokens", {}, Exception("duplicate key value"))
+        handler.notify_warning = calls.notify_warning
+
+        with patch("cms.server.contest.handlers.tasksubmission."
+                   "accept_token"):
+            handler.post("task", "1")
+
+        self.assertEqual(calls.mock_calls, [
+            call.sql_session.commit(),
+            call.sql_session.rollback(),
+            call.notify_warning(
+                "Token request discarded",
+                "Your request has been discarded because you already used "
+                "a token on that submission.")])
+        handler.notify_success.assert_not_called()
+        handler.schedule_rpc.assert_not_called()
+        handler.redirect.assert_called_once_with(handler.contest_url())
 
 
 if __name__ == "__main__":

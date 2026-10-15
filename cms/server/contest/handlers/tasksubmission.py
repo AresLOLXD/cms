@@ -45,6 +45,7 @@ except:
 
 import tornado.web
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from cms import config, FEEDBACK_LEVEL_FULL
@@ -399,7 +400,21 @@ class UseTokenHandler(ContestHandler):
 
         try:
             accept_token(self.sql_session, submission, self.timestamp)
-            self.sql_session.commit()
+            try:
+                self.sql_session.commit()
+            except IntegrityError:
+                # The submission's unique token refused this one: a
+                # request that accept_token's lock did not serialize
+                # with this one played a token on it first.
+                self.sql_session.rollback()
+                logger.warning("User %s played a token twice on a "
+                               "submission of task %s; the second one "
+                               "was refused at commit.",
+                               self.current_user.user.username, task.name)
+                raise TokenAlreadyPlayed(
+                    N_("Token request discarded"),
+                    N_("Your request has been discarded because "
+                       "you already used a token on that submission."))
         except UnacceptableToken as e:
             self.notify_error(e.subject, e.text)
         except TokenAlreadyPlayed as e:
