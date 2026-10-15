@@ -767,6 +767,29 @@ HOLD_HINTS: dict[str, str] = {
 }
 
 
+def _other_holds(holds: Sequence[tuple[str, str]]) -> str:
+    """Return the sentences that follow the headline hold of an alert.
+
+    They list every other hold that applies and, when H3 is one of
+    them, its blocker details: an alert where H3 applies always carries
+    them (3.6).
+
+    holds: (code, reason) of each hold that applies, headline first.
+
+    return: the sentences, each after a space; "" for the headline
+        alone.
+
+    """
+    others = holds[1:]
+    if not others:
+        return ""
+    text = " Also: %s." % ", ".join(code for code, _ in others)
+    lock_wait = dict(others).get("H3")
+    if lock_wait:
+        text += " H3: %s." % lock_wait
+    return text
+
+
 def busy_sections(payload: object) -> list[dict]:
     """Return the busy sections of a health() answer, oldest first.
 
@@ -1149,9 +1172,7 @@ class _Cycle:
                 % (MISSES_TO_TRIP, what))
         if holds:
             text += " But %s applies now: %s." % holds[0]
-            if len(holds) > 1:
-                text += " Also: %s." % ", ".join(
-                    code for code, _ in holds[1:])
+            text += _other_holds(holds)
         return text + (" Check ./logs.sh for its log; cmsWatchdog "
                        "--snapshot %s writes its stacks." % program.name)
 
@@ -1370,11 +1391,7 @@ class _Cycle:
         self.state.held_headline[key] = headline
         text = "Watchdog: %s fails %s (%s) but is held by %s: %s." % (
             program.label, trip.rule, trip.detail, headline, reason)
-        if len(codes) > 1:
-            text += " Also: %s." % ", ".join(codes[1:])
-        lock_wait = dict(holds).get("H3")
-        if lock_wait and headline != "H3":
-            text += " H3: %s." % lock_wait
+        text += _other_holds(holds)
         text += " " + HOLD_HINTS[headline]
         # Entering a hold is a state change, and so is the first time an
         # urgent hold heads it; any other change of headline within one

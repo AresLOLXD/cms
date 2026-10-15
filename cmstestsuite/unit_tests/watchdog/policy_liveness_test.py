@@ -180,6 +180,29 @@ class TestLivenessRules(unittest.TestCase):
                       "cmsContestWebServer 1 started 60 s ago. Also: H7.",
                       warning.text)
 
+    def test_the_early_warning_carries_the_blockers_of_h3(self):
+        lock = Gate(True, backends=lock_wait_snapshot())
+        details = ("H3: a database lock wait: 'cmsEvaluationService 0' "
+                   "(pid 500): its statement has been waiting 45 s on a "
+                   "lock held by pid 900 ('psql', idle in transaction, "
+                   "transaction open 300 s). Ending a blocker is a human "
+                   "decision.")
+        with self.subTest(headline="H1"):
+            s = Scenario()
+            text = self.warning(s, supervisor_ok=False, gate=lock).text
+            self.assertIn("But H1 applies now: supervisord did not answer "
+                          "in this cycle. Also: H3. " + details, text)
+            # As the held line of the trip carries them.
+            s.cycle(fail=[CWS1], supervisor_ok=False, gate=lock)
+            [alert] = held(
+                s.cycle(fail=[CWS1], supervisor_ok=False, gate=lock), CWS1)
+            self.assertIn(" Also: H3. " + details, alert.text)
+        with self.subTest(headline="H3"):
+            text = self.warning(Scenario(), gate=lock).text
+            self.assertIn("But " + details.replace(":", " applies now:", 1),
+                          text)
+            self.assertEqual(text.count("a database lock wait"), 1)
+
     def test_the_early_warning_in_observe_mode_names_the_hold_too(self):
         text = self.warning(Scenario(mode=OBSERVE), gate=RED).text
         self.assertIn("only logs the restart it would do (observe mode). "
