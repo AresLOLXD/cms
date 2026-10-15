@@ -108,15 +108,17 @@ class FailureSeriesLog:
         message: the message to log, %-formatted with args.
 
         """
+        # stacklevel=2: the record points at the caller, the client
+        # method that met the failure, as the detailed log shows it.
         now = monotonic()
         if not self._warned and (
                 self._last_warning is None
                 or now - self._last_warning >= self.WARNING_INTERVAL):
             self._warned = True
             self._last_warning = now
-            self._log.warning(message, *args)
+            self._log.warning(message, *args, stacklevel=2)
         else:
-            self._log.debug(message, *args)
+            self._log.debug(message, *args, stacklevel=2)
         self.failing = True
 
     def succeeded(self, message: str, *args: object):
@@ -128,7 +130,7 @@ class FailureSeriesLog:
         if not self.failing:
             return
         self._log.log(logging.INFO if self._warned else logging.DEBUG,
-                      message, *args)
+                      message, *args, stacklevel=2)
         self.failing = False
         self._warned = False
 

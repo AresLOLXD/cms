@@ -236,6 +236,12 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
             [record.levelname for record in logs.records
              if "resolve" in record.getMessage()],
             ["WARNING", "DEBUG", "INFO"])
+        # The records point at the client method that met the failure
+        # (the detailed log shows them), not at FailureSeriesLog.
+        self.assertEqual(
+            {(record.filename, record.funcName) for record in logs.records
+             if "resolve" in record.getMessage()},
+            {("async_rpc.py", "_connect")})
 
     async def test_flapping_name_resolution_warns_once(self):
         # The name resolves at every other try, and the peer refuses the
