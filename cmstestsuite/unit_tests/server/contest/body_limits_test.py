@@ -67,6 +67,9 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
             "cms.server.contest.server.HANDLERS", list(HANDLERS))
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Start from Tornado's defaults, so that the boundaries below
+        # measure what the server sets, not what an earlier test left.
+        set_parse_body_config(ParseBodyConfig())
         self.cws = ContestWebServer(0)
         sockets = bind_sockets(0, "127.0.0.1")
         self.port = sockets[0].getsockname()[1]

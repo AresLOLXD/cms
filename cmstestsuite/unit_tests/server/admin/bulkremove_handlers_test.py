@@ -170,7 +170,6 @@ class TestPreview(unittest.TestCase):
             self.assertEqual(notifications(handler),
                              [("Invalid field(s)", "user_id")])
 
-
     def preview_of_users(self, handler_class, count, *args):
         """Preview a plan with count users and return the handler."""
         plan = make_plan(*(entry(i, "user%d" % i) for i in range(count)))
@@ -485,8 +484,10 @@ class TestConfirmationPage(unittest.TestCase):
                   "action_url": "/users/remove", "back_url": "/users"}
         html = "".join(template.blocks["core"](template.new_context(params)))
 
-        # The submit button has no name, so it is not posted.
-        arguments = len(re.findall(r'<input\b[^>]*\sname="', html))
+        # Every named control is posted. The submit button has no name,
+        # so it is not.
+        arguments = len(re.findall(
+            r'<(?:input|select|textarea|button)\b[^>]*\sname="', html))
 
         self.assertEqual(arguments, MAX_PLAN_USERS + 3)
         self.assertLessEqual(arguments, MAX_FORM_FIELDS - 50)

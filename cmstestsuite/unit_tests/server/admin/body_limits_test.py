@@ -56,6 +56,9 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
         # The limits are global to the process: undo them for the tests
         # that run after this class.
         cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
+        # Start from Tornado's defaults, so that the boundaries below
+        # measure what the server sets, not what an earlier test left.
+        set_parse_body_config(ParseBodyConfig())
         cls.aws = AdminWebServer(0)
 
     async def asyncSetUp(self):
