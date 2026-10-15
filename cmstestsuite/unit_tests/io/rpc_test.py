@@ -551,6 +551,41 @@ class TestRPC(unittest.TestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
 
+    def test_peer_that_stops_reading_and_answers_garbage(self):
+        # The peer stops reading, so the client's writes pile up
+        # unsent, and then it sends a malformed line: the client must
+        # drop the connection anyway, fail the calls stuck behind it,
+        # and reconnect.
+        connections = []
+        release = gevent.event.Event()
+
+        def stop_reading(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > 1:
+                self.handle_new_connection(socket_, address)
+                return
+            gevent.sleep(0.5)
+            socket_.sendall(b"garbage\r\n")
+            release.wait()
+
+        self.spawn_custom_listener(stop_reading)
+        self.addCleanup(release.set)
+        client = self.get_client(ServiceCoord("Foo", 0), auto_retry=0.05)
+        self.stop_when_done(client)
+
+        big = "x" * 900_000
+        calls = [gevent.spawn(client.echo, value=big) for _ in range(40)]
+        gevent.joinall(calls, timeout=3)
+
+        self.assertTrue(all(call.ready() for call in calls))
+        results = [call.value for call in calls]
+        for result in results:
+            result.wait(timeout=1)
+        self.assertEqual([type(result.exception) for result in results],
+                         [RPCError] * len(calls))
+        self.wait_until(lambda: len(connections) > 1 and client.connected)
+        self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
     def test_reconnects_no_faster_than_auto_retry(self):
         # A peer that accepts and closes at once must not be
         # reconnected to as fast as the loop can go.

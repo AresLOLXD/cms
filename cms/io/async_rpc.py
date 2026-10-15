@@ -530,6 +530,11 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         reason: why, for the log.
 
         """
+        if self._writer is not None:
+            # Unlike close(), abort() ends the connection even with
+            # unsent data buffered (a peer that doesn't read), so run()
+            # is sure to read its end, as shutdown() does in rpc.py.
+            self._writer.transport.abort()
         super().disconnect(reason=reason)
 
     def _log_bad_answer(self, message: str):

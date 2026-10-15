@@ -145,16 +145,17 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
 
     """
 
-    async def _start_peer(self, handle_connection) -> int:
+    async def _start_peer(self, handle_connection, **kwargs) -> int:
         """Start a loopback server, stopped when the test ends.
 
         handle_connection: the asyncio.start_server callback.
+        kwargs: more arguments for asyncio.start_server.
 
         return: the port it listens on.
 
         """
         server = await asyncio.start_server(
-            handle_connection, "127.0.0.1", 0)
+            handle_connection, "127.0.0.1", 0, **kwargs)
 
         async def stop():
             server.close()
@@ -284,6 +285,44 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              or "missing some fields" in record.getMessage()
              or "well-formed" in record.getMessage()],
             ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+
+    async def test_peer_that_stops_reading_and_answers_garbage(self):
+        # The peer stops reading (limit=1024 pauses its transport after
+        # 2 KiB), so the client's writes pile up unsent, and then it
+        # sends a malformed line: the client must drop the connection
+        # anyway, fail the calls stuck behind it, and reconnect.
+        connections = 0
+        release = asyncio.Event()
+
+        async def stop_reading(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > 1:
+                await self._serve(reader, writer)
+                return
+            await asyncio.sleep(0.5)
+            writer.write(b"garbage\r\n")
+            await release.wait()
+            writer.transport.abort()
+
+        port = await self._start_peer(stop_reading, limit=1024)
+        self.addCleanup(release.set)
+        client = self._client(port)
+        client.connect()
+        self.assertTrue(await client.wait_for_connection(timeout=2))
+
+        big = "x" * 900_000
+        calls = [asyncio.create_task(
+                     client.execute_rpc("echo", {"string": big}))
+                 for _ in range(40)]
+        results = await asyncio.wait_for(
+            asyncio.gather(*calls, return_exceptions=True), 3)
+
+        self.assertEqual(
+            [type(result) for result in results], [RPCError] * len(calls))
+        await self._wait_until(lambda: connections > 1 and client.connected)
+        self.assertEqual(
+            await client.execute_rpc("echo", {"string": "x"}), "x")
 
     async def test_reconnects_no_faster_than_auto_retry(self):
         # A peer that accepts and closes at once must not be
