@@ -63,6 +63,7 @@ class ScoringServiceTest(
     async def asyncSetUp(self):
         self._servers: list[asyncio.Server] = []
         self._clients: list[AsyncRemoteServiceClient] = []
+        self._client_tasks: list[asyncio.Task] = []
 
         address_patcher = patch(
             "cms.io.async_service.get_service_address",
@@ -133,7 +134,11 @@ class ScoringServiceTest(
             client = AsyncRemoteServiceClient(coord)
         reader, writer = await asyncio.open_connection("127.0.0.1", port)
         client.initialize_streams(reader, writer, plus=None)
-        asyncio.create_task(client.run())
+        # Keep a reference to the task: once a test disconnects the
+        # client, nothing else does until the loop delivers the end of
+        # the connection, and a garbage collection in between would
+        # destroy the task while it is pending.
+        self._client_tasks.append(asyncio.create_task(client.run()))
         self._clients.append(client)
 
         self.service.remote_services[coord] = client
