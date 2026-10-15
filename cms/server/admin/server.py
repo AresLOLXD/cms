@@ -55,15 +55,16 @@ logger = logging.getLogger(__name__)
 
 # Tornado parses the body of a form before it checks the XSRF token and
 # before any handler runs, and rejects it with a 400 if it has more
-# than 100 parts (multipart/form-data) or 1000 arguments
-# (x-www-form-urlencoded). Some forms of AWS go over that: the task page
+# than 1000 arguments (x-www-form-urlencoded) or 100 parts or more
+# (multipart/form-data). Some forms of AWS go over that: the task page
 # sends one part per public testcase on top of the task's and every
 # dataset's own fields, and the users pages send one user_id argument
 # per checked or planned user. The limit is 2x the 5000 rows that a user
 # import takes. It is no higher because /admin/ can be reached on the
 # same public host as the contest, and a body is parsed before the
 # admin is authenticated, so the limit also bounds what anyone can make
-# AWS parse.
+# AWS parse. Tornado counts the empty preamble of a multipart body as a
+# part, so a multipart form gets one part less than MAX_FORM_FIELDS.
 MAX_FORM_FIELDS = 10_000
 
 # The most bytes of a multipart part's header. A legitimate header is
