@@ -27,6 +27,7 @@ import importlib.resources
 import tornado.httpserver
 import tornado.netutil
 import tornado.web
+from tornado.log import access_log
 
 from cms.db.filecacher import FileCacher
 from cms.server.util import Url
@@ -70,6 +71,37 @@ def resolve_remote_ip(
     if len(addresses) < num_proxies_used:
         return socket_remote_ip
     return addresses[-num_proxies_used]
+
+
+# The path that reverse proxies and cmsWatchdog (#38) probe every few
+# seconds.
+PROBE_PATH = "/static/favicon.ico"
+
+
+def log_request(handler: tornado.web.RequestHandler) -> None:
+    """Log a finished request like Tornado does, but probes at DEBUG.
+
+    A successful GET of PROBE_PATH is logged at DEBUG, so that health
+    checks do not flood the logs. Every other request is logged exactly
+    as Tornado's Application.log_request does: the same logger, levels
+    and format, which the load-test analysis parses.
+
+    handler: the handler that served the request.
+
+    """
+    status = handler.get_status()
+    request = handler.request
+    if status < 400:
+        if request.method == "GET" and request.path == PROBE_PATH:
+            log_method = access_log.debug
+        else:
+            log_method = access_log.info
+    elif status < 500:
+        log_method = access_log.warning
+    else:
+        log_method = access_log.error
+    log_method("%d %s %.2fms", status, handler._request_summary(),
+               1000.0 * request.request_time())
 
 
 class StaticFileHasher:
@@ -176,7 +208,8 @@ class WebService(AsyncService):
                 r"/rpc/([^/]+)/([0-9]+)/([^/]+)", rpc_auth))
 
         self.application = tornado.web.Application(
-            infra_handlers + handlers, **parameters)
+            infra_handlers + handlers,
+            **{"log_function": log_request, **parameters})
         self.application.service = self
 
         self.static_file_hasher = StaticFileHasher(static_files)
