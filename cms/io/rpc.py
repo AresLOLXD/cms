@@ -102,10 +102,11 @@ class FailureSeriesLog:
         self._warned = False
         self._last_warning: float | None = None
 
-    def failed(self, message: str, *args: object):
+    def failed(self, message: str, *args: object, exc_info: bool = False):
         """Log a failure, as a WARNING or as DEBUG.
 
         message: the message to log, %-formatted with args.
+        exc_info: whether to log the exception being handled too.
 
         """
         # stacklevel=2: the record points at the caller, the client
@@ -116,9 +117,11 @@ class FailureSeriesLog:
                 or now - self._last_warning >= self.WARNING_INTERVAL):
             self._warned = True
             self._last_warning = now
-            self._log.warning(message, *args, stacklevel=2)
+            self._log.warning(message, *args, exc_info=exc_info,
+                              stacklevel=2)
         else:
-            self._log.debug(message, *args, stacklevel=2)
+            self._log.debug(message, *args, exc_info=exc_info,
+                            stacklevel=2)
         self.failing = True
 
     def succeeded(self, message: str, *args: object):
@@ -694,9 +697,20 @@ class RemoteServiceClient(RemoteServiceBase):
             # answer read just before the end of the connection is then
             # delivered before finalize() fails the calls still pending,
             # even if finalize() yields; and once a malformed answer has
-            # dropped the connection, _read() returns nothing, so no
-            # later line of that connection is processed.
-            self.process_data(data)
+            # dropped the connection, the next _read() raises "Not
+            # connected." and run() stops, so no later line of that
+            # connection is processed.
+            try:
+                self.process_data(data)
+            except Exception:
+                # Nor may anything else going wrong with an answer end
+                # the connect loop (as a greenlet of its own would have
+                # contained it): it is logged, and the connection
+                # dropped as for a malformed answer.
+                self._drop_connection("Bad response received")
+                self._bad_answers.failed(
+                    "Cannot process the answer from %s, discarding it.",
+                    self._repr_remote(), exc_info=True)
 
     def process_data(self, data: bytes):
         """Handle the message.

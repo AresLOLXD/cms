@@ -664,6 +664,39 @@ class TestRPC(unittest.TestCase):
                     lambda: len(connections) > 1 and client.connected)
                 self.assertEqual(client.echo(value=42).get(timeout=2), 42)
 
+    def test_unexpected_error_on_an_answer_does_not_end_the_loop(self):
+        # Whatever goes wrong processing an answer (here a bug, standing
+        # in process_incoming_response), the client logs it, with its
+        # traceback, and drops the connection like for a malformed
+        # answer: the connect loop goes on, and after the reconnect the
+        # next call is answered.
+        client = self.get_client(ServiceCoord("Foo", 0), auto_retry=0.01)
+        self.stop_when_done(client)
+        real_process_incoming_response = client.process_incoming_response
+        calls = 0
+
+        def fail_once(response: dict):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("Unexpected.")
+            real_process_incoming_response(response)
+
+        with patch.object(client, "process_incoming_response", fail_once):
+            with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+                first = client.echo(value=1)
+                first.wait(timeout=2)
+                self.assertIsInstance(first.exception, RPCError)
+                self.wait_until(
+                    lambda: len(self.servers) > 1 and client.connected)
+                self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertFalse(client._loop.dead)
+        warning, = [record for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot process" in record.getMessage()]
+        self.assertIs(warning.exc_info[0], RuntimeError)
+
     def test_lines_read_after_a_drop_are_discarded(self):
         # Each connection gets, in one write, a malformed line and then
         # two well-formed answers with unknown ids. The client drops
