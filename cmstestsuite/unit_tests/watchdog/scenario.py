@@ -207,3 +207,14 @@ def held(decisions: list[Decision], name: str) -> list[Decision]:
     """Return the alerts about held trips of the program name."""
     return [decision for decision in alerts(decisions)
             if decision.key[0] == name and decision.holds]
+
+
+# The native thread id that busy() gives as the holder of its section.
+HOLDER = 4321
+
+
+def busy(pid: int, what: str, age_s: float, idle_s: float) -> dict:
+    """Return a health() answer with one busy section, held by HOLDER."""
+    return {"pid": pid, "uptime_s": 9_999.0,
+            "busy": [{"what": what, "tid": HOLDER, "age_s": age_s,
+                      "statements": 3, "idle_s": idle_s, "stack": None}]}

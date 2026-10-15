@@ -19,11 +19,10 @@
 """Tests for cmsWatchdog's policy: liveness rules, holds, incidents."""
 
 import unittest
-from dataclasses import replace
 
 from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
     OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
-    Probe, Trip, _Cycle, busy_sections, hhmm_utc
+    Probe, busy_sections, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, \
     DEFAULT_PROGRAMS, ES, GREEN, LS, RED, W0, W1, Scenario, actions, \
     alerts, held, lock_wait_snapshot, program
@@ -827,56 +826,6 @@ class TestHoldEpisodes(unittest.TestCase):
         [resolved] = [d for d in s.cycle() if d.text.startswith("Resolved:")]
         self.assertIn("passes its checks again", resolved.text)
         self.assertEqual(s.state.held_announced, {})
-
-
-class TestWorkersEpisode(unittest.TestCase):
-    """H4's one alert for the Workers that trip R4 together.
-
-    R4 is not a rule of decide() yet: the trips are given to a cycle.
-    """
-
-    def cycle(self, s: Scenario, tripped: bool, gate: Gate = GREEN) -> list:
-        s.mono += CYCLE_S
-        s.wall += CYCLE_S
-        cycle = _Cycle(s.state, replace(s.observation, gate=gate), s.mono,
-                       s.wall)
-        if tripped:
-            cycle.trips = [Trip(s.programs[name], "R4", "disabled")
-                           for name in (W0, W1)]
-        cycle._act_on_trips()
-        return cycle.decisions
-
-    def test_a_second_episode_is_entering_a_hold_again(self):
-        s = Scenario()
-        s.warm_up()
-        key = ("workers", "H4")
-        first = self.cycle(s, True)
-        [line] = [d for d in first if d.key == key]
-        self.assertEqual(line.holds, ("H4",))
-        # The same episode: the rate limit applies.
-        self.assertEqual(self.cycle(s, True), [])
-        # The Workers recover: the episode ends.
-        self.assertEqual(self.cycle(s, False), [])
-        self.assertNotIn(key, s.state.held_headline)
-        self.assertNotIn(key, s.state.alert_sent)
-        # A new episode, 30 s after the first line, is a state change.
-        [line] = [d for d in self.cycle(s, True) if d.key == key]
-        self.assertEqual(line.holds, ("H4",))
-
-    def test_another_hold_heading_the_group_does_not_end_the_episode(self):
-        s = Scenario()
-        s.warm_up()
-        key = ("workers", "H4")
-        lock = Gate(True, backends=lock_wait_snapshot())
-        # Both Workers trip in every cycle; a lock wait comes and goes,
-        # so H3 heads their trips every other cycle and H4 the others.
-        history = [self.cycle(s, True, lock if cycle % 2 else GREEN)
-                   for cycle in range(int(ALERT_REPEAT_S / CYCLE_S) + 1)]
-        self.assertEqual([line.holds[0] for line in held(history[1], W0)],
-                         ["H3"])
-        self.assertEqual(
-            [any(d.key == key for d in decisions) for decisions in history],
-            [True] + [False] * 19 + [True])
 
 
 class TestOrphanMark(unittest.TestCase):

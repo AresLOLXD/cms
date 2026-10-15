@@ -711,6 +711,9 @@ class PolicyState:
     held_headline: the headline hold of each held trip's key.
     held_announced: for each held trip's key, the URGENT_HOLDS that have
         headed a line in this hold episode; it ends with held_headline.
+    workers_h4_quiet: while the Workers' H4 episode is open, the
+        non-starved cycles in a row in which H4 applied to no Worker
+        trip; the episode ends at PASSES_TO_RESOLVE of them.
     open_alerts: the last alert of each open problem, by key (sent
         again to a new LogService).
     near_miss: this hour's statistics.
@@ -736,6 +739,7 @@ class PolicyState:
     summary_mono: float | None = None
     held_announced: dict[tuple[str, str], set[str]] = field(
         default_factory=dict)
+    workers_h4_quiet: int = 0
 
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
@@ -886,11 +890,14 @@ class _Cycle:
         self._track_gate()
         self._track_pause()
         self._track_programs()
+        self._record_holder_cpu()
         if self.starved:
             state.near_miss.starved_cycles += 1
             return
         self._check_pids()
         self._liveness_trips()
+        self._section_trips()
+        self._worker_trips()
         self._act_on_trips()
         self._update_incidents()
 
@@ -1106,12 +1113,217 @@ class _Cycle:
                     program, rule, "%d of the last %d %s of %s failed"
                     % (misses, len(window), what, program.label)))
 
+    # R3.
+
+    def _record_holder_cpu(self) -> None:
+        """Keep the CPU samples of ES's holder thread (R3 (b))."""
+        samples = [sample for sample in self.state.holder_samples
+                   if self.mono - sample[0] <= ES_CPU_KEEP_S]
+        if self.obs.holder_cpu is not None:
+            tid, cpu_s = self.obs.holder_cpu
+            samples.append((self.mono, tid, cpu_s))
+        self.state.holder_samples = samples
+
+    def _section_trips(self) -> None:
+        """Apply R3 to the sections of ES, SS and PS (3.5).
+
+        A section past half its trip adds its program to self.half (H4)
+        and, if it does not trip, an early warning to self.warnings:
+        _act_on_trips emits them with R1's and R2's.
+
+        """
+        for program in self.running:
+            sections = busy_sections(self.obs.health.get(program.name))
+            if not sections:
+                continue
+            if program.kind == "EvaluationService":
+                self._es_section(program, sections[0])
+            elif program.kind == "ScoringService":
+                self._ss_section(program, sections)
+            elif program.kind == "ProxyService":
+                self._ps_section(program, sections)
+
+    def _es_section(self, program: ProgramFacts, section: dict) -> None:
+        """Apply R3 to ES's oldest section."""
+        what, age_s = section["what"], section["age_s"]
+        idle_s = section["idle_s"]
+        if not what.startswith(ES_SECTION_PREFIX):
+            return
+        if what == INVALIDATION_SECTION:
+            if age_s > SECTION_TRIP_S:
+                self._alert(
+                    (program.name, "re-evaluation"), "WARNING",
+                    "Watchdog: re-evaluation still running for %d min in "
+                    "%s; the watchdog never restarts it for that."
+                    % (age_s // 60, program.label))
+            return
+        if age_s <= SECTION_WARN_S or idle_s < ES_IDLE_WARN_S:
+            return
+        self.half.add(program.name)
+        if age_s > SECTION_TRIP_S and idle_s >= ES_IDLE_TRIP_S \
+                and self._holder_idle(section["tid"]) \
+                and not self._es_statement_running(program):
+            self.trips.append(Trip(
+                program, "R3", "its locked section %s has been held for "
+                "%d s with no statement for %d s, under %d s of CPU in "
+                "the last minute and no statement running in the database"
+                % (what, age_s, idle_s, ES_CPU_MIN_S)))
+            return
+        self.warnings.append(Trip(
+            program, "R3", "the locked section %s of %s has been held for "
+            "%d s with no statement for %d s" % (
+                what, program.label, age_s, idle_s)))
+
+    def _holder_idle(self, tid: int | None) -> bool:
+        """R3 (b): the holder used under 1 s of CPU in the last minute.
+
+        It compares with the newest sample of the same thread that is
+        at least ES_CPU_LOOKBACK_S old; without one, (b) is not met.
+
+        """
+        current = self.obs.holder_cpu
+        if tid is None or current is None or current[0] != tid:
+            return False
+        old = [sample for sample in self.state.holder_samples
+               if sample[1] == tid
+               and self.mono - sample[0] >= ES_CPU_LOOKBACK_S]
+        if not old:
+            return False
+        newest = max(old, key=lambda sample: sample[0])
+        return current[1] - newest[2] < ES_CPU_MIN_S
+
+    def _es_statement_running(self, program: ProgramFacts) -> bool:
+        """R3 (c): whether a backend of ES is running a statement.
+
+        A lock wait (left to H3) and a write to a client that does not
+        read (ClientWrite) do not count; a NULL field counts as "not
+        Lock" and "not ClientWrite". With a red gate there is no
+        snapshot, and it counts as running.
+
+        """
+        if not self.obs.gate.green:
+            return True
+        return any(backend.application_name == program.label
+                   and backend.state == "active"
+                   and backend.wait_event_type != "Lock"
+                   and backend.wait_event != "ClientWrite"
+                   for backend in self.obs.gate.backends)
+
+    def _ss_section(self, program: ProgramFacts,
+                    sections: list[dict]) -> None:
+        """Apply R3 to SS's scoring."""
+        ages = [section["age_s"] for section in sections
+                if section["what"] == "score"]
+        if not ages or max(ages) <= SECTION_WARN_S:
+            return
+        self.half.add(program.name)
+        if max(ages) > SECTION_TRIP_S:
+            self.trips.append(Trip(program, "R3", "one scoring has run "
+                                   "for %d s" % max(ages)))
+            return
+        self.warnings.append(Trip(
+            program, "R3", "one scoring of %s has run for %d s"
+            % (program.label, max(ages))))
+
+    def _ps_section(self, program: ProgramFacts,
+                    sections: list[dict]) -> None:
+        """Apply R3 to PS's sends to the rankings."""
+        idles = [section["idle_s"] for section in sections
+                 if section["what"] == "send"]
+        if not idles or max(idles) <= SECTION_WARN_S:
+            return
+        self.half.add(program.name)
+        if max(idles) > SECTION_TRIP_S \
+                and all(probe.ok for probe in self.obs.rankings.values()):
+            self.trips.append(Trip(
+                program, "R3", "a send to the rankings has started no "
+                "request for %d s while every ranking answers"
+                % max(idles)))
+            return
+        self.warnings.append(Trip(
+            program, "R3", "a send of %s to the rankings has started no "
+            "request for %d s" % (program.label, max(idles))))
+
+    # R4.
+
+    def _worker_trips(self) -> None:
+        """Apply R4 to the Workers, from ES's workers_status() (3.5)."""
+        es = next((program for program in self.running
+                   if program.kind == "EvaluationService"), None)
+        workers = self.obs.workers
+        # An unhealthy ES suppresses R4: its view of the Workers is old.
+        if es is None or not isinstance(workers, Mapping) \
+                or not self.obs.rpc.get(es.name, Probe(False)).ok:
+            return
+        statuses = {str(shard): status for shard, status in workers.items()
+                    if isinstance(status, Mapping)}
+        es_health = self.obs.health.get(es.name)
+        es_uptime = (es_health.get("uptime_s")
+                     if isinstance(es_health, Mapping) else None)
+        for program in self.running:
+            if program.kind != "Worker":
+                continue
+            status = statuses.get(str(program.shard))
+            if status is None:
+                continue
+            detail = self._disabled_too_long(program, status) \
+                or self._never_connected(program, status, statuses,
+                                         es_uptime)
+            if detail:
+                self.failing.add(program.name)
+                self.trips.append(Trip(program, "R4", detail))
+
+    def _disabled_too_long(self, program: ProgramFacts,
+                           status: Mapping) -> str:
+        """R4 (a): ES disabled it 180 s ago, and it did not restart."""
+        disabled_at = status.get("disabled_at")
+        if status.get("disabled_by_timeout") is not True \
+                or not is_number(disabled_at) \
+                or program.start_wall is None \
+                or program.start_wall >= disabled_at:
+            return ""
+        disabled_for = age(self.wall, disabled_at)
+        if disabled_for < WORKER_DISABLED_TRIP_S:
+            return ""
+        return ("EvaluationService disabled it for not answering %d s "
+                "ago, and it has not restarted since" % disabled_for)
+
+    def _never_connected(self, program: ProgramFacts, status: Mapping,
+                         statuses: Mapping[str, Mapping],
+                         es_uptime: object) -> str:
+        """R4 (b): not connected after 300 s, while others are.
+
+        A Worker that ES disabled less than WORKER_DISABLED_TRIP_S ago
+        is left to (a): it has just been told to quit, and it
+        disconnects as it does.
+
+        """
+        disabled_at = status.get("disabled_at")
+        if status.get("disabled_by_timeout") is True \
+                and is_number(disabled_at) \
+                and age(self.wall, disabled_at) < WORKER_DISABLED_TRIP_S:
+            return ""
+        others = any(other.get("connected") is True
+                     for shard, other in statuses.items()
+                     if shard != str(program.shard))
+        if status.get("connected") is not False or not others \
+                or program.start_wall is None \
+                or not is_number(es_uptime) \
+                or es_uptime < ES_UP_FOR_WORKERS_S:
+            return ""
+        running_for = age(self.wall, program.start_wall)
+        if running_for < WORKER_UNCONNECTED_TRIP_S:
+            return ""
+        return ("it has not connected to EvaluationService in %d s of "
+                "running, while other Workers have" % running_for)
+
     # Holds and actions.
 
     def _act_on_trips(self) -> None:
         """Turn each trip into an action, or into an alert if held."""
         self._early_warnings()
         held_workers: list[Trip] = []
+        h4_on_workers = False
         incidents = self.state.ledger.incidents
         for trip in self.trips:
             program = trip.program
@@ -1121,6 +1333,9 @@ class _Cycle:
                     "rule": trip.rule, "opened": self.wall, "passes": 0}
             shadow = self.state.shadow_for(program.klass)
             holds = self._holds(program, shadow)
+            if program.kind == "Worker" \
+                    and any(code == "H4" for code, _ in holds):
+                h4_on_workers = True
             if holds and holds[0][0] == "H4" and program.kind == "Worker":
                 held_workers.append(trip)
             elif holds:
@@ -1129,12 +1344,29 @@ class _Cycle:
                 self._restart(trip, shadow)
         if held_workers:
             self._held_workers(held_workers)
-        elif not any(trip.program.kind == "Worker" for trip in self.trips):
-            # No Worker trips: the Workers' H4 episode is over, and the
-            # next one is entering a hold again. Another hold heading
-            # their trips for a while does not end it.
-            for table in (self.state.held_headline,
-                          self.state.alert_sent):
+        self._track_workers_episode(h4_on_workers)
+
+    def _track_workers_episode(self, h4_applied: bool) -> None:
+        """End the Workers' H4 episode after PASSES_TO_RESOLVE quiet cycles.
+
+        A quiet cycle is a non-starved one (this runs in those only) in
+        which H4 applies to no Worker trip. A Worker that trips alone,
+        or over its budget, does not keep the episode open; a trip that
+        comes and goes, or another hold heading the group for a while,
+        does not end it. The next episode is entering a hold again.
+
+        h4_applied: whether H4 applied to a Worker trip in this cycle.
+
+        """
+        state = self.state
+        if h4_applied or WORKERS_H4_KEY not in state.held_headline:
+            state.workers_h4_quiet = 0
+            return
+        state.workers_h4_quiet += 1
+        if state.workers_h4_quiet >= PASSES_TO_RESOLVE:
+            state.workers_h4_quiet = 0
+            for table in (state.held_headline, state.held_announced,
+                          state.alert_sent):
                 table.pop(WORKERS_H4_KEY, None)
 
     def _early_warnings(self) -> None:
@@ -1144,15 +1376,38 @@ class _Cycle:
             self._alert(
                 (program.name, warning.rule + " warning"), "WARNING",
                 "Watchdog: early warning: %s. %s"
-                % (warning.detail, self._outlook(program)))
+                % (warning.detail,
+                   self._outlook(program, self._trip_point(warning))))
 
-    def _outlook(self, program: ProgramFacts) -> str:
+    @staticmethod
+    def _trip_point(warning: Trip) -> str:
+        """Say when the rule of an early warning trips (3.5).
+
+        warning: the early warning.
+
+        return: the start of the sentence that says what happens then.
+
+        """
+        if warning.rule != "R3":
+            return "At %d misses, the latest included" % MISSES_TO_TRIP
+        kind = warning.program.kind
+        if kind == "EvaluationService":
+            return ("Past %d s, with no statement for %d s, no CPU used by "
+                    "its thread and none of its statements running"
+                    % (SECTION_TRIP_S, ES_IDLE_TRIP_S))
+        if kind == "ProxyService":
+            return ("Past %d s with no request, while every ranking "
+                    "answers" % SECTION_TRIP_S)
+        return "Past %d s" % SECTION_TRIP_S
+
+    def _outlook(self, program: ProgramFacts, trip_point: str) -> str:
         """Say what happens if program goes on failing, and the next step.
 
         It does not promise a restart that observe mode, an H9 class or
         a hold that applies now would not give.
 
         program: the program with an early warning.
+        trip_point: when its rule trips, as _trip_point says.
 
         return: the sentences to add to the warning.
 
@@ -1168,8 +1423,7 @@ class _Cycle:
             what = "would restart it"
         else:
             what = "restarts it"
-        text = ("At %d misses, the latest included, the watchdog %s."
-                % (MISSES_TO_TRIP, what))
+        text = "%s, the watchdog %s." % (trip_point, what)
         if holds:
             text += " But %s applies now: %s." % holds[0]
             text += _other_holds(holds)
@@ -1432,8 +1686,9 @@ class _Cycle:
             program_state.restarted_mono = self.mono
             program_state.restarted_pid = program.pid
         key = (program.name, trip.rule)
-        self.state.held_headline.pop(key, None)
-        self.state.held_announced.pop(key, None)
+        # A restart ends every hold episode of the program, whatever
+        # rule tripped: an R3 restart of ES ends its R2 one too.
+        self._forget_episodes(program.name)
         self.state.alert_sent[key] = self.mono
         self.decisions.append(Decision(
             RESTART, text=trip.detail, key=key, program=program.name,
