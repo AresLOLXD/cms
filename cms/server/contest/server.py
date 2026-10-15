@@ -41,6 +41,9 @@ import asyncio
 from datetime import datetime, timedelta
 import logging
 
+from tornado.httputil import (
+    ParseBodyConfig, ParseMultipartConfig, set_parse_body_config)
+
 from cms import ConfigError, ServiceCoord, config
 from cms.io import WebService
 from cms.io.static_handler import MultiLocationStaticFileHandler
@@ -60,6 +63,24 @@ logger = logging.getLogger(__name__)
 # (seconds), so that an unreachable database does not stop the service
 # from exiting.
 SHUTDOWN_FLUSH_TIMEOUT = 30
+
+# Tornado parses the body of a form before it checks the XSRF token and
+# before any handler runs, and rejects a multipart/form-data body with a
+# 400 if it has more than 100 parts. The form that submits an OutputOnly
+# task file by file has a part per output, on top of its _xsrf (and
+# language) field, and a task can have hundreds of outputs. Tornado
+# counts the empty preamble as a part, so this accepts 999 parts: the
+# _xsrf field and up to 998 outputs (a few less for a BatchAndOutput
+# task, whose form also sends the source file and the language). The
+# urlencoded forms of CWS have a few fields, so their limit stays at
+# Tornado's default.
+MAX_MULTIPART_PARTS = 1000
+
+# The most bytes of a multipart part's header. A legitimate header is
+# under 500 bytes, and a long one costs the most to parse (about 20x a
+# byte of data), so this keeps a single request from stalling the
+# server for long, now that a body may have so many parts.
+MAX_PART_HEADER_SIZE = 2048
 
 
 class ContestWebServer(WebService):
@@ -110,6 +131,14 @@ class ContestWebServer(WebService):
             listen_address=listen_address)
 
         self.jinja2_environment = CWS_ENVIRONMENT
+
+        # Tornado's limits are global, but each service runs in its own
+        # process, so these don't reach AWS. The call replaces the whole
+        # configuration, so it leaves the urlencoded limit at the default.
+        set_parse_body_config(ParseBodyConfig(
+            multipart=ParseMultipartConfig(
+                max_parts=MAX_MULTIPART_PARTS,
+                max_part_header_size=MAX_PART_HEADER_SIZE)))
 
         # This is a dictionary (indexed by username) of pending
         # notification. Things like "Yay, your submission went

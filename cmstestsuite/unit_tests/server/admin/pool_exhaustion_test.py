@@ -54,6 +54,7 @@ from sqlalchemy.engine import Engine
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, \
     HTTPResponse
 from tornado.httpserver import HTTPServer
+from tornado.httputil import ParseBodyConfig, set_parse_body_config
 from tornado.iostream import StreamClosedError
 from tornado.netutil import bind_sockets
 
@@ -154,6 +155,9 @@ class _AwsServerMixin(DatabaseMixin):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
         cls.aws = AdminWebServer(0)
         cls.aws.application.add_handlers(r".*$", [
             (r"/test/probe", _ProbeHandler),

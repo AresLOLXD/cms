@@ -66,6 +66,8 @@ Moreover, CMS will automatically fill the missing files in the current submissio
 
 then s1 will be judged using f1 and f2; s2 will be judged using f1, f2' and f3; and finally s3 will be judged using f1, f2', f3 and f4.
 
+Contestants submit the outputs in one of two forms on the submissions page of the task. The first has a file field for each output, and sends one form field per output, plus the ``_xsrf`` token. The Contest Web Server accepts it for up to about 990 outputs; with more, it refuses the form with a generic "Error 400" page. The second takes a single ``.zip`` archive with all the outputs and works for any number of them, but it appears only for a task whose submission format has more than one file and none for source code, so a BatchAndOutput task (a source file plus outputs) has only the first form, and its limit is a few outputs lower, since that form also sends the source file and the language. If a task has more than about 990 outputs, its statement should tell the contestants to use the zip form. In both forms the whole submission must fit under the request size limit of the reverse proxy (see "Request body limits" in :doc:`docker-deployment`).
+
 OutputOnly has one parameter, that specifies whether to compare correct output and contestant-produced output with :ref:`white-diff<tasktypes_white_diff>`, or using a :ref:`comparator<tasktypes_checker>` (exactly the same as the third parameter for Batch). In the latter case, the admins must provide an executable manager called :file:`checker`.
 
 

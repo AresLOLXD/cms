@@ -57,6 +57,15 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
    [Two-phase grading](two-phase-grading.md).
 6. For every task, submit a correct solution and a wrong one from a test
    user, in each language the contestants will use, and check the scores.
+7. For every OutputOnly task, count its outputs and keep them below about
+   990: the per-file submission form stops working near 1000 outputs, and
+   with more only the zip form works (see "OutputOnly" in
+   {doc}`Task types`). Then submit every output at once from a test user,
+   through the address the contestants use, so that the request goes through
+   the reverse proxy's `max_size` (see "Request body limits" in
+   [docker-deployment.md](docker-deployment.md)). Each output file costs the
+   Contest Web Server about 13 ms during which it serves nobody else, so for a
+   task with many outputs set a `min_submission_interval` on the task.
 
 ### Rehearse
 
@@ -312,6 +321,8 @@ must print nothing.
 | A scoreboard is missing scores or shows a contest it should not | **Regenerate** on its ranking group, unless database errors continue | [multi-contest.md](multi-contest.md) |
 | A scoreboard stopped updating and ProxyService logs "rejected the visibility" | Follow "Failure mode" | [multi-contest.md](multi-contest.md) |
 | A page does not load | `./status.sh`, then `./logs.sh` | [docker-scripts.md](docker-scripts.md) |
+| A contestant gets an "Error 400" page when submitting, and the Contest Web Server log has a WARNING for a 400 on a `…/submit` path with `Invalid body` in it | For an OutputOnly task, ask them to use the zip form; also check the `max_size` of the reverse proxy. The page is generic, with a paragraph about tampering: tell the proctors it does not mean disqualification | "OutputOnly" in {doc}`Task types`; "Request body limits" in [docker-deployment.md](docker-deployment.md) |
+| A contestant gets a 413 or a connection reset when submitting, with no CMS page | The submission is over the `max_size` of the reverse proxy: raise it | "Request body limits" in [docker-deployment.md](docker-deployment.md) |
 | A submission stays in **Cannot compile** or **Cannot evaluate** | Read the **Logs** table on **Overview** and the submission's page | [Troubleshooting](Troubleshooting.rst) |
 | In a task with `depends_on`, dependent subtasks are not zeroed as expected, or submissions finish late | Search the Evaluation Service log for "cannot be used" and "gates are holding each other" | [subtask-dependencies.md](subtask-dependencies.md) |
 | A contest is not listed for the contestants | Tick **Active** on it | [multi-contest.md](multi-contest.md) |

@@ -25,6 +25,8 @@ import unittest
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
+from tornado.httputil import ParseBodyConfig, set_parse_body_config
+
 from cms import config
 from cms.io import WebService
 from cms.server.contest.server import ContestWebServer
@@ -40,6 +42,13 @@ class TestConstruction(unittest.TestCase):
 
     """
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
+
     def test_constructs_without_raising(self):
         server = ContestWebServer(0)
         self.assertIsNone(server.contest_id)
@@ -47,6 +56,13 @@ class TestConstruction(unittest.TestCase):
 
 class TestActivityFlush(unittest.IsolatedAsyncioTestCase):
     """The activity log is flushed periodically and at shutdown."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
 
     def test_flush_is_scheduled_every_flush_interval(self):
         with patch.object(ContestWebServer, "add_timeout") as add_timeout:
