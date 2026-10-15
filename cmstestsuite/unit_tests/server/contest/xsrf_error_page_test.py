@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 
 from tornado.httpclient import AsyncHTTPClient, HTTPResponse
 from tornado.httpserver import HTTPServer
+from tornado.httputil import ParseBodyConfig, set_parse_body_config
 from tornado.netutil import bind_sockets
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -52,6 +53,13 @@ class CwsTestBase(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
     """
 
     multi_contest: bool
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
 
     def setUp(self):
         super().setUp()

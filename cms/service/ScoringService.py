@@ -32,7 +32,7 @@ import logging
 from cms import ServiceCoord, config
 from cms.db import SessionGen, Submission, SubmissionResult, Dataset, \
     get_submission_results
-from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT
+from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT, NotificationFailureLatch
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.priorityqueue import QueueEntry
 from cms.io.rpc import RPCError, rpc_method
@@ -47,6 +47,10 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
     def __init__(self, proxy_service):
         super().__init__()
         self.proxy_service = proxy_service
+        self.proxy_notifications = NotificationFailureLatch(
+            logger, "ScoringService", ServiceCoord("ProxyService", 0),
+            "nothing is lost, its sweeper will send these scores to the "
+            "rankings")
 
     async def execute(self, entry: QueueEntry[ScoringOperation]):
         """Assign a score to a submission result.
@@ -70,13 +74,15 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
     async def _notify_proxy(self, submission_id: int):
         """Tell ProxyService a submission was scored, best-effort.
 
-        Fire-and-forget: mirrors the old RPC proxy's behavior of never
-        surfacing a failed notification as an error (ProxyService being
-        unreachable, e.g. because rankings are disabled, is a normal,
-        expected state -- not a failure worth logging loudly). It
-        doesn't wait for the answer longer than FIRE_AND_FORGET_TIMEOUT
-        seconds, so a ProxyService that is connected but stuck can't
-        leave the notifications pending forever.
+        Fire-and-forget: a failed notification is dropped, since
+        ProxyService's sweeper sends the score anyway, and
+        proxy_notifications logs the failures without flooding the logs
+        (at most one WARNING a minute, see NotificationFailureLatch; a
+        ProxyService that is not configured, because rankings are
+        disabled, is a normal state: only DEBUG). It doesn't wait for
+        the answer longer than FIRE_AND_FORGET_TIMEOUT seconds, so a
+        ProxyService that is connected but stuck can't leave the
+        notifications pending forever.
 
         submission_id: the id of the submission to notify about.
 
@@ -86,14 +92,11 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
                 self.proxy_service.submission_scored(
                     submission_id=submission_id),
                 FIRE_AND_FORGET_TIMEOUT)
-        except RPCError:
-            pass
-        except asyncio.TimeoutError:
-            # Not lost: ProxyService's sweeper sends the score.
-            logger.warning("ProxyService gave no answer in %s seconds to "
-                           "the notification that submission %d was "
-                           "scored, giving up on it.",
-                           FIRE_AND_FORGET_TIMEOUT, submission_id)
+        except (RPCError, asyncio.TimeoutError) as error:
+            self.proxy_notifications.failed(
+                "the score of submission %d" % submission_id, error)
+        else:
+            self.proxy_notifications.succeeded()
 
     def _execute_sync(self, operation: ScoringOperation) -> int | None:
         """Do the actual DB work for execute(), synchronously.

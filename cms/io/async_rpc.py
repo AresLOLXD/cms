@@ -13,9 +13,11 @@ cms.io.rpc.RemoteServiceServer/Client with no adapter.
 
 import asyncio
 from collections.abc import Callable
+from datetime import datetime
 import json
 import logging
 import socket
+from time import monotonic
 import traceback
 import typing
 import uuid
@@ -23,7 +25,8 @@ from weakref import WeakSet
 
 from cms.conf import Address, ServiceCoord
 from cms.util import get_service_address
-from cms.io.rpc import RPCError, ServiceNotConfiguredError
+from cms.io.rpc import FailureSeriesLog, RPCError, \
+    ServiceNotConfiguredError
 
 if typing.TYPE_CHECKING:
     from cms.io.async_service import AsyncService
@@ -43,6 +46,129 @@ MAX_MESSAGE_SIZE = 1024 * 1024
 # peer that is connected but stuck, nothing else would ever end the
 # call: it would stay pending, together with its request, for good.
 FIRE_AND_FORGET_TIMEOUT = 30.0
+
+
+class NotificationFailureLatch:
+    """Log the failed notifications to one peer without flooding the logs.
+
+    It is for a service that tells a peer about each piece of work it
+    has done, fire-and-forget, and drops the notifications that fail
+    because the peer's sweeper finds that work anyway (EvaluationService
+    with ScoringService, ScoringService with ProxyService). Logging
+    every dropped notification would flood the logs for as long as the
+    peer is down or stuck, and logging none hides that it is. So it
+    logs:
+    - the first failure as a WARNING, naming both ends, why it failed
+      and what that costs;
+    - while the failures last, a reminder WARNING, with how many
+      notifications were dropped since when;
+    - the first success after them as an INFO, with that count;
+    - each failure as a DEBUG line saying what it was about.
+    A WARNING is logged at most once every WARNING_INTERVAL seconds,
+    across outages too, so that a peer that flaps between failing and
+    not can't flood the logs either: an outage that starts sooner logs
+    only DEBUG until the interval is over, and then a reminder. Its end
+    is an INFO only if it logged a WARNING, so that each WARNING has
+    its INFO, and DEBUG otherwise.
+    A peer that is not configured (ServiceNotConfiguredError) is not
+    failing: that is only a DEBUG line, and it is not counted.
+
+    schedule_rpc (cms.server.util) doesn't use it, and keeps logging
+    every failure: the admin actions it notifies about are rare.
+
+    """
+
+    WARNING_INTERVAL = 60.0
+
+    def __init__(
+        self, log: logging.Logger, source: str, peer: ServiceCoord,
+        consequence: str,
+    ):
+        """Prepare to log the notifications from source to peer.
+
+        log: the logger to log to (the caller's).
+        source: the name of the service that sends the notifications.
+        peer: the service that receives them.
+        consequence: what the failures cost, which ends the WARNINGs
+            (e.g. "nothing is lost, its sweeper will score these
+            submissions").
+
+        """
+        self._log = log
+        self._source = source
+        self._peer = peer
+        self._consequence = consequence
+        # How many notifications were dropped since the last success
+        # (or the start), since when, and whether that outage logged a
+        # WARNING; and when the last WARNING was (in monotonic()
+        # seconds), whatever the outage.
+        self._dropped = 0
+        self._failing_since: datetime | None = None
+        self._warned = False
+        self._last_warning: float | None = None
+
+    def succeeded(self):
+        """Note that a notification reached the peer."""
+        if self._dropped == 0:
+            return
+        # stacklevel=2, here and in failed(): the records point at the
+        # caller, the method that sent the notification, as the
+        # detailed log shows it.
+        self._log.log(logging.INFO if self._warned else logging.DEBUG,
+                      "%s can notify %s again: %d notification(s) dropped "
+                      "since %s.", self._source, self._peer, self._dropped,
+                      self._failing_since.strftime("%Y-%m-%d %H:%M:%S"),
+                      stacklevel=2)
+        self._dropped = 0
+        self._failing_since = None
+        self._warned = False
+
+    def failed(self, notification: str, error: Exception):
+        """Note that a notification did not reach the peer.
+
+        notification: what it was about, for the DEBUG line (e.g. "the
+            evaluation of submission 1 on dataset 2").
+        error: why: the RPCError its call raised, or the TimeoutError
+            of giving up on the answer.
+
+        """
+        if isinstance(error, ServiceNotConfiguredError):
+            self._log.debug("%s did not notify %s of %s: it is not "
+                            "configured.", self._source, self._peer,
+                            notification, stacklevel=2)
+            return
+
+        if isinstance(error, TimeoutError):
+            reason = "no answer in time"
+        else:
+            reason = "%s: %s" % (error.__class__.__name__, error)
+        self._log.debug("%s did not notify %s of %s (%s).", self._source,
+                        self._peer, notification, reason, stacklevel=2)
+        # A remote error carries the peer's traceback: the DEBUG line
+        # has it all, the WARNINGs only the first line, so they stay one
+        # line each (the peer's error is logged at ERROR anyway).
+        reason = reason.partition("\n")[0]
+
+        now = monotonic()
+        self._dropped += 1
+        if self._dropped == 1:
+            self._failing_since = datetime.now()
+        if (self._last_warning is not None
+                and now - self._last_warning < self.WARNING_INTERVAL):
+            return
+        self._last_warning = now
+        self._warned = True
+        if self._dropped == 1:
+            self._log.warning("%s cannot notify %s (%s); %s.", self._source,
+                              self._peer, reason, self._consequence,
+                              stacklevel=2)
+        else:
+            self._log.warning(
+                "%s still cannot notify %s (%s): %d notification(s) "
+                "dropped since %s; %s.", self._source, self._peer, reason,
+                self._dropped,
+                self._failing_since.strftime("%Y-%m-%d %H:%M:%S"),
+                self._consequence, stacklevel=2)
 
 
 class AsyncRemoteServiceBase:
@@ -281,7 +407,9 @@ class AsyncRemoteServiceServer(AsyncRemoteServiceBase):
         await self.process_incoming_request(message)
 
     async def process_incoming_request(self, request: dict):
-        if not {"__id", "__method", "__data"}.issubset(request.keys()):
+        # json.loads() may give any JSON value, not only an object.
+        if (not isinstance(request, dict)
+                or not {"__id", "__method", "__data"}.issubset(request)):
             self.disconnect("Bad request received")
             logger.warning("Request is missing some fields, ignoring.")
             return
@@ -338,6 +466,12 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
 
         self._loop_task: asyncio.Task | None = None
 
+        # The failures to resolve the peer's name, and the malformed
+        # answers: each comes back at every retry while it lasts, so
+        # they are logged a series at a time.
+        self._resolve_failures = FailureSeriesLog(logger)
+        self._bad_answers = FailureSeriesLog(logger)
+
     def _repr_remote(self):
         return f"{self.remote_address} ({self.remote_service_coord})"
 
@@ -354,9 +488,19 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             addresses = await asyncio.get_running_loop().getaddrinfo(
                 self.remote_address.ip, self.remote_address.port,
                 type=socket.SOCK_STREAM)
-        except OSError:
-            logger.warning("Cannot resolve %s.", self.remote_address)
-            raise
+        except OSError as error:
+            # Not connected, as when the connection is refused: _run
+            # tries again after auto_retry seconds, if it has to.
+            if self._resolve_failures.failing:
+                self._resolve_failures.failed(
+                    "Still cannot resolve %s: %s.", self.remote_address,
+                    error)
+            else:
+                self._resolve_failures.failed(
+                    "Cannot resolve %s.", self.remote_address)
+            return
+        self._resolve_failures.succeeded(
+            "%s resolves again.", self.remote_address)
 
         for family, type_, proto, _canonname, sockaddr in addresses:
             host, port, *_rest = sockaddr
@@ -381,6 +525,10 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
                 await self.run()
             if self.auto_retry is None:
                 break
+            # However the connection ended, wait before the next one: a
+            # peer that accepts and then closes at once would otherwise
+            # be reconnected to as fast as the loop can go.
+            await asyncio.sleep(self.auto_retry)
 
     def connect(self):
         if self._loop_task is not None and not self._loop_task.done():
@@ -397,7 +545,27 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
                 self._loop_task.cancel()
                 self._loop_task = None
 
+    def _drop_connection(self, reason: str):
+        """Close the connection, but not for good.
+
+        Unlike disconnect(), it leaves the connect loop running: run()
+        stops reading the connection, and _run reconnects after
+        auto_retry seconds, if it has to.
+
+        reason: why, for the log.
+
+        """
+        if self._writer is not None:
+            # Unlike close(), abort() ends the connection even with
+            # unsent data buffered (a peer that doesn't read), so run()
+            # is sure to read its end, as shutdown() does in rpc.py.
+            self._writer.transport.abort()
+        super().disconnect(reason=reason)
+
     async def run(self):
+        # The reader of this connection, which tells process_data
+        # whether a line still comes from the current connection.
+        reader = self._reader
         while True:
             try:
                 data = await self._read()
@@ -408,23 +576,77 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
                 self.finalize("Connection closed.")
                 break
 
-            self._spawn(self.process_data(data))
+            self._spawn(self._process_answer(data, reader))
 
-    async def process_data(self, data: bytes):
+    async def _process_answer(
+        self, data: bytes, reader: asyncio.StreamReader | None
+    ):
+        """Process a line read by run(), whatever goes wrong.
+
+        Nothing that goes wrong processing an answer may stay unseen
+        or leave a call waiting: an unexpected error (a bug, since
+        malformed answers are handled) is logged with its traceback,
+        through the malformed-answer series, and the connection is
+        dropped as for a malformed answer. That fails the calls still
+        pending, this answer's included (it leaves them only once
+        nothing else can go wrong, and is resolved at once), and the
+        client reconnects.
+
+        data: the line.
+        reader: the reader of the connection it was read from.
+
+        """
+        try:
+            await self.process_data(data, reader)
+        except Exception:
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Cannot process the answer from %s, discarding it.",
+                self._repr_remote(), exc_info=True)
+
+    async def process_data(
+        self, data: bytes, reader: asyncio.StreamReader | None
+    ):
+        # run() reads every line already buffered before any is
+        # processed. Once the connection has ended (because one of them
+        # was a malformed answer, say), the others are discarded,
+        # whatever they are, instead of being taken as answers; and
+        # run() reads no more, as it stops once we're disconnected.
+        if reader is not self._reader:
+            return
+
         try:
             message = json.loads(data.decode('utf-8'))
-        except ValueError:
-            self.disconnect("Bad response received")
-            logger.warning("Cannot parse incoming message, discarding.")
+        except (ValueError, RecursionError):
+            # RecursionError: JSON nested too deep to decode.
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Cannot parse incoming message from %s, discarding.",
+                self._repr_remote())
             return
 
         self.process_incoming_response(message)
 
     def process_incoming_response(self, response: dict):
-        if not {"__id", "__data", "__error"}.issubset(response.keys()):
-            self.disconnect("Bad response received")
-            logger.warning("Response is missing some fields, ignoring.")
+        # json.loads() may give any JSON value, not only an object.
+        if (not isinstance(response, dict)
+                or not {"__id", "__data", "__error"}.issubset(response)):
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Response from %s is missing some fields, ignoring.",
+                self._repr_remote())
             return
+        if not isinstance(response["__id"], str):
+            # Our requests' ids are strings: any other id (a list can't
+            # even be looked up) can't be the answer to one of them.
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Response from %s has an id that is not a string, "
+                "ignoring.", self._repr_remote())
+            return
+        if self._bad_answers.failing:
+            self._bad_answers.succeeded(
+                "%s sends well-formed answers again.", self._repr_remote())
 
         id_ = response["__id"]
 
@@ -437,11 +659,12 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         error = response["__error"]
 
         if error is not None:
+            # Resolve the call before logging, as rpc.py must.
+            if not result.done():
+                result.set_exception(RPCError(error))
             err_msg = "%s signaled RPC for method %s was unsuccessful: %s." % (
                 self.remote_service_coord, request["__method"], error)
             logger.error(err_msg)
-            if not result.done():
-                result.set_exception(RPCError(error))
         else:
             if not result.done():
                 result.set_result(response["__data"])

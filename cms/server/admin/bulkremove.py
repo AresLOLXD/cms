@@ -35,6 +35,12 @@ from cms.db import Participation, Submission, User, UserTest
 from cmscommon.datetime import make_datetime
 
 MAX_LIST_BYTES = 1024 * 1024
+# The most users that one removal takes. The confirmation page posts one
+# user_id per planned user and 3 fields of its own (the XSRF token, the
+# action and the typed count), and AWS parses at most 10,000 arguments
+# of a form (MAX_FORM_FIELDS in cms/server/admin/server.py); this stays
+# 100 under that, so that the form is always parsed.
+MAX_PLAN_USERS = 9_900
 # Why a value of the selection is not removed.
 NOT_FOUND = "no existe"
 NOT_IN_CONTEST = "no participa en el concurso"

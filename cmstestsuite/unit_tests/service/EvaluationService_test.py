@@ -4,6 +4,7 @@
 
 import asyncio
 import contextlib
+import logging
 import threading
 import time
 import unittest
@@ -14,7 +15,8 @@ from unittest.mock import patch
 import cms.service.EvaluationService as EvaluationServiceModule
 from cms.conf import Address, ServiceCoord
 from cms.grading.Job import CompilationJob
-from cms.io.async_rpc import AsyncRemoteServiceClient, AsyncRemoteServiceServer
+from cms.io.async_rpc import AsyncFakeRemoteServiceClient, \
+    AsyncRemoteServiceClient, AsyncRemoteServiceServer
 from cms.io.async_triggeredservice import AsyncTriggeredService
 from cms.io.priorityqueue import PriorityQueue
 from cms.io.rpc import rpc_method
@@ -355,20 +357,156 @@ class EvaluationServiceTest(
         with patch.object(
                 EvaluationServiceModule, "FIRE_AND_FORGET_TIMEOUT", 0.05):
             with self.assertLogs(
-                    "cms.service.EvaluationService", level="WARNING") as logs:
+                    "cms.service.EvaluationService", level="DEBUG") as logs:
                 # As compilation_ended and evaluation_ended do, from a
                 # thread of the executor.
                 await loop.run_in_executor(
                     None, self.service._threadsafe_notify_scoring_service,
                     1, 2)
                 await peer.wait_for_requests(1)
-                await self._wait_until(lambda: logs.records)
+                await self._wait_until(lambda: self._warnings(logs))
 
-        self.assertEqual(len(logs.records), 1)
-        self.assertIn("submission 1", logs.output[0])
-        self.assertIn("dataset 2", logs.output[0])
+        self.assertEqual(len(self._warnings(logs)), 1)
+        self.assertIn("cannot notify ScoringService,0 (no answer in time)",
+                      self._warnings(logs)[0])
+        # Which evaluation it was about is only in the DEBUG line.
+        self.assertIn("of the evaluation of submission 1 on dataset 2",
+                      "\n".join(logs.output))
         self.assertEqual(client.pending_outgoing_requests, {})
         self.assertEqual(client.pending_outgoing_requests_results, {})
+
+    @staticmethod
+    def _warnings(logs) -> list[str]:
+        """Return the messages of the WARNINGs among logs.records."""
+        return [record.getMessage() for record in logs.records
+                if record.levelno == logging.WARNING]
+
+    def _unreachable_scoring_service(self):
+        """Make ES notify a ScoringService client that never connects.
+
+        So each notification fails with RPCError.
+
+        """
+        self.service.scoring_service = AsyncRemoteServiceClient(
+            ServiceCoord("ScoringService", 0))
+
+    async def test_failed_scoring_notification_is_a_warning(self):
+        self._unreachable_scoring_service()
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="WARNING") as logs:
+            await self.service._notify_scoring_service(1, 2)
+
+        self.assertEqual(
+            logs.output,
+            ["WARNING:cms.service.EvaluationService:EvaluationService "
+             "cannot notify ScoringService,0 (RPCError: Write failed.); "
+             "nothing is lost, its sweeper will score these submissions."])
+        # The record points at the caller of the latch (the detailed
+        # log shows it), not at the latch.
+        self.assertEqual(
+            (logs.records[0].filename, logs.records[0].funcName),
+            ("EvaluationService.py", "_notify_scoring_service"))
+
+    async def test_scoring_notification_failures_warn_once_a_minute(self):
+        self._unreachable_scoring_service()
+        now = 1000.0
+
+        with patch("cms.io.async_rpc.monotonic", lambda: now):
+            with self.assertLogs(
+                    "cms.service.EvaluationService", level="WARNING") as logs:
+                await self.service._notify_scoring_service(1, 2)
+                now += 59
+                await self.service._notify_scoring_service(3, 2)
+                self.assertEqual(len(logs.records), 1)
+                now += 2
+                await self.service._notify_scoring_service(4, 2)
+
+        self.assertEqual(len(logs.records), 2)
+        self.assertIn("still cannot notify ScoringService,0",
+                      logs.output[1])
+        self.assertIn("3 notification(s) dropped", logs.output[1])
+
+    async def test_scoring_notification_records_point_at_the_sender(self):
+        # Every kind of record of the latch (the WARNING, the reminder,
+        # the DEBUG of each failure, the INFO, the DEBUG of a peer not
+        # configured) points at the method that sent the notification,
+        # as the detailed log shows it, not at the latch.
+        connected_client = self.service.scoring_service
+        self._unreachable_scoring_service()
+        now = 1000.0
+
+        with patch("cms.io.async_rpc.monotonic", lambda: now):
+            with self.assertLogs(
+                    "cms.service.EvaluationService", level="DEBUG") as logs:
+                await self.service._notify_scoring_service(1, 2)
+                now += 61
+                await self.service._notify_scoring_service(3, 2)
+                self.service.scoring_service = connected_client
+                await self.service._notify_scoring_service(4, 2)
+                self.service.scoring_service = \
+                    AsyncFakeRemoteServiceClient(
+                        ServiceCoord("ScoringService", 0))
+                await self.service._notify_scoring_service(5, 2)
+
+        records = [record for record in logs.records
+                   if "ScoringService,0" in record.getMessage()]
+        self.assertEqual([record.levelname for record in records],
+                         ["DEBUG", "WARNING", "DEBUG", "WARNING", "INFO",
+                          "DEBUG"])
+        self.assertIn("still cannot notify", records[3].getMessage())
+        self.assertIn("not configured", records[5].getMessage())
+        self.assertEqual(
+            {(record.filename, record.funcName) for record in records},
+            {("EvaluationService.py", "_notify_scoring_service")})
+
+    async def test_scoring_notification_success_after_failures_is_an_info(
+        self
+    ):
+        connected_client = self.service.scoring_service
+        self._unreachable_scoring_service()
+        with self.assertLogs("cms.service.EvaluationService", "WARNING"):
+            await self.service._notify_scoring_service(1, 2)
+            await self.service._notify_scoring_service(3, 2)
+        self.service.scoring_service = connected_client
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            await self.service._notify_scoring_service(5, 2)
+
+        self.assertIn(
+            "EvaluationService can notify ScoringService,0 again: 2 "
+            "notification(s) dropped since", "\n".join(logs.output))
+        self.assertEqual(
+            self.scoring_service_stub.new_evaluation_calls, [(5, 2)])
+
+    async def test_flapping_scoring_service_warns_once_a_minute(self):
+        # Each failed notification starts an outage that the next one,
+        # which succeeds, ends: one WARNING and its INFO in all.
+        connected_client = self.service.scoring_service
+
+        with self.assertLogs(
+                "cms.service.EvaluationService", level="INFO") as logs:
+            for submission_id in range(3):
+                self._unreachable_scoring_service()
+                await self.service._notify_scoring_service(submission_id, 2)
+                self.service.scoring_service = connected_client
+                await self.service._notify_scoring_service(submission_id, 2)
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "notify ScoringService,0" in record.getMessage()],
+            ["WARNING", "INFO"])
+
+    async def test_scoring_notification_to_unconfigured_service_is_quiet(
+        self
+    ):
+        self.service.scoring_service = AsyncFakeRemoteServiceClient(
+            ServiceCoord("ScoringService", 0))
+
+        with self.assertNoLogs(
+                "cms.service.EvaluationService", level="WARNING"):
+            await self.service._notify_scoring_service(1, 2)
 
     # -- post_finish_lock reentrancy ------------------------------------
 

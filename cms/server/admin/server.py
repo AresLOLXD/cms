@@ -33,7 +33,8 @@ import typing
 
 from sqlalchemy import func, not_, literal_column, select
 from tornado.httputil import (
-    ParseBodyConfig, ParseMultipartConfig, set_parse_body_config)
+    ParseBodyConfig, ParseMultipartConfig, ParseUrlEncodedConfig,
+    set_parse_body_config)
 
 from cms import config, ServiceCoord, get_service_shards
 from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
@@ -52,12 +53,25 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Tornado rejects a multipart/form-data body with more than 100 parts
-# (400 "too many parts"), but the task page sends one part per public
-# testcase on top of the task's and every dataset's own fields. AWS
-# serves admins, not contestants, so a higher limit is an acceptable
-# risk there.
-MAX_MULTIPART_PARTS = 10_000
+# Tornado parses the body of a form before it checks the XSRF token and
+# before any handler runs, and rejects it with a 400 if it has more
+# than 1000 arguments (x-www-form-urlencoded) or 100 parts or more
+# (multipart/form-data). Some forms of AWS go over that: the task page
+# sends one part per public testcase on top of the task's and every
+# dataset's own fields, and the users pages send one user_id argument
+# per checked or planned user. The limit is 2x the 5000 rows that a user
+# import takes. It is no higher because /admin/ can be reached on the
+# same public host as the contest, and a body is parsed before the
+# admin is authenticated, so the limit also bounds what anyone can make
+# AWS parse. Tornado counts the empty preamble of a multipart body as a
+# part, so a multipart form gets one part less than MAX_FORM_FIELDS.
+MAX_FORM_FIELDS = 10_000
+
+# The most bytes of a multipart part's header. A legitimate header is
+# under 500 bytes, and a long one costs the most to parse (about 20x a
+# byte of data), so this keeps a single request from stalling the
+# server for long.
+MAX_PART_HEADER_SIZE = 2048
 
 # Serializes the queries of AdminWebServer.submissions_status: the
 # Overview page asks for them from every open tab, and a query that
@@ -106,10 +120,14 @@ class AdminWebServer(WebService):
 
         self.jinja2_environment = AWS_ENVIRONMENT
 
-        # Tornado's limit is global, but each service runs in its own
-        # process, so this leaves CWS with the default.
+        # Tornado's limits are global, but each service runs in its own
+        # process, so these don't reach CWS. The call replaces the
+        # whole configuration, so it sets both kinds of form.
         set_parse_body_config(ParseBodyConfig(
-            multipart=ParseMultipartConfig(max_parts=MAX_MULTIPART_PARTS)))
+            multipart=ParseMultipartConfig(
+                max_parts=MAX_FORM_FIELDS,
+                max_part_header_size=MAX_PART_HEADER_SIZE),
+            urlencoded=ParseUrlEncodedConfig(max_arguments=MAX_FORM_FIELDS)))
 
         # A list of pending notifications, appended to and drained
         # from executor threads; guarded by notifications_lock.

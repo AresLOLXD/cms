@@ -29,6 +29,8 @@ import unittest
 from collections.abc import Iterator
 from unittest import mock
 
+from tornado.httputil import ParseBodyConfig, set_parse_body_config
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.server.admin.pool_exhaustion_test import \
     longest_loop_stall
@@ -49,6 +51,13 @@ class TestConstruction(unittest.TestCase):
     zero arguments) -- see this sub-project's task 7 fix round 1.
 
     """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
 
     def test_constructs_without_raising(self):
         server = AdminWebServer(0)
@@ -131,6 +140,9 @@ class TestSubmissionsStatusRpc(
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
         # Built once, and outside the event loop: this way it doesn't
         # try to connect to the services of the configuration.
         cls.aws = AdminWebServer(0)
@@ -288,6 +300,13 @@ class TestSubmissionsStatusRpc(
 
 class TestNotifications(unittest.TestCase):
     """add_notification/take_notifications from concurrent threads."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The limits are global to the process: undo them for the tests
+        # that run after this class.
+        cls.addClassCleanup(set_parse_body_config, ParseBodyConfig())
 
     def setUp(self):
         self.server = AdminWebServer(0)

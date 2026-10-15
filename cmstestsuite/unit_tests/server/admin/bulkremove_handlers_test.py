@@ -24,19 +24,21 @@ its "core" block only, as the rest of base.html needs a whole request.
 
 """
 
+import re
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 import tornado.web
 
-from cms.server.admin.bulkremove import NOT_FOUND, RemovalEntry, \
-    RemovalPlan
+from cms.server.admin.bulkremove import MAX_PLAN_USERS, NOT_FOUND, \
+    RemovalEntry, RemovalPlan
 from cms.server.admin.handlers import HANDLERS
 from cms.server.admin.handlers.bulkremove import NOTHING_CHOSEN, \
-    PLAN_CHANGED, WRONG_COUNT, BulkRemoveParticipationsHandler, \
-    BulkRemoveUsersHandler
+    PLAN_CHANGED, PLAN_TOO_LARGE, PLAN_TOO_LARGE_TEXT, WRONG_COUNT, \
+    BulkRemoveParticipationsHandler, BulkRemoveUsersHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
+from cms.server.admin.server import MAX_FORM_FIELDS
 
 MODULE = "cms.server.admin.handlers.bulkremove"
 CONTEST_ID = 4
@@ -167,6 +169,38 @@ class TestPreview(unittest.TestCase):
             handler.redirect.assert_called_once_with("/users")
             self.assertEqual(notifications(handler),
                              [("Invalid field(s)", "user_id")])
+
+    def preview_of_users(self, handler_class, count, *args):
+        """Preview a plan with count users and return the handler."""
+        plan = make_plan(*(entry(i, "user%d" % i) for i in range(count)))
+        handler = make_handler(handler_class, user_ids=["7"])
+        with mock.patch(MODULE + ".plan_removal", return_value=plan):
+            handler._post_sync(*args)
+        return handler
+
+    def test_a_plan_at_the_cap_is_rendered(self):
+        for handler_class, args in (
+                (BulkRemoveUsersHandler, ()),
+                (BulkRemoveParticipationsHandler, (str(CONTEST_ID),))):
+            handler = self.preview_of_users(
+                handler_class, MAX_PLAN_USERS, *args)
+
+            handler.render.assert_called_once()
+            handler.redirect.assert_not_called()
+
+    def test_a_plan_over_the_cap_redirects_back_with_a_clear_error(self):
+        for handler_class, args, back in (
+                (BulkRemoveUsersHandler, (), "/users"),
+                (BulkRemoveParticipationsHandler, (str(CONTEST_ID),),
+                 "/contest/4/users")):
+            handler = self.preview_of_users(
+                handler_class, MAX_PLAN_USERS + 1, *args)
+
+            handler.render.assert_not_called()
+            handler.redirect.assert_called_once_with(back)
+            self.assertEqual(notifications(handler), [(
+                PLAN_TOO_LARGE,
+                PLAN_TOO_LARGE_TEXT % (MAX_PLAN_USERS + 1, MAX_PLAN_USERS))])
 
 
 class TestConfirm(unittest.TestCase):
@@ -434,3 +468,26 @@ class TestConfirmationPage(unittest.TestCase):
 
         self.assertIn("No hay nada que borrar.", html)
         self.assertNotIn('name="expected_count"', html)
+
+    def test_the_largest_plan_fits_the_form_limit(self):
+        # The confirmation page posts one user_id per planned user, and
+        # AWS rejects a form with more arguments than MAX_FORM_FIELDS.
+        # The cap on the plan leaves room for the page's own fields.
+        template = AWS_ENVIRONMENT.get_template("users_bulk_remove.html")
+        plan = make_plan(*(entry(i, "user%d" % i)
+                           for i in range(MAX_PLAN_USERS)))
+        params = {"url": fake_url, "admin": SimpleNamespace(
+                      permission_all=True),
+                  "xsrf_form_html": '<input type="hidden" name="_xsrf"'
+                                    ' value="token"/>',
+                  "contest": None, "plan": plan, "error": None,
+                  "action_url": "/users/remove", "back_url": "/users"}
+        html = "".join(template.blocks["core"](template.new_context(params)))
+
+        # Every named control is posted. The submit button has no name,
+        # so it is not.
+        arguments = len(re.findall(
+            r'<(?:input|select|textarea|button)\b[^>]*\sname="', html))
+
+        self.assertEqual(arguments, MAX_PLAN_USERS + 3)
+        self.assertLessEqual(arguments, MAX_FORM_FIELDS - 50)

@@ -22,8 +22,11 @@
 
 """
 
+import json
+import logging
 import socket
 import unittest
+from collections.abc import Callable
 from unittest.mock import Mock, patch
 
 import gevent
@@ -34,6 +37,7 @@ from gevent.server import StreamServer
 from cms import Address, ServiceCoord
 from cms.io import RPCError, rpc_method, RemoteServiceServer, \
     RemoteServiceClient
+from cms.io.rpc import FailureSeriesLog
 
 
 class MockService:
@@ -430,6 +434,487 @@ class TestRPC(unittest.TestCase):
         # Malformed messages cause the connection to be closed.
         self.assertFalse(self.servers[0].connected)
         sock.close()
+
+    def test_send_non_object_json(self):
+        for payload in (b"null", b"[]", b'"x"'):
+            with self.subTest(payload=payload):
+                count = len(self.servers)
+                sock = gevent.socket.create_connection((self.host, self.port))
+                sock.sendall(payload + b"\r\n")
+                # Malformed messages cause the connection to be closed:
+                # wait for the server of this very connection to do so.
+                self.wait_until(lambda: len(self.servers) > count
+                                and not self.servers[count].connected)
+                sock.close()
+
+    def spawn_custom_listener(
+        self, handle: Callable[[socket.socket, tuple], None]
+    ):
+        """Point the clients at a new listener with its own handler.
+
+        It is stopped when the test ends, after tearDown has
+        disconnected the clients.
+
+        handle: the handler of each new connection.
+
+        """
+        server = StreamServer(("127.0.0.1", 0), handle)
+        server.start()
+        self.addCleanup(server.stop)
+        self.mock.return_value = Address("127.0.0.1", server.server_port)
+
+    def stop_when_done(self, client: RemoteServiceClient):
+        """Kill the connect loop of client when the test ends."""
+        self.addCleanup(
+            lambda: client._loop is not None and client._loop.kill())
+
+    @staticmethod
+    def wait_until(predicate: Callable[[], bool], timeout: float = 2.0):
+        with gevent.Timeout(timeout, AssertionError("Condition not met.")):
+            while not predicate():
+                gevent.sleep(0.005)
+
+    @staticmethod
+    def flaky_getaddrinfo(failures: int) -> Callable:
+        """Return a getaddrinfo that fails failures times, then works."""
+        real_getaddrinfo = gevent.socket.getaddrinfo
+        calls = 0
+
+        def getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= failures:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return real_getaddrinfo(*args, **kwargs)
+
+        return getaddrinfo
+
+    def test_name_resolution_failures_do_not_end_the_loop(self):
+        with patch("cms.io.rpc.gevent.socket.getaddrinfo",
+                   self.flaky_getaddrinfo(2)):
+            with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+                client = self.get_client(
+                    ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+                self.stop_when_done(client)
+                self.assertTrue(client.wait_for_connection(timeout=2))
+
+        self.assertFalse(client._loop.dead)
+        self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+        # One WARNING for the outage, DEBUG for each retry, one INFO
+        # when it ends.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "resolve" in record.getMessage()],
+            ["WARNING", "DEBUG", "INFO"])
+
+    def test_one_shot_client_that_cannot_resolve_ends_quietly(self):
+        # Without auto_retry, it ends up not connected, as when the
+        # connection is refused.
+        with patch("cms.io.rpc.gevent.socket.getaddrinfo",
+                   self.flaky_getaddrinfo(1)):
+            with self.assertLogs("cms.io.rpc", "WARNING"):
+                client = self.get_client(ServiceCoord("Foo", 0), block=False)
+                client._loop.join(timeout=2)
+
+        self.assertTrue(client._loop.successful())
+        self.assertFalse(client.connected)
+
+    def test_malformed_answers_make_the_client_reconnect(self):
+        # Connection n gets bad_answers[n], unasked; once they are over,
+        # a real server answers.
+        bad_answers = [b"not json", b"null", b"[]", b'"x"', b'{"__id": 1}']
+        connections = []
+
+        def answer_badly(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > len(bad_answers):
+                self.handle_new_connection(socket_, address)
+                return
+            socket_.sendall(bad_answers[len(connections) - 1] + b"\r\n")
+            while socket_.recv(1024):
+                pass
+
+        self.spawn_custom_listener(answer_badly)
+
+        with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+            client = self.get_client(
+                ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+            self.stop_when_done(client)
+            self.wait_until(
+                lambda: len(connections) > len(bad_answers)
+                and client.connected)
+            self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertFalse(client._loop.dead)
+        # Only the first one is a WARNING, so that a peer that keeps
+        # answering garbage can't flood the logs.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "missing some fields" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+        # The WARNING names the peer: it's the only line of the series
+        # the Overview shows.
+        warning, = [record.getMessage() for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot parse" in record.getMessage()]
+        self.assertIn("(Foo,0)", warning)
+
+    def test_answer_after_garbage_on_dropped_connection_is_stale(self):
+        # Each connection gets a malformed line and then a well-formed
+        # one, which the client reads from the connection the first one
+        # made it drop: only an answer on the live connection (from the
+        # real server, in the end) ends the series of malformed ones.
+        well_formed = b'{"__id": "stale", "__data": null, "__error": null}'
+        connections = []
+
+        def answer_badly(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > 3:
+                self.handle_new_connection(socket_, address)
+                return
+            socket_.sendall(b"garbage\r\n" + well_formed + b"\r\n")
+            while socket_.recv(1024):
+                pass
+
+        self.spawn_custom_listener(answer_badly)
+
+        with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+            client = self.get_client(
+                ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+            self.stop_when_done(client)
+            self.wait_until(
+                lambda: len(connections) > 3 and client.connected)
+            self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING", "DEBUG", "DEBUG", "INFO"])
+
+    def test_flapping_name_resolution_warns_once(self):
+        # The name resolves at every other try, and the peer refuses the
+        # connection: each try is a new series of failures, but only
+        # one WARNING (and its INFO) is logged per WARNING_INTERVAL.
+        with socket.socket() as unused:
+            unused.bind(("127.0.0.1", 0))
+            self.mock.return_value = Address(*unused.getsockname())
+        real_getaddrinfo = gevent.socket.getaddrinfo
+        calls = 0
+
+        def flapping_getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls % 2 == 1:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return real_getaddrinfo(*args, **kwargs)
+
+        with patch("cms.io.rpc.gevent.socket.getaddrinfo",
+                   flapping_getaddrinfo):
+            with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+                client = self.get_client(
+                    ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+                self.stop_when_done(client)
+                self.wait_until(lambda: calls >= 10)
+
+        levels = [record.levelname for record in logs.records
+                  if "resolve" in record.getMessage()]
+        self.assertEqual(levels[:2], ["WARNING", "INFO"])
+        self.assertEqual(set(levels[2:]), {"DEBUG"})
+
+    def test_answers_that_cannot_be_processed_are_malformed(self):
+        # An answer whose id isn't a string (a list can't even be looked
+        # up) and one nested too deep for json.loads (RecursionError,
+        # not ValueError) are malformed answers like the others: the
+        # client fails the call, drops the connection and reconnects,
+        # and the next call is answered.
+        bad_answers = {
+            "id that is a list":
+                b'{"__id": [], "__data": null, "__error": null}',
+            "JSON nested too deep": b"[" * 100_000 + b"]" * 100_000,
+        }
+        for name, bad_answer in bad_answers.items():
+            with self.subTest(name):
+                connections = []
+
+                def answer_badly(socket_: socket.socket, address: tuple,
+                                 bad_answer: bytes = bad_answer):
+                    connections.append(address)
+                    if len(connections) > 1:
+                        self.handle_new_connection(socket_, address)
+                        return
+                    socket_.makefile("rb").readline()
+                    socket_.sendall(bad_answer + b"\r\n")
+                    while socket_.recv(1024):
+                        pass
+
+                self.spawn_custom_listener(answer_badly)
+                client = self.get_client(
+                    ServiceCoord("Foo", 0), auto_retry=0.01)
+                self.stop_when_done(client)
+
+                first = client.echo(value=1)
+                first.wait(timeout=2)
+                self.assertIsInstance(first.exception, RPCError)
+                self.wait_until(
+                    lambda: len(connections) > 1 and client.connected)
+                self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+    def test_error_answer_is_resolved_before_it_is_logged(self):
+        # An error answer's ERROR record can yield (as a
+        # LogServiceHandler's RPC write can), and a disconnect() meanwhile
+        # kills the reading greenlet, which is the one processing the
+        # answer: its call must be resolved already, not left waiting.
+        client = self.get_client(ServiceCoord("Foo", 0))
+
+        def disconnect_while_logging(record: logging.LogRecord) -> bool:
+            if "was unsuccessful" in record.getMessage():
+                gevent.spawn(client.disconnect)
+                gevent.sleep(0.05)
+            return True
+
+        rpc_logger = logging.getLogger("cms.io.rpc")
+        rpc_logger.addFilter(disconnect_while_logging)
+        self.addCleanup(rpc_logger.removeFilter, disconnect_while_logging)
+
+        result = client.raise_exception()
+        # The disconnect() comes while the record is being logged.
+        self.wait_until(lambda: not client.connected)
+
+        self.assertTrue(result.ready())
+        self.assertIsInstance(result.exception, RPCError)
+
+    def test_unexpected_error_on_an_answer_does_not_end_the_loop(self):
+        # Whatever goes wrong processing an answer (here a bug, standing
+        # in process_incoming_response), the client logs it, with its
+        # traceback, and drops the connection like for a malformed
+        # answer: the connect loop goes on, and after the reconnect the
+        # next call is answered.
+        client = self.get_client(ServiceCoord("Foo", 0), auto_retry=0.01)
+        self.stop_when_done(client)
+        real_process_incoming_response = client.process_incoming_response
+        calls = 0
+
+        def fail_once(response: dict):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("Unexpected.")
+            real_process_incoming_response(response)
+
+        with patch.object(client, "process_incoming_response", fail_once):
+            with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+                first = client.echo(value=1)
+                first.wait(timeout=2)
+                self.assertIsInstance(first.exception, RPCError)
+                self.wait_until(
+                    lambda: len(self.servers) > 1 and client.connected)
+                self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertFalse(client._loop.dead)
+        warning, = [record for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot process" in record.getMessage()]
+        self.assertIs(warning.exc_info[0], RuntimeError)
+
+    def test_lines_read_after_a_drop_are_discarded(self):
+        # Each connection gets, in one write, a malformed line and then
+        # two well-formed answers with unknown ids. The client drops
+        # the connection at the first line and discards the other two:
+        # they aren't taken as answers, so no "No pending request"
+        # WARNING is logged at each reconnect.
+        lines = (b"garbage\r\n"
+                 b'{"__id": "a", "__data": null, "__error": null}\r\n'
+                 b'{"__id": "b", "__data": null, "__error": null}\r\n')
+        connections = []
+
+        def answer_badly(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > 3:
+                self.handle_new_connection(socket_, address)
+                return
+            socket_.sendall(lines)
+            while socket_.recv(1024):
+                pass
+
+        self.spawn_custom_listener(answer_badly)
+
+        with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+            client = self.get_client(
+                ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+            self.stop_when_done(client)
+            self.wait_until(
+                lambda: len(connections) > 3 and client.connected)
+            self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertEqual([record.getMessage() for record in logs.records
+                          if "No pending request" in record.getMessage()],
+                         [])
+        # The first malformed line is the only WARNING.
+        self.assertEqual([record.levelname for record in logs.records
+                          if record.levelno >= logging.WARNING],
+                         ["WARNING"])
+
+    def test_answer_read_just_before_the_end_is_delivered(self):
+        # The peer answers and closes the connection at once, so the
+        # client reads the answer and then the end of the connection.
+        # The answer must reach the caller, not be failed as "Connection
+        # closed.", whether or not the "Terminated connection" record
+        # yields inside finalize() (as the RPC write of a
+        # LogServiceHandler can).
+        def answer_and_close(socket_: socket.socket, address: tuple):
+            request = json.loads(socket_.makefile("rb").readline())
+            socket_.sendall(json.dumps(
+                {"__id": request["__id"], "__data": "answer",
+                 "__error": None}).encode("utf-8") + b"\r\n")
+            socket_.shutdown(socket.SHUT_RDWR)
+
+        yielding = False
+
+        def yield_on_terminated(record: logging.LogRecord) -> bool:
+            if yielding and record.getMessage().startswith(
+                    "Terminated connection"):
+                gevent.sleep(0)
+            return True
+
+        self.spawn_custom_listener(answer_and_close)
+        rpc_logger = logging.getLogger("cms.io.rpc")
+        rpc_logger.addFilter(yield_on_terminated)
+        self.addCleanup(rpc_logger.removeFilter, yield_on_terminated)
+
+        # assertLogs enables the INFO records the filter acts on.
+        with self.assertLogs("cms.io.rpc", "DEBUG"):
+            results = []
+            for yielding in [False] * 5 + [True] * 5:
+                client = self.get_client(ServiceCoord("Foo", 0))
+                result = client.echo(value=42)
+                result.wait(timeout=2)
+                results.append(result.value if result.successful()
+                               else result.exception)
+
+        self.assertEqual(results, ["answer"] * 10)
+
+    def test_peer_that_stops_reading_and_answers_garbage(self):
+        # The peer stops reading, so the client's writes pile up
+        # unsent, and then it sends a malformed line: the client must
+        # drop the connection anyway, fail the calls stuck behind it,
+        # and reconnect. With a small, fixed send buffer, a few calls
+        # are enough, whatever the kernel's TCP buffer tuning.
+        connections = []
+        release = gevent.event.Event()
+
+        def stop_reading(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > 1:
+                self.handle_new_connection(socket_, address)
+                return
+            gevent.sleep(0.5)
+            socket_.sendall(b"garbage\r\n")
+            release.wait()
+
+        self.spawn_custom_listener(stop_reading)
+        self.addCleanup(release.set)
+        client = self.get_client(ServiceCoord("Foo", 0), auto_retry=0.05)
+        self.stop_when_done(client)
+        client._socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 16384)
+
+        big = "x" * 500_000
+        calls = [gevent.spawn(client.echo, value=big) for _ in range(4)]
+        gevent.joinall(calls, timeout=3)
+
+        self.assertTrue(all(call.ready() for call in calls))
+        results = [call.value for call in calls]
+        for result in results:
+            result.wait(timeout=1)
+        self.assertEqual([type(result.exception) for result in results],
+                         [RPCError] * len(calls))
+        self.wait_until(lambda: len(connections) > 1 and client.connected)
+        self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+    def test_reconnects_no_faster_than_auto_retry(self):
+        # A peer that accepts and closes at once must not be
+        # reconnected to as fast as the loop can go.
+        auto_retry = 0.1
+        connections = []
+
+        def close_at_once(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            socket_.close()
+
+        self.spawn_custom_listener(close_at_once)
+
+        client = self.get_client(
+            ServiceCoord("Foo", 0), block=False, auto_retry=auto_retry)
+        self.stop_when_done(client)
+        gevent.sleep(1)
+
+        self.assertGreaterEqual(len(connections), 2)
+        self.assertLessEqual(len(connections), 1 / auto_retry + 2)
+
+
+class TestFailureSeriesLog(unittest.TestCase):
+
+    def setUp(self):
+        self.now = 1000.0
+        patcher = patch("cms.io.rpc.monotonic", lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.logger = logging.getLogger("cmstestsuite.failureserieslog")
+        self.series = FailureSeriesLog(self.logger)
+
+    def log(self, *outcomes: bool) -> list[str]:
+        """Log a failure for each False, a success for each True.
+
+        return: the level names of what that logged.
+
+        """
+        records = []
+        handler = logging.Handler(logging.DEBUG)
+        handler.emit = records.append
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.DEBUG)
+        try:
+            for succeeded in outcomes:
+                if succeeded:
+                    self.series.succeeded("success")
+                else:
+                    self.series.failed("failure")
+        finally:
+            self.logger.removeHandler(handler)
+        return [record.levelname for record in records]
+
+    def test_series_is_a_warning_then_debug_then_an_info(self):
+        self.assertEqual(self.log(False, False, False, True),
+                         ["WARNING", "DEBUG", "DEBUG", "INFO"])
+        self.assertFalse(self.series.failing)
+
+    def test_success_without_failures_logs_nothing(self):
+        self.assertEqual(self.log(True), [])
+
+    def test_flapping_warns_once_a_minute(self):
+        self.assertEqual(self.log(False, True), ["WARNING", "INFO"])
+        for _ in range(4):
+            self.now += 1
+            self.assertEqual(self.log(False, True), ["DEBUG", "DEBUG"])
+
+        # A minute after the WARNING, a new series warns again.
+        self.now += 56
+        self.assertEqual(self.log(False, True), ["WARNING", "INFO"])
+
+    def test_series_started_too_soon_warns_once_the_minute_is_over(self):
+        self.log(False, True)
+        self.now += 10
+        self.assertEqual(self.log(False), ["DEBUG"])
+        self.now += 49
+        self.assertEqual(self.log(False), ["DEBUG"])
+        self.now += 1
+        self.assertEqual(self.log(False, False), ["WARNING", "DEBUG"])
+        self.assertEqual(self.log(True), ["INFO"])
 
 
 if __name__ == "__main__":

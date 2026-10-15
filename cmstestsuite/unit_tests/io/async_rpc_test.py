@@ -6,11 +6,13 @@ import asyncio
 import contextlib
 import gc
 import logging
+import socket
 import unittest
 from unittest.mock import patch
 
 from cms.io.async_rpc import AsyncFakeRemoteServiceClient, \
-    AsyncRemoteServiceServer, AsyncRemoteServiceClient
+    AsyncRemoteServiceServer, AsyncRemoteServiceClient, \
+    NotificationFailureLatch
 from cms.io.rpc import rpc_method, RPCError, ServiceNotConfiguredError
 from cms.conf import Address, ServiceCoord
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
@@ -137,6 +139,436 @@ class TestAsyncRpcReconnection(unittest.IsolatedAsyncioTestCase):
         await server2.wait_closed()
 
 
+class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
+    """The connect loop of a client with auto_retry.
+
+    It keeps trying whatever goes wrong with the peer, without
+    hammering it.
+
+    """
+
+    async def _start_peer(self, handle_connection, **kwargs) -> int:
+        """Start a loopback server, stopped when the test ends.
+
+        handle_connection: the asyncio.start_server callback.
+        kwargs: more arguments for asyncio.start_server.
+
+        return: the port it listens on.
+
+        """
+        server = await asyncio.start_server(
+            handle_connection, "127.0.0.1", 0, **kwargs)
+
+        async def stop():
+            server.close()
+            await server.wait_closed()
+
+        self.addAsyncCleanup(stop)
+        return server.sockets[0].getsockname()[1]
+
+    def _client(
+        self, port: int, auto_retry: float | None = 0.05
+    ) -> AsyncRemoteServiceClient:
+        """Return a client of the peer at port, stopped at the end.
+
+        Cleanups run in reverse order, so it stops before the peer.
+
+        """
+        with patch("cms.io.async_rpc.get_service_address",
+                   return_value=Address("127.0.0.1", port)):
+            client = AsyncRemoteServiceClient(
+                ServiceCoord("FakeLocalService", 0), auto_retry=auto_retry)
+
+        async def stop():
+            client.disconnect()
+            if client._loop_task is not None:
+                client._loop_task.cancel()
+                await asyncio.wait([client._loop_task])
+
+        self.addAsyncCleanup(stop)
+        return client
+
+    @staticmethod
+    async def _serve(reader, writer):
+        server_side = AsyncRemoteServiceServer(
+            FakeLocalService(), Address("127.0.0.1", 0))
+        server_side.initialize_streams(reader, writer, plus=None)
+        await server_side.run()
+
+    @staticmethod
+    async def _wait_until(predicate, timeout: float = 2.0):
+        async with asyncio.timeout(timeout):
+            while not predicate():
+                await asyncio.sleep(0.005)
+
+    @staticmethod
+    def _flaky_getaddrinfo(failures: int):
+        """Return a getaddrinfo that fails failures times, then works."""
+        real_getaddrinfo = asyncio.get_running_loop().getaddrinfo
+        calls = 0
+
+        async def getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls <= failures:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return await real_getaddrinfo(*args, **kwargs)
+
+        return getaddrinfo
+
+    async def test_name_resolution_failures_do_not_end_the_loop(self):
+        port = await self._start_peer(self._serve)
+        client = self._client(port)
+        loop = asyncio.get_running_loop()
+
+        with patch.object(loop, "getaddrinfo", self._flaky_getaddrinfo(2)):
+            with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+                client.connect()
+                self.assertTrue(await client.wait_for_connection(timeout=2))
+
+        self.assertFalse(client._loop_task.done())
+        self.assertEqual(
+            await client.execute_rpc("echo", {"string": "x"}), "x")
+        # One WARNING for the outage, DEBUG for each retry, one INFO
+        # when it ends.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "resolve" in record.getMessage()],
+            ["WARNING", "DEBUG", "INFO"])
+        # The records point at the client method that met the failure
+        # (the detailed log shows them), not at FailureSeriesLog.
+        self.assertEqual(
+            {(record.filename, record.funcName) for record in logs.records
+             if "resolve" in record.getMessage()},
+            {("async_rpc.py", "_connect")})
+
+    async def test_flapping_name_resolution_warns_once(self):
+        # The name resolves at every other try, and the peer refuses the
+        # connection: each try is a new series of failures, but only
+        # one WARNING (and its INFO) is logged per WARNING_INTERVAL.
+        with socket.socket() as unused:
+            unused.bind(("127.0.0.1", 0))
+            port = unused.getsockname()[1]
+        client = self._client(port, auto_retry=0.01)
+        loop = asyncio.get_running_loop()
+        real_getaddrinfo = loop.getaddrinfo
+        calls = 0
+
+        async def flapping_getaddrinfo(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls % 2 == 1:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "Name or service not known")
+            return await real_getaddrinfo(*args, **kwargs)
+
+        with patch.object(loop, "getaddrinfo", flapping_getaddrinfo):
+            with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+                client.connect()
+                await self._wait_until(lambda: calls >= 10)
+
+        levels = [record.levelname for record in logs.records
+                  if "resolve" in record.getMessage()]
+        self.assertEqual(levels[:2], ["WARNING", "INFO"])
+        self.assertEqual(set(levels[2:]), {"DEBUG"})
+
+    async def test_one_shot_client_that_cannot_resolve_ends_quietly(self):
+        # Without auto_retry, it ends up not connected, as when the
+        # connection is refused.
+        port = await self._start_peer(self._serve)
+        client = self._client(port, auto_retry=None)
+        loop = asyncio.get_running_loop()
+
+        with patch.object(loop, "getaddrinfo", self._flaky_getaddrinfo(1)):
+            with self.assertLogs("cms.io.async_rpc", "WARNING"):
+                client.connect()
+                await asyncio.wait_for(asyncio.wait([client._loop_task]), 2)
+
+        self.assertIsNone(client._loop_task.exception())
+        self.assertFalse(client.connected)
+
+    async def test_malformed_answers_make_the_client_reconnect(self):
+        # Connection n gets bad_answers[n], unasked; once they are over,
+        # a real server answers.
+        bad_answers = [b"not json", b"null", b"[]", b'"x"', b'{"__id": 1}']
+        connections = 0
+
+        async def answer_badly(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > len(bad_answers):
+                await self._serve(reader, writer)
+                return
+            writer.write(bad_answers[connections - 1] + b"\r\n")
+            await writer.drain()
+            await reader.read()
+            writer.close()
+
+        port = await self._start_peer(answer_badly)
+        client = self._client(port)
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            client.connect()
+            await self._wait_until(
+                lambda: connections > len(bad_answers) and client.connected)
+            self.assertEqual(
+                await client.execute_rpc("echo", {"string": "x"}), "x")
+
+        self.assertFalse(client._loop_task.done())
+        # Only the first one is a WARNING, so that a peer that keeps
+        # answering garbage can't flood the logs.
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "missing some fields" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
+        # The WARNING names the peer: it's the only line of the series
+        # the Overview shows.
+        warning, = [record.getMessage() for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot parse" in record.getMessage()]
+        self.assertIn("(FakeLocalService,0)", warning)
+
+    async def test_answer_after_garbage_on_dropped_connection_is_stale(
+        self
+    ):
+        # Each connection gets a malformed line and then a well-formed
+        # one, which the client reads from the connection the first one
+        # made it drop: only an answer on the live connection (from the
+        # real server, in the end) ends the series of malformed ones.
+        well_formed = b'{"__id": "stale", "__data": null, "__error": null}'
+        connections = 0
+
+        async def answer_badly(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > 3:
+                await self._serve(reader, writer)
+                return
+            writer.write(b"garbage\r\n" + well_formed + b"\r\n")
+            await writer.drain()
+            await reader.read()
+            writer.close()
+
+        port = await self._start_peer(answer_badly)
+        client = self._client(port)
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            client.connect()
+            await self._wait_until(
+                lambda: connections > 3 and client.connected)
+            self.assertEqual(
+                await client.execute_rpc("echo", {"string": "x"}), "x")
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING", "DEBUG", "DEBUG", "INFO"])
+
+    async def test_unexpected_error_on_an_answer_drops_the_connection(self):
+        # Whatever goes wrong processing an answer (here a bug, standing
+        # in process_incoming_response), the client logs it, with its
+        # traceback, and drops the connection like for a malformed
+        # answer: the call fails instead of waiting for good, and after
+        # the reconnect the next call is answered.
+        connections = 0
+
+        async def serve(reader, writer):
+            nonlocal connections
+            connections += 1
+            await self._serve(reader, writer)
+
+        port = await self._start_peer(serve)
+        client = self._client(port)
+        client.connect()
+        self.assertTrue(await client.wait_for_connection(timeout=2))
+        real_process_incoming_response = client.process_incoming_response
+        calls = 0
+
+        def fail_once(response: dict):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("Unexpected.")
+            real_process_incoming_response(response)
+
+        with patch.object(client, "process_incoming_response", fail_once):
+            with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+                with self.assertRaises(RPCError):
+                    await asyncio.wait_for(
+                        client.execute_rpc("echo", {"string": "x"}), 2)
+                await self._wait_until(
+                    lambda: connections > 1 and client.connected)
+                self.assertEqual(
+                    await client.execute_rpc("echo", {"string": "y"}), "y")
+
+        self.assertFalse(client._loop_task.done())
+        warning, = [record for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot process" in record.getMessage()]
+        self.assertIs(warning.exc_info[0], RuntimeError)
+
+    async def test_answers_that_cannot_be_processed_are_malformed(self):
+        # An answer whose id isn't a string (a list can't even be looked
+        # up) and one nested too deep for json.loads (RecursionError,
+        # not ValueError) are malformed answers like the others: the
+        # client fails the call, drops the connection and reconnects,
+        # and the next call is answered.
+        bad_answers = {
+            "id that is a list":
+                b'{"__id": [], "__data": null, "__error": null}',
+            "JSON nested too deep": b"[" * 100_000 + b"]" * 100_000,
+        }
+        for name, bad_answer in bad_answers.items():
+            with self.subTest(name):
+                connections = 0
+
+                async def answer_badly(reader, writer, bad_answer=bad_answer):
+                    nonlocal connections
+                    connections += 1
+                    if connections > 1:
+                        await self._serve(reader, writer)
+                        return
+                    await reader.readuntil(b"\r\n")
+                    writer.write(bad_answer + b"\r\n")
+                    await writer.drain()
+                    await reader.read()
+                    writer.close()
+
+                port = await self._start_peer(answer_badly)
+                client = self._client(port)
+                client.connect()
+                self.assertTrue(await client.wait_for_connection(timeout=2))
+
+                with self.assertRaises(RPCError):
+                    await asyncio.wait_for(
+                        client.execute_rpc("echo", {"string": "x"}), 2)
+                await self._wait_until(
+                    lambda: connections > 1 and client.connected)
+                self.assertEqual(
+                    await client.execute_rpc("echo", {"string": "y"}), "y")
+
+    async def test_lines_read_after_a_drop_are_discarded(self):
+        # Each connection gets, in one write, a malformed line and then
+        # two well-formed answers with unknown ids. The client drops
+        # the connection at the first line and discards the other two:
+        # they aren't taken as answers, so no "No pending request"
+        # WARNING is logged at each reconnect.
+        lines = (b"garbage\r\n"
+                 b'{"__id": "a", "__data": null, "__error": null}\r\n'
+                 b'{"__id": "b", "__data": null, "__error": null}\r\n')
+        connections = 0
+
+        async def answer_badly(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > 3:
+                await self._serve(reader, writer)
+                return
+            writer.write(lines)
+            await writer.drain()
+            await reader.read()
+            writer.close()
+
+        port = await self._start_peer(answer_badly)
+        client = self._client(port)
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            client.connect()
+            await self._wait_until(
+                lambda: connections > 3 and client.connected)
+            self.assertEqual(
+                await client.execute_rpc("echo", {"string": "x"}), "x")
+
+        self.assertEqual([record.getMessage() for record in logs.records
+                          if "No pending request" in record.getMessage()],
+                         [])
+        # The first malformed line is the only WARNING.
+        self.assertEqual([record.levelname for record in logs.records
+                          if record.levelno >= logging.WARNING],
+                         ["WARNING"])
+
+    async def test_peer_that_stops_reading_and_answers_garbage(self):
+        # The peer stops reading (limit=1024 pauses its transport after
+        # 2 KiB), so the client's writes pile up unsent, and then it
+        # sends a malformed line: the client must drop the connection
+        # anyway, fail the calls stuck behind it, and reconnect. With
+        # a small, fixed send buffer, a few calls are enough to have
+        # data left unsent in the transport, whatever the kernel's TCP
+        # buffer tuning.
+        connections = 0
+        release = asyncio.Event()
+
+        async def stop_reading(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > 1:
+                await self._serve(reader, writer)
+                return
+            await asyncio.sleep(0.5)
+            writer.write(b"garbage\r\n")
+            await release.wait()
+            writer.transport.abort()
+
+        port = await self._start_peer(stop_reading, limit=1024)
+        self.addCleanup(release.set)
+        client = self._client(port)
+        client.connect()
+        self.assertTrue(await client.wait_for_connection(timeout=2))
+        client._writer.get_extra_info("socket").setsockopt(
+            socket.SOL_SOCKET, socket.SO_SNDBUF, 16384)
+
+        big = "x" * 500_000
+        calls = [asyncio.create_task(
+                     client.execute_rpc("echo", {"string": big}))
+                 for _ in range(4)]
+        results = await asyncio.wait_for(
+            asyncio.gather(*calls, return_exceptions=True), 3)
+
+        self.assertEqual(
+            [type(result) for result in results], [RPCError] * len(calls))
+        await self._wait_until(lambda: connections > 1 and client.connected)
+        self.assertEqual(
+            await client.execute_rpc("echo", {"string": "x"}), "x")
+
+    async def test_reconnects_no_faster_than_auto_retry(self):
+        # A peer that accepts and closes at once must not be
+        # reconnected to as fast as the loop can go.
+        auto_retry = 0.1
+        connections = 0
+
+        async def close_at_once(_reader, writer):
+            nonlocal connections
+            connections += 1
+            writer.close()
+
+        port = await self._start_peer(close_at_once)
+        client = self._client(port, auto_retry=auto_retry)
+
+        client.connect()
+        await asyncio.sleep(1)
+
+        self.assertGreaterEqual(connections, 2)
+        self.assertLessEqual(connections, 1 / auto_retry + 2)
+
+    async def test_server_drops_a_peer_sending_a_non_object(self):
+        port = await self._start_peer(self._serve)
+
+        for payload in (b"null", b"[]", b'"x"'):
+            with self.subTest(payload=payload):
+                reader, writer = await asyncio.open_connection(
+                    "127.0.0.1", port)
+                # Before the peer stops, which waits for its connections.
+                self.addCleanup(writer.close)
+                writer.write(payload + b"\r\n")
+                # The server closes the connection.
+                self.assertEqual(
+                    await asyncio.wait_for(reader.read(), 2), b"")
+
+
 class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):
     """execute_rpc() only ever fails with RPCError, whatever happens to
     the connection meanwhile, and never leaves its request behind.
@@ -230,6 +662,189 @@ class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RPCError):
             await asyncio.wait_for(call, timeout=2)
         self.assert_nothing_pending()
+
+
+class TestNotificationFailureLatch(unittest.TestCase):
+
+    def setUp(self):
+        self.now = 1000.0
+        patcher = patch("cms.io.async_rpc.monotonic", lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.logger = logging.getLogger("cmstestsuite.notificationlatch")
+        self.latch = NotificationFailureLatch(
+            self.logger, "EvaluationService",
+            ServiceCoord("ScoringService", 0),
+            "nothing is lost, its sweeper will score these submissions")
+
+    def drop(self, submission_id: int, error: Exception | None = None):
+        """Make the notification about submission_id fail.
+
+        return: the (level name, message) pairs it logged.
+
+        """
+        if error is None:
+            error = RPCError("Write failed.")
+        with self.assertLogs(self.logger, "DEBUG") as logs:
+            self.latch.failed("submission %d" % submission_id, error)
+        return [(record.levelname, record.getMessage())
+                for record in logs.records]
+
+    def warnings(self, logged: list[tuple[str, str]]) -> list[str]:
+        return [message for level, message in logged if level == "WARNING"]
+
+    def test_first_failure_is_a_warning_naming_both_ends(self):
+        logged = self.drop(1)
+
+        self.assertEqual(
+            self.warnings(logged),
+            ["EvaluationService cannot notify ScoringService,0 (RPCError: "
+             "Write failed.); nothing is lost, its sweeper will score these "
+             "submissions."])
+        # What the notification was about is only in the DEBUG line.
+        self.assertIn(("DEBUG", "EvaluationService did not notify "
+                       "ScoringService,0 of submission 1 (RPCError: Write "
+                       "failed.)."),
+                      logged)
+
+    def test_warning_has_only_the_first_line_of_a_remote_error(self):
+        # A remote error carries the peer's traceback.
+        error = RPCError("KeyError: 'Submission not found.'\n"
+                         "Traceback (most recent call last):\n"
+                         "  File \"ProxyService.py\", line 1\n"
+                         "KeyError: 'Submission not found.'\n")
+
+        logged = self.drop(1, error)
+
+        self.assertEqual(
+            self.warnings(logged),
+            ["EvaluationService cannot notify ScoringService,0 (RPCError: "
+             "KeyError: 'Submission not found.'); nothing is lost, its "
+             "sweeper will score these submissions."])
+        # The whole of it is in the DEBUG line.
+        debug, = [message for level, message in logged if level == "DEBUG"]
+        self.assertIn("Traceback (most recent call last):", debug)
+
+    def test_failures_within_a_minute_are_debug_only(self):
+        self.drop(1)
+        self.now += 59
+
+        logged = self.drop(2)
+
+        self.assertEqual([level for level, _message in logged], ["DEBUG"])
+        self.assertIn("submission 2", logged[0][1])
+
+    def test_failures_after_a_minute_give_a_reminder_with_the_count(self):
+        self.drop(1)
+        self.now += 30
+        self.drop(2)
+        self.now += 31
+
+        reminder = self.warnings(self.drop(3))
+
+        self.assertEqual(len(reminder), 1)
+        self.assertRegex(
+            reminder[0],
+            r"^EvaluationService still cannot notify ScoringService,0 "
+            r"\(RPCError: Write failed\.\): 3 notification\(s\) dropped "
+            r"since "
+            r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d; nothing is lost, its "
+            r"sweeper will score these submissions\.$")
+        # The next reminder is a minute after this one.
+        self.now += 59
+        self.assertEqual(self.warnings(self.drop(4)), [])
+        self.now += 1
+        reminder = self.warnings(self.drop(5))
+        self.assertEqual(len(reminder), 1)
+        self.assertIn("5 notification(s) dropped", reminder[0])
+
+    def test_success_after_failures_is_an_info_with_the_count(self):
+        self.drop(1)
+        self.drop(2)
+
+        with self.assertLogs(self.logger, "DEBUG") as logs:
+            self.latch.succeeded()
+
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(logs.records[0].levelname, "INFO")
+        self.assertRegex(
+            logs.records[0].getMessage(),
+            r"^EvaluationService can notify ScoringService,0 again: 2 "
+            r"notification\(s\) dropped since \d{4}-\d\d-\d\d "
+            r"\d\d:\d\d:\d\d\.$")
+        # A minute after the WARNING, the next failure starts a new
+        # outage with a WARNING of its own.
+        self.now += 60
+        self.assertEqual(len(self.warnings(self.drop(3))), 1)
+
+    def succeed(self) -> list[tuple[str, str]]:
+        """Make a notification succeed.
+
+        return: the (level name, message) pairs it logged.
+
+        """
+        with self.assertLogs(self.logger, "DEBUG") as logs:
+            self.latch.succeeded()
+        return [(record.levelname, record.getMessage())
+                for record in logs.records]
+
+    def test_flapping_peer_warns_once_a_minute(self):
+        # Each failure starts a new outage, which a success ends at
+        # once: still one WARNING (and its INFO) a minute, not a pair
+        # per flap.
+        logged = []
+        for submission_id in range(5):
+            logged += self.drop(submission_id) + self.succeed()
+            self.now += 1
+
+        # Each failure has its DEBUG line, the first flap its WARNING
+        # and its INFO, and the other ends of outage are DEBUG.
+        levels = [level for level, _message in logged]
+        self.assertEqual(levels[:3], ["DEBUG", "WARNING", "INFO"])
+        self.assertEqual(levels[3:], ["DEBUG"] * 8)
+        # A minute after the WARNING, an outage warns again.
+        self.now += 55
+        self.assertEqual(len(self.warnings(self.drop(5))), 1)
+
+    def test_outage_started_too_soon_warns_once_the_minute_is_over(self):
+        self.drop(1)
+        self.succeed()
+        self.now += 10
+        self.assertEqual(self.warnings(self.drop(2)), [])
+        self.now += 49
+        self.assertEqual(self.warnings(self.drop(3)), [])
+        self.now += 1
+
+        warnings = self.warnings(self.drop(4))
+
+        # Its first WARNING is a reminder: it has been failing for a
+        # while already.
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("still cannot notify ScoringService,0", warnings[0])
+        self.assertIn("3 notification(s) dropped", warnings[0])
+        self.assertEqual([level for level, _message in self.succeed()],
+                         ["INFO"])
+
+    def test_success_without_failures_logs_nothing(self):
+        with self.assertNoLogs(self.logger, "DEBUG"):
+            self.latch.succeeded()
+
+    def test_peer_not_configured_is_debug_and_not_counted(self):
+        logged = self.drop(1, ServiceNotConfiguredError("Not configured."))
+
+        self.assertEqual(
+            logged, [("DEBUG", "EvaluationService did not notify "
+                      "ScoringService,0 of submission 1: it is not "
+                      "configured.")])
+        with self.assertNoLogs(self.logger, "DEBUG"):
+            self.latch.succeeded()
+
+    def test_no_answer_in_time_is_a_failure(self):
+        warnings = self.warnings(self.drop(1, TimeoutError()))
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("(no answer in time)", warnings[0])
 
 
 class TestFakeRemoteServiceClient(unittest.IsolatedAsyncioTestCase):
