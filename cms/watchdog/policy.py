@@ -150,9 +150,11 @@ URGENT_HOLDS: tuple[str, ...] = ("H3", "H7")
 GATE_ANSWERED_REASONS: tuple[str, ...] = ("refused", "too many clients",
                                           "authentication")
 
-# The first element of the alert key of the Workers that one headline
-# hold holds together: ("workers", "H3").
+# The alert key of the line of the Workers that a hold holds together:
+# one hold episode, whatever its headline. WORKERS_GROUP is its first
+# element.
 WORKERS_GROUP = "workers"
+WORKERS_KEY = (WORKERS_GROUP, "R4")
 # A Workers' group line names at most this many Workers, and this many
 # reasons of its headline hold, so that it stays a line.
 WORKERS_LISTED = 3
@@ -715,10 +717,9 @@ class PolicyState:
     held_headline: the headline hold of each held trip's key.
     held_announced: for each held trip's key, the URGENT_HOLDS that have
         headed a line in this hold episode; it ends with held_headline.
-    workers_quiet: for each open episode of a Workers' group line, by
-        its headline hold, the non-starved cycles in a row in which
-        that hold applied to no Worker trip; the episode ends at
-        PASSES_TO_RESOLVE of them.
+    workers_quiet: while the Workers' hold episode (WORKERS_KEY) is
+        open, the non-starved cycles in a row in which no Workers were
+        held together; the episode ends at PASSES_TO_RESOLVE of them.
     open_alerts: the last alert of each open problem, by key (sent
         again to a new LogService).
     near_miss: this hour's statistics.
@@ -744,7 +745,7 @@ class PolicyState:
     summary_mono: float | None = None
     held_announced: dict[tuple[str, str], set[str]] = field(
         default_factory=dict)
-    workers_quiet: dict[str, int] = field(default_factory=dict)
+    workers_quiet: int = 0
 
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
@@ -1366,10 +1367,8 @@ class _Cycle:
     def _act_on_trips(self) -> None:
         """Turn each trip into an action, or into an alert if held."""
         self._early_warnings()
-        # The held trips of Workers, by headline hold: two or more under
-        # one hold get one line together.
-        held_workers: dict[str, list[tuple[Trip, list, bool]]] = {}
-        workers_holds: set[str] = set()
+        # The held trips of Workers: _held_workers groups them.
+        held_workers: list[tuple[Trip, list[tuple[str, str]], bool]] = []
         incidents = self.state.ledger.incidents
         for trip in self.trips:
             program = trip.program
@@ -1379,57 +1378,45 @@ class _Cycle:
                     "rule": trip.rule, "opened": self.wall, "passes": 0}
             shadow = self.state.shadow_for(program.klass)
             holds = self._holds(program, shadow)
-            if program.kind == "Worker":
-                workers_holds.update(code for code, _ in holds)
             if holds and program.kind == "Worker":
-                held_workers.setdefault(holds[0][0], []).append(
-                    (trip, holds, opened))
+                held_workers.append((trip, holds, opened))
             elif holds:
                 self._held(trip, holds, opened)
             else:
                 self._restart(trip, shadow)
-        for headline, group in held_workers.items():
-            if len(group) >= 2:
-                self._held_workers(
-                    headline, [(trip, holds) for trip, holds, _ in group])
-            else:
-                [(trip, holds, opened)] = group
-                self._held(trip, holds, opened)
-        self._track_workers_episodes(workers_holds)
+        self._track_workers_episode(self._held_workers(held_workers))
 
-    def _track_workers_episodes(self, applied: set[str]) -> None:
-        """End the episodes of the Workers' group lines that went quiet.
+    def _track_workers_episode(self, grouped: bool) -> None:
+        """End the Workers' hold episode after PASSES_TO_RESOLVE quiet cycles.
 
-        The episode of a group line (its key, (WORKERS_GROUP, headline))
-        ends after PASSES_TO_RESOLVE quiet cycles in a row: non-starved
-        ones (this runs in those only) in which its headline hold
-        applies to no Worker trip. A Worker that trips alone, or over
-        its budget, does not keep an H4 episode open; a trip that comes
-        and goes, another hold heading the group for a while, or a cycle
-        in which R4 cannot judge any Worker, does not end one. The next
+        The episode is that of the group line (WORKERS_KEY). A quiet
+        cycle is a non-starved one (this runs in those only) in which
+        no hold heads the trips of two or more Workers, and in which R4
+        judged at least one Worker. A Worker that trips alone, or over
+        its budget, does not keep the episode open; a trip that comes
+        and goes, or a change of headline, does not end it. The next
         episode is entering a hold again.
 
-        applied: every hold that applied to a Worker trip in this cycle.
+        grouped: whether Workers were held together in this cycle.
 
         """
         state = self.state
+        if grouped or WORKERS_KEY not in state.held_headline:
+            state.workers_quiet = 0
+            return
         workers = {program.name for program in self.running
                    if program.kind == "Worker"}
-        # A cycle that says nothing about the Workers is not a quiet one.
-        blind = bool(workers) and workers <= self.unjudged
-        for key in [key for key in state.held_headline
-                    if key[0] == WORKERS_GROUP]:
-            headline = key[1]
-            if headline in applied:
-                state.workers_quiet.pop(headline, None)
-            elif not blind:
-                quiet = state.workers_quiet.get(headline, 0) + 1
-                state.workers_quiet[headline] = quiet
-                if quiet >= PASSES_TO_RESOLVE:
-                    del state.workers_quiet[headline]
-                    for table in (state.held_headline,
-                                  state.held_announced, state.alert_sent):
-                        table.pop(key, None)
+        if workers and workers <= self.unjudged:
+            # The cycle says nothing about the Workers: not a quiet one.
+            return
+        state.workers_quiet += 1
+        if state.workers_quiet >= PASSES_TO_RESOLVE:
+            state.workers_quiet = 0
+            # No "Resolved:" line closes the group line: the end of its
+            # episode does.
+            for table in (state.held_headline, state.held_announced,
+                          state.alert_sent, state.open_alerts):
+                table.pop(WORKERS_KEY, None)
 
     def _early_warnings(self) -> None:
         """Emit the early warnings of the cycle (3.5, 3.9)."""
@@ -1701,18 +1688,31 @@ class _Cycle:
               opened: bool) -> None:
         """Alert about a held trip, headed by its first hold."""
         program = trip.program
-        key = (program.name, trip.rule)
         headline, reason = holds[0]
-        codes = [code for code, _ in holds]
-        previous = self.state.held_headline.get(key)
-        self.state.held_headline[key] = headline
         text = "Watchdog: %s fails %s (%s) but is held by %s: %s." % (
             program.label, trip.rule, trip.detail, headline, reason)
         text += _other_holds(holds)
         text += " " + HOLD_HINTS[headline]
-        # Entering a hold is a state change, and so is the first time an
-        # urgent hold heads it; any other change of headline within one
-        # is not, or a flapping hold would give a line per cycle.
+        self._held_alert((program.name, trip.rule), text,
+                         [code for code, _ in holds], opened)
+
+    def _held_alert(self, key: tuple[str, str], text: str,
+                    codes: Sequence[str], opened: bool) -> None:
+        """Emit the line of a hold episode, and keep it open.
+
+        Entering a hold is a state change, and so is the first time an
+        urgent hold heads it; any other change of headline within one
+        is not, or a flapping hold would give a line per cycle.
+
+        key: the episode's key: (program name, rule), or WORKERS_KEY.
+        text: the line.
+        codes: the holds that apply, the headline first.
+        opened: whether the trip opened its incident in this cycle.
+
+        """
+        headline = codes[0]
+        previous = self.state.held_headline.get(key)
+        self.state.held_headline[key] = headline
         urgent = False
         if headline in URGENT_HOLDS:
             announced = self.state.held_announced.setdefault(key, set())
@@ -1722,27 +1722,40 @@ class _Cycle:
                     change=opened or previous is None or urgent,
                     holds=codes, keep_open=True)
 
-    def _held_workers(self, headline: str,
-                      group: list[tuple[Trip, list[tuple[str, str]]]]
-                      ) -> None:
-        """Alert once about the Workers that one headline hold holds.
+    def _held_workers(
+            self, held: list[tuple[Trip, list[tuple[str, str]], bool]]
+    ) -> bool:
+        """Alert about the held trips of Workers, together if they can be.
 
-        The line names the Workers, then the reasons of the headline (H6
-        and H7 give one per Worker), both capped at WORKERS_LISTED, and
-        every other hold that applies to any of them. Its rate limit and
-        episode are those of its key, (WORKERS_GROUP, headline): the
-        first line of an episode goes out at once.
+        The first hold, in HOLDS order, that heads the trips of two or
+        more Workers gets one line for them: it names the Workers, then
+        the reasons of the headline (H6 and H7 give one per Worker),
+        both capped at WORKERS_LISTED, and every other hold that applies
+        to any of them. Every other held Worker gets its own line. The
+        group line is one hold episode, WORKERS_KEY, whatever its
+        headline: _held_alert rate-limits it, _track_workers_episode
+        ends it.
 
-        headline: the hold that heads the trip of every Worker of group.
-        group: (trip, holds) of each Worker, 2 or more.
+        held: (trip, holds, opened) of each held Worker.
+
+        return: whether Workers were held together in this cycle.
 
         """
-        key = (WORKERS_GROUP, headline)
-        previous = self.state.held_headline.get(key)
-        self.state.held_headline[key] = headline
-        group = sorted(group, key=lambda item: item[0].program.shard)
+        by_headline: dict[str, list] = {}
+        for item in held:
+            by_headline.setdefault(item[1][0][0], []).append(item)
+        headline = next((code for code in HOLDS
+                         if len(by_headline.get(code, ())) >= 2), None)
+        for code, items in by_headline.items():
+            if code != headline:
+                for trip, holds, opened in items:
+                    self._held(trip, holds, opened)
+        if headline is None:
+            return False
+        group = sorted(by_headline[headline],
+                       key=lambda item: item[0].program.shard)
         reasons: dict[str, list[str]] = {}
-        for _trip, holds in group:
+        for _trip, holds, _opened in group:
             for code, reason in holds:
                 known = reasons.setdefault(code, [])
                 if reason not in known:
@@ -1753,13 +1766,16 @@ class _Cycle:
             why = _listed(reasons[headline], "; ")
         others = [(code, reasons[code][0]) for code in HOLDS
                   if code in reasons and code != headline]
-        labels = _listed([trip.program.label for trip, _ in group], ", ")
+        labels = _listed([item[0].program.label for item in group], ", ")
         text = ("Watchdog: %d Workers trip R4 together (%s) and are held "
                 "by %s: %s." % (len(group), labels, headline, why))
         text += _other_holds([(headline, why)] + others)
         text += " " + HOLD_HINTS[headline]
-        self._alert(key, "WARNING", text, change=previous is None,
-                    holds=[headline] + [code for code, _ in others])
+        # A Worker that joins the group is no state change: the line
+        # would repeat as the Workers trip one after the other.
+        self._held_alert(WORKERS_KEY, text,
+                         [headline] + [code for code, _ in others], False)
+        return True
 
     def _restart(self, trip: Trip, shadow: bool) -> None:
         """Decide a restart, or a would-restart, and book it."""
