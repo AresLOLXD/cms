@@ -427,6 +427,39 @@ class EvaluationServiceTest(
                       logs.output[1])
         self.assertIn("3 notification(s) dropped", logs.output[1])
 
+    async def test_scoring_notification_records_point_at_the_sender(self):
+        # Every kind of record of the latch (the WARNING, the reminder,
+        # the DEBUG of each failure, the INFO, the DEBUG of a peer not
+        # configured) points at the method that sent the notification,
+        # as the detailed log shows it, not at the latch.
+        connected_client = self.service.scoring_service
+        self._unreachable_scoring_service()
+        now = 1000.0
+
+        with patch("cms.io.async_rpc.monotonic", lambda: now):
+            with self.assertLogs(
+                    "cms.service.EvaluationService", level="DEBUG") as logs:
+                await self.service._notify_scoring_service(1, 2)
+                now += 61
+                await self.service._notify_scoring_service(3, 2)
+                self.service.scoring_service = connected_client
+                await self.service._notify_scoring_service(4, 2)
+                self.service.scoring_service = \
+                    AsyncFakeRemoteServiceClient(
+                        ServiceCoord("ScoringService", 0))
+                await self.service._notify_scoring_service(5, 2)
+
+        records = [record for record in logs.records
+                   if "ScoringService,0" in record.getMessage()]
+        self.assertEqual([record.levelname for record in records],
+                         ["DEBUG", "WARNING", "DEBUG", "WARNING", "INFO",
+                          "DEBUG"])
+        self.assertIn("still cannot notify", records[3].getMessage())
+        self.assertIn("not configured", records[5].getMessage())
+        self.assertEqual(
+            {(record.filename, record.funcName) for record in records},
+            {("EvaluationService.py", "_notify_scoring_service")})
+
     async def test_scoring_notification_success_after_failures_is_an_info(
         self
     ):
