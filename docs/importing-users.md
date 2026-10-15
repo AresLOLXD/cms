@@ -388,10 +388,13 @@ lista" notification that says "la lista pasa de 1 MB" or "la lista no está en
 UTF-8", and nothing is removed. With nothing ticked or listed, the
 notification is "No elegiste ningún usuario.".
 
-A removal takes at most 9,900 users at a time. With more, ticked or listed,
+A removal takes at most 9,900 users at a time. With more listed (or ticked),
 the list page comes back with a "La selección es demasiado grande"
 notification that says how many users the selection has, and nothing is
-removed: split the selection into several smaller ones.
+removed: split the selection into several smaller ones. Ticking about 10,000
+users or more at once (with the select-all box of a very long list, say) is
+refused by the server before that check, with a plain 400 error page instead
+of that notification: tick fewer.
 
 ### The confirmation page
 
