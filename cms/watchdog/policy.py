@@ -141,6 +141,15 @@ HEALTH_KINDS = HTTP_KINDS | RPC_RULE_KINDS
 HOLDS: tuple[str, ...] = ("H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8",
                           "H9")
 
+# The headline holds whose first line in a hold episode goes out at once,
+# not after the rate limit: a budget used up (3.9 lists it among the
+# state changes) and a lock wait only a human can end.
+URGENT_HOLDS: tuple[str, ...] = ("H3", "H7")
+# The reasons of a red gate that PostgreSQL itself answered. The others,
+# a timeout and "other", can be the watchdog's own starvation.
+GATE_ANSWERED_REASONS: tuple[str, ...] = ("refused", "too many clients",
+                                          "authentication")
+
 # Decision.action and Booking.action.
 ALERT = "alert"
 RESTART = "restart"
@@ -697,6 +706,8 @@ class PolicyState:
     ranking_misses: failed cycles in a row, by ranking address.
     alert_sent: when each alert key was last emitted (monotonic).
     held_headline: the headline hold of each held trip's key.
+    held_announced: for each held trip's key, the URGENT_HOLDS that have
+        headed a line in this hold episode; it ends with held_headline.
     open_alerts: the last alert of each open problem, by key (sent
         again to a new LogService).
     near_miss: this hour's statistics.
@@ -720,6 +731,8 @@ class PolicyState:
         default_factory=dict)
     near_miss: NearMiss = field(default_factory=NearMiss)
     summary_mono: float | None = None
+    held_announced: dict[tuple[str, str], set[str]] = field(
+        default_factory=dict)
 
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
@@ -844,10 +857,7 @@ class _Cycle:
         if state.summary_mono is None:
             state.summary_mono = self.mono
         state.ledger.prune(self.wall)
-        # A starved cycle's gate may have timed out for the watchdog's
-        # own starvation: it opens no red interval and closes none.
-        if not self.starved:
-            self._track_gate()
+        self._track_gate()
         self._track_pause()
         self._track_programs()
         if self.starved:
@@ -886,14 +896,14 @@ class _Cycle:
     def _resolve_key(self, key: tuple[str, str], text: str) -> None:
         """Close the alert key with a "Resolved:" line."""
         for table in (self.state.open_alerts, self.state.alert_sent,
-                      self.state.held_headline):
+                      self.state.held_headline, self.state.held_announced):
             table.pop(key, None)
         self.decisions.append(Decision(ALERT, text=text, key=key))
 
     def _resolve_program(self, name: str, text: str) -> None:
         """Close every alert of a program with a "Resolved:" line."""
         for table in (self.state.open_alerts, self.state.alert_sent,
-                      self.state.held_headline):
+                      self.state.held_headline, self.state.held_announced):
             for key in [key for key in table if key[0] == name]:
                 del table[key]
         self.decisions.append(
@@ -902,8 +912,24 @@ class _Cycle:
     # Bookkeeping.
 
     def _track_gate(self) -> None:
-        """Keep the red intervals, the green streak and their alerts."""
+        """Keep the red intervals, the green streak and their alerts.
+
+        A starved cycle only counts a red gate, unless PostgreSQL itself
+        answered it (GATE_ANSWERED_REASONS).
+
+        """
         state, gate = self.state, self.obs.gate
+        if self.starved and (gate.green
+                             or gate.reason not in GATE_ANSWERED_REASONS):
+            # A starved cycle's gate may have failed because of the
+            # watchdog's own starvation (a timeout), and a green one
+            # proves nothing in a cycle that decides nothing: neither
+            # opens or closes a red interval. A red that PostgreSQL
+            # answered is real and is tracked below. The statistics
+            # count every red.
+            if not gate.green:
+                state.near_miss.red_cycles += 1
+            return
         ledger = state.ledger
         red_open = bool(ledger.red) and ledger.red[-1][1] is None
         key = ("-", "gate")
@@ -1082,22 +1108,22 @@ class _Cycle:
 
         """
         shadow = self.state.shadow_for(program.klass)
-        if self.state.mode == OBSERVE:
-            text = ("At %d misses, the latest included, the watchdog only "
-                    "logs the restart it would do (observe mode)."
-                    % MISSES_TO_TRIP)
-        elif shadow:
-            text = ("At %d misses, the latest included, the watchdog only "
-                    "logs the restart it would do (class %s is not in "
-                    "CMS_WATCHDOG_RESTART)." % (MISSES_TO_TRIP,
-                                                program.klass))
-        else:
-            text = ("At %d misses, the latest included, the watchdog "
-                    "restarts it." % MISSES_TO_TRIP)
         holds = self._holds(program, shadow)
+        if self.state.mode == OBSERVE:
+            what = "only logs the restart it would do (observe mode)"
+        elif shadow:
+            what = ("only logs the restart it would do (class %s is not "
+                    "in CMS_WATCHDOG_RESTART)" % program.klass)
+        elif holds:
+            what = "would restart it"
+        else:
+            what = "restarts it"
+        text = ("At %d misses, the latest included, the watchdog %s."
+                % (MISSES_TO_TRIP, what))
         if holds:
-            text += " Right now %s applies: %s." % holds[0]
-        return text + " Check ./logs.sh for its log and stacks."
+            text += " But %s applies now: %s." % holds[0]
+        return text + (" Check ./logs.sh for its log; cmsWatchdog "
+                       "--snapshot %s writes its stacks." % program.name)
 
     def _holds(self, program: ProgramFacts,
                shadow: bool) -> list[tuple[str, str]]:
@@ -1158,7 +1184,7 @@ class _Cycle:
                 for pid in backend.blocked_by[:LOCK_WAIT_LISTED]) \
                 or "a session the snapshot does not show"
             if len(backend.blocked_by) > LOCK_WAIT_LISTED:
-                blockers += "; and %d more" % (
+                blockers += "; and %d more blockers" % (
                     len(backend.blocked_by) - LOCK_WAIT_LISTED)
             waits.append(
                 "'%s' (pid %d): its statement has been waiting %d s on a "
@@ -1320,11 +1346,17 @@ class _Cycle:
         if lock_wait and headline != "H3":
             text += " H3: %s." % lock_wait
         text += " " + HOLD_HINTS[headline]
-        # Entering a hold is a state change; a change of headline within
-        # one is not, or a flapping hold would give a line per cycle.
+        # Entering a hold is a state change, and so is the first time an
+        # urgent hold heads it; any other change of headline within one
+        # is not, or a flapping hold would give a line per cycle.
+        urgent = False
+        if headline in URGENT_HOLDS:
+            announced = self.state.held_announced.setdefault(key, set())
+            urgent = headline not in announced
+            announced.add(headline)
         self._alert(key, "WARNING", text,
-                    change=opened or previous is None, holds=codes,
-                    keep_open=True)
+                    change=opened or previous is None or urgent,
+                    holds=codes, keep_open=True)
 
     def _held_workers(self, trips: list[Trip]) -> None:
         """Alert once about the Workers that H4 holds together."""
@@ -1354,6 +1386,7 @@ class _Cycle:
             program_state.restarted_pid = program.pid
         key = (program.name, trip.rule)
         self.state.held_headline.pop(key, None)
+        self.state.held_announced.pop(key, None)
         self.state.alert_sent[key] = self.mono
         self.decisions.append(Decision(
             RESTART, text=trip.detail, key=key, program=program.name,

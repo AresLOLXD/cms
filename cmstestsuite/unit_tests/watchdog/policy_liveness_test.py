@@ -135,14 +135,19 @@ class TestLivenessRules(unittest.TestCase):
         self.assertIn("At 5 misses, the latest included, the watchdog "
                       "restarts it.", text)
         self.assertNotIn("only logs", text)
-        self.assertIn("Check ./logs.sh", text)
+        self.assertNotIn("applies now", text)
+        self.assertIn("Check ./logs.sh for its log; cmsWatchdog "
+                      "--snapshot cmscontestwebserver1 writes its stacks.",
+                      text)
 
     def test_the_early_warning_in_observe_mode_promises_no_restart(self):
         text = self.warning(Scenario(mode=OBSERVE)).text
         self.assertIn("the watchdog only logs the restart it would do "
                       "(observe mode)", text)
         self.assertNotIn("restarts it", text)
-        self.assertIn("Check ./logs.sh", text)
+        self.assertIn("Check ./logs.sh for its log; cmsWatchdog "
+                      "--snapshot cmscontestwebserver1 writes its stacks.",
+                      text)
 
     def test_the_early_warning_of_an_h9_class_promises_no_restart(self):
         text = self.warning(Scenario(restart=("core", "infra"))).text
@@ -152,9 +157,18 @@ class TestLivenessRules(unittest.TestCase):
 
     def test_the_early_warning_names_the_hold_that_applies_now(self):
         text = self.warning(Scenario(), gate=RED).text
-        self.assertIn("Right now H2 applies: the database gate is red "
-                      "(refused).", text)
+        # No promise: it would restart it, but a hold applies now.
+        self.assertIn("the watchdog would restart it. But H2 applies "
+                      "now: the database gate is red (refused).", text)
+        self.assertNotIn("restarts it", text)
         self.assertNotIn("held by", text)
+
+    def test_the_early_warning_in_observe_mode_names_the_hold_too(self):
+        text = self.warning(Scenario(mode=OBSERVE), gate=RED).text
+        self.assertIn("only logs the restart it would do (observe mode). "
+                      "But H2 applies now: the database gate is red "
+                      "(refused).", text)
+        self.assertNotIn("restarts it", text)
 
     def test_starved_cycles_are_unknown_results(self):
         s = Scenario()
@@ -173,21 +187,52 @@ class TestLivenessRules(unittest.TestCase):
         [restart] = actions(s.cycle(fail=[CWS1]))
         self.assertEqual(restart.program, CWS1)
 
-    def test_a_starved_cycle_does_not_track_the_gate(self):
-        s = Scenario()
-        s.warm_up()
-        for _ in range(4):
-            s.cycle(fail=[CWS1])
-        green_cycles = s.state.green_cycles
-        # Its gate timed out because the watchdog was starved: no line,
-        # no red interval, no cleared window, no wait for H2.
-        self.assertEqual(s.cycle(fail=[CWS1], gate=RED, lag_s=6.0), [])
-        self.assertEqual(s.state.ledger.red, [])
-        self.assertEqual(s.state.near_miss.red_cycles, 0)
-        self.assertEqual(s.state.green_cycles, green_cycles)
-        self.assertEqual(sum(s.state.programs[CWS1].window), 4)
-        [restart] = actions(s.cycle(fail=[CWS1]))
-        self.assertEqual(restart.program, CWS1)
+    def test_a_starved_cycle_does_not_track_a_timed_out_gate(self):
+        for reason in ("timeout", "other"):
+            with self.subTest(reason=reason):
+                s = Scenario()
+                s.warm_up()
+                for _ in range(4):
+                    s.cycle(fail=[CWS1])
+                green_cycles = s.state.green_cycles
+                # Its gate may have failed because the watchdog was
+                # starved: no line, no red interval, no cleared window,
+                # no wait for H2. The near-miss statistics count it.
+                gate = Gate(False, reason, "psql failed")
+                self.assertEqual(s.cycle(fail=[CWS1], gate=gate, lag_s=6.0),
+                                 [])
+                self.assertEqual(s.state.ledger.red, [])
+                self.assertEqual(s.state.near_miss.red_cycles, 1)
+                self.assertEqual(s.state.green_cycles, green_cycles)
+                self.assertEqual(sum(s.state.programs[CWS1].window), 4)
+                [restart] = actions(s.cycle(fail=[CWS1]))
+                self.assertEqual(restart.program, CWS1)
+
+    def test_a_starved_cycle_tracks_a_red_that_postgresql_answered(self):
+        for reason in ("refused", "too many clients", "authentication"):
+            with self.subTest(reason=reason):
+                s = Scenario()
+                s.warm_up()
+                for _ in range(4):
+                    s.cycle(fail=[CWS1])
+                gate = Gate(False, reason, "PostgreSQL answered")
+                decisions = s.cycle(fail=[CWS1], gate=gate, lag_s=6.0)
+                [line] = decisions
+                self.assertEqual((line.key, line.level),
+                                 (("-", "gate"), "ERROR"))
+                self.assertEqual(len(s.state.ledger.red), 1)
+                self.assertIsNone(s.state.ledger.red[0][1])
+                self.assertEqual(s.state.near_miss.red_cycles, 1)
+                self.assertEqual(s.state.green_cycles, 0)
+                self.assertIsNone(s.state.green_since_mono)
+                # The database is back: the windows are cleared and
+                # restarts wait for it.
+                decisions = s.cycle(fail=[CWS1])
+                self.assertTrue(any(
+                    d.text.startswith("Resolved: the database gate")
+                    for d in decisions))
+                self.assertEqual(list(s.state.programs[CWS1].window),
+                                 [True])
 
     def test_a_pause_clears_the_windows(self):
         s = Scenario()
@@ -318,7 +363,7 @@ class TestHoldsAlone(unittest.TestCase):
             self.assertIn("pid %d ('psql'" % pid, alert.text)
         for pid in (904, 905):
             self.assertNotIn("pid %d" % pid, alert.text)
-        self.assertIn("; and 2 more", alert.text)
+        self.assertIn("; and 2 more blockers", alert.text)
 
     def test_h3_lists_at_most_3_waiters_longest_first(self):
         s = Scenario()
@@ -613,6 +658,44 @@ class TestHoldOrder(unittest.TestCase):
         self.assertIn(" H3: a database lock wait: ", alert.text)
 
 
+class TestHoldEpisodes(unittest.TestCase):
+
+    def episode(self) -> Scenario:
+        """Hold CWS1 by H1, then H3, then H1, then H3 again."""
+        s = Scenario()
+        s.warm_up()
+        for _ in range(4):
+            s.cycle(fail=[CWS1])
+        lock = Gate(True, backends=lock_wait_snapshot())
+        headlines = []
+        emitted = []
+        for changes in ({"supervisor_ok": False}, {"gate": lock},
+                        {"supervisor_ok": False}, {"gate": lock}):
+            decisions = s.cycle(fail=[CWS1], **changes)
+            headlines.append(s.state.held_headline[(CWS1, "R1")])
+            emitted.append(bool(held(decisions, CWS1)))
+        self.assertEqual(headlines, ["H1", "H3", "H1", "H3"])
+        # The first H3 of the episode goes out at once, though H1 headed
+        # a line 15 s before; the second one, and H1 again, are limited.
+        self.assertEqual(emitted, [True, True, False, False])
+        return s
+
+    def test_the_first_lock_wait_headline_goes_out_at_once(self):
+        s = self.episode()
+        # The episode ends with a restart: the next one starts afresh.
+        [restart] = actions(s.cycle(fail=[CWS1]))
+        self.assertEqual(restart.program, CWS1)
+        self.assertNotIn((CWS1, "R1"), s.state.held_announced)
+
+    def test_an_incident_that_resolves_ends_the_episode(self):
+        s = self.episode()
+        self.assertIn((CWS1, "R1"), s.state.held_announced)
+        s.cycle()
+        [resolved] = [d for d in s.cycle() if d.text.startswith("Resolved:")]
+        self.assertIn("passes its checks again", resolved.text)
+        self.assertEqual(s.state.held_announced, {})
+
+
 class TestOrphanMark(unittest.TestCase):
 
     def blocker_text(self, backend_age_s: float) -> str:
@@ -679,10 +762,9 @@ class TestBudgets(unittest.TestCase):
                          [7])
         [would] = actions(history[7])
         self.assertTrue(would.would and would.shadow)
-        # The headline changed from H6 to H7 within 5 minutes of the
-        # last line: no new line, but the open alert says why.
-        self.assertEqual(held(history[15], CWS1), [])
-        alert = s.state.open_alerts[(CWS1, "R1")]
+        # The budget is exhausted: the first H7 headline of the hold
+        # goes out at once, though H6 headed a line 105 s before.
+        [alert] = held(history[15], CWS1)
         self.assertEqual(alert.holds[0], "H7")
         self.assertIn("(in the shadow ledger)", alert.text)
         self.assertEqual(s.state.ledger.real, [])
@@ -698,7 +780,7 @@ class TestBudgets(unittest.TestCase):
         # in those, and by H7 (its budget) in the others.
         headlines = []
         emitted = []
-        for cycle in range(5 + int(ALERT_REPEAT_S / CYCLE_S)):
+        for cycle in range(4 + 2 + int(ALERT_REPEAT_S / CYCLE_S)):
             failing = [CWS1, ES, LS] if cycle % 2 == 0 else [CWS1]
             decisions = s.cycle(fail=failing)
             if cycle >= 4:
@@ -706,7 +788,9 @@ class TestBudgets(unittest.TestCase):
                 headlines.append(
                     s.state.held_headline[(CWS1, "R1")])
         self.assertEqual(headlines[:3], ["H5", "H7", "H5"])
-        self.assertEqual(emitted, [True] + [False] * 19 + [True])
+        # The first H7 goes out at once (the budget is exhausted); the
+        # flapping after it gives one line per 5 minutes, not per cycle.
+        self.assertEqual(emitted, [True, True] + [False] * 19 + [True])
 
     def test_observe_mode_re_trips_after_each_grace(self):
         s = Scenario(mode=OBSERVE)
@@ -715,7 +799,7 @@ class TestBudgets(unittest.TestCase):
         history = [s.cycle(fail=[CWS1]) for _ in range(16)]
         self.assertEqual([i for i, d in enumerate(history) if actions(d)],
                          [7])
-        self.assertEqual(s.state.open_alerts[(CWS1, "R1")].holds[0], "H7")
+        self.assertEqual(held(history[15], CWS1)[0].holds[0], "H7")
         self.assertEqual(len(s.state.ledger.real), 2)
 
 
