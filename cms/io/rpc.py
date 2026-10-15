@@ -670,15 +670,13 @@ class RemoteServiceClient(RemoteServiceBase):
     def run(self):
         """Start listening for responses, and go on forever.
 
-        Read messages from the socket and issue greenlets to parse
-        them, determine the request they're for and fill the results.
-        This method won't return as long as there's something to read,
-        it's therefore advisable to spawn a greenlet to call it.
+        Read messages from the socket and process each one (parse it,
+        determine the request it's for and fill the result) before
+        reading the next. This method won't return as long as there's
+        something to read, it's therefore advisable to spawn a greenlet
+        to call it.
 
         """
-        # The reader of this connection, which tells process_data
-        # whether a line still comes from the current connection.
-        reader = self._reader
         while True:
             try:
                 data = self._read()
@@ -689,27 +687,24 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.finalize("Connection closed.")
                 break
 
-            gevent.spawn(self.process_data, data, reader)
+            # Not in a greenlet of its own, unlike the server's requests
+            # (an answer only fills a result, with no I/O but logs): an
+            # answer read just before the end of the connection is then
+            # delivered before finalize() fails the calls still pending,
+            # even if finalize() yields; and once a malformed answer has
+            # dropped the connection, _read() returns nothing, so no
+            # later line of that connection is processed.
+            self.process_data(data)
 
-    def process_data(self, data: bytes, reader: typing.BinaryIO | None):
+    def process_data(self, data: bytes):
         """Handle the message.
 
-        JSON-decode it and forward it to process_incoming_response,
-        unless its connection has ended since it was read.
+        JSON-decode it and forward it to process_incoming_response
+        (unconditionally!).
 
         data: the message read from the socket.
-        reader: the reader of the connection it was read from.
 
         """
-        # run() reads every line already buffered before any is
-        # processed. Once the connection has ended (because one of them
-        # was a malformed answer, say), the others are discarded,
-        # whatever they are, instead of being taken as answers; and
-        # run() reads no more, as _read() returns nothing once we're
-        # disconnected.
-        if reader is not self._reader:
-            return
-
         # Decode the incoming data.
         try:
             message = json.loads(data.decode('utf-8'))

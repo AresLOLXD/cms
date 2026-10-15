@@ -22,6 +22,7 @@
 
 """
 
+import json
 import logging
 import socket
 import unittest
@@ -662,6 +663,42 @@ class TestRPC(unittest.TestCase):
         self.assertEqual([record.levelname for record in logs.records
                           if record.levelno >= logging.WARNING],
                          ["WARNING"])
+
+    def test_answer_read_just_before_the_end_is_delivered(self):
+        # The peer answers and closes the connection at once, so the
+        # client reads the answer and then the end of the connection.
+        # The answer must reach the caller, also when the "Terminated
+        # connection" record yields inside finalize() (as the RPC write
+        # of a LogServiceHandler can), not be failed as "Connection
+        # closed.".
+        def answer_and_close(socket_: socket.socket, address: tuple):
+            request = json.loads(socket_.makefile("rb").readline())
+            socket_.sendall(json.dumps(
+                {"__id": request["__id"], "__data": "answer",
+                 "__error": None}).encode("utf-8") + b"\r\n")
+            socket_.shutdown(socket.SHUT_RDWR)
+
+        def yield_on_terminated(record: logging.LogRecord) -> bool:
+            if record.getMessage().startswith("Terminated connection"):
+                gevent.sleep(0)
+            return True
+
+        self.spawn_custom_listener(answer_and_close)
+        rpc_logger = logging.getLogger("cms.io.rpc")
+        rpc_logger.addFilter(yield_on_terminated)
+        self.addCleanup(rpc_logger.removeFilter, yield_on_terminated)
+
+        # assertLogs enables the INFO records the filter acts on.
+        with self.assertLogs("cms.io.rpc", "DEBUG"):
+            results = []
+            for _ in range(5):
+                client = self.get_client(ServiceCoord("Foo", 0))
+                result = client.echo(value=42)
+                result.wait(timeout=2)
+                results.append(result.value if result.successful()
+                               else result.exception)
+
+        self.assertEqual(results, ["answer"] * 5)
 
     def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading, so the client's writes pile up
