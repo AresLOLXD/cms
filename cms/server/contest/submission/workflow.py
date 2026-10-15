@@ -140,6 +140,7 @@ def accept_submission(
 
     check_interval = not override_min_interval \
         and not is_last_minutes(timestamp, participation)
+    # Keep in sync with the check_max_number/check_min_interval below.
     limits: list[int | timedelta | None] = []
     if not override_max_number:
         limits += [contest.max_submission_number, task.max_submission_number]
@@ -378,6 +379,7 @@ def accept_user_test(
     # Check whether the contestant is allowed to send a test, under the
     # lock of their limits if a check reads their past tests.
 
+    # Keep in sync with the check_max_number/check_min_interval below.
     limits = [contest.max_user_test_number, task.max_user_test_number,
               contest.min_user_test_interval, task.min_user_test_interval]
     if not participation.unrestricted \
