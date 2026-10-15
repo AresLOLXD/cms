@@ -700,17 +700,33 @@ class RemoteServiceClient(RemoteServiceBase):
             # dropped the connection, the next _read() raises "Not
             # connected." and run() stops, so no later line of that
             # connection is processed.
-            try:
-                self.process_data(data)
-            except Exception:
-                # Nor may anything else going wrong with an answer end
-                # the connect loop (as a greenlet of its own would have
-                # contained it): it is logged, and the connection
-                # dropped as for a malformed answer.
-                self._drop_connection("Bad response received")
-                self._bad_answers.failed(
-                    "Cannot process the answer from %s, discarding it.",
-                    self._repr_remote(), exc_info=True)
+            self._process_answer(data)
+
+    def _process_answer(self, data: bytes):
+        """Process a line read by run(), whatever goes wrong.
+
+        Nothing that goes wrong processing an answer may stay unseen
+        or leave a call waiting: an unexpected error (a bug, since
+        malformed answers are handled) is logged with its traceback,
+        through the malformed-answer series, and the connection is
+        dropped as for a malformed answer. That fails the calls still
+        pending, this answer's included (it leaves them only once
+        nothing else can go wrong, and is resolved at once), and the
+        client reconnects.
+
+        As run() calls it inline, it also keeps the connect loop alive.
+        GreenletExit isn't an Exception, so disconnect() still ends it.
+
+        data: the line.
+
+        """
+        try:
+            self.process_data(data)
+        except Exception:
+            self._drop_connection("Bad response received")
+            self._bad_answers.failed(
+                "Cannot process the answer from %s, discarding it.",
+                self._repr_remote(), exc_info=True)
 
     def process_data(self, data: bytes):
         """Handle the message.

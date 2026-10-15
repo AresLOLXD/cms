@@ -368,6 +368,49 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING", "DEBUG", "DEBUG", "INFO"])
 
+    async def test_unexpected_error_on_an_answer_drops_the_connection(self):
+        # Whatever goes wrong processing an answer (here a bug, standing
+        # in process_incoming_response), the client logs it, with its
+        # traceback, and drops the connection like for a malformed
+        # answer: the call fails instead of waiting for good, and after
+        # the reconnect the next call is answered.
+        connections = 0
+
+        async def serve(reader, writer):
+            nonlocal connections
+            connections += 1
+            await self._serve(reader, writer)
+
+        port = await self._start_peer(serve)
+        client = self._client(port)
+        client.connect()
+        self.assertTrue(await client.wait_for_connection(timeout=2))
+        real_process_incoming_response = client.process_incoming_response
+        calls = 0
+
+        def fail_once(response: dict):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("Unexpected.")
+            real_process_incoming_response(response)
+
+        with patch.object(client, "process_incoming_response", fail_once):
+            with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+                with self.assertRaises(RPCError):
+                    await asyncio.wait_for(
+                        client.execute_rpc("echo", {"string": "x"}), 2)
+                await self._wait_until(
+                    lambda: connections > 1 and client.connected)
+                self.assertEqual(
+                    await client.execute_rpc("echo", {"string": "y"}), "y")
+
+        self.assertFalse(client._loop_task.done())
+        warning, = [record for record in logs.records
+                    if record.levelname == "WARNING"
+                    and "Cannot process" in record.getMessage()]
+        self.assertIs(warning.exc_info[0], RuntimeError)
+
     async def test_answers_that_cannot_be_processed_are_malformed(self):
         # An answer whose id isn't a string (a list can't even be looked
         # up) and one nested too deep for json.loads (RecursionError,
