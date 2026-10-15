@@ -22,8 +22,8 @@ import unittest
 
 from cms.service.EvaluationService import EvaluationService
 from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, \
-    INVALIDATION_SECTION, OBSERVE, RESTART, SERVICES_POOL, Backend, \
-    Booking, Gate, Probe
+    INVALIDATION_SECTION, OBSERVE, PASSES_TO_RESOLVE, RESTART, \
+    SERVICES_POOL, Backend, Booking, Gate, Probe
 from cmstestsuite.unit_tests.watchdog.scenario import ES, GREEN, HOLDER, \
     PS, SS, W0, W1, Scenario, actions, alerts, busy, held, \
     lock_wait_snapshot, worker
@@ -214,6 +214,37 @@ class TestScoringAndProxySections(unittest.TestCase):
             health={PS: busy(107, "send", 530.0, 210.0)},
             rankings=RANKINGS_OK))
         self.assertEqual((restart.program, restart.rule), (PS, "R3"))
+
+    def test_a_send_with_no_ranking_to_probe_never_trips(self):
+        s = Scenario()
+        s.warm_up()
+        for index in range(5):
+            decisions = s.cycle(health={PS: busy(
+                107, "send", 500.0 + 15 * index, 195.0 + 15 * index)})
+            self.assertEqual(actions(decisions), [])
+            self.assertEqual(held(decisions, PS), [])
+
+    def test_a_cycle_where_r3_cannot_judge_a_send_is_no_pass(self):
+        for rankings in (RANKINGS_DOWN, {}):
+            with self.subTest(rankings=rankings):
+                s = Scenario()
+                s.warm_up()
+                [restart] = actions(s.cycle(
+                    health={PS: busy(107, "send", 530.0, 210.0)},
+                    rankings=RANKINGS_OK))
+                self.assertEqual((restart.program, restart.rule),
+                                 (PS, "R3"))
+                # The send is still stuck, and with no ranking that
+                # answers R3 cannot tell why: no pass of the incident.
+                for index in range(PASSES_TO_RESOLVE):
+                    decisions = s.cycle(health={PS: busy(
+                        107, "send", 545.0 + 15 * index,
+                        225.0 + 15 * index)}, rankings=rankings)
+                    self.assertEqual(
+                        [d.text for d in decisions
+                         if d.text.startswith("Resolved:")], [])
+                self.assertEqual(s.state.ledger.incidents[PS]["passes"],
+                                 0)
 
     def test_h4_counts_a_section_past_half_its_trip_only(self):
         for idle_s, restarted in ((100.0, False), (5.0, True)):
@@ -414,6 +445,37 @@ class TestWorkersEpisode(unittest.TestCase):
                    for cycle in range(int(ALERT_REPEAT_S / CYCLE_S) + 1)]
         self.assertEqual([self.grouped(d) for d in history],
                          [True] + [False] * 19 + [True])
+
+    def test_a_cycle_where_r4_cannot_judge_is_neither_quiet_nor_a_pass(
+            self):
+        def es_does_not_answer(s: Scenario) -> list:
+            return s.cycle(fail=[ES])
+
+        def es_is_stopped(s: Scenario) -> list:
+            s.set(ES, state="STOPPED", pid=None)
+            return s.cycle()
+
+        def no_status_of_the_workers(s: Scenario) -> list:
+            return s.cycle(workers={})
+
+        for blind in (es_does_not_answer, es_is_stopped,
+                      no_status_of_the_workers):
+            with self.subTest(blind=blind.__name__):
+                s = Scenario()
+                s.warm_up()
+                history = [s.cycle(workers=self.both(s))]
+                history += [blind(s) for _ in range(PASSES_TO_RESOLVE)]
+                s.set(ES, state="RUNNING", pid=104)
+                # ES sees the Workers again, still disabled: the same
+                # episode, and the same incidents.
+                history.append(s.cycle(workers=self.both(s)))
+                self.assertEqual([self.grouped(d) for d in history],
+                                 [True, False, False, False])
+                self.assertEqual(
+                    [d.text for decisions in history for d in decisions
+                     if d.text.startswith("Resolved:")], [])
+                for name in (W0, W1):
+                    self.assertIn(name, s.state.ledger.incidents)
 
     def test_a_worker_that_trips_alone_does_not_keep_the_episode(self):
         s = Scenario()

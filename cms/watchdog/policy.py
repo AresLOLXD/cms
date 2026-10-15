@@ -878,6 +878,10 @@ class _Cycle:
         # Programs failing for H4: MISSES_TO_WARN misses or more, or a
         # section past half its trip.
         self.half: set[str] = set()
+        # Programs that a rule could not judge in this cycle (R4 without
+        # ES's view of them, R3 on a send while no ranking answers):
+        # unknown, neither a pass nor a miss of their incident.
+        self.unjudged: set[str] = set()
 
     def run(self) -> None:
         """Run the phases of the cycle, in order."""
@@ -1233,13 +1237,17 @@ class _Cycle:
         if not idles or max(idles) <= SECTION_WARN_S:
             return
         self.half.add(program.name)
-        if max(idles) > SECTION_TRIP_S \
-                and all(probe.ok for probe in self.obs.rankings.values()):
-            self.trips.append(Trip(
-                program, "R3", "a send to the rankings has started no "
-                "request for %d s while every ranking answers"
-                % max(idles)))
-            return
+        if max(idles) > SECTION_TRIP_S:
+            rankings = self.obs.rankings
+            if rankings and all(probe.ok for probe in rankings.values()):
+                self.trips.append(Trip(
+                    program, "R3", "a send to the rankings has started no "
+                    "request for %d s while every ranking answers"
+                    % max(idles)))
+                return
+            # A ranking that does not answer may be why the send is
+            # stuck, and with no ranking probed nothing says it is not.
+            self.unjudged.add(program.name)
         self.warnings.append(Trip(
             program, "R3", "a send of %s to the rankings has started no "
             "request for %d s" % (program.label, max(idles))))
@@ -1251,9 +1259,12 @@ class _Cycle:
         es = next((program for program in self.running
                    if program.kind == "EvaluationService"), None)
         workers = self.obs.workers
-        # An unhealthy ES suppresses R4: its view of the Workers is old.
+        # An unhealthy ES suppresses R4: its view of the Workers is old,
+        # and R4 cannot judge any of them.
         if es is None or not isinstance(workers, Mapping) \
                 or not self.obs.rpc.get(es.name, Probe(False)).ok:
+            self.unjudged.update(program.name for program in self.running
+                                 if program.kind == "Worker")
             return
         statuses = {str(shard): status for shard, status in workers.items()
                     if isinstance(status, Mapping)}
@@ -1265,6 +1276,7 @@ class _Cycle:
                 continue
             status = statuses.get(str(program.shard))
             if status is None:
+                self.unjudged.add(program.name)
                 continue
             detail = self._disabled_too_long(program, status) \
                 or self._never_connected(program, status, statuses,
@@ -1352,8 +1364,9 @@ class _Cycle:
         A quiet cycle is a non-starved one (this runs in those only) in
         which H4 applies to no Worker trip. A Worker that trips alone,
         or over its budget, does not keep the episode open; a trip that
-        comes and goes, or another hold heading the group for a while,
-        does not end it. The next episode is entering a hold again.
+        comes and goes, another hold heading the group for a while, or
+        a cycle in which R4 cannot judge any Worker, does not end it.
+        The next episode is entering a hold again.
 
         h4_applied: whether H4 applied to a Worker trip in this cycle.
 
@@ -1361,6 +1374,11 @@ class _Cycle:
         state = self.state
         if h4_applied or WORKERS_H4_KEY not in state.held_headline:
             state.workers_h4_quiet = 0
+            return
+        workers = {program.name for program in self.running
+                   if program.kind == "Worker"}
+        if workers and workers <= self.unjudged:
+            # The cycle says nothing about the Workers: not a quiet one.
             return
         state.workers_h4_quiet += 1
         if state.workers_h4_quiet >= PASSES_TO_RESOLVE:
@@ -1707,6 +1725,9 @@ class _Cycle:
                 continue
             if name in tripped or name in self.failing:
                 incident["passes"] = 0
+                continue
+            if name in self.unjudged:
+                # Unknown in this cycle: neither a pass nor a miss.
                 continue
             incident["passes"] += 1
             if incident["passes"] >= PASSES_TO_RESOLVE:
