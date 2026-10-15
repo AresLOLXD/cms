@@ -667,10 +667,10 @@ class TestRPC(unittest.TestCase):
     def test_answer_read_just_before_the_end_is_delivered(self):
         # The peer answers and closes the connection at once, so the
         # client reads the answer and then the end of the connection.
-        # The answer must reach the caller, also when the "Terminated
-        # connection" record yields inside finalize() (as the RPC write
-        # of a LogServiceHandler can), not be failed as "Connection
-        # closed.".
+        # The answer must reach the caller, not be failed as "Connection
+        # closed.", whether or not the "Terminated connection" record
+        # yields inside finalize() (as the RPC write of a
+        # LogServiceHandler can).
         def answer_and_close(socket_: socket.socket, address: tuple):
             request = json.loads(socket_.makefile("rb").readline())
             socket_.sendall(json.dumps(
@@ -678,8 +678,11 @@ class TestRPC(unittest.TestCase):
                  "__error": None}).encode("utf-8") + b"\r\n")
             socket_.shutdown(socket.SHUT_RDWR)
 
+        yielding = False
+
         def yield_on_terminated(record: logging.LogRecord) -> bool:
-            if record.getMessage().startswith("Terminated connection"):
+            if yielding and record.getMessage().startswith(
+                    "Terminated connection"):
                 gevent.sleep(0)
             return True
 
@@ -691,14 +694,14 @@ class TestRPC(unittest.TestCase):
         # assertLogs enables the INFO records the filter acts on.
         with self.assertLogs("cms.io.rpc", "DEBUG"):
             results = []
-            for _ in range(5):
+            for yielding in [False] * 5 + [True] * 5:
                 client = self.get_client(ServiceCoord("Foo", 0))
                 result = client.echo(value=42)
                 result.wait(timeout=2)
                 results.append(result.value if result.successful()
                                else result.exception)
 
-        self.assertEqual(results, ["answer"] * 5)
+        self.assertEqual(results, ["answer"] * 10)
 
     def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading, so the client's writes pile up
