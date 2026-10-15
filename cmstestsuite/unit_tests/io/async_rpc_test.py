@@ -362,6 +362,46 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING", "DEBUG", "DEBUG", "INFO"])
 
+    async def test_lines_read_after_a_drop_are_discarded(self):
+        # Each connection gets, in one write, a malformed line and then
+        # two well-formed answers with unknown ids. The client drops
+        # the connection at the first line and discards the other two:
+        # they aren't taken as answers, so no "No pending request"
+        # WARNING is logged at each reconnect.
+        lines = (b"garbage\r\n"
+                 b'{"__id": "a", "__data": null, "__error": null}\r\n'
+                 b'{"__id": "b", "__data": null, "__error": null}\r\n')
+        connections = 0
+
+        async def answer_badly(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > 3:
+                await self._serve(reader, writer)
+                return
+            writer.write(lines)
+            await writer.drain()
+            await reader.read()
+            writer.close()
+
+        port = await self._start_peer(answer_badly)
+        client = self._client(port)
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            client.connect()
+            await self._wait_until(
+                lambda: connections > 3 and client.connected)
+            self.assertEqual(
+                await client.execute_rpc("echo", {"string": "x"}), "x")
+
+        self.assertEqual([record.getMessage() for record in logs.records
+                          if "No pending request" in record.getMessage()],
+                         [])
+        # The first malformed line is the only WARNING.
+        self.assertEqual([record.levelname for record in logs.records
+                          if record.levelno >= logging.WARNING],
+                         ["WARNING"])
+
     async def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading (limit=1024 pauses its transport after
         # 2 KiB), so the client's writes pile up unsent, and then it

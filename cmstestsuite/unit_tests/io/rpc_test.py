@@ -625,6 +625,44 @@ class TestRPC(unittest.TestCase):
         self.assertEqual(levels[:2], ["WARNING", "INFO"])
         self.assertEqual(set(levels[2:]), {"DEBUG"})
 
+    def test_lines_read_after_a_drop_are_discarded(self):
+        # Each connection gets, in one write, a malformed line and then
+        # two well-formed answers with unknown ids. The client drops
+        # the connection at the first line and discards the other two:
+        # they aren't taken as answers, so no "No pending request"
+        # WARNING is logged at each reconnect.
+        lines = (b"garbage\r\n"
+                 b'{"__id": "a", "__data": null, "__error": null}\r\n'
+                 b'{"__id": "b", "__data": null, "__error": null}\r\n')
+        connections = []
+
+        def answer_badly(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > 3:
+                self.handle_new_connection(socket_, address)
+                return
+            socket_.sendall(lines)
+            while socket_.recv(1024):
+                pass
+
+        self.spawn_custom_listener(answer_badly)
+
+        with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+            client = self.get_client(
+                ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+            self.stop_when_done(client)
+            self.wait_until(
+                lambda: len(connections) > 3 and client.connected)
+            self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertEqual([record.getMessage() for record in logs.records
+                          if "No pending request" in record.getMessage()],
+                         [])
+        # The first malformed line is the only WARNING.
+        self.assertEqual([record.levelname for record in logs.records
+                          if record.levelno >= logging.WARNING],
+                         ["WARNING"])
+
     def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading, so the client's writes pile up
         # unsent, and then it sends a malformed line: the client must

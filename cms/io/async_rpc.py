@@ -558,6 +558,9 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         super().disconnect(reason=reason)
 
     async def run(self):
+        # The reader of this connection, which tells process_data
+        # whether a line still comes from the current connection.
+        reader = self._reader
         while True:
             try:
                 data = await self._read()
@@ -568,9 +571,20 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
                 self.finalize("Connection closed.")
                 break
 
-            self._spawn(self.process_data(data))
+            self._spawn(self.process_data(data, reader))
 
-    async def process_data(self, data: bytes):
+    async def process_data(
+        self, data: bytes, reader: asyncio.StreamReader | None
+    ):
+        # run() reads every line already buffered before any is
+        # processed. Once the connection has ended (because one of them
+        # was a malformed answer, say), the others are discarded,
+        # whatever they are, instead of being taken as answers; and
+        # run() reads no more, as _read() returns nothing once we're
+        # disconnected.
+        if reader is not self._reader:
+            return
+
         try:
             message = json.loads(data.decode('utf-8'))
         except ValueError:
@@ -591,10 +605,7 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
                 "Response from %s is missing some fields, ignoring.",
                 self._repr_remote())
             return
-        # Only a well-formed answer on the live connection ends a
-        # series: one read from the connection a malformed answer just
-        # made us drop doesn't.
-        if self._bad_answers.failing and self.connected:
+        if self._bad_answers.failing:
             self._bad_answers.succeeded(
                 "%s sends well-formed answers again.", self._repr_remote())
 

@@ -671,6 +671,9 @@ class RemoteServiceClient(RemoteServiceBase):
         it's therefore advisable to spawn a greenlet to call it.
 
         """
+        # The reader of this connection, which tells process_data
+        # whether a line still comes from the current connection.
+        reader = self._reader
         while True:
             try:
                 data = self._read()
@@ -681,17 +684,27 @@ class RemoteServiceClient(RemoteServiceBase):
                 self.finalize("Connection closed.")
                 break
 
-            gevent.spawn(self.process_data, data)
+            gevent.spawn(self.process_data, data, reader)
 
-    def process_data(self, data: bytes):
+    def process_data(self, data: bytes, reader: typing.BinaryIO | None):
         """Handle the message.
 
-        JSON-decode it and forward it to process_incoming_response
-        (unconditionally!).
+        JSON-decode it and forward it to process_incoming_response,
+        unless its connection has ended since it was read.
 
         data: the message read from the socket.
+        reader: the reader of the connection it was read from.
 
         """
+        # run() reads every line already buffered before any is
+        # processed. Once the connection has ended (because one of them
+        # was a malformed answer, say), the others are discarded,
+        # whatever they are, instead of being taken as answers; and
+        # run() reads no more, as _read() returns nothing once we're
+        # disconnected.
+        if reader is not self._reader:
+            return
+
         # Decode the incoming data.
         try:
             message = json.loads(data.decode('utf-8'))
@@ -722,10 +735,7 @@ class RemoteServiceClient(RemoteServiceBase):
                 "Response from %s is missing some fields, ignoring.",
                 self._repr_remote())
             return
-        # Only a well-formed answer on the live connection ends a
-        # series: one read from the connection a malformed answer just
-        # made us drop doesn't.
-        if self._bad_answers.failing and self.connected:
+        if self._bad_answers.failing:
             self._bad_answers.succeeded(
                 "%s sends well-formed answers again.", self._repr_remote())
 
