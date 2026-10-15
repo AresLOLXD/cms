@@ -159,6 +159,30 @@ class TestReadQuestionsAndAnnouncements(DatabaseMixin, unittest.TestCase):
         self.assertEqual(
             {q["id"]: q["username"] for q in questions}, expected)
 
+    def test_questions_are_returned_in_id_order(self):
+        # A restarted bot posts the new questions in the order it reads
+        # them, which has to be the order they were asked in. Interleave
+        # the participations, and update some rows: an UPDATE moves the
+        # row to the end of the table, so a query without ORDER BY would
+        # return it after the ones that were not touched.
+        participations = [
+            self.add_participation(contest=self.contest) for _ in range(3)]
+        questions = [
+            self.add_question(participation=participations[i % 3])
+            for i in range(9)]
+        self.session.commit()
+        for question in questions[:4]:
+            question.ignored = True
+            self.session.commit()
+        expected = [question.id for question in questions]
+        self.assertEqual(expected, sorted(expected))
+
+        for contest_id in (self.contest.id, None):
+            with self.subTest(contest_id=contest_id):
+                read, _ = self.make_bot(
+                    contest_id)._read_questions_and_announcements()
+                self.assertEqual([q["id"] for q in read], expected)
+
     def test_question_dicts_have_the_columns_and_the_username(self):
         participation = self.add_participation(contest=self.contest)
         question = self.add_question(

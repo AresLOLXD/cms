@@ -425,9 +425,9 @@ class TelegramBot:
         built before the session is closed, so they can be used by the
         caller afterwards.
 
-        return: the questions (each with the "username" of the participant
-            who asked it) and the announcements (none when the bot serves
-            all the contests).
+        return: the questions, in the order they were asked (each with the
+            "username" of the participant who asked it), and the
+            announcements (none when the bot serves all the contests).
 
         """
         with SessionGen() as session:
@@ -437,6 +437,7 @@ class TelegramBot:
                 .options(
                     joinedload(Question.participation)
                     .joinedload(Participation.user))
+                .order_by(Question.id)
             )
             if self.contest_id is not None:
                 query = query.filter(
