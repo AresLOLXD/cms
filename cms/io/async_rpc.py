@@ -583,7 +583,10 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             self._drop_connection("Bad response received")
             self._log_bad_answer("Response is missing some fields, ignoring.")
             return
-        if self._bad_answers:
+        # Only a well-formed answer on the live connection ends a
+        # series: one read from the connection a malformed answer just
+        # made us drop doesn't.
+        if self._bad_answers and self.connected:
             self._bad_answers = False
             logger.info("%s sends well-formed answers again.",
                         self._repr_remote())

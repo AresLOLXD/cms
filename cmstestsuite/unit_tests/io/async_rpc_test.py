@@ -286,6 +286,43 @@ class TestAsyncRpcConnectLoop(unittest.IsolatedAsyncioTestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
 
+    async def test_answer_after_garbage_on_dropped_connection_is_stale(
+        self
+    ):
+        # Each connection gets a malformed line and then a well-formed
+        # one, which the client reads from the connection the first one
+        # made it drop: only an answer on the live connection (from the
+        # real server, in the end) ends the series of malformed ones.
+        well_formed = b'{"__id": "stale", "__data": null, "__error": null}'
+        connections = 0
+
+        async def answer_badly(reader, writer):
+            nonlocal connections
+            connections += 1
+            if connections > 3:
+                await self._serve(reader, writer)
+                return
+            writer.write(b"garbage\r\n" + well_formed + b"\r\n")
+            await writer.drain()
+            await reader.read()
+            writer.close()
+
+        port = await self._start_peer(answer_badly)
+        client = self._client(port)
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            client.connect()
+            await self._wait_until(
+                lambda: connections > 3 and client.connected)
+            self.assertEqual(
+                await client.execute_rpc("echo", {"string": "x"}), "x")
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING", "DEBUG", "DEBUG", "INFO"])
+
     async def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading (limit=1024 pauses its transport after
         # 2 KiB), so the client's writes pile up unsent, and then it

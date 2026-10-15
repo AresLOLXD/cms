@@ -551,6 +551,39 @@ class TestRPC(unittest.TestCase):
              or "well-formed" in record.getMessage()],
             ["WARNING"] + ["DEBUG"] * (len(bad_answers) - 1) + ["INFO"])
 
+    def test_answer_after_garbage_on_dropped_connection_is_stale(self):
+        # Each connection gets a malformed line and then a well-formed
+        # one, which the client reads from the connection the first one
+        # made it drop: only an answer on the live connection (from the
+        # real server, in the end) ends the series of malformed ones.
+        well_formed = b'{"__id": "stale", "__data": null, "__error": null}'
+        connections = []
+
+        def answer_badly(socket_: socket.socket, address: tuple):
+            connections.append(address)
+            if len(connections) > 3:
+                self.handle_new_connection(socket_, address)
+                return
+            socket_.sendall(b"garbage\r\n" + well_formed + b"\r\n")
+            while socket_.recv(1024):
+                pass
+
+        self.spawn_custom_listener(answer_badly)
+
+        with self.assertLogs("cms.io.rpc", "DEBUG") as logs:
+            client = self.get_client(
+                ServiceCoord("Foo", 0), block=False, auto_retry=0.01)
+            self.stop_when_done(client)
+            self.wait_until(
+                lambda: len(connections) > 3 and client.connected)
+            self.assertEqual(client.echo(value=42).get(timeout=2), 42)
+
+        self.assertEqual(
+            [record.levelname for record in logs.records
+             if "Cannot parse" in record.getMessage()
+             or "well-formed" in record.getMessage()],
+            ["WARNING", "DEBUG", "DEBUG", "INFO"])
+
     def test_peer_that_stops_reading_and_answers_garbage(self):
         # The peer stops reading, so the client's writes pile up
         # unsent, and then it sends a malformed line: the client must
