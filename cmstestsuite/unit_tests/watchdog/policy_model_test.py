@@ -168,7 +168,10 @@ class TestBudgets(unittest.TestCase):
                 self.assertEqual(
                     self.free_at("cws1", action=action, shadow=shadow),
                     WALL + 3600)
+        self.ledger.prune(WALL + 3599)
+        self.assertEqual(self.ledger.exhausted_until, WALL + 3600)
         self.ledger.prune(WALL + 3600)
+        self.assertIsNone(self.ledger.exhausted_until)
         self.assertIsNone(self.free_at("cws1", wall=WALL + 3600))
 
     def test_prune_keeps_what_the_last_hour_needs(self):
