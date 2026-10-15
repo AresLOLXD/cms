@@ -307,11 +307,11 @@ class DatabaseMixin(DatabaseObjectGeneratorMixin):
         self.session.commit()
 
     @staticmethod
-    def held_advisory_locks(session) -> list[tuple[int, int]]:
+    def held_advisory_locks(session: Session) -> list[tuple[int, int]]:
         """Return the advisory locks held by the session's connection.
 
-        session (Session): the session to look at; this query starts
-            its transaction if it has none.
+        session: the session to look at; this query starts its
+            transaction if it has none.
 
         return: the two keys of each lock taken with the two-key form
             of pg_advisory_lock and its variants, sorted.

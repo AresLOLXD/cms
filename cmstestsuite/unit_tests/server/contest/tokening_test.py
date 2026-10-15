@@ -423,50 +423,76 @@ class TestAcceptTokenConcurrency(DatabaseMixin, unittest.TestCase):
         self.assertEqual(self.count_tokens(), 1)
 
 
+class DriverError(Exception):
+    """A stand-in for a psycopg2 error, with its SQLSTATE."""
+
+    def __init__(self, pgcode: str):
+        super().__init__("SQLSTATE " + pgcode)
+        self.pgcode = pgcode
+
+
 class TestUseTokenHandler(unittest.TestCase):
     """The handler body runs for real; only the database and
     accept_token are replaced.
 
     """
 
-    def test_duplicate_token_at_commit_is_shown_as_already_played(self):
-        # A second token on the submission, refused by the unique
-        # constraint at the commit: a request that the lock in
-        # accept_token did not serialize with this one played it.
+    def setUp(self):
+        super().setUp()
         handler = UseTokenHandler.__new__(UseTokenHandler)
         handler._current_user = MagicMock()
+        handler._current_user.user.username = "ana"
         handler.impersonated_by_admin = False
         handler.is_multi_contest = lambda: False
         handler.r_params = {"actual_phase": 0}
         handler.timestamp = make_datetime()
         handler.application = MagicMock()
-        handler.get_task = MagicMock()
+        task = MagicMock()
+        task.name = "sum"
+        handler.get_task = MagicMock(return_value=task)
         handler.get_submission = MagicMock()
         handler.contest_url = MagicMock()
         handler.redirect = MagicMock()
         handler.schedule_rpc = MagicMock()
         handler.notify_success = MagicMock()
         handler.notify_error = MagicMock()
-        calls = MagicMock()
-        handler.sql_session = calls.sql_session
-        handler.sql_session.commit.side_effect = IntegrityError(
-            "INSERT INTO tokens", {}, Exception("duplicate key value"))
-        handler.notify_warning = calls.notify_warning
+        self.calls = MagicMock()
+        handler.sql_session = self.calls.sql_session
+        handler.notify_warning = self.calls.notify_warning
+        self.handler = handler
 
+    def post_with_commit_error(self, pgcode: str):
+        """Play a token whose commit fails with the given SQLSTATE."""
+        self.handler.sql_session.commit.side_effect = IntegrityError(
+            "INSERT INTO tokens", {}, DriverError(pgcode))
         with patch("cms.server.contest.handlers.tasksubmission."
                    "accept_token"):
-            handler.post("task", "1")
+            self.handler.post("sum", "1")
 
-        self.assertEqual(calls.mock_calls, [
+    def test_duplicate_token_at_commit_is_shown_as_already_played(self):
+        # A second token on the submission, refused by the unique
+        # constraint at the commit (23505, unique_violation): a request
+        # that the lock in accept_token did not serialize with this one
+        # played it.
+        with self.assertLogs("cms.server.contest.handlers.tasksubmission",
+                             "WARNING") as logs:
+            self.post_with_commit_error("23505")
+
+        self.assertEqual(self.calls.mock_calls, [
             call.sql_session.commit(),
             call.sql_session.rollback(),
             call.notify_warning(
                 "Token request discarded",
                 "Your request has been discarded because you already used "
                 "a token on that submission.")])
-        handler.notify_success.assert_not_called()
-        handler.schedule_rpc.assert_not_called()
-        handler.redirect.assert_called_once_with(handler.contest_url())
+        self.assertEqual(logs.output, [
+            "WARNING:cms.server.contest.handlers.tasksubmission:User ana "
+            "played a token twice on a submission of task sum; the second "
+            "one was refused at commit."])
+        self.handler.notify_success.assert_not_called()
+        self.handler.schedule_rpc.assert_not_called()
+        self.handler.redirect.assert_called_once_with(
+            self.handler.contest_url())
 
 
 if __name__ == "__main__":
