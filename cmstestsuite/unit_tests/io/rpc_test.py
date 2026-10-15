@@ -664,6 +664,30 @@ class TestRPC(unittest.TestCase):
                     lambda: len(connections) > 1 and client.connected)
                 self.assertEqual(client.echo(value=42).get(timeout=2), 42)
 
+    def test_error_answer_is_resolved_before_it_is_logged(self):
+        # An error answer's ERROR record can yield (as a
+        # LogServiceHandler's RPC write can), and a disconnect() meanwhile
+        # kills the reading greenlet, which is the one processing the
+        # answer: its call must be resolved already, not left waiting.
+        client = self.get_client(ServiceCoord("Foo", 0))
+
+        def disconnect_while_logging(record: logging.LogRecord) -> bool:
+            if "was unsuccessful" in record.getMessage():
+                gevent.spawn(client.disconnect)
+                gevent.sleep(0.05)
+            return True
+
+        rpc_logger = logging.getLogger("cms.io.rpc")
+        rpc_logger.addFilter(disconnect_while_logging)
+        self.addCleanup(rpc_logger.removeFilter, disconnect_while_logging)
+
+        result = client.raise_exception()
+        # The disconnect() comes while the record is being logged.
+        self.wait_until(lambda: not client.connected)
+
+        self.assertTrue(result.ready())
+        self.assertIsInstance(result.exception, RPCError)
+
     def test_unexpected_error_on_an_answer_does_not_end_the_loop(self):
         # Whatever goes wrong processing an answer (here a bug, standing
         # in process_incoming_response), the client logs it, with its

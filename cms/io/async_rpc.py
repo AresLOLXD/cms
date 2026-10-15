@@ -634,11 +634,12 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         error = response["__error"]
 
         if error is not None:
+            # Resolve the call before logging, as rpc.py must.
+            if not result.done():
+                result.set_exception(RPCError(error))
             err_msg = "%s signaled RPC for method %s was unsuccessful: %s." % (
                 self.remote_service_coord, request["__method"], error)
             logger.error(err_msg)
-            if not result.done():
-                result.set_exception(RPCError(error))
         else:
             if not result.done():
                 result.set_result(response["__data"])

@@ -776,10 +776,14 @@ class RemoteServiceClient(RemoteServiceBase):
         error = response["__error"]
 
         if error is not None:
+            # Resolve the call before logging: the record can yield (a
+            # LogServiceHandler's RPC write), and a disconnect() then
+            # kills this greenlet, the reading one, before it gets
+            # further.
+            result.set_exception(RPCError(error))
             err_msg = "%s signaled RPC for method %s was unsuccessful: %s." % (
                 self.remote_service_coord, request["__method"], error)
             logger.error(err_msg)
-            result.set_exception(RPCError(error))
         else:
             result.set(response["__data"])
 
