@@ -19,13 +19,19 @@
 """Unit tests for submission details API handlers."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from cms import FEEDBACK_LEVEL_RESTRICTED, FEEDBACK_LEVEL_FULL
 from cms.server.contest.handlers.api import (
+    ApiSubmitHandler,
     ApiSubmissionDetailsHandler,
     ApiSubmissionFullDetailsHandler,
 )
+from cms.server.contest.submission import (
+    ConcurrentSubmission,
+    UnacceptableSubmission,
+)
+from cms.server.contest.submission.check import CONCURRENT_REQUEST_TEXT
 
 
 class BaseApiHandlerTest(unittest.TestCase):
@@ -174,6 +180,41 @@ class TestApiSubmissionFullDetailsHandler(BaseApiHandlerTest):
         self.score_type.get_json_details.assert_called_once_with(
             self.submission_result.score_details, FEEDBACK_LEVEL_FULL
         )
+
+
+class TestApiSubmitHandler(BaseApiHandlerTest):
+
+    def post_refused(self, error):
+        """Send a submission that accept_submission refuses with error."""
+        handler = self.create_handler(ApiSubmitHandler)
+        handler.sql_session = MagicMock()
+        handler.arrival_time = MagicMock()
+        with patch("cms.server.contest.handlers.api.accept_submission",
+                   side_effect=error):
+            handler.post("my_task")
+        return handler
+
+    def test_concurrent_submission_is_a_conflict(self):
+        # A script may send it again: 422 would read as final.
+        handler = self.post_refused(ConcurrentSubmission(
+            "Submission not accepted", CONCURRENT_REQUEST_TEXT))
+
+        self.assertEqual(handler.status_code, 409)
+        self.assertEqual(handler.json_data, {
+            "error": "Submission not accepted",
+            "details": CONCURRENT_REQUEST_TEXT})
+
+    def test_other_refusal_is_unprocessable(self):
+        handler = self.post_refused(UnacceptableSubmission(
+            "Too many submissions!",
+            "You have reached the maximum limit of at most %d submissions "
+            "on this task.", 3))
+
+        self.assertEqual(handler.status_code, 422)
+        self.assertEqual(handler.json_data, {
+            "error": "Too many submissions!",
+            "details": "You have reached the maximum limit of at most 3 "
+                       "submissions on this task."})
 
 
 if __name__ == "__main__":

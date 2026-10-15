@@ -27,7 +27,8 @@ from cms import FEEDBACK_LEVEL_FULL
 from cms.db.submission import Submission
 from cms.server import multi_contest
 from cms.server.contest.authentication import validate_login_async
-from cms.server.contest.submission import UnacceptableSubmission, accept_submission
+from cms.server.contest.submission import ConcurrentSubmission, \
+    UnacceptableSubmission, accept_submission
 from .contest import ContestHandler, api_login_required
 from ..phase_management import actual_phase_required
 
@@ -197,7 +198,10 @@ class ApiSubmitHandler(ApiContestHandler):
             logger.info(
                 "API submission rejected: `%s' - `%s'", e.subject, e.formatted_text
             )
-            self.json({"error": e.subject, "details": e.formatted_text}, 422)
+            # Scripts read 422 as final; a busy refusal is not.
+            status_code = 409 if isinstance(e, ConcurrentSubmission) else 422
+            self.json({"error": e.subject, "details": e.formatted_text},
+                      status_code)
         else:
             logger.info(f"API submission accepted: Submission ID {submission.id}")
             self.schedule_rpc(
