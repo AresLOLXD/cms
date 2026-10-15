@@ -43,7 +43,8 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession as _AsyncSession, async_sessionmaker, create_async_engine)
 
 from cms.conf import config
-from .connect_options import log_rollback_error, with_connection_defaults
+from .connect_options import POOL_TIMEOUT_S, log_rollback_error, \
+    with_connection_defaults
 
 
 def _async_database_url() -> URL:
@@ -89,7 +90,7 @@ def _async_database_url() -> URL:
 # stays the plain driver swap.
 async_engine = create_async_engine(
     with_connection_defaults(_async_database_url()),
-    echo=config.database.debug, pool_timeout=60, pool_recycle=120)
+    echo=config.database.debug, pool_timeout=POOL_TIMEOUT_S, pool_recycle=120)
 
 AsyncSession = async_sessionmaker(async_engine)
 

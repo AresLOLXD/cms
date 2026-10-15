@@ -164,6 +164,11 @@ class WorkerPool:
         # (then it is enabled again when it reconnects) rather than by
         # disable_worker.
         self._disabled_by_timeout: dict[int, bool] = {}
+        # When check_timeouts disabled each worker (UTC), None while
+        # _disabled_by_timeout is False. get_status reports it, so that
+        # cmsWatchdog (#38) can tell how long a worker has been
+        # disabled.
+        self._disabled_at: dict[int, datetime | None] = {}
 
         # TODO: given the number of pieces data associated to each
         # worker, this class could be simplified by creating a new
@@ -268,6 +273,7 @@ class WorkerPool:
         self._schedule_disabling[shard] = False
         self._ignore[shard] = False
         self._disabled_by_timeout[shard] = False
+        self._disabled_at[shard] = None
         self._threadsafe_set_workers_available()
         logger.debug("Worker %s added.", shard)
 
@@ -626,14 +632,16 @@ class WorkerPool:
         workers.
 
         return: dict of info: current operation, starting time,
-            number of errors, and additional data specified in the
-            operation.
+            number of errors, additional data specified in the
+            operation, whether the worker was disabled for not
+            answering in time and when (UTC timestamps, or None).
 
         """
         result = dict()
         for shard in self._worker.keys():
             s_time = self._start_time[shard]
             s_time = make_timestamp(s_time) if s_time is not None else None
+            disabled_at = self._disabled_at[shard]
 
             result["%d" % shard] = {
                 'connected': self._worker[shard].connected,
@@ -641,7 +649,10 @@ class WorkerPool:
                                for operation in self._operations[shard]]
                 if isinstance(self._operations[shard], list)
                 else self._operations[shard],
-                'start_time': s_time}
+                'start_time': s_time,
+                'disabled_by_timeout': self._disabled_by_timeout[shard],
+                'disabled_at': (make_timestamp(disabled_at)
+                                if disabled_at is not None else None)}
         return result
 
     def check_timeouts(self) -> list[ESOperation]:
@@ -705,6 +716,7 @@ class WorkerPool:
                 self._schedule_disabling[shard] = True
                 self._ignore[shard] = True
                 self._disabled_by_timeout[shard] = True
+                self._disabled_at[shard] = now
                 self.release_worker(shard)
                 self._service._spawn(
                     self._fire_and_forget(
@@ -731,6 +743,7 @@ class WorkerPool:
                 raise ValueError(err_msg)
 
             self._disabled_by_timeout[shard] = False
+            self._disabled_at[shard] = None
             lost_operations = []
             if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
                 self._operations[shard] = WorkerPool.WORKER_DISABLED
@@ -773,6 +786,7 @@ class WorkerPool:
             self._operations[shard] = WorkerPool.WORKER_INACTIVE
             self._operations_to_ignore[shard] = []
             self._disabled_by_timeout[shard] = False
+            self._disabled_at[shard] = None
             self._threadsafe_set_workers_available()
             logger.info("Worker %s enabled.", shard)
 

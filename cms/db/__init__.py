@@ -36,7 +36,7 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import configure_mappers, joinedload, subqueryload
 
 from cms import config
-from .connect_options import with_connection_defaults
+from .connect_options import POOL_TIMEOUT_S, with_connection_defaults
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # Define what this package will provide.
 
 __all__ = [
-    "version", "engine",
+    "version", "engine", "POOL_TIMEOUT_S",
     # session
     "Session", "ScopedSession", "SessionGen", "custom_psycopg2_connection",
     "async_engine", "AsyncSession", "AsyncSessionGen",
@@ -91,7 +91,7 @@ version = 49
 
 engine = create_engine(
     with_connection_defaults(make_url(config.database.url)),
-    echo=config.database.debug, pool_timeout=60, pool_recycle=120)
+    echo=config.database.debug, pool_timeout=POOL_TIMEOUT_S, pool_recycle=120)
 
 metadata = MetaData()
 
