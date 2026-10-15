@@ -968,12 +968,16 @@ class _Cycle:
 
     def _resolve_program(self, name: str, text: str) -> None:
         """Close every alert of a program with a "Resolved:" line."""
+        self._close_alerts(name)
+        self.decisions.append(
+            Decision(ALERT, text=text, key=(name, "resolved")))
+
+    def _close_alerts(self, name: str) -> None:
+        """Forget every alert of a program, with no line."""
         for table in (self.state.open_alerts, self.state.alert_sent,
                       self.state.held_headline, self.state.held_announced):
             for key in [key for key in table if key[0] == name]:
                 del table[key]
-        self.decisions.append(
-            Decision(ALERT, text=text, key=(name, "resolved")))
 
     # Bookkeeping.
 
@@ -1826,10 +1830,16 @@ class _Cycle:
     # Incidents.
 
     def _update_incidents(self) -> None:
-        """Count the passes of the open incidents; close them after 2."""
+        """Count the passes of the open incidents; close them after 2.
+
+        Two or more Workers that pass their second time in the same
+        cycle get one "Resolved:" line together.
+
+        """
         tripped = {trip.program.name for trip in self.trips}
         by_name = {program.name: program for program in self.obs.programs}
         incidents = self.state.ledger.incidents
+        resolved: list[tuple[ProgramFacts, dict]] = []
         for name, incident in list(incidents.items()):
             program = by_name.get(name)
             if program is None or program.state != "RUNNING":
@@ -1843,8 +1853,36 @@ class _Cycle:
             incident["passes"] += 1
             if incident["passes"] >= PASSES_TO_RESOLVE:
                 del incidents[name]
-                self._resolve_program(
-                    name, "Resolved: %s passes its checks again "
-                    "(incident of %s, opened at %s)." % (
-                        program.label, incident["rule"],
-                        hhmm_utc(incident["opened"])))
+                resolved.append((program, incident))
+        workers = [item for item in resolved if item[0].kind == "Worker"]
+        together = len(workers) >= 2
+        for program, incident in resolved:
+            if together and program.kind == "Worker":
+                continue
+            self._resolve_program(
+                program.name, "Resolved: %s passes its checks again "
+                "(incident of %s, opened at %s)." % (
+                    program.label, incident["rule"],
+                    hhmm_utc(incident["opened"])))
+        if together:
+            self._resolve_workers(workers)
+
+    def _resolve_workers(self,
+                         workers: list[tuple[ProgramFacts, dict]]) -> None:
+        """Close the incidents of Workers that pass together, in one line.
+
+        workers: (program, incident) of each Worker, 2 or more.
+
+        """
+        workers = sorted(workers, key=lambda item: item[0].shard)
+        for program, _incident in workers:
+            self._close_alerts(program.name)
+        labels = _listed([program.label for program, _ in workers], ", ")
+        rules = ", ".join(sorted({incident["rule"]
+                                  for _, incident in workers}))
+        first = min(incident["opened"] for _, incident in workers)
+        self.decisions.append(Decision(
+            ALERT, key=(WORKERS_GROUP, "resolved"),
+            text="Resolved: %d Workers pass their checks again: %s "
+                 "(incidents of %s, the first opened at %s)."
+                 % (len(workers), labels, rules, hhmm_utc(first))))

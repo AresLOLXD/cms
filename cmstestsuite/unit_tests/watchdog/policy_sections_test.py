@@ -486,6 +486,16 @@ class TestWorkersEpisode(unittest.TestCase):
         return any(d.key == self.KEY for d in decisions)
 
     @staticmethod
+    def fourteen_workers() -> tuple[Scenario, list]:
+        """Return a warmed-up Scenario with 14 Workers, and their facts."""
+        workers = [program("cmsworker%d" % shard, "Worker", shard,
+                           300 + shard) for shard in range(14)]
+        s = Scenario(programs=[facts for facts in DEFAULT_PROGRAMS
+                               if facts.kind != "Worker"] + workers)
+        s.warm_up()
+        return s, workers
+
+    @staticmethod
     def use_up_budgets(s: Scenario) -> None:
         """Book 2 restarts of each Worker 100 s ago: H7, and no H4."""
         for name, label in ((W0, "cmsWorker 0"), (W1, "cmsWorker 1")):
@@ -601,11 +611,7 @@ class TestWorkersEpisode(unittest.TestCase):
         self.assertNotIn(self.KEY, s.state.held_headline)
 
     def test_workers_held_by_one_hold_share_one_line(self):
-        workers = [program("cmsworker%d" % shard, "Worker", shard,
-                           300 + shard) for shard in range(14)]
-        s = Scenario(programs=[facts for facts in DEFAULT_PROGRAMS
-                               if facts.kind != "Worker"] + workers)
-        s.warm_up()
+        s, workers = self.fourteen_workers()
         lock = Gate(True, backends=lock_wait_snapshot())
         names = {facts.name for facts in workers} | {"workers"}
         lines = []
@@ -702,6 +708,60 @@ class TestWorkersEpisode(unittest.TestCase):
             "would-action on cmsWorker 0 was 30 s ago; the watchdog's last "
             "action or would-action on cmsWorker 1 was 15 s ago. Also: H7. "
             "Nothing to do yet: they are still starting.")
+
+    def test_workers_that_recover_together_share_one_resolved_line(self):
+        s, workers = self.fourteen_workers()
+        disabled_at = s.wall + CYCLE_S - 600
+        s.cycle(workers={str(shard): worker(False, disabled_at)
+                         for shard in range(14)})
+        opened = s.wall
+        s.cycle()
+        lines = [d for d in s.cycle() if d.text.startswith("Resolved:")]
+        self.assertEqual(
+            [(line.key, line.text) for line in lines],
+            [(("workers", "resolved"),
+              "Resolved: 14 Workers pass their checks again: cmsWorker 0, "
+              "cmsWorker 1, cmsWorker 2, and 11 more (incidents of R4, the "
+              "first opened at %s)." % hhmm_utc(opened))])
+        self.assertEqual(s.state.ledger.incidents, {})
+
+    def test_a_resolved_line_of_workers_closes_each_one_s_alerts(self):
+        s = Scenario()
+        s.warm_up()
+        # Worker 0 trips alone and is restarted, and goes on failing
+        # alone (held by H6) into the next minute; then both trip, held
+        # together; then both pass twice, and resolve in one cycle.
+        [restart] = actions(s.cycle(workers=self.alone(s)))
+        self.assertEqual(restart.program, W0)
+        opened = s.wall
+        for _ in range(3):
+            s.cycle(workers=self.alone(s))
+        self.assertEqual(s.state.held_headline[(W0, "R4")], "H6")
+        self.assertTrue(self.grouped(s.cycle(workers=self.both(s))))
+        self.assertNotEqual(hhmm_utc(opened), hhmm_utc(s.wall))
+        s.cycle()
+        [line] = [d for d in s.cycle() if d.text.startswith("Resolved:")]
+        self.assertEqual(
+            line.text,
+            "Resolved: 2 Workers pass their checks again: cmsWorker 0, "
+            "cmsWorker 1 (incidents of R4, the first opened at %s)."
+            % hhmm_utc(opened))
+        for table in (s.state.alert_sent, s.state.open_alerts,
+                      s.state.held_headline):
+            self.assertEqual([key for key in table if key[0] in (W0, W1)],
+                             [])
+
+    def test_a_worker_that_recovers_alone_keeps_its_own_line(self):
+        s = Scenario()
+        s.warm_up()
+        self.assertEqual(len(actions(s.cycle(workers=self.alone(s)))), 1)
+        opened = s.wall
+        s.cycle()
+        [line] = [d for d in s.cycle() if d.text.startswith("Resolved:")]
+        self.assertEqual(
+            (line.key, line.text),
+            ((W0, "resolved"), "Resolved: cmsWorker 0 passes its checks "
+             "again (incident of R4, opened at %s)." % hhmm_utc(opened)))
 
     def test_a_worker_held_alone_keeps_its_own_line(self):
         s = Scenario()
