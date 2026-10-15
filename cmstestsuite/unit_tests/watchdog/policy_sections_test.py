@@ -24,9 +24,9 @@ from cms.service.EvaluationService import EvaluationService
 from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, \
     INVALIDATION_SECTION, OBSERVE, PASSES_TO_RESOLVE, RESTART, \
     SERVICES_POOL, Backend, Booking, Gate, Probe
-from cmstestsuite.unit_tests.watchdog.scenario import ES, GREEN, HOLDER, \
-    PS, SS, W0, W1, Scenario, actions, alerts, busy, held, \
-    lock_wait_snapshot, worker
+from cmstestsuite.unit_tests.watchdog.scenario import DEFAULT_PROGRAMS, \
+    ES, GREEN, HOLDER, PS, SS, W0, W1, Scenario, actions, alerts, busy, \
+    held, lock_wait_snapshot, program, worker
 
 
 RANKINGS_OK = {"http://localhost:8890/": Probe(True, 0.01)}
@@ -465,7 +465,7 @@ class TestWorkerRule(unittest.TestCase):
 
 
 class TestWorkersEpisode(unittest.TestCase):
-    """H4's one alert for the Workers that trip R4 together."""
+    """The one line for the Workers that one hold holds together."""
 
     KEY = ("workers", "H4")
 
@@ -513,8 +513,10 @@ class TestWorkersEpisode(unittest.TestCase):
         history = [s.cycle(workers=self.both(s),
                            gate=lock if cycle % 2 else GREEN)
                    for cycle in range(int(ALERT_REPEAT_S / CYCLE_S) + 1)]
-        self.assertEqual([line.holds[0] for line in held(history[1], W0)],
-                         ["H3"])
+        self.assertEqual(held(history[1], W0), [])
+        self.assertEqual(
+            [line.holds[0] for line in held(history[1], "workers")],
+            ["H3"])
         self.assertEqual([self.grouped(d) for d in history],
                          [True] + [False] * 19 + [True])
 
@@ -568,6 +570,67 @@ class TestWorkersEpisode(unittest.TestCase):
         self.assertIn(self.KEY, s.state.held_headline)
         s.cycle(workers=self.alone(s))
         self.assertNotIn(self.KEY, s.state.held_headline)
+
+    def test_workers_held_by_one_hold_share_one_line(self):
+        workers = [program("cmsworker%d" % shard, "Worker", shard,
+                           300 + shard) for shard in range(14)]
+        s = Scenario(programs=[facts for facts in DEFAULT_PROGRAMS
+                               if facts.kind != "Worker"] + workers)
+        s.warm_up()
+        lock = Gate(True, backends=lock_wait_snapshot())
+        names = {facts.name for facts in workers} | {"workers"}
+        lines = []
+        for _ in range(int(ALERT_REPEAT_S / CYCLE_S) + 1):
+            disabled_at = s.wall + CYCLE_S - 600
+            decisions = s.cycle(gate=lock, workers={
+                str(shard): worker(False, disabled_at)
+                for shard in range(14)})
+            self.assertEqual(actions(decisions), [])
+            lines.append([d for d in alerts(decisions)
+                          if d.key[0] in names])
+        self.assertEqual([len(cycle) for cycle in lines],
+                         [1] + [0] * 19 + [1])
+        [line] = lines[0]
+        self.assertEqual((line.key, line.holds),
+                         (("workers", "H3"), ("H3", "H4")))
+        self.assertTrue(line.text.startswith(
+            "Watchdog: 14 Workers trip R4 together (cmsWorker 0, "
+            "cmsWorker 1, cmsWorker 2, and 11 more) and are held by H3: "
+            "a database lock wait: 'cmsEvaluationService 0' (pid 500): "
+            "its statement has been waiting 45 s on a lock held by pid "
+            "900 ('psql'"), line.text)
+        self.assertTrue(line.text.endswith(
+            "Ending a blocker is a human decision. Also: H4. End the "
+            "blocker by hand only if it is stuck (see \"When the watchdog "
+            "alerts\")."), line.text)
+
+    def test_a_group_episode_ends_after_2_cycles_without_its_hold(self):
+        s = Scenario()
+        s.warm_up()
+        lock = Gate(True, backends=lock_wait_snapshot())
+        key = ("workers", "H3")
+
+        def lines(gate: Gate) -> list:
+            return [d for d in s.cycle(workers=self.both(s), gate=gate)
+                    if d.key == key]
+
+        self.assertEqual(len(lines(lock)), 1)
+        # One cycle without the lock wait: the same episode.
+        self.assertEqual(lines(GREEN), [])
+        self.assertEqual(lines(lock), [])
+        # Two: the episode ends, and the next lock wait enters it again.
+        self.assertEqual(lines(GREEN) + lines(GREEN), [])
+        self.assertNotIn(key, s.state.held_headline)
+        self.assertEqual(len(lines(lock)), 1)
+
+    def test_a_worker_held_alone_keeps_its_own_line(self):
+        s = Scenario()
+        s.warm_up()
+        decisions = s.cycle(workers=self.alone(s),
+                            gate=Gate(True, backends=lock_wait_snapshot()))
+        self.assertEqual([line.holds[0] for line in held(decisions, W0)],
+                         ["H3"])
+        self.assertEqual(held(decisions, "workers"), [])
 
 
 if __name__ == "__main__":

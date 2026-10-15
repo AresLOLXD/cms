@@ -150,8 +150,12 @@ URGENT_HOLDS: tuple[str, ...] = ("H3", "H7")
 GATE_ANSWERED_REASONS: tuple[str, ...] = ("refused", "too many clients",
                                           "authentication")
 
-# The alert key of the Workers that H4 holds together.
-WORKERS_H4_KEY = ("workers", "H4")
+# The first element of the alert key of the Workers that one headline
+# hold holds together: ("workers", "H3").
+WORKERS_GROUP = "workers"
+# A Workers' group line names at most this many Workers, and this many
+# reasons of its headline hold, so that it stays a line.
+WORKERS_LISTED = 3
 
 # Decision.action and Booking.action.
 ALERT = "alert"
@@ -711,9 +715,10 @@ class PolicyState:
     held_headline: the headline hold of each held trip's key.
     held_announced: for each held trip's key, the URGENT_HOLDS that have
         headed a line in this hold episode; it ends with held_headline.
-    workers_h4_quiet: while the Workers' H4 episode is open, the
-        non-starved cycles in a row in which H4 applied to no Worker
-        trip; the episode ends at PASSES_TO_RESOLVE of them.
+    workers_quiet: for each open episode of a Workers' group line, by
+        its headline hold, the non-starved cycles in a row in which
+        that hold applied to no Worker trip; the episode ends at
+        PASSES_TO_RESOLVE of them.
     open_alerts: the last alert of each open problem, by key (sent
         again to a new LogService).
     near_miss: this hour's statistics.
@@ -739,7 +744,7 @@ class PolicyState:
     summary_mono: float | None = None
     held_announced: dict[tuple[str, str], set[str]] = field(
         default_factory=dict)
-    workers_h4_quiet: int = 0
+    workers_quiet: dict[str, int] = field(default_factory=dict)
 
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
@@ -791,6 +796,21 @@ def _other_holds(holds: Sequence[tuple[str, str]]) -> str:
     lock_wait = dict(others).get("H3")
     if lock_wait:
         text += " H3: %s." % lock_wait
+    return text
+
+
+def _listed(items: Sequence[str], separator: str) -> str:
+    """Join the first WORKERS_LISTED items, then say how many are left.
+
+    items: what to list, in order.
+    separator: what goes between two of them.
+
+    return: "a, b, c, and 2 more" for five items and ", ".
+
+    """
+    text = separator.join(items[:WORKERS_LISTED])
+    if len(items) > WORKERS_LISTED:
+        text += "%sand %d more" % (separator, len(items) - WORKERS_LISTED)
     return text
 
 
@@ -1338,8 +1358,10 @@ class _Cycle:
     def _act_on_trips(self) -> None:
         """Turn each trip into an action, or into an alert if held."""
         self._early_warnings()
-        held_workers: list[Trip] = []
-        h4_on_workers = False
+        # The held trips of Workers, by headline hold: two or more under
+        # one hold get one line together.
+        held_workers: dict[str, list[tuple[Trip, list, bool]]] = {}
+        workers_holds: set[str] = set()
         incidents = self.state.ledger.incidents
         for trip in self.trips:
             program = trip.program
@@ -1349,47 +1371,57 @@ class _Cycle:
                     "rule": trip.rule, "opened": self.wall, "passes": 0}
             shadow = self.state.shadow_for(program.klass)
             holds = self._holds(program, shadow)
-            if program.kind == "Worker" \
-                    and any(code == "H4" for code, _ in holds):
-                h4_on_workers = True
-            if holds and holds[0][0] == "H4" and program.kind == "Worker":
-                held_workers.append(trip)
+            if program.kind == "Worker":
+                workers_holds.update(code for code, _ in holds)
+            if holds and program.kind == "Worker":
+                held_workers.setdefault(holds[0][0], []).append(
+                    (trip, holds, opened))
             elif holds:
                 self._held(trip, holds, opened)
             else:
                 self._restart(trip, shadow)
-        if held_workers:
-            self._held_workers(held_workers)
-        self._track_workers_episode(h4_on_workers)
+        for headline, group in held_workers.items():
+            if len(group) >= 2:
+                self._held_workers(
+                    headline, [(trip, holds) for trip, holds, _ in group])
+            else:
+                [(trip, holds, opened)] = group
+                self._held(trip, holds, opened)
+        self._track_workers_episodes(workers_holds)
 
-    def _track_workers_episode(self, h4_applied: bool) -> None:
-        """End the Workers' H4 episode after PASSES_TO_RESOLVE quiet cycles.
+    def _track_workers_episodes(self, applied: set[str]) -> None:
+        """End the episodes of the Workers' group lines that went quiet.
 
-        A quiet cycle is a non-starved one (this runs in those only) in
-        which H4 applies to no Worker trip. A Worker that trips alone,
-        or over its budget, does not keep the episode open; a trip that
-        comes and goes, another hold heading the group for a while, or
-        a cycle in which R4 cannot judge any Worker, does not end it.
-        The next episode is entering a hold again.
+        The episode of a group line (its key, (WORKERS_GROUP, headline))
+        ends after PASSES_TO_RESOLVE quiet cycles in a row: non-starved
+        ones (this runs in those only) in which its headline hold
+        applies to no Worker trip. A Worker that trips alone, or over
+        its budget, does not keep an H4 episode open; a trip that comes
+        and goes, another hold heading the group for a while, or a cycle
+        in which R4 cannot judge any Worker, does not end one. The next
+        episode is entering a hold again.
 
-        h4_applied: whether H4 applied to a Worker trip in this cycle.
+        applied: every hold that applied to a Worker trip in this cycle.
 
         """
         state = self.state
-        if h4_applied or WORKERS_H4_KEY not in state.held_headline:
-            state.workers_h4_quiet = 0
-            return
         workers = {program.name for program in self.running
                    if program.kind == "Worker"}
-        if workers and workers <= self.unjudged:
-            # The cycle says nothing about the Workers: not a quiet one.
-            return
-        state.workers_h4_quiet += 1
-        if state.workers_h4_quiet >= PASSES_TO_RESOLVE:
-            state.workers_h4_quiet = 0
-            for table in (state.held_headline, state.held_announced,
-                          state.alert_sent):
-                table.pop(WORKERS_H4_KEY, None)
+        # A cycle that says nothing about the Workers is not a quiet one.
+        blind = bool(workers) and workers <= self.unjudged
+        for key in [key for key in state.held_headline
+                    if key[0] == WORKERS_GROUP]:
+            headline = key[1]
+            if headline in applied:
+                state.workers_quiet.pop(headline, None)
+            elif not blind:
+                quiet = state.workers_quiet.get(headline, 0) + 1
+                state.workers_quiet[headline] = quiet
+                if quiet >= PASSES_TO_RESOLVE:
+                    del state.workers_quiet[headline]
+                    for table in (state.held_headline,
+                                  state.held_announced, state.alert_sent):
+                        table.pop(key, None)
 
     def _early_warnings(self) -> None:
         """Emit the early warnings of the cycle (3.5, 3.9)."""
@@ -1682,18 +1714,44 @@ class _Cycle:
                     change=opened or previous is None or urgent,
                     holds=codes, keep_open=True)
 
-    def _held_workers(self, trips: list[Trip]) -> None:
-        """Alert once about the Workers that H4 holds together."""
-        key = WORKERS_H4_KEY
+    def _held_workers(self, headline: str,
+                      group: list[tuple[Trip, list[tuple[str, str]]]]
+                      ) -> None:
+        """Alert once about the Workers that one headline hold holds.
+
+        The line names the Workers, then the reasons of the headline (H6
+        and H7 give one per Worker), both capped at WORKERS_LISTED, and
+        every other hold that applies to any of them. Its rate limit and
+        episode are those of its key, (WORKERS_GROUP, headline): the
+        first line of an episode goes out at once.
+
+        headline: the hold that heads the trip of every Worker of group.
+        group: (trip, holds) of each Worker, 2 or more.
+
+        """
+        key = (WORKERS_GROUP, headline)
         previous = self.state.held_headline.get(key)
-        self.state.held_headline[key] = "H4"
-        labels = ", ".join(sorted(trip.program.label for trip in trips))
-        self._alert(
-            key, "WARNING",
-            "Watchdog: %d Workers trip R4 together (%s) and are held by "
-            "H4: a correlated failure is left to a human. %s"
-            % (len(trips), labels, HOLD_HINTS["H4"]),
-            change=previous != "H4", holds=("H4",))
+        self.state.held_headline[key] = headline
+        group = sorted(group, key=lambda item: item[0].program.shard)
+        reasons: dict[str, list[str]] = {}
+        for _trip, holds in group:
+            for code, reason in holds:
+                known = reasons.setdefault(code, [])
+                if reason not in known:
+                    known.append(reason)
+        if headline == "H4":
+            why = "a correlated failure is left to a human"
+        else:
+            why = _listed(reasons[headline], "; ")
+        others = [(code, reasons[code][0]) for code in HOLDS
+                  if code in reasons and code != headline]
+        labels = _listed([trip.program.label for trip, _ in group], ", ")
+        text = ("Watchdog: %d Workers trip R4 together (%s) and are held "
+                "by %s: %s." % (len(group), labels, headline, why))
+        text += _other_holds([(headline, why)] + others)
+        text += " " + HOLD_HINTS[headline]
+        self._alert(key, "WARNING", text, change=previous is None,
+                    holds=[headline] + [code for code, _ in others])
 
     def _restart(self, trip: Trip, shadow: bool) -> None:
         """Decide a restart, or a would-restart, and book it."""
