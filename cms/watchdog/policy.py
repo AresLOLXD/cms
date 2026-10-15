@@ -899,7 +899,8 @@ class _Cycle:
         # section past half its trip.
         self.half: set[str] = set()
         # Programs that a rule could not judge in this cycle (R4 without
-        # ES's view of them, R3 on a send while no ranking answers):
+        # ES's view of them or with ES up for less than 120 s, R3 on a
+        # send while a ranking does not answer or none is probed):
         # unknown, neither a pass nor a miss of their incident.
         self.unjudged: set[str] = set()
 
@@ -1295,6 +1296,12 @@ class _Cycle:
         es_health = self.obs.health.get(es.name)
         es_uptime = (es_health.get("uptime_s")
                      if isinstance(es_health, Mapping) else None)
+        if is_number(es_uptime) and es_uptime < ES_UP_FOR_WORKERS_S:
+            # A young ES has disabled no Worker yet, and (b) waits for
+            # it: R4 cannot judge any Worker for now.
+            self.unjudged.update(program.name for program in self.running
+                                 if program.kind == "Worker")
+            return
         for program in self.running:
             if program.kind != "Worker":
                 continue
@@ -1342,10 +1349,11 @@ class _Cycle:
         others = any(other.get("connected") is True
                      for shard, other in statuses.items()
                      if shard != str(program.shard))
+        # _worker_trips judges no Worker while ES is up for less than
+        # ES_UP_FOR_WORKERS_S.
         if status.get("connected") is not False or not others \
                 or program.start_wall is None \
-                or not is_number(es_uptime) \
-                or es_uptime < ES_UP_FOR_WORKERS_S:
+                or not is_number(es_uptime):
             return ""
         running_for = age(self.wall, program.start_wall)
         if running_for < WORKER_UNCONNECTED_TRIP_S:

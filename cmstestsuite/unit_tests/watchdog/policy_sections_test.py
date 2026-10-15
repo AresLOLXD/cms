@@ -559,6 +559,24 @@ class TestWorkersEpisode(unittest.TestCase):
                 for name in (W0, W1):
                     self.assertIn(name, s.state.ledger.incidents)
 
+    def test_a_young_es_cannot_judge_the_workers(self):
+        s = Scenario()
+        s.warm_up()
+        self.assertTrue(self.grouped(s.cycle(workers=self.both(s))))
+        # ES restarts: it has disabled no Worker yet, and R4 (b) needs
+        # it up for 120 s, so for now R4 cannot judge them.
+        s.set(ES, pid=777)
+        history = [s.cycle(
+            health={ES: {"pid": 777, "uptime_s": 15.0 + 15 * index,
+                         "busy": []}},
+            workers={"0": worker(False), "1": worker(False)})
+            for index in range(3)]
+        self.assertEqual([d.text for decisions in history for d in decisions
+                          if d.text.startswith("Resolved:")], [])
+        for name in (W0, W1):
+            self.assertIn(name, s.state.ledger.incidents)
+        self.assertIn(self.KEY, s.state.held_headline)
+
     def test_a_worker_that_trips_alone_does_not_keep_the_episode(self):
         s = Scenario()
         s.warm_up()
