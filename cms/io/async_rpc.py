@@ -549,8 +549,8 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         """Close the connection, but not for good.
 
         Unlike disconnect(), it leaves the connect loop running: run()
-        then reads the end of the connection, and _run reconnects
-        after auto_retry seconds, if it has to.
+        stops reading the connection, and _run reconnects after
+        auto_retry seconds, if it has to.
 
         reason: why, for the log.
 
@@ -585,8 +585,7 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         # processed. Once the connection has ended (because one of them
         # was a malformed answer, say), the others are discarded,
         # whatever they are, instead of being taken as answers; and
-        # run() reads no more, as _read() returns nothing once we're
-        # disconnected.
+        # run() reads no more, as it stops once we're disconnected.
         if reader is not self._reader:
             return
 

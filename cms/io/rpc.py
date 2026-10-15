@@ -664,8 +664,8 @@ class RemoteServiceClient(RemoteServiceBase):
         """Close the connection, but not for good.
 
         Unlike disconnect(), it leaves the connect loop running: run()
-        then reads the end of the connection, and _run reconnects
-        after auto_retry seconds, if it has to.
+        stops reading the connection, and _run reconnects after
+        auto_retry seconds, if it has to.
 
         reason: why, for the log.
 
