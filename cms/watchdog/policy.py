@@ -2335,6 +2335,14 @@ def program_status(state: PolicyState, observation: Observation,
                    wall: float) -> list[dict]:
     """Describe each program for the status file (3.10).
 
+    misses and known describe the liveness window of a RUNNING program
+    only (None otherwise: the window of its last process says nothing
+    about it now). In the last hour, restarts_last_hour counts its real
+    restarts, would_restarts_last_hour the would-restarts of observe
+    mode, shadow_restarts_last_hour those of H9, and starts_last_hour
+    what R5 used of its FATAL budget (starts and would-starts, in the
+    ledger that H7 reads for it). incident is a copy.
+
     state: the state decide() returned for this cycle.
     observation: this cycle's observation.
     wall: now (epoch seconds).
@@ -2342,28 +2350,43 @@ def program_status(state: PolicyState, observation: Observation,
     return: one dict per program of the process source.
 
     """
+    def restarts(name: str, ledger: list[Booking], would: bool) -> int:
+        return sum(1 for booking in ledger
+                   if booking.program == name and booking.action == RESTART
+                   and booking.would == would
+                   and age(wall, booking.wall) < BUDGET_WINDOW_S)
+
     entries = []
     for program in observation.programs:
         program_state = state.programs.get(program.name)
+        window = (program_state.window
+                  if program_state is not None
+                  and program.state == "RUNNING" else None)
         http = observation.http.get(program.name)
         rpc = observation.rpc.get(program.name)
+        incident = state.ledger.incidents.get(program.name)
         entries.append({
             "name": program.name,
             "label": program.label if program.managed else None,
             "kind": program.kind,
             "state": program.state,
             "pid": program.pid,
-            "misses": sum(program_state.window) if program_state else 0,
-            "known": len(program_state.window) if program_state else 0,
+            "misses": None if window is None else sum(window),
+            "known": None if window is None else len(window),
             "http_ok": None if http is None else http.ok,
             "http_latency_s": None if http is None else http.latency_s,
             "rpc_ok": None if rpc is None else rpc.ok,
             "rpc_latency_s": None if rpc is None else rpc.latency_s,
             "sections": busy_sections(observation.health.get(program.name)),
-            "incident": state.ledger.incidents.get(program.name),
-            "restarts_last_hour": state.ledger.count(
-                program.name, RESTART, False, wall),
+            "incident": None if incident is None else dict(incident),
+            "restarts_last_hour": restarts(
+                program.name, state.ledger.real, False),
+            "would_restarts_last_hour": restarts(
+                program.name, state.ledger.real, True),
             "shadow_restarts_last_hour": state.ledger.count(
                 program.name, RESTART, True, wall),
+            "starts_last_hour": state.ledger.count(
+                program.name, START,
+                program.managed and state.shadow_for(program.klass), wall),
         })
     return entries

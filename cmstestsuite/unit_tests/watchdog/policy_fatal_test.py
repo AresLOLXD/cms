@@ -577,6 +577,55 @@ class TestSummaryAndStatus(unittest.TestCase):
         self.assertIsNone(entries[W0]["http_ok"])
         self.assertEqual(entries[CWS1]["restarts_last_hour"], 0)
 
+    @staticmethod
+    def status(s: Scenario) -> dict[str, dict]:
+        return {entry["name"]: entry for entry in
+                program_status(s.state, s.observation, s.wall)}
+
+    def test_program_status_tells_each_kind_of_restart_apart(self):
+        for kwargs, counts in (({}, (1, 0, 0)),
+                               ({"mode": OBSERVE}, (0, 1, 0)),
+                               ({"restart": ("core",)}, (0, 0, 1))):
+            with self.subTest(**kwargs):
+                s = Scenario(**kwargs)
+                s.warm_up()
+                for _ in range(5):
+                    s.cycle(fail=[CWS1])
+                entry = self.status(s)[CWS1]
+                self.assertEqual(
+                    (entry["restarts_last_hour"],
+                     entry["would_restarts_last_hour"],
+                     entry["shadow_restarts_last_hour"]), counts)
+
+    def test_program_status_tells_the_fatal_start_budget_used(self):
+        for kwargs, name in (({"mode": OBSERVE}, SS),
+                             ({"restart": ("web",)}, LS)):
+            with self.subTest(**kwargs):
+                s = Scenario(**kwargs)
+                s.warm_up()
+                fatal(s, name)
+                outage(s)
+                s.cycle()
+                self.assertEqual(self.status(s)[name]["starts_last_hour"], 0)
+                self.assertTrue(actions(s.cycle())[0].would)
+                self.assertEqual(self.status(s)[name]["starts_last_hour"], 1)
+
+    def test_program_status_of_a_program_that_does_not_run(self):
+        s = Scenario()
+        s.warm_up()
+        fatal(s, SS)
+        outage(s)
+        s.cycle()
+        s.cycle()
+        entry = self.status(s)[SS]
+        # Its last process's window says nothing about it now.
+        self.assertEqual((entry["state"], entry["misses"], entry["known"]),
+                         ("FATAL", None, None))
+        self.assertEqual(entry["incident"]["rule"], "R5")
+        # The entry is a copy: changing it does not change the ledger.
+        entry["incident"]["passes"] = 99
+        self.assertEqual(s.state.ledger.incidents[SS]["passes"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
