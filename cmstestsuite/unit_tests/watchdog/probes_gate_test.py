@@ -205,6 +205,9 @@ class TestGate(unittest.IsolatedAsyncioTestCase):
              "too many clients"),
             (b"psql: error: ... failed: FATAL:  password authentication "
              b"failed for user \"cms\"\n", "authentication"),
+            (b"psql: error: connection to server at \"db\", port 5432 "
+             b"failed: fe_sendauth: no password supplied\n",
+             "authentication"),
             (b"ERROR:  canceling statement due to statement timeout\n",
              "timeout"),
             (b"psql: error: could not translate host name \"db\" to "
@@ -376,6 +379,12 @@ class TestSnapshot(unittest.TestCase):
     def test_classify(self):
         self.assertEqual(classify("Connection refused"), "refused")
         self.assertEqual(classify("weird"), "other")
+        # The server answered by asking for a password (psql runs with
+        # -w, so it does not prompt): an answered red, as a wrong one.
+        self.assertEqual(
+            classify('connection to server at "db" (127.0.0.1), port 5432 '
+                     'failed: fe_sendauth: no password supplied'),
+            "authentication")
 
     def test_the_reasons_postgresql_answers_are_the_policys(self):
         # A starved cycle still tracks a red gate with one of these
@@ -384,7 +393,8 @@ class TestSnapshot(unittest.TestCase):
         answered = {classify(text) for text in (
             "failed: Connection refused",
             "failed: FATAL:  sorry, too many clients already",
-            "failed: FATAL:  password authentication failed for user")}
+            "failed: FATAL:  password authentication failed for user",
+            "failed: fe_sendauth: no password supplied")}
         self.assertEqual(answered, set(GATE_ANSWERED_REASONS))
         for text in ("failed: timeout expired", "could not translate"):
             with self.subTest(text=text):

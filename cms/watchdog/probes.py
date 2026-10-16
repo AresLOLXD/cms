@@ -459,7 +459,8 @@ def classify(stderr: str) -> str:
     text = stderr.lower()
     if "too many clients" in text or "remaining connection slots" in text:
         return "too many clients"
-    if "authentication failed" in text or "no pg_hba.conf entry" in text:
+    if "authentication failed" in text or "no pg_hba.conf entry" in text \
+            or "no password supplied" in text:
         return "authentication"
     if "timeout expired" in text or "statement timeout" in text:
         return "timeout"
