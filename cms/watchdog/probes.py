@@ -377,14 +377,41 @@ class GateResult:
     backends: tuple[dict, ...] = ()
 
 
+# The grammar of a database URL, copied from SQLAlchemy 2.0
+# (sqlalchemy/engine/url.py, _parse_url), which is what CMS opens the
+# database with. urlsplit differs: it ends the password at the first
+# "/", "?" or "#", which SQLAlchemy accepts unencoded in a password, and
+# the gate would then connect somewhere else than CMS does.
+DATABASE_URL = re.compile(
+    r"""
+        (?P<name>[\w\+]+)://
+        (?:
+            (?P<username>[^:/]*)
+            (?::(?P<password>[^@]*))?
+        @)?
+        (?:
+            (?:
+                \[(?P<ipv6host>[^/\?]+)\] |
+                (?P<ipv4host>[^/:\?]+)
+            )?
+            (?::(?P<port>[^/\?]*))?
+        )?
+        (?:/(?P<database>[^\?]*))?
+        (?:\?(?P<query>.*))?
+    """, re.X)
+
+
 def psql_environment(url: str, path: str, connect_timeout_s: int,
                      statement_timeout_ms: int) -> dict[str, str]:
     """Return the environment of the gate's psql (3.4.1).
 
-    The password goes in the environment, never in argv. Of the URL's
+    The password goes in the environment, never in argv. The URL is read
+    as SQLAlchemy reads it (DATABASE_URL): the user and the password are
+    percent-decoded, the host and the database are not. Of the URL's
     query only sslmode and host (a socket directory) are read: the gate
-    sets its own timeouts. LC_ALL=C keeps psql's messages in English,
-    which classify() reads.
+    sets its own timeouts. LC_ALL=C makes psql's and libpq's own
+    messages English, which classify() reads; the server's messages
+    (too many clients, authentication) follow its lc_messages.
 
     url: config.database.url, with or without its +driver suffix.
     path: the PATH in which to find psql.
@@ -394,26 +421,30 @@ def psql_environment(url: str, path: str, connect_timeout_s: int,
     return: the whole environment of the subprocess.
 
     """
-    parts = urlsplit(url)
     env = {"PATH": path, "LC_ALL": "C", "PGAPPNAME": "cmsWatchdog",
            "PGCONNECT_TIMEOUT": str(connect_timeout_s),
            "PGOPTIONS": "-c statement_timeout=%d" % statement_timeout_ms}
-    if parts.hostname:
-        env["PGHOST"] = parts.hostname
+    match = DATABASE_URL.match(url)
+    if match is None:
+        # CMS itself would not start; leave libpq its defaults.
+        return env
+    parts = match.groupdict()
+    host = parts["ipv4host"] or parts["ipv6host"]
+    if host:
+        env["PGHOST"] = host
     try:
-        port = parts.port
+        port = int(parts["port"] or 0)
     except ValueError:
-        port = None
+        port = 0
     if port:
         env["PGPORT"] = str(port)
-    if parts.username:
-        env["PGUSER"] = unquote(parts.username)
-    if parts.password is not None:
-        env["PGPASSWORD"] = unquote(parts.password)
-    database = unquote(parts.path.lstrip("/"))
-    if database:
-        env["PGDATABASE"] = database
-    query = parse_qs(parts.query)
+    if parts["username"]:
+        env["PGUSER"] = unquote(parts["username"])
+    if parts["password"]:
+        env["PGPASSWORD"] = unquote(parts["password"])
+    if parts["database"]:
+        env["PGDATABASE"] = parts["database"]
+    query = parse_qs(parts["query"] or "")
     if "sslmode" in query:
         env["PGSSLMODE"] = query["sslmode"][-1]
     if "host" in query:

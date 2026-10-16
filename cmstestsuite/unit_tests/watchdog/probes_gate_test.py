@@ -26,6 +26,8 @@ import tempfile
 import threading
 import unittest
 
+from sqlalchemy.engine import make_url
+
 from cms import config
 from cms.watchdog.policy import GATE_ANSWERED_REASONS, Backend
 from cms.watchdog.probes import BACKEND_FIELDS, classify, db_gate, \
@@ -114,6 +116,49 @@ class TestEnvironment(unittest.TestCase):
         self.assertEqual(env["PGHOST"], "/var/run/postgresql")
         self.assertNotIn("PGPASSWORD", env)
         self.assertNotIn("PGPORT", env)
+
+    def test_the_url_is_read_as_sqlalchemy_reads_it(self):
+        # CMS opens the database with SQLAlchemy 2.0, whose password may
+        # hold "/", "#", "?", ":", "+" and "=" unencoded (it ends at the
+        # first "@"), and which decodes only the user and the password:
+        # the gate must connect with what CMS connects with.
+        urls = (
+            "postgresql+psycopg2://cms:Ab/cd+ef=@db:5432/cmsdb",
+            "postgresql+psycopg2://cms:Ab#cd@db:5432/cmsdb",
+            "postgresql+psycopg2://cms:Ab?cd=ef@db:5432/cmsdb",
+            "postgresql+psycopg2://cms:a:b:c@db/cmsdb",
+            "postgresql+psycopg2://cms:a%40b%2Fc%23d@db/cmsdb",
+            "postgresql+psycopg2://cms%3Ax:pw+=%@db/cmsdb",
+            "postgresql://cms:pw@db",
+            "postgresql://cms:pw@db:5433/",
+            "postgresql://cms@db/cmsdb?sslmode=require",
+            "postgresql://cms:pw@/cmsdb?host=/var/run/postgresql",
+            "postgresql://cms:pw@[::1]:5433/cmsdb",
+            "postgresql://cms:pw@[::1]/cmsdb?sslmode=disable&x=1",
+            "postgresql://cms:@db/cmsdb",
+            "postgresql://:pw@db/cmsdb",
+            "postgresql://Db.Example:5432/cm%40sdb",
+            "postgresql://",
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                parsed = make_url(url)
+                expected = {
+                    name: str(value) for name, value in (
+                        ("PGHOST", parsed.host), ("PGPORT", parsed.port),
+                        ("PGUSER", parsed.username),
+                        ("PGPASSWORD", parsed.password),
+                        ("PGDATABASE", parsed.database),
+                        ("PGSSLMODE", parsed.query.get("sslmode")))
+                    if value}
+                if "host" in parsed.query:
+                    expected["PGHOST"] = parsed.query["host"]
+                env = environment(url)
+                self.assertEqual(
+                    {name: value for name, value in env.items()
+                     if name in ("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD",
+                                 "PGDATABASE", "PGSSLMODE")},
+                    expected)
 
 
 class TestGate(unittest.IsolatedAsyncioTestCase):
