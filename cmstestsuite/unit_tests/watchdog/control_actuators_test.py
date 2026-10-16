@@ -516,13 +516,16 @@ class TestIntervals(unittest.TestCase):
     def test_a_non_positive_interval_is_refused(self):
         # A poll_s of 0 or less would read the source in a busy loop; a
         # term_wait_s would KILL with no grace, a confirm_s would never
-        # confirm.
+        # confirm. An infinite one would make a restart unbounded, and
+        # what is not a number is no interval either.
+        not_numbers = (float("inf"), float("-inf"), "1", None, True,
+                       10 ** 400)
         for name in ("term_wait_s", "confirm_s", "poll_s"):
-            for value in (0, -1.0, float("nan")):
+            for value in (0, -1.0, float("nan")) + not_numbers:
                 with self.subTest(name=name, value=value), \
                         self.assertRaises(ValueError):
                     SignalActuator(None, **{name: value})
-        for value in (-0.5, float("nan")):
+        for value in (-0.5, float("nan")) + not_numbers:
             with self.subTest(usr1_wait_s=value), \
                     self.assertRaises(ValueError):
                 DryRunActuator(None, usr1_wait_s=value)

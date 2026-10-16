@@ -31,6 +31,7 @@ procfs.py, which does too).
 import asyncio
 import concurrent.futures
 import http.client
+import math
 import os
 import select
 import shlex
@@ -349,6 +350,30 @@ class Outcome:
     evidence_error: str = ""
 
 
+def check_interval(name: str, value: object, zero_ok: bool = False) -> None:
+    """Check an interval of an actuator, in seconds.
+
+    name: its name, for the error.
+    value: the interval.
+    zero_ok: whether 0 is allowed.
+
+    raise (ValueError): unless value is a finite int or float (not a
+        bool) above 0, or 0 when zero_ok.
+
+    """
+    try:
+        finite = (not isinstance(value, bool)
+                  and isinstance(value, (int, float))
+                  and math.isfinite(value))
+    except OverflowError:
+        # An int too large for a float.
+        finite = False
+    if not finite or value < 0 or (value == 0 and not zero_ok):
+        raise ValueError("%s must be a finite number of seconds %s, not %r"
+                         % (name, "of 0 or more" if zero_ok else "above 0",
+                            value))
+
+
 def handles_signal(pid: int, signum: int, proc: str = "/proc") -> bool:
     """Tell whether a process catches signum (SigCgt of its status)."""
     try:
@@ -453,12 +478,11 @@ class DryRunActuator:
         pidfd_open, send_signal: os.pidfd_open and
             signal.pidfd_send_signal (tests may replace them).
 
-        raise (ValueError): if usr1_wait_s is negative or not a number.
+        raise (ValueError): if usr1_wait_s is negative, infinite or not
+            a number.
 
         """
-        if not usr1_wait_s >= 0:
-            raise ValueError("usr1_wait_s must be 0 or more, not %r"
-                             % usr1_wait_s)
+        check_interval("usr1_wait_s", usr1_wait_s, zero_ok=True)
         self._source = source
         self._proc = proc
         self._usr1_wait_s = usr1_wait_s
@@ -613,16 +637,15 @@ class SignalActuator(DryRunActuator):
         killpg: os.killpg (tests may wrap it).
         kwargs: those of DryRunActuator.
 
-        raise (ValueError): if an interval is not more than 0 (a poll_s
-            of 0 would read the source in a busy loop), or a kwarg is
+        raise (ValueError): if an interval is not a finite number above
+            0 (a poll_s of 0 would read the source in a busy loop, an
+            infinite one would make a restart unbounded), or a kwarg is
             invalid.
 
         """
         for name, value in (("term_wait_s", term_wait_s),
                             ("confirm_s", confirm_s), ("poll_s", poll_s)):
-            if not value > 0:
-                raise ValueError("%s must be more than 0, not %r"
-                                 % (name, value))
+            check_interval(name, value)
         super().__init__(source, **kwargs)
         self._term_wait_s = term_wait_s
         self._confirm_s = confirm_s
