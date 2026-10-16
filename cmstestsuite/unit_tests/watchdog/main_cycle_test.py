@@ -519,6 +519,42 @@ class TestCycle(unittest.IsolatedAsyncioTestCase):
         await rig.cycle()
         self.assertFalse(rig.status()["action_in_flight"])
 
+    async def test_an_action_interrupted_at_stop_is_journaled(self):
+        # supervisord stops the watchdog (SIGTERM) during an action: the
+        # journal and the alerts say so, and the cancellation goes on.
+        rig = Rig(self)
+        rig.actuator.release = asyncio.Event()
+        await rig.trip_cws1(settle=False)
+        while not rig.actuator.calls:
+            await asyncio.sleep(0)
+        action = rig.watchdog._action
+        action.cancel()
+        await asyncio.wait({action})
+        self.assertTrue(action.cancelled())
+        booking, outcome = rig.journal()
+        self.assertEqual(
+            (booking["action"], outcome["outcome"], outcome["detail"]),
+            ("restart", "interrupted", "the watchdog stopped during it"))
+        self.assertIn(
+            "ERROR Watchdog: the restart of cmsContestWebServer 1 (pid 109) "
+            "after 5 of its last 6 favicon probes failed (R1) was "
+            "interrupted: the watchdog stopped during it; TERM and KILL may "
+            "have been sent.", rig.lines()[-1])
+        # A start batch, stopped as serve stops it.
+        rig = Rig(self)
+        rig.actuator.release = asyncio.Event()
+        await rig.outage(["cmscontestwebserver1"], settle=False)
+        while not rig.actuator.calls:
+            await asyncio.sleep(0)
+        await rig.watchdog.stop()
+        self.assertTrue(rig.watchdog._action.cancelled())
+        self.assertEqual(rig.journal()[-1]["outcome"], "interrupted")
+        self.assertIn("ERROR Watchdog: the start of cmscontestwebserver1 was "
+                      "interrupted: the watchdog stopped during it; some of "
+                      "them may have been started.", rig.lines()[-1])
+        # Nothing in flight: nothing to stop.
+        await rig.watchdog.stop()
+
     async def test_a_real_and_a_shadow_start_batch_in_one_cycle(self):
         rig = Rig(self, restart=("web", "core", "infra"))
         await rig.outage(["cmscontestwebserver1", "cmsworker0"])
@@ -937,6 +973,16 @@ class TestLines(unittest.TestCase):
              "Watchdog: the would-restart of cmsContestWebServer 1 (pid "
              "109) %s failed unexpectedly: bad file descriptor; no TERM or "
              "KILL was sent. %s" % (self.WHAT, tail)),
+            (self.DECISION, Outcome("interrupted", "the watchdog stopped "
+                                    "during it"), "ERROR",
+             "Watchdog: the restart of cmsContestWebServer 1 (pid 109) %s "
+             "was interrupted: the watchdog stopped during it; TERM and KILL "
+             "may have been sent. %s" % (self.WHAT, tail)),
+            (self.WOULD, Outcome("interrupted", "the watchdog stopped "
+                                 "during it"), "ERROR",
+             "Watchdog: the would-restart of cmsContestWebServer 1 (pid "
+             "109) %s was interrupted: the watchdog stopped during it; no "
+             "TERM or KILL was sent. %s" % (self.WHAT, tail)),
             (self.WOULD, Outcome("would", usr1=self.USR1), "WARNING",
              "Watchdog: WOULD restart cmsContestWebServer 1 (pid 109) %s; "
              "DB OK; evidence log/watchdog/e.json; %s; observe mode: "
@@ -982,6 +1028,12 @@ class TestLines(unittest.TestCase):
             (replace(start, would=True), Outcome("error", "boom"), "ERROR",
              "Watchdog: the would-start of %s failed unexpectedly: boom; "
              "nothing was started." % names),
+            (start, Outcome("interrupted", "the watchdog stopped during "
+                            "it"), "ERROR",
+             "Watchdog: the start of %s was interrupted: the watchdog "
+             "stopped during it; some of them may have been started. Read "
+             "./logs.sh and ./status.sh, then start the FATAL ones with "
+             "supervisorctl." % names),
         )
         for decision, outcome, level, line in cases:
             with self.subTest(result=outcome.result,

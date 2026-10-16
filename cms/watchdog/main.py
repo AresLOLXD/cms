@@ -541,17 +541,22 @@ def _gate(result: probes.GateResult) -> policy.Gate:
                              for row in result.backends))
 
 
+# The outcome of an action that a stop of the watchdog (SIGTERM) cut.
+INTERRUPTED = control.Outcome("interrupted", "the watchdog stopped during it")
+
+
 def _may_have_signalled(outcome: control.Outcome) -> bool:
     """Tell whether a restart may have sent TERM or KILL (3.7).
 
     A "failed" restart sent TERM when its detail begins with "TERM
-    sent" or "KILL failed"; one whose actuator raised ("error") may
-    have.
+    sent" or "KILL failed"; one whose actuator raised ("error"), or
+    that the watchdog's stop cut ("interrupted"), may have.
 
     """
     if outcome.result == "failed":
         return outcome.detail.startswith(("TERM sent", "KILL failed"))
-    return outcome.result in ("restarted", "unconfirmed", "error")
+    return outcome.result in ("restarted", "unconfirmed", "error",
+                              "interrupted")
 
 
 def restart_line(decision: policy.Decision, program: policy.ProgramFacts,
@@ -566,8 +571,9 @@ def restart_line(decision: policy.Decision, program: policy.ProgramFacts,
 
     decision: the restart decision.
     program: the program, as the cycle saw it.
-    outcome: what the actuator did (control.Outcome), or "error" when
-        the actuator raised.
+    outcome: what the actuator did (control.Outcome); "error" when the
+        actuator raised, "interrupted" when the watchdog stopped during
+        it.
     evidence: the evidence file's name.
     shadow_count: the program's restarts in the shadow ledger (H9).
 
@@ -631,14 +637,21 @@ def restart_line(decision: policy.Decision, program: policy.ProgramFacts,
             "Watchdog: could not restart %s (pid %d) after %s: %s; %s%s. "
             "%s" % (program.label, program.pid, what, outcome.detail, sent,
                     evidence_step, by_hand))
-    # "error": the actuator raised. A dry run sends no TERM or KILL.
+    # "error" (the actuator raised) or "interrupted" (the watchdog
+    # stopped during it). A dry run sends no TERM or KILL.
     return "ERROR", (
-        "Watchdog: the %s of %s (pid %d) after %s failed unexpectedly: %s; "
-        "%s. %s" % (
+        "Watchdog: the %s of %s (pid %d) after %s %s: %s; %s. %s" % (
             "would-restart" if decision.would else "restart",
-            program.label, program.pid, what, outcome.detail,
-            "no TERM or KILL was sent" if decision.would
+            program.label, program.pid, what, _how_it_ended(outcome),
+            outcome.detail, "no TERM or KILL was sent" if decision.would
             else "TERM and KILL may have been sent", by_hand))
+
+
+def _how_it_ended(outcome: control.Outcome) -> str:
+    """Say how an action that did not finish ended, for its line."""
+    if outcome.result == "interrupted":
+        return "was interrupted"
+    return "failed unexpectedly"
 
 
 def start_line(decision: policy.Decision,
@@ -646,7 +659,8 @@ def start_line(decision: policy.Decision,
     """Return the level and the line that report an R5 batch.
 
     decision: the START decision.
-    outcome: what the actuator did, or "error" when it raised.
+    outcome: what the actuator did; "error" when it raised,
+        "interrupted" when the watchdog stopped during it.
 
     return: (level, line).
 
@@ -668,15 +682,16 @@ def start_line(decision: policy.Decision,
         return "ERROR", ("Watchdog: could not start all of %s: %s. Read "
                          "./logs.sh, then start them with supervisorctl."
                          % (names, outcome.detail))
-    # "error": the actuator raised.
+    # "error" (the actuator raised) or "interrupted" (the watchdog
+    # stopped during it).
     if decision.would:
-        return "ERROR", ("Watchdog: the would-start of %s failed "
-                         "unexpectedly: %s; nothing was started."
-                         % (names, outcome.detail))
-    return "ERROR", ("Watchdog: the start of %s failed unexpectedly: %s; "
-                     "some of them may have been started. Read ./logs.sh "
-                     "and ./status.sh, then start the FATAL ones with "
-                     "supervisorctl." % (names, outcome.detail))
+        return "ERROR", ("Watchdog: the would-start of %s %s: %s; nothing "
+                         "was started." % (names, _how_it_ended(outcome),
+                                           outcome.detail))
+    return "ERROR", ("Watchdog: the start of %s %s: %s; some of them may "
+                     "have been started. Read ./logs.sh and ./status.sh, "
+                     "then start the FATAL ones with supervisorctl."
+                     % (names, _how_it_ended(outcome), outcome.detail))
 
 
 class Watchdog:
@@ -770,6 +785,17 @@ class Watchdog:
         """Wait for the action in flight, if there is one."""
         if self._action is not None:
             await self._action
+
+    async def stop(self) -> None:
+        """Interrupt the action in flight, if there is one.
+
+        It returns once the action has journaled and alerted that it
+        was interrupted (as "interrupted").
+
+        """
+        if self._action is not None and not self._action.done():
+            self._action.cancel()
+            await asyncio.wait({self._action})
 
     async def cycle(self, mono: float, wall: float, lag_s: float,
                     since_previous_s: float | None) -> None:
@@ -936,10 +962,11 @@ class Watchdog:
 
         An actuator that raises fails the action ("error"): the booking
         stays, and the journal and an ERROR line say that TERM may have
-        been sent. A restart that sent no TERM or KILL (refused, gone,
-        unbooked, failed before TERM) clears the policy's mark of it,
-        so that "did it help" never reports a restart that did not
-        happen.
+        been sent. So does a stop of the watchdog during the action
+        ("interrupted"), and then the cancellation goes on. A restart
+        that sent no TERM or KILL (refused, gone, unbooked, failed
+        before TERM) clears the policy's mark of it, so that "did it
+        help" never reports a restart that did not happen.
 
         """
         program = next(item for item in observation.programs
@@ -967,8 +994,26 @@ class Watchdog:
             outcome = await actuator.restart(
                 control.Target(program.name, program.kind, program.pid),
                 book, write_evidence)
+        except asyncio.CancelledError:
+            self._report_restart(decision, program, name, INTERRUPTED,
+                                 wall)
+            raise
         except Exception as error:
             outcome = control.Outcome("error", probes.describe(error))
+        self._report_restart(decision, program, name, outcome, wall)
+
+    def _report_restart(self, decision: policy.Decision,
+                        program: policy.ProgramFacts, name: str,
+                        outcome: control.Outcome, wall: float) -> None:
+        """Journal and alert the outcome of a restart (3.7, 3.9).
+
+        decision: the restart decision.
+        program: the program, as the cycle saw it.
+        name: the evidence file's name.
+        outcome: what the actuator did.
+        wall: when the cycle that decided it started (epoch seconds).
+
+        """
         now = time.time()
         self._journal({
             "time": utc(now), "program": program.name,
@@ -1004,8 +1049,9 @@ class Watchdog:
     async def _start(self, decision: policy.Decision, wall: float) -> None:
         """Start, or would-start, an R5 batch (3.7).
 
-        An actuator that raises fails the batch ("error"), as for a
-        restart.
+        An actuator that raises fails the batch ("error"), and a stop
+        of the watchdog during it interrupts it ("interrupted"), as for
+        a restart.
 
         """
         actuator = self.dry_run if decision.would else self.actuator
@@ -1020,8 +1066,16 @@ class Watchdog:
 
         try:
             outcome = await actuator.start(decision.programs, book)
+        except asyncio.CancelledError:
+            self._report_start(decision, INTERRUPTED)
+            raise
         except Exception as error:
             outcome = control.Outcome("error", probes.describe(error))
+        self._report_start(decision, outcome)
+
+    def _report_start(self, decision: policy.Decision,
+                      outcome: control.Outcome) -> None:
+        """Journal and alert the outcome of an R5 batch (3.7, 3.9)."""
         now = time.time()
         self._journal({"time": utc(now), "programs": list(decision.programs),
                        "outcome": outcome.result, "detail": outcome.detail},
@@ -1223,10 +1277,14 @@ async def serve(mode: str, restart_classes: frozenset[str],
                        return_when=asyncio.FIRST_COMPLETED)
     faulthandler.cancel_dump_traceback_later()
     stopper.cancel()
-    prober.close()
-    if runner.done():
-        runner.result()
-    runner.cancel()
+    try:
+        if runner.done():
+            runner.result()
+    finally:
+        runner.cancel()
+        # An action in flight journals that it was interrupted.
+        await watchdog.stop()
+        prober.close()
     return 0
 
 
