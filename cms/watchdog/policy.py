@@ -783,10 +783,12 @@ WORKERS_HOLD_HINTS: dict[str, str] = {
     "H7": "Restart them by hand if needed, after cmsWatchdog --snapshot.",
 }
 # The next step of a held R5 start: a FATAL program runs no process, so
-# cmsWatchdog --snapshot has no stacks to write; its log says why it
+# it is not starting (H6 holds R5 for the watchdog's own startup only),
+# and cmsWatchdog --snapshot has no stacks to write; its log says why it
 # failed.
 FATAL_HOLD_HINTS: dict[str, str] = {
     **HOLD_HINTS,
+    "H6": "Nothing to do yet: R5 decides once the watchdog's own grace ends.",
     "H7": ("Check ./logs.sh, then start it by hand with supervisorctl if "
            "needed."),
 }

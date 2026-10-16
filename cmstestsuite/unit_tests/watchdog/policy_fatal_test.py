@@ -113,6 +113,11 @@ class TestFatalStarts(unittest.TestCase):
         [alert] = held(history[0], SS)
         self.assertIn("held by H6: the watchdog itself started 30 s ago",
                       alert.text)
+        # A FATAL program is not starting; whether the watchdog starts
+        # it, or only logs that it would, depends on its mode.
+        self.assertTrue(alert.text.endswith(
+            ". Nothing to do yet: R5 decides once the watchdog's own grace "
+            "ends."), alert.text)
 
     def test_a_held_start_is_a_held_trip(self):
         s = Scenario()
