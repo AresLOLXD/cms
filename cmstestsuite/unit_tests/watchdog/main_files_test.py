@@ -81,8 +81,9 @@ class TestFiles(unittest.TestCase):
                 ledger, problem = self.files.load_ledger(WALL)
                 self.assertEqual(ledger.exhausted_until, WALL + 3600)
                 self.assertIn("did not parse", problem)
-                self.assertIn("until %s" % policy.hhmm_utc(WALL + 3600),
-                              problem)
+                # Every budget: the restarts' and the FATAL starts'.
+                self.assertIn("every budget counts as used until %s"
+                              % policy.hhmm_utc(WALL + 3600), problem)
 
     def test_a_future_ledger_is_brought_back_to_now(self):
         # A hand edit with times far ahead must not freeze the budgets
@@ -110,6 +111,33 @@ class TestFiles(unittest.TestCase):
         self.assertEqual(problem, "")
         self.assertIsNone(loaded.exhausted_until)
         self.assertEqual([booking.wall for booking in loaded.shadow], [WALL])
+
+    def test_a_future_red_interval_and_incident_are_brought_back_to_now(
+            self):
+        # An outage that ends ahead of now would make R5 see one after
+        # every later start of a program.
+        ledger = policy.Ledger(
+            red=[[WALL - 600, WALL + 3600]],
+            incidents={"cmscontestwebserver1": {
+                "rule": "R1", "opened": WALL + 3600, "passes": 0}})
+        self.files.save_ledger(ledger)
+        loaded, problem = self.files.load_ledger(WALL)
+        self.assertEqual(problem, "")
+        self.assertEqual(loaded.red, [[WALL - 600, WALL]])
+        self.assertFalse(loaded.red_since(WALL))
+        self.assertEqual(loaded.incidents, {"cmscontestwebserver1": {
+            "rule": "R1", "opened": WALL, "passes": 0}})
+
+    def test_every_red_interval_is_brought_back_to_now(self):
+        ledger = policy.Ledger(red=[
+            [WALL - 600, WALL - 300], [WALL + 60, WALL + 120],
+            [WALL + 60, None]])
+        self.files.save_ledger(ledger)
+        loaded, _problem = self.files.load_ledger(WALL)
+        # A past interval is kept, a future one ends now, and an open
+        # one (the gate was red when it was saved) stays open.
+        self.assertEqual(loaded.red, [
+            [WALL - 600, WALL - 300], [WALL, WALL], [WALL, None]])
 
     def test_a_ledger_json_cannot_hold_is_a_failed_write(self):
         ledger = policy.Ledger()

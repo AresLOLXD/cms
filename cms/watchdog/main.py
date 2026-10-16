@@ -96,7 +96,8 @@ class Files:
         read (it does not parse, or is not UTF-8) counts as every budget
         exhausted for an hour, so that a crash that corrupts it cannot
         reset the budgets. Times ahead of now are brought back: at most
-        an hour of exhausted budgets, no booking in the future.
+        an hour of exhausted budgets, and no booking, red interval or
+        incident in the future.
 
         wall: now (epoch seconds).
 
@@ -112,18 +113,24 @@ class Files:
             # ValueError: a LedgerError, or a file that is not UTF-8.
             ledger = policy.Ledger.exhausted(wall)
             return ledger, (
-                "Watchdog: its ledger %s did not parse (%s): every restart "
-                "budget counts as used until %s." % (
+                "Watchdog: its ledger %s did not parse (%s): every budget "
+                "counts as used until %s." % (
                     self.ledger, " ".join(str(error).split()),
                     policy.hhmm_utc(ledger.exhausted_until)))
         # A time ahead of now (a hand edit, a clock that went back) must
-        # not freeze the budgets past the hour of spec 3.10.
+        # not freeze the budgets past the hour of spec 3.10, nor make R5
+        # see an outage after the later starts of a program. An open red
+        # interval stays open: the gate was red when it was saved.
         limit = wall + policy.CORRUPT_LEDGER_S
         if ledger.exhausted_until is not None \
                 and ledger.exhausted_until > limit:
             ledger.exhausted_until = limit
         for booking in ledger.real + ledger.shadow:
             booking.wall = min(booking.wall, wall)
+        ledger.red = [[min(start, wall), None if end is None
+                       else min(end, wall)] for start, end in ledger.red]
+        for incident in ledger.incidents.values():
+            incident["opened"] = min(incident["opened"], wall)
         return ledger, ""
 
     def save_ledger(self, ledger: policy.Ledger) -> None:
