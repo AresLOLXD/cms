@@ -35,8 +35,8 @@ from cms.watchdog.control import DryRunActuator, Outcome, ProcessInfo, \
     Target
 from cms.watchdog.main import Alerter, Files, Watchdog, parse_classes, \
     restart_line, start_line, status_line, take_snapshot
-from cms.watchdog.policy import ENFORCE, HOLDS, OBSERVE, RESTART, START, \
-    SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, ProgramFacts
+from cms.watchdog.policy import ENFORCE, HOLDS, OBSERVE, PAUSE_S, RESTART, \
+    START, SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, ProgramFacts
 from cms.watchdog.probes import GateResult, ProbeResult, RankingTarget
 
 
@@ -694,6 +694,33 @@ class TestCycle(unittest.IsolatedAsyncioTestCase):
                                        sleep=sleep, cycles=4)
         self.assertEqual(seen, [(0.0, None), (0.0, 15.0), (45.0, 60.0),
                                 (0.0, 15.0)])
+
+    async def test_a_slow_cycle_is_no_pause(self):
+        # A cycle whose probes take 16 s skips one slot of the schedule:
+        # the next one starts 30 s after it, not 31 s, which the policy
+        # would read as a pause that clears every miss window.
+        rig = Rig(self)
+        now = [MONO]
+        seen: list = []
+        real_cycle = rig.watchdog.cycle
+
+        async def cycle(mono, wall, lag_s, since_previous_s):
+            seen.append((lag_s, since_previous_s))
+            await real_cycle(mono, wall, lag_s, since_previous_s)
+            if len(seen) == 2:
+                now[0] += 16.0
+
+        async def sleep(delay):
+            now[0] += delay
+
+        rig.watchdog.cycle = cycle
+        await rig.watchdog.run_forever(clock=lambda: now[0],
+                                       wall_clock=lambda: WALL + now[0],
+                                       sleep=sleep, cycles=4)
+        self.assertEqual(seen, [(0.0, None), (0.0, 15.0), (0.0, 30.0),
+                                (0.0, 15.0)])
+        self.assertLessEqual(seen[2][1], PAUSE_S)
+        self.assertFalse(any("paused for" in line for line in rig.lines()))
 
 
 class TestSnapshot(unittest.IsolatedAsyncioTestCase):

@@ -743,7 +743,9 @@ class Watchdog:
 
         Each cycle gets its lag (how late it started) and the time since
         the previous one: a starved or paused watchdog tells the policy.
-        A schedule left behind starts again from now.
+        The schedule keeps its grid: a cycle that ends after its next
+        slot skips the slots it missed, so that a cycle of up to 30 s is
+        followed 30 s after its start at most, which is no pause.
 
         clock, wall_clock, sleep: time.monotonic, time.time and
             asyncio.sleep (tests pass fakes).
@@ -760,8 +762,8 @@ class Watchdog:
             count += 1
             previous = start
             scheduled += policy.CYCLE_S
-            if scheduled < clock():
-                scheduled = clock() + policy.CYCLE_S
+            while scheduled <= clock():
+                scheduled += policy.CYCLE_S
             await sleep(max(0.0, scheduled - clock()))
 
     async def settle(self) -> None:
