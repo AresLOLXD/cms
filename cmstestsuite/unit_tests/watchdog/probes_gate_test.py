@@ -22,6 +22,7 @@ import asyncio
 import json
 import os
 import shutil
+import signal
 import tempfile
 import threading
 import unittest
@@ -43,10 +44,14 @@ class FakeProcess:
     """What asyncio.create_subprocess_exec returns, scripted."""
 
     def __init__(self, returncode: int = 0, stdout: bytes = b"",
-                 stderr: bytes = b"", hang: bool = False):
+                 stderr: bytes = b"", hang: bool = False,
+                 kill_error: OSError | None = None,
+                 wait_hang: bool = False):
         self.returncode = returncode
         self._output = (stdout, stderr)
         self._hang = hang
+        self._kill_error = kill_error
+        self._wait_hang = wait_hang
         self.killed = False
 
     async def communicate(self):
@@ -55,10 +60,14 @@ class FakeProcess:
         return self._output
 
     def kill(self):
+        if self._kill_error is not None:
+            raise self._kill_error
         self.killed = True
         self.returncode = -9
 
     async def wait(self):
+        if self._wait_hang:
+            await asyncio.sleep(60)
         return self.returncode
 
 
@@ -216,6 +225,32 @@ class TestGate(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reason, "timeout")
         self.assertTrue(process.killed)
 
+    async def test_a_psql_that_is_gone_when_killed_is_still_a_timeout(self):
+        # It exited in the instant between the timeout and the kill: the
+        # gate must not raise (the cycle gathers it with every probe).
+        process = FakeProcess(hang=True, kill_error=ProcessLookupError())
+        result = await db_gate(environment("postgresql://u:pw@db/x"), 0.1,
+                               run=FakeRun(process))
+        self.assertFalse(result.green)
+        self.assertEqual(result.reason, "timeout")
+
+    async def test_a_psql_that_does_not_die_is_given_up(self):
+        process = FakeProcess(hang=True, wait_hang=True)
+        result = await asyncio.wait_for(
+            db_gate(environment("postgresql://u:pw@db/x"), 0.1,
+                    run=FakeRun(process)), 5)
+        self.assertFalse(result.green)
+        self.assertEqual(result.reason, "timeout")
+        self.assertTrue(process.killed)
+
+    async def test_an_answer_too_deep_to_read_is_red(self):
+        result = await db_gate(
+            environment("postgresql://u:pw@db/x"), 7,
+            run=FakeRun(FakeProcess(stdout=b"[" * 100000)))
+        self.assertFalse(result.green)
+        self.assertEqual(result.reason, "other")
+        self.assertIn("did not parse", result.detail)
+
     async def test_an_answer_that_does_not_parse_is_red(self):
         result = await db_gate(environment("postgresql://u:pw@db/x"), 7,
                                run=FakeRun(FakeProcess(stdout=b"oops")))
@@ -242,6 +277,66 @@ class TestGate(unittest.IsolatedAsyncioTestCase):
                           for row in result.backends])
 
 
+class TestGateProcess(unittest.IsolatedAsyncioTestCase):
+    """db_gate with a real child: a fake psql script that sleeps."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory)
+        script = os.path.join(self.directory, "psql")
+        with open(script, "w") as f:
+            f.write('#!/bin/sh\necho $$ > "$FAKE_PSQL_PID"\nexec sleep 30\n')
+        os.chmod(script, 0o755)
+        self.pid_file = os.path.join(self.directory, "pid")
+        self.env = {"PATH": self.directory + ":/usr/bin:/bin",
+                    "FAKE_PSQL_PID": self.pid_file}
+
+    async def started(self) -> int:
+        """Wait for the script to run and return its pid."""
+        for _ in range(100):
+            if os.path.exists(self.pid_file):
+                with open(self.pid_file) as f:
+                    text = f.read().strip()
+                if text:
+                    self.addCleanup(self.stop, int(text))
+                    return int(text)
+            await asyncio.sleep(0.05)
+        self.fail("the fake psql did not start")
+
+    @staticmethod
+    def stop(pid: int) -> None:
+        """Make sure that a test that failed leaves no child behind."""
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    async def assert_gone(self, pid: int) -> None:
+        """Wait for the process to be killed and reaped."""
+        for _ in range(100):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            await asyncio.sleep(0.05)
+        self.fail("psql (pid %d) is still there" % pid)
+
+    async def test_a_psql_that_hangs_is_gone_after_the_kill(self):
+        task = asyncio.create_task(db_gate(self.env, 0.5))
+        pid = await self.started()
+        result = await task
+        self.assertEqual(result.reason, "timeout")
+        await self.assert_gone(pid)
+
+    async def test_cancelling_the_gate_kills_psql(self):
+        task = asyncio.create_task(db_gate(self.env, 30))
+        pid = await self.started()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await self.assert_gone(pid)
+
+
 class TestSnapshot(unittest.TestCase):
 
     def test_rows_and_hidden_fields(self):
@@ -252,6 +347,13 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(Backend(**rows[1]).application_name, None)
         self.assertEqual(Backend(**rows[0]).blocked_by, (88,))
         self.assertEqual(list(BACKEND_FIELDS), list(ROW))
+
+    def test_a_row_with_a_blocked_by_that_is_not_pids_is_dropped(self):
+        for value in (5, "88", {"88": 1}, [1, "x"], [True], [[88]]):
+            with self.subTest(value=value):
+                text = json.dumps([dict(ROW, blocked_by=value), HIDDEN])
+                self.assertEqual(
+                    [row["pid"] for row in parse_backends(text)], [88])
 
     def test_what_is_not_a_snapshot(self):
         for text in ("", "{}", "[1]", '[{"application_name": "x"}]'):

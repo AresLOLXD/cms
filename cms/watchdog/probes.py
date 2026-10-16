@@ -356,6 +356,8 @@ BACKEND_FIELDS = ("pid", "application_name", "client_port", "state",
                   "query")
 # The columns that are ages in seconds.
 AGE_FIELDS = ("backend_age_s", "xact_age_s", "query_age_s", "state_age_s")
+# How long to wait for a psql that was killed to be reaped, in seconds.
+KILL_WAIT_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -476,12 +478,19 @@ def _finite(value: object) -> bool:
         return False
 
 
+def _is_pid_list(value: object) -> bool:
+    """Tell whether value is a list of ints (not bools)."""
+    return isinstance(value, list) and all(
+        isinstance(pid, int) and not isinstance(pid, bool) for pid in value)
+
+
 def parse_backends(text: str) -> tuple[dict, ...]:
     """Read the gate's answer.
 
     A row with an age that is neither a finite number nor null (NaN,
     an infinity, text: json.loads takes them) is dropped: the policy
-    formats the ages as whole seconds.
+    formats the ages as whole seconds. So is a row whose blocked_by is
+    neither null nor a list of pids.
 
     text: psql's output, a JSON array of rows.
 
@@ -501,12 +510,21 @@ def parse_backends(text: str) -> tuple[dict, ...]:
         if any(row.get(name) is not None and not _finite(row.get(name))
                for name in AGE_FIELDS):
             continue
+        blocked_by = row.get("blocked_by")
+        if blocked_by is not None and not _is_pid_list(blocked_by):
+            continue
         backend = {name: row.get(name) for name in BACKEND_FIELDS}
-        backend["blocked_by"] = tuple(
-            pid for pid in (row.get("blocked_by") or ())
-            if isinstance(pid, int))
+        backend["blocked_by"] = tuple(blocked_by or ())
         backends.append(backend)
     return tuple(backends)
+
+
+def _kill(process: Any) -> None:
+    """Kill a psql, unless it has just exited and is gone."""
+    try:
+        process.kill()
+    except ProcessLookupError:
+        pass
 
 
 async def db_gate(env: dict[str, str], kill_s: float,
@@ -532,10 +550,16 @@ async def db_gate(env: dict[str, str], kill_s: float,
         stdout, stderr = await asyncio.wait_for(process.communicate(),
                                                 kill_s)
     except TimeoutError:
-        process.kill()
-        await process.wait()
+        _kill(process)
+        try:
+            await asyncio.wait_for(process.wait(), KILL_WAIT_S)
+        except TimeoutError:
+            pass
         return GateResult(False, "timeout",
                           "psql did not finish in %g s" % kill_s)
+    except asyncio.CancelledError:
+        _kill(process)
+        raise
     if process.returncode != 0:
         text = stderr.decode("utf-8", "replace")
         lines = [line.strip() for line in text.splitlines()
@@ -544,7 +568,8 @@ async def db_gate(env: dict[str, str], kill_s: float,
                           else "psql exited with %d" % process.returncode)
     try:
         backends = parse_backends(stdout.decode("utf-8", "replace"))
-    except ValueError as error:
+    except Exception as error:
+        # ValueError for a bad snapshot, RecursionError for a too deep one.
         return GateResult(False, "other", "the snapshot did not parse: %s"
                           % describe(error))
     return GateResult(True, backends=backends)
