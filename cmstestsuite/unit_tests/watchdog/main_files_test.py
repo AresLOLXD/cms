@@ -18,6 +18,7 @@
 
 """Tests for cmsWatchdog's files, alert channels and --status line."""
 
+import asyncio
 import contextlib
 import io
 import json
@@ -25,6 +26,7 @@ import os
 import shutil
 import stat
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -310,6 +312,27 @@ class TestAlerter(unittest.IsolatedAsyncioTestCase):
             alerter.emit("ERROR", "Watchdog: %d" % index, WALL)
         await alerter.flush()
         self.assertEqual(len(log.calls), 1)
+
+    async def test_a_slow_logservice_costs_at_most_the_flush_limit(self):
+        # Each call answers within its own timeout, but slowly: the
+        # flush stops at its limit, and the rest is left to stdout.
+        class SlowLog(FakeLog):
+            async def call(self, method, data=None):
+                await asyncio.sleep(0.2)
+                return await super().call(method, data)
+
+        log = SlowLog()
+        alerter = Alerter(log, io.StringIO(), flush_limit_s=0.5)
+        for index in range(10):
+            alerter.emit("WARNING", "Watchdog: %d" % index, WALL)
+        start = time.monotonic()
+        self.assertFalse(await alerter.flush())
+        self.assertLess(time.monotonic() - start, 1.5)
+        self.assertLess(len(log.calls), 10)
+        self.assertTrue(await alerter.flush())
+        # The default lets one call that times out end.
+        self.assertGreaterEqual(policy.LOG_FLUSH_LIMIT_S,
+                                policy.LOG_ALERT_TIMEOUT_S)
 
     async def test_open_alerts_are_sent_again(self):
         log = FakeLog()

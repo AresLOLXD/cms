@@ -252,22 +252,26 @@ class Alerter:
 
     stdout always (it reaches ./logs.sh). WARNING and ERROR lines also
     go to LogService, at the end of each cycle, best effort: on the
-    first call that fails, the rest of that cycle's lines are left to
-    stdout, so a stuck LogService costs one timeout per cycle.
+    first call that fails, or once the flush has taken its limit, the
+    rest of that cycle's lines are left to stdout. So a stuck or slow
+    LogService costs a cycle at most LOG_FLUSH_LIMIT_S (4 s).
 
     """
 
     def __init__(self, log_service: probes.RpcProbe | None,
-                 out: TextIO | None = None):
+                 out: TextIO | None = None,
+                 flush_limit_s: float = policy.LOG_FLUSH_LIMIT_S):
         """Prepare the channels.
 
         log_service: an RpcProbe to LogService (one persistent
             connection of its own), or None.
         out: where to print (sys.stdout by default).
+        flush_limit_s: the bound of one flush, in seconds.
 
         """
         self._log_service = log_service
         self._out = out if out is not None else sys.stdout
+        self._flush_limit_s = flush_limit_s
         self._pending: list[dict] = []
 
     def emit(self, level: str, text: str, wall: float) -> None:
@@ -305,21 +309,29 @@ class Alerter:
     async def flush(self) -> bool:
         """Send the queued lines to LogService.
 
-        A call that raises (an answer that RpcProbe does not expect)
-        fails like one that does not answer.
+        It takes at most flush_limit_s (LOG_FLUSH_LIMIT_S, 4 s), however
+        slowly LogService answers: the call in progress then is
+        cancelled (its connection closed), and the lines not sent are
+        left to stdout. A call that raises (an answer that RpcProbe does
+        not expect) fails like one that does not answer.
 
         return: whether every queued line reached it (True when none
             was queued).
 
         """
         pending, self._pending = self._pending, []
-        for record in pending:
-            try:
-                result = await self._log_service.call("Log", record)
-            except Exception:
-                return False
-            if not result.ok:
-                return False
+        try:
+            async with asyncio.timeout(self._flush_limit_s):
+                for record in pending:
+                    try:
+                        result = await self._log_service.call("Log",
+                                                              record)
+                    except Exception:
+                        return False
+                    if not result.ok:
+                        return False
+        except TimeoutError:
+            return False
         return True
 
 

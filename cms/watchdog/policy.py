@@ -55,6 +55,9 @@ GATE_CONNECT_TIMEOUT_S = 3
 GATE_STATEMENT_TIMEOUT_MS = 3000
 GATE_KILL_S = 7.0
 LOG_ALERT_TIMEOUT_S = 2.0
+# The bound of one cycle's flush of alerts to LogService, however slowly
+# it answers: one call that times out, with room to spare.
+LOG_FLUSH_LIMIT_S = 4.0
 
 # Liveness, R1 and R2 (3.5): misses among the last WINDOW_SIZE known
 # results.
