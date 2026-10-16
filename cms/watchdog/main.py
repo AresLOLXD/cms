@@ -267,8 +267,9 @@ def _budget_use(status: Mapping, now: float) -> str:
 
     return: "" when there is nothing to say, else the text to append.
 
-    raise (TypeError, ValueError, AttributeError, KeyError): if the
-        status file does not hold what the watchdog writes.
+    raise (TypeError, ValueError, AttributeError, KeyError,
+        ArithmeticError): if the status file does not hold what the
+        watchdog writes.
 
     """
     text = ""
@@ -319,18 +320,17 @@ def status_line(path: str, environ: Mapping[str, str], now: float) -> str:
     try:
         with open(path, encoding="utf-8") as f:
             status = json.load(f)
-        mode = status["mode"]
         since = max(0.0, now - float(status["time"]))
-        open_alerts = len(status["open_alerts"])
+        # Formatted here: an infinite time (a hand edit) cannot be.
+        line = "watchdog: %s, last cycle %d s ago, %d open alerts" % (
+            status["mode"], since, len(status["open_alerts"]))
         budgets = _budget_use(status, now)
     except FileNotFoundError:
         return "no status file"
-    except (OSError, ValueError, KeyError, TypeError,
-            AttributeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError,
+            ArithmeticError) as error:
         return "watchdog: the status file %s does not parse (%s)" % (
             path, " ".join(str(error).split()))
-    line = "watchdog: %s, last cycle %d s ago, %d open alerts" % (
-        mode, since, open_alerts)
     if status.get("supervisord") == "unreachable":
         line += ", supervisord unreachable"
     line += budgets

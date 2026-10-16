@@ -340,6 +340,18 @@ class TestStatusLine(unittest.TestCase):
                 self.assertTrue(status_line(self.path, {}, WALL).startswith(
                     "watchdog: the status file"))
 
+    def test_an_infinite_time_or_count_does_not_parse(self):
+        # Only a hand edit can write them; json takes them back.
+        for text in (
+                '{"time": -Infinity, "mode": "observe", "open_alerts": []}',
+                '{"time": %r, "mode": "observe", "open_alerts": [], '
+                '"programs": [{"name": "x", "restarts_last_hour": '
+                'Infinity}]}' % WALL):
+            with self.subTest(text=text):
+                self.write(text)
+                self.assertTrue(status_line(self.path, {}, WALL).startswith(
+                    "watchdog: the status file"))
+
     def test_a_ledger_that_did_not_parse(self):
         # Its budgets are exhausted with no booking: the counts say 0.
         with open(self.files.ledger, "w") as f:
