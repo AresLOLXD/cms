@@ -541,7 +541,7 @@ async def db_gate(env: dict[str, str], kill_s: float,
     """
     try:
         process = await run(
-            "psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c",
+            "psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-w", "-c",
             GATE_SQL, stdin=DEVNULL, stdout=PIPE, stderr=PIPE, env=env)
     except OSError as error:
         return GateResult(False, "other",

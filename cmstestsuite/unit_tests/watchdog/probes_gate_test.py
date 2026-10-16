@@ -178,8 +178,11 @@ class TestGate(unittest.IsolatedAsyncioTestCase):
                                run=run)
         self.assertTrue(result.green)
         self.assertEqual(result.backends[0]["blocked_by"], (88,))
-        self.assertEqual(run.argv[:6],
-                         ("psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1"))
+        # -w: never ask for a password (a terminal prompt would hang the
+        # gate until its kill).
+        self.assertEqual(run.argv[:7],
+                         ("psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1",
+                          "-w"))
 
     async def test_the_password_never_reaches_argv(self):
         run = FakeRun(FakeProcess(stdout=b"[]"))
