@@ -731,6 +731,34 @@ class TestCycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen, [(0.0, None), (0.0, 15.0), (45.0, 60.0),
                                 (0.0, 15.0)])
 
+    async def test_an_unexpected_error_of_a_cycle_is_told_then_raised(self):
+        # The watchdog exits and supervisord starts it again: the AWS
+        # Overview gets one line about it, not only ./logs.sh a
+        # traceback.
+        rig = Rig(self)
+
+        def broken(pid):
+            raise RuntimeError("a bug")
+
+        rig.prober.proc_facts = broken
+        now = [MONO]
+
+        async def sleep(delay):
+            now[0] += delay
+
+        with self.assertRaisesRegex(RuntimeError, "a bug"):
+            await rig.watchdog.run_forever(clock=lambda: now[0],
+                                           wall_clock=lambda: WALL + now[0],
+                                           sleep=sleep, cycles=2)
+        line = ("Watchdog: its cycle failed unexpectedly (RuntimeError: a "
+                "bug); it exits, and supervisord starts it again. Its "
+                "traceback is in ./logs.sh.")
+        self.assertEqual(rig.lines(), ["%s ERROR %s" % (
+            watchdog.utc(WALL + MONO), line)])
+        self.assertEqual([data["msg"] for _, data in rig.log.calls],
+                         [line])
+        self.assertEqual(rig.rearms, [])
+
     async def test_a_slow_cycle_is_no_pause(self):
         # A cycle whose probes take 16 s skips one slot of the schedule:
         # the next one starts 30 s after it, not 31 s, which the policy

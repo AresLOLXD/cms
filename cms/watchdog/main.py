@@ -766,14 +766,29 @@ class Watchdog:
             asyncio.sleep (tests pass fakes).
         cycles: stop after that many cycles (tests); None runs forever.
 
+        raise (Exception): what a cycle raised unexpectedly, once an
+            ERROR line about it has been flushed to LogService:
+            supervisord then starts the watchdog again.
+
         """
         scheduled = clock()
         previous = None
         count = 0
         while cycles is None or count < cycles:
             start = clock()
-            await self.cycle(start, wall_clock(), max(0.0, start - scheduled),
-                             None if previous is None else start - previous)
+            try:
+                await self.cycle(
+                    start, wall_clock(), max(0.0, start - scheduled),
+                    None if previous is None else start - previous)
+            except Exception as error:
+                self.alerter.emit(
+                    "ERROR", "Watchdog: its cycle failed unexpectedly (%s: "
+                    "%s); it exits, and supervisord starts it again. Its "
+                    "traceback is in ./logs.sh."
+                    % (type(error).__name__, probes.describe(error)),
+                    wall_clock())
+                await self.alerter.flush()
+                raise
             count += 1
             previous = start
             scheduled += policy.CYCLE_S
