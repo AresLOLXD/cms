@@ -737,9 +737,8 @@ class PolicyState:
         again to a new LogService).
     near_miss: this hour's statistics.
     summary_mono: when the last hourly summary was emitted.
-    fatal_eligible: the FATAL programs that R5 could start in the last
-        non-starved cycle; one that it no longer can is left to a human
-        at once.
+    fatal_left: the FATAL programs left to a human in the last
+        non-starved cycle; one that joins them is told at once.
 
     """
 
@@ -762,7 +761,7 @@ class PolicyState:
     held_announced: dict[tuple[str, str], set[str]] = field(
         default_factory=dict)
     workers_quiet: int = 0
-    fatal_eligible: set[str] = field(default_factory=set)
+    fatal_left: set[str] = field(default_factory=set)
 
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
@@ -1487,7 +1486,6 @@ class _Cycle:
                         program.start_wall - FATAL_RED_LOOKBACK_S)]
         self._left_to_you([program for program in fatal
                            if program not in eligible])
-        self.state.fatal_eligible = {program.name for program in eligible}
         if not eligible:
             self._end_episode(FATAL_KEY)
             return
@@ -1596,20 +1594,22 @@ class _Cycle:
         database outage since it last started, among the outages it
         remembers (BUDGET_WINDOW_S after their end). The line is an
         ERROR kept open while any such program is FATAL, and closed
-        with no line when none is. Like a group line, a program that
-        joins it is no state change; one that R5 could start in the
-        previous cycle is (its outage was forgotten, or it started again
-        since), and the line goes out at once.
+        with no line when none is. A program that joins it is a state
+        change, and the line goes out at once with its name: it needs
+        the operator now, whether it has just gone FATAL or R5 could
+        start it in the previous cycle (its outage was forgotten). A
+        program that leaves it, or the same programs, are not.
 
         left: the FATAL programs R5 cannot start, in class order.
 
         """
+        joined = any(program.name not in self.state.fatal_left
+                     for program in left)
+        self.state.fatal_left = {program.name for program in left}
         if not left:
             self.state.open_alerts.pop(FATAL_LEFT_KEY, None)
             self.state.alert_sent.pop(FATAL_LEFT_KEY, None)
             return
-        switched = any(program.name in self.state.fatal_eligible
-                       for program in left)
         minutes = BUDGET_WINDOW_S // 60
         if len(left) == 1:
             text = ("Watchdog: %s is FATAL, and in the last %d minutes the "
@@ -1628,7 +1628,7 @@ class _Cycle:
                         len(left),
                         _listed([program.label for program in left], ", "),
                         minutes))
-        self._alert(FATAL_LEFT_KEY, "ERROR", text, change=switched,
+        self._alert(FATAL_LEFT_KEY, "ERROR", text, change=joined,
                     keep_open=True)
 
     # After a restart.

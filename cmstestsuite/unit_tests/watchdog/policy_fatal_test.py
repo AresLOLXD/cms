@@ -130,6 +130,26 @@ class TestFatalStarts(unittest.TestCase):
         self.assertEqual(left_to_you(s.cycle()), [])
         self.assertNotIn(LEFT_TO_YOU, s.state.open_alerts)
 
+    def test_a_program_newly_left_to_you_is_told_at_once(self):
+        s = Scenario()
+        s.warm_up()
+        fatal(s, CWS0)
+        [line] = left_to_you(s.cycle())
+        self.assertIn("cmsContestWebServer 0 is FATAL", line.text)
+        self.assertEqual(left_to_you(s.cycle()), [])
+        # SS joins the open line: the operator is needed now.
+        fatal(s, SS)
+        [line] = left_to_you(s.cycle())
+        self.assertTrue(line.text.startswith(
+            "Watchdog: 2 programs are FATAL (cmsScoringService 0, "
+            "cmsContestWebServer 0)"), line.text)
+        # The same programs, then one that leaves: rate-limited.
+        self.assertEqual(left_to_you(s.cycle()), [])
+        s.set(CWS0, state="RUNNING", pid=108, start_wall=s.wall + 5)
+        self.assertEqual(left_to_you(s.cycle()), [])
+        self.assertTrue(s.state.open_alerts[LEFT_TO_YOU].text.startswith(
+            "Watchdog: cmsScoringService 0 is FATAL"))
+
     def test_a_start_is_left_to_you_once_its_outage_is_forgotten(self):
         # The ledger forgets an outage BUDGET_WINDOW_S after its end: R5
         # no longer starts SS, and the line says so at once, even while
