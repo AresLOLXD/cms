@@ -680,12 +680,15 @@ class NearMiss:
     es_idle_s: the longest idle_s inside an ES section that is not an
         invalidation.
     es_half: every ES section that passed half its trip (not an
-        invalidation), one entry per section: (what, its start as epoch
-        seconds, its largest age_s, its largest idle_s), by a key made
-        of its holder thread and its start. A section seen on many
+        invalidation), one entry per section: (what, its first start as
+        epoch seconds, its largest age_s, its largest idle_s), by a key
+        made of its holder thread and its first start; a start within
+        CYCLE_S of it is the same section. A section seen on many
         cycles stays one entry, so the summary grows with the number of
         such sections only, and lists every one of them.
     ss_longest: (age_s, execution key) of the longest SS execution.
+    ss_starts: the first start of each SS execution seen (epoch
+        seconds), by its key, made like those of es_half.
     ss_overlapping: the keys of the SS executions that overlapped an
         invalidation.
     ps_idle_s: the longest idle_s inside a PS send.
@@ -701,6 +704,7 @@ class NearMiss:
     es_half: dict[str, tuple[str, float, float, float]] = field(
         default_factory=dict)
     ss_longest: tuple[float, str] | None = None
+    ss_starts: dict[str, float] = field(default_factory=dict)
     ss_overlapping: set[str] = field(default_factory=set)
     ps_idle_s: float = 0.0
     red_cycles: int = 0
@@ -1690,8 +1694,9 @@ class _Cycle:
             for section in sections:
                 if program.kind == "ScoringService" \
                         and section["what"] == "score":
-                    key = "%s@%d" % (section["tid"], round(
-                        (self.wall - section["age_s"]) / 10))
+                    key, start = self._execution_key(stats.ss_starts,
+                                                     section)
+                    stats.ss_starts[key] = start
                     if invalidating:
                         stats.ss_overlapping.add(key)
                     if stats.ss_longest is None \
@@ -1703,7 +1708,11 @@ class _Cycle:
                                           section["idle_s"])
 
     def _es_near_miss(self, section: dict) -> None:
-        """Feed the statistics of ES's oldest section."""
+        """Feed the statistics of ES's oldest section.
+
+        section: the section, as busy_sections gives it.
+
+        """
         stats = self.state.near_miss
         what = section["what"]
         if not what.startswith(ES_SECTION_PREFIX):
@@ -1716,15 +1725,40 @@ class _Cycle:
         stats.es_idle_s = max(stats.es_idle_s, section["idle_s"])
         if section["age_s"] > SECTION_WARN_S \
                 and section["idle_s"] >= ES_IDLE_WARN_S:
-            # One entry per section, with its largest values: the key is
-            # its holder and its start (as for the SS executions).
-            start = self.wall - section["age_s"]
-            key = "%s@%d" % (section["tid"], round(start / 10))
+            # One entry per section, with its largest values (as for the
+            # SS executions).
+            key, start = self._execution_key(
+                {key: entry[1] for key, entry in stats.es_half.items()},
+                section)
             _, start, age_s, idle_s = stats.es_half.get(
                 key, (what, start, 0.0, 0.0))
             stats.es_half[key] = (what, start,
                                   max(age_s, section["age_s"]),
                                   max(idle_s, section["idle_s"]))
+
+    def _execution_key(self, starts: Mapping[str, float],
+                       section: dict) -> tuple[str, float]:
+        """Return the key and the start of one execution of a section.
+
+        A thread holds one section at a time, and the start computed
+        from a section's age moves by a fraction of a second from cycle
+        to cycle (health() measures the age a little before or after the
+        cycle's time): a start within CYCLE_S of a known start of the
+        same thread is the same execution, which keeps its key and its
+        first start.
+
+        starts: the first start of each known execution, by key.
+        section: the section, as busy_sections gives it.
+
+        return: its key, and its first start (epoch seconds).
+
+        """
+        start = self.wall - section["age_s"]
+        prefix = "%s@" % section["tid"]
+        for key, known in starts.items():
+            if key.startswith(prefix) and abs(known - start) <= CYCLE_S:
+                return key, known
+        return "%s%d" % (prefix, round(start)), start
 
     def _summary(self) -> None:
         """Emit the hourly near-miss summary at INFO, and start over."""

@@ -496,10 +496,13 @@ class TestSummaryAndStatus(unittest.TestCase):
             s.cycle(health={ES: busy(
                 104, "post_finish_lock:_write_results_sync",
                 100.0 + 15 * index, 40.0 + 15 * index)})
-        for _ in range(24):
-            # A new section each cycle: the same age, a later start.
-            s.cycle(health={ES: busy(104, "post_finish_lock:_x_sync",
-                                     95.0, 35.0)})
+        for index in range(24):
+            # A new section each cycle: the same age, a later start. A
+            # thread holds one section at a time, so each new one is
+            # another thread's.
+            answer = busy(104, "post_finish_lock:_x_sync", 95.0, 35.0)
+            answer["busy"][0]["tid"] = 5000 + index
+            s.cycle(health={ES: answer})
         [summary] = [d for d in s.cycle(advance=3600.0, since=CYCLE_S)
                      if d.key == ("-", "summary")]
         self.assertEqual(summary.text.count("_write_results_sync held"), 1)
@@ -521,6 +524,38 @@ class TestSummaryAndStatus(unittest.TestCase):
         self.assertIn("longest SS execution 70 s, overlapping a "
                       "re-evaluation", summary.text)
         self.assertIn("longest ES idle_s in a section 0 s", summary.text)
+
+    def test_a_section_seen_with_jitter_is_one_entry(self):
+        # health() measures age_s a little before or after the cycle's
+        # time: the start computed from it moves by a fraction of a
+        # second, here across a 10 s boundary.
+        s = Scenario()
+        s.warm_up()
+        start = (s.wall + CYCLE_S - 100.0) // 10 * 10 + 5.0
+        for index, jitter in enumerate((0.3, -0.3, 0.3, -0.3)):
+            s.cycle(health={ES: busy(
+                104, "post_finish_lock:_write_results_sync",
+                s.wall + CYCLE_S - start + jitter, 40.0 + 15 * index)})
+        [summary] = [d for d in s.cycle(advance=3600.0, since=CYCLE_S)
+                     if d.key == ("-", "summary")]
+        self.assertEqual(summary.text.count("_write_results_sync held"), 1)
+        self.assertIn("_write_results_sync held 144 s from 08:00 UTC, up "
+                      "to 85 s with no statement", summary.text)
+
+    def test_a_scoring_seen_with_jitter_keeps_its_overlap(self):
+        s = Scenario()
+        s.warm_up()
+        start = (s.wall + CYCLE_S - 70.0) // 10 * 10 + 5.0
+        s.cycle(health={
+            ES: busy(104, INVALIDATION_SECTION, 400.0, 400.0),
+            SS: busy(103, "score", s.wall + CYCLE_S - start + 0.3, 70.0)})
+        # The same execution, longer, once the re-evaluation is over.
+        s.cycle(health={
+            SS: busy(103, "score", s.wall + CYCLE_S - start - 0.3, 85.0)})
+        [summary] = [d for d in s.cycle(advance=3600.0, since=CYCLE_S)
+                     if d.key == ("-", "summary")]
+        self.assertIn("longest SS execution 84 s, overlapping a "
+                      "re-evaluation", summary.text)
 
     def test_program_status(self):
         s = Scenario()
