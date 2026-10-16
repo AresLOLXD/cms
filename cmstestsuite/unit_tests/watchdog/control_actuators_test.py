@@ -45,7 +45,9 @@ from cms.watchdog.policy import KIND_CLASS
 # A program to restart: it prints the pid of its child (0 for none) and
 # sleeps. --usr1 registers faulthandler like a CMS service,
 # --ignore-term ignores SIGTERM, --grandchild starts a sleep in its
-# process group.
+# process group. --keeper, after both, gives TERM back to the leader
+# only: the sleep keeps it ignored through exec and outlives the
+# leader's TERM, as a Worker's isolate keeper may.
 LEADER = """\
 import faulthandler, signal, subprocess, sys, time
 if "--usr1" in sys.argv:
@@ -55,6 +57,8 @@ if "--ignore-term" in sys.argv:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 child = subprocess.Popen(["sleep", "60"]) if "--grandchild" in sys.argv \\
     else None
+if "--keeper" in sys.argv:
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
 print(child.pid if child else 0, flush=True)
 time.sleep(60)
 """
@@ -90,7 +94,8 @@ class FakeSource:
 
     Once the child has exited, it shows the program RUNNING again as
     NEW_PID, as supervisord's autorestart would. Each programs() call
-    takes programs_delay seconds.
+    takes programs_delay seconds, and raises the next item of
+    programs_errors while there is one (None: it answers).
 
     """
 
@@ -101,10 +106,15 @@ class FakeSource:
         self.started: list[str] = []
         self.start_error: Exception | None = None
         self.programs_delay = 0.0
+        self.programs_errors: list[Exception | None] = []
 
     async def programs(self) -> list[ProcessInfo]:
         if self.programs_delay:
             await asyncio.sleep(self.programs_delay)
+        if self.programs_errors:
+            error = self.programs_errors.pop(0)
+            if error is not None:
+                raise error
         pid = (self.child.pid if self.child.process.poll() is None
                else NEW_PID)
         if self.pid_override is not None:
@@ -208,6 +218,34 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(booked, [True])
         self.assertTrue(alive(child.pid))
 
+    async def test_a_source_that_fails_the_check_is_refused(self):
+        child = self.child()
+        source = FakeSource(child)
+        source.programs_errors = [OSError("supervisord did not answer")]
+        log: list = []
+        booked: list = []
+        outcome = await self.actuator(source, log).restart(
+            Target("cws", "ContestWebServer", child.pid),
+            lambda: booked.append(True), lambda: log.append("evidence"))
+        self.assertEqual((outcome.result, outcome.detail, booked),
+                         ("refused", "the process source did not answer: "
+                          "supervisord did not answer", [True]))
+        self.assertEqual(log, [])
+        self.assertTrue(alive(child.pid))
+
+    async def test_a_source_that_fails_meanwhile_still_confirms(self):
+        child = self.child()
+        source = FakeSource(child)
+        # It answers the check, then fails twice during the confirmation.
+        source.programs_errors = [None, OSError("supervisord did not "
+                                                "answer"), TimeoutError()]
+        outcome = await self.actuator(source, []).restart(
+            Target("cws", "ContestWebServer", child.pid), lambda: None,
+            lambda: None)
+        self.assertEqual((outcome.result, outcome.new_pid),
+                         ("restarted", NEW_PID))
+        self.assertEqual(source.programs_errors, [])
+
     async def test_the_group_signal_reaches_a_grandchild(self):
         child = self.child("--grandchild")
         self.assertTrue(alive(child.grandchild))
@@ -215,6 +253,23 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
             Target("cws", "ContestWebServer", child.pid), lambda: None,
             lambda: None)
         self.assertEqual(outcome.result, "restarted")
+        deadline = time.monotonic() + 5
+        while alive(child.grandchild) and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        self.assertFalse(alive(child.grandchild))
+
+    async def test_a_member_that_outlives_the_leader_is_killed(self):
+        child = self.child("--ignore-term", "--grandchild", "--keeper")
+        log: list = []
+        outcome = await self.actuator(FakeSource(child, "Worker"),
+                                      log).restart(
+            Target("cws", "Worker", child.pid), lambda: None, lambda: None)
+        self.assertEqual([entry for entry in log if entry[0] == "signal"],
+                         [("signal", signal.SIGTERM),
+                          ("signal", signal.SIGKILL)])
+        self.assertEqual((outcome.result, outcome.killed),
+                         ("restarted", True))
+        self.assertEqual(child.process.returncode, -signal.SIGTERM)
         deadline = time.monotonic() + 5
         while alive(child.grandchild) and time.monotonic() < deadline:
             await asyncio.sleep(0.05)
