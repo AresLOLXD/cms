@@ -24,20 +24,25 @@ import io
 import json
 import os
 import shutil
+import signal
+import socket
 import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from cms import Address, ServiceCoord
 from cms.watchdog import main as watchdog
 from cms.watchdog.control import DryRunActuator, Outcome, ProcessInfo, \
-    Target
+    SupervisorSource, Target
 from cms.watchdog.main import Alerter, Files, Watchdog, parse_classes, \
     restart_line, start_line, status_line, take_snapshot
 from cms.watchdog.policy import ENFORCE, HOLDS, OBSERVE, PAUSE_S, RESTART, \
     START, SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, ProgramFacts
-from cms.watchdog.probes import GateResult, ProbeResult, RankingTarget
+from cms.watchdog.probes import GateResult, ProbeResult, RankingTarget, \
+    RpcProbe
 
 
 WALL = 1_800_000_000.0
@@ -858,6 +863,30 @@ class TestSnapshot(unittest.IsolatedAsyncioTestCase):
              evidence["health"], evidence["health_error"]),
             (False, "other", None, "maximum recursion depth exceeded"))
 
+    async def test_a_snapshot_without_a_unix_socket_exits_1(self):
+        out = io.StringIO()
+        with patch.dict(os.environ,
+                        {"SUPERVISOR_SERVER_URL": "http://127.0.0.1:9001"}):
+            code = await take_snapshot("cmscontestwebserver0", self.files,
+                                       prober=FakeProber(), out=out)
+        self.assertEqual(code, 1)
+        self.assertIn("cmsWatchdog: cannot reach supervisord: cmsWatchdog "
+                      "talks to supervisord on a unix socket only",
+                      out.getvalue())
+
+    async def test_a_snapshot_closes_the_source_it_opens(self):
+        socket_path = os.path.join(self.files.evidence_dir, "none.sock")
+        out = io.StringIO()
+        with patch.dict(os.environ,
+                        {"SUPERVISOR_SERVER_URL": "unix://" + socket_path}), \
+                patch.object(SupervisorSource, "close", autospec=True,
+                             side_effect=SupervisorSource.close) as close:
+            code = await take_snapshot("cmscontestwebserver0", self.files,
+                                       prober=FakeProber(), out=out)
+        self.assertEqual(code, 1)
+        self.assertIn("supervisord did not answer", out.getvalue())
+        close.assert_called_once()
+
     async def test_a_snapshot_whose_actuator_raises_exits_1(self):
         self.source.set("cmscontestwebserver0", pid=sleeper(self))
         with patch.object(DryRunActuator, "snapshot", new=AsyncMock(
@@ -866,6 +895,83 @@ class TestSnapshot(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(code, 1)
         self.assertIn("cmsWatchdog: no evidence: the snapshot failed "
                       "unexpectedly: bad file descriptor.", text)
+
+
+class TestServe(unittest.TestCase):
+    """serve() over fakes, a supervisord socket that does not exist, a
+    LogService port where nothing listens, and a fake faulthandler (a
+    real self-guard would end the test run)."""
+
+    def setUp(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        self.files = Files(os.path.join(root, "run"),
+                           os.path.join(root, "log"))
+        with socket.socket() as unused:
+            unused.bind(("127.0.0.1", 0))
+            self.log_port = unused.getsockname()[1]
+        config = SimpleNamespace(
+            services={ServiceCoord("LogService", 0):
+                      Address("127.0.0.1", self.log_port)},
+            contest_web_server=SimpleNamespace(listen_address=(),
+                                               listen_port=()),
+            admin_web_server=SimpleNamespace(listen_address="127.0.0.1",
+                                             listen_port=self.log_port),
+            proxy_service=SimpleNamespace(rankings=()),
+            database=SimpleNamespace(
+                url="postgresql+psycopg2://cmsuser@127.0.0.1:1/none"))
+        socket_path = os.path.join(root, "supervisor.sock")
+        patchers = (
+            patch.object(watchdog, "config", config),
+            patch.object(watchdog, "Prober", lambda env: FakeProber()),
+            patch.dict(os.environ,
+                       {"SUPERVISOR_SERVER_URL": "unix://" + socket_path}))
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch.object(watchdog, "faulthandler")
+        self.guard = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.out = ""
+
+    def serve(self, terminate_after: float | None = None) -> int:
+        """Run serve() in observe mode; SIGTERM it after that long."""
+        async def scenario() -> int:
+            def terminate() -> None:
+                # Only once serve handles it: by default, SIGTERM would
+                # end the test run.
+                if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+                    os.kill(os.getpid(), signal.SIGTERM)
+
+            if terminate_after is not None:
+                asyncio.get_running_loop().call_later(terminate_after,
+                                                      terminate)
+            return await asyncio.wait_for(watchdog.serve(
+                OBSERVE, frozenset({"web"}), "supervisor", self.files,
+                None), 10)
+
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                return asyncio.run(scenario())
+        finally:
+            self.out = out.getvalue()
+
+    def test_sigterm_ends_it_with_0(self):
+        with patch.object(SupervisorSource, "close", autospec=True,
+                          side_effect=SupervisorSource.close) as source, \
+                patch.object(RpcProbe, "close", autospec=True,
+                             side_effect=RpcProbe.close) as probe:
+            self.assertEqual(self.serve(terminate_after=0.5), 0)
+        self.assertIn("INFO Watchdog: started in observe mode", self.out)
+        with open(self.files.status) as f:
+            self.assertEqual(json.load(f)["supervisord"], "unreachable")
+        self.guard.cancel_dump_traceback_later.assert_called_once_with()
+        # What it opened is closed: the source, and its own connection
+        # to LogService.
+        source.assert_called_once()
+        self.assertEqual([call.args[0].port for call in probe.call_args_list],
+                         [self.log_port])
 
 
 class TestCommandLine(unittest.TestCase):

@@ -1262,8 +1262,9 @@ async def serve(mode: str, restart_classes: frozenset[str],
     """
     wall = time.time()
     log_address = rpc_address("LogService", 0)
-    alerter = Alerter(None if log_address is None else probes.RpcProbe(
-        log_address[0], log_address[1], policy.LOG_ALERT_TIMEOUT_S))
+    log_service = None if log_address is None else probes.RpcProbe(
+        log_address[0], log_address[1], policy.LOG_ALERT_TIMEOUT_S)
+    alerter = Alerter(log_service)
     ledger, problem = files.load_ledger(wall)
     if problem:
         alerter.emit("ERROR", problem, wall)
@@ -1313,6 +1314,10 @@ async def serve(mode: str, restart_classes: frozenset[str],
         # An action in flight journals that it was interrupted.
         await watchdog.stop()
         prober.close()
+        if isinstance(source, control.SupervisorSource):
+            source.close()
+        if log_service is not None:
+            log_service.close()
     return 0
 
 
@@ -1330,13 +1335,34 @@ async def take_snapshot(program: str, files: Files,
     program: its supervisord name (as in ./status.sh and the alerts),
         or its label.
     files: where the evidence goes.
-    source, prober, out, rpc_address: tests pass fakes.
+    source, prober, out, rpc_address: tests pass fakes. Without a
+        source, it opens a SupervisorSource, and closes it.
 
     return: 0, or 1 if no evidence was written.
 
     """
     out = out if out is not None else sys.stdout
-    source = source if source is not None else control.SupervisorSource()
+    if source is not None:
+        return await _snapshot(program, files, source, prober, out,
+                               rpc_address)
+    try:
+        source = control.SupervisorSource()
+    except ValueError as error:
+        # SUPERVISOR_SERVER_URL is not a unix socket.
+        print("cmsWatchdog: cannot reach supervisord: %s." % error,
+              file=out)
+        return 1
+    try:
+        return await _snapshot(program, files, source, prober, out,
+                               rpc_address)
+    finally:
+        source.close()
+
+
+async def _snapshot(program: str, files: Files,
+                    source: control.ProcessSource, prober: Prober | None,
+                    out: TextIO, rpc_address: AddressOf) -> int:
+    """Do the work of take_snapshot, with its source."""
     try:
         facts = [policy.ProgramFacts(**asdict(info))
                  for info in await source.programs()]
