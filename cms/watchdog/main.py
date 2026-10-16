@@ -32,8 +32,10 @@ docs/superpowers/specs/2026-10-10-watchdog-design.md.
 
 """
 
+import contextlib
 import json
 import os
+import secrets
 import sys
 import time
 from collections.abc import Iterable, Mapping
@@ -57,14 +59,30 @@ def utc(wall: float) -> str:
 def write_atomic(path: str, text: str) -> None:
     """Write a file through a temporary file and a rename.
 
+    The temporary file has a name of its own in the same directory, so
+    that two writers of one path (the watchdog and --snapshot) never
+    share it, and it is removed if anything fails. It is created as
+    open(path, "w") creates a file, with the mode the umask allows
+    (mkstemp would make it 0600).
+
+    path: the file.
+    text: its content.
+
     raise (OSError): if it cannot be written.
 
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    partial = path + ".tmp"
-    with open(partial, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(partial, path)
+    partial = "%s.%s.tmp" % (path, secrets.token_hex(8))
+    descriptor = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                         0o666)
+    try:
+        with open(descriptor, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(partial, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(partial)
+        raise
 
 
 class Files:

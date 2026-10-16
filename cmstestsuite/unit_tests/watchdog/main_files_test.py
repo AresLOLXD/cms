@@ -18,10 +18,12 @@
 
 """Tests for cmsWatchdog's files, alert channels and --status line."""
 
+import contextlib
 import io
 import json
 import os
 import shutil
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -29,7 +31,8 @@ from unittest.mock import patch
 from cms import config
 from cms.service.LogService import LogService
 from cms.watchdog import policy
-from cms.watchdog.main import Alerter, Files, log_record, status_line
+from cms.watchdog.main import Alerter, Files, log_record, status_line, \
+    write_atomic
 from cms.watchdog.probes import ProbeResult
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
@@ -184,6 +187,59 @@ class TestFiles(unittest.TestCase):
         with open(os.path.join(self.root, "log", "watchdog",
                                "x.json")) as f:
             self.assertEqual(json.load(f), {"rule": "R1"})
+
+
+class TestWriteAtomic(unittest.TestCase):
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.path = os.path.join(self.directory, "x.json")
+
+    def read(self) -> str:
+        with open(self.path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_a_failed_write_leaves_the_target_and_no_temporary_file(self):
+        write_atomic(self.path, "old")
+        failures = (
+            ("the rename", "new", patch.object(
+                os, "replace", side_effect=OSError("simulated")), OSError),
+            ("the write", "\ud800", contextlib.nullcontext(), ValueError))
+        for what, text, context, error in failures:
+            with self.subTest(what=what):
+                with context, self.assertRaises(error):
+                    write_atomic(self.path, text)
+                self.assertEqual(self.read(), "old")
+                self.assertEqual(os.listdir(self.directory), ["x.json"])
+
+    def test_two_writers_of_one_path(self):
+        # The daemon and --snapshot can write one evidence name in the
+        # same second: the second writer renames its file while the
+        # first is about to rename its own.
+        replace = os.replace
+        interleaved = []
+
+        def replace_after_another_writer(source: str, target: str) -> None:
+            if not interleaved:
+                interleaved.append(source)
+                write_atomic(self.path, "second")
+            replace(source, target)
+
+        with patch.object(os, "replace",
+                          side_effect=replace_after_another_writer):
+            write_atomic(self.path, "first")
+        self.assertEqual(self.read(), "first")
+        self.assertEqual(os.listdir(self.directory), ["x.json"])
+
+    def test_the_mode_is_that_of_a_new_file(self):
+        # As open(path, "w") makes it: the umask decides, not 0600.
+        other = os.path.join(self.directory, "other")
+        with open(other, "w"):
+            pass
+        write_atomic(self.path, "text")
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode),
+                         stat.S_IMODE(os.stat(other).st_mode))
 
 
 class TestAlerter(unittest.IsolatedAsyncioTestCase):
