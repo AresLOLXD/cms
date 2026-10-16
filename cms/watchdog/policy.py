@@ -919,6 +919,10 @@ class _Cycle:
         # send while a ranking does not answer or none is probed):
         # unknown, neither a pass nor a miss of their incident.
         self.unjudged: set[str] = set()
+        # The Workers among them that ES reports not connected, or
+        # disabled by timeout, while R4 cannot trip them yet: not a miss,
+        # but no pass either ("did it help" does not say they answer).
+        self.unconnected: set[str] = set()
 
     def run(self) -> None:
         """Run the phases of the cycle, in order."""
@@ -1346,6 +1350,13 @@ class _Cycle:
             if detail:
                 self.failing.add(program.name)
                 self.trips.append(Trip(program, "R4", detail))
+            elif status.get("connected") is not True \
+                    or status.get("disabled_by_timeout") is True:
+                # R4 cannot trip it yet ((a) needs a process that started
+                # before disabled_at, (b) WORKER_UNCONNECTED_TRIP_S of
+                # running), and ES does not use it: no pass.
+                self.unjudged.add(program.name)
+                self.unconnected.add(program.name)
 
     def _disabled_too_long(self, program: ProgramFacts,
                            status: Mapping) -> str:
@@ -1516,21 +1527,23 @@ class _Cycle:
         DID_IT_HELP_S without one, "X is still failing". Would-actions
         get no line: nothing was restarted. A program that a rule could
         not judge in this cycle gets no line in it: whether it answers
-        is unknown.
+        is unknown. A Worker that ES does not use (self.unconnected)
+        has not passed: it can only be still failing.
 
         """
         tripped = {trip.program.name for trip in self.trips}
         by_name = {program.name: program for program in self.obs.programs}
+        unknown = self.unjudged - self.unconnected
         for name, program_state in self.state.programs.items():
-            if program_state.restarted_mono is None \
-                    or name in self.unjudged:
+            if program_state.restarted_mono is None or name in unknown:
                 continue
             program = by_name.get(name)
             label = program.label if program is not None else name
             elapsed = self.mono - program_state.restarted_mono
             if program is not None and program.state == "RUNNING" \
                     and program.pid != program_state.restarted_pid \
-                    and name not in self.failing and name not in tripped:
+                    and name not in self.failing and name not in tripped \
+                    and name not in self.unconnected:
                 text = "Watchdog: %s answers again %d s after the " \
                     "restart." % (label, elapsed)
             elif elapsed >= DID_IT_HELP_S:

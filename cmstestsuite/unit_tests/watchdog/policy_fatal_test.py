@@ -282,6 +282,32 @@ class TestDidItHelp(unittest.TestCase):
             ["Watchdog: cmsWorker 0 answers again 30 s after the "
              "restart."])
 
+    def test_a_worker_that_es_does_not_use_yet_has_not_passed(self):
+        # R4 cannot trip the new process yet: (a) needs a start before
+        # disabled_at, (b) 300 s of running. ES still reports the Worker
+        # disabled and not connected, so nothing has passed.
+        s = Scenario()
+        s.warm_up()
+        still = {"0": worker(False, s.wall - 200), "1": worker(True)}
+        [restart] = actions(s.cycle(workers=still))
+        self.assertEqual((restart.program, restart.rule), (W0, "R4"))
+        s.set(W0, pid=999, start_wall=s.wall + 5)
+        history = [s.cycle(workers=still) for _ in range(8)]
+        self.assertEqual([self.help_lines(d) for d in history[:7]],
+                         [[]] * 7)
+        self.assertEqual(
+            self.help_lines(history[7]),
+            ["Watchdog: cmsWorker 0 is still failing 120 s after the "
+             "restart: look at its evidence file and ./logs.sh."])
+        self.assertEqual([d.text for decisions in history for d in decisions
+                          if d.text.startswith("Resolved:")], [])
+        self.assertIn(W0, s.state.ledger.incidents)
+        # Once ES reports it connected and enabled, it passes.
+        s.cycle()
+        [resolved] = [d for d in s.cycle() if d.key == (W0, "resolved")]
+        self.assertIn("Resolved: cmsWorker 0 passes its checks again",
+                      resolved.text)
+
 
 class TestSummaryAndStatus(unittest.TestCase):
 
