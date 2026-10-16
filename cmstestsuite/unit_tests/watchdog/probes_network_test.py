@@ -271,6 +271,32 @@ class TestRpcProbe(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data, {"method": "workers_status"})
         self.assertEqual(self.service.connections, 2)
 
+    async def test_concurrent_calls_are_served_one_after_the_other(self):
+        self.service.delay = 0.1
+        first, second = await asyncio.gather(
+            self.probe.call("first"), self.probe.call("second"))
+        self.assertTrue(first.ok)
+        self.assertEqual(first.data, {"method": "first"})
+        self.assertTrue(second.ok)
+        self.assertEqual(second.data, {"method": "second"})
+        self.service.delay = 0.0
+        self.assertTrue((await self.probe.call("third")).ok)
+        self.assertEqual(self.service.connections, 1)
+
+    async def test_a_waiter_that_times_out_spares_the_call_it_waits_for(
+            self):
+        self.service.delay = 0.5
+        holder = asyncio.create_task(self.probe.call("holder"))
+        await asyncio.sleep(0.1)
+        self.probe.timeout = 0.2
+        waiter = await self.probe.call("waiter")
+        self.assertFalse(waiter.ok)
+        self.assertEqual(waiter.error, "timed out")
+        held = await holder
+        self.assertTrue(held.ok)
+        self.assertEqual(held.data, {"method": "holder"})
+        self.assertEqual(self.service.connections, 1)
+
     async def test_a_restarted_service_is_reached_at_once(self):
         self.assertTrue((await self.probe.call("health")).ok)
         port = self.service.port

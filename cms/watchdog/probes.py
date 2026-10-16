@@ -213,8 +213,10 @@ class RpcProbe:
     """One persistent connection to a CMS service's RPC port (3.4).
 
     It sends one request at a time, in CMS's wire format (JSON lines
-    ended by \\r\\n). A timeout or an error closes the connection, so
-    that a late answer is never read, and the next call connects again.
+    ended by \\r\\n): concurrent calls wait for each other, each within
+    its own timeout. A timeout or an error of the call that holds the
+    connection closes it, so that a late answer is never read, and the
+    next call connects again.
     A reused connection that the service closed (it restarted) is
     retried once at once, within the same timeout: only a failure of
     the fresh connection is a miss. So the service logs "Established
@@ -235,6 +237,7 @@ class RpcProbe:
         self.timeout = timeout
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
+        self._lock = asyncio.Lock()
 
     @property
     def connected(self) -> bool:
@@ -255,18 +258,25 @@ class RpcProbe:
         method: the method's name.
         data: its keyword arguments.
 
-        return: the result.
+        return: the result. The timeout bounds the wait for a call in
+            progress too; a call that times out while it waits is a
+            miss, and leaves the connection to the call in progress.
 
         """
-        start = time.monotonic()
+        holds_connection = False
         try:
             async with asyncio.timeout(self.timeout):
-                answer = await self._call(method, data or {})
+                async with self._lock:
+                    holds_connection = True
+                    start = time.monotonic()
+                    answer = await self._call(method, data or {})
         except asyncio.CancelledError:
-            self.close()
+            if holds_connection:
+                self.close()
             raise
         except PROBE_ERRORS as error:
-            self.close()
+            if holds_connection:
+                self.close()
             return ProbeResult(False, error=describe(error))
         return ProbeResult(True, time.monotonic() - start, data=answer)
 
