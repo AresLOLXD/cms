@@ -21,21 +21,26 @@
 They report what they see and decide nothing: the rules are in
 policy.py, and main.py passes the timeouts. Each probe has its own
 timeout, and none raises for a failure of what it probes: a failure is
-a result. This module imports only the standard library.
+a result. This module imports only the standard library and procfs.py.
 
 """
 
 import asyncio
 import json
+import math
 import os
 import re
 import socket
 import ssl
 import time
 import uuid
+from asyncio.subprocess import DEVNULL, PIPE
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
+
+from cms.watchdog.procfs import CLOCK_TICKS, stat_fields
 
 
 # The largest RPC answer read, as CMS's own MAX_MESSAGE_SIZE.
@@ -326,3 +331,233 @@ class RpcProbe:
         if response["__error"]:
             raise RemoteError(describe(Exception(response["__error"])))
         return response["__data"]
+
+
+# The gate's query (3.4.1): one row per backend of this database but
+# its own, with the ages in seconds; pg_blocking_pids only for lock
+# waiters, because each call takes the lock manager's partition locks.
+GATE_SQL = (
+    "SELECT coalesce(json_agg(row_to_json(t)), '[]'::json) FROM ("
+    "SELECT pid, application_name, client_port, state, wait_event_type, "
+    "wait_event, "
+    "extract(epoch FROM now() - backend_start)::float8 AS backend_age_s, "
+    "extract(epoch FROM now() - xact_start)::float8 AS xact_age_s, "
+    "extract(epoch FROM now() - query_start)::float8 AS query_age_s, "
+    "extract(epoch FROM now() - state_change)::float8 AS state_age_s, "
+    "CASE WHEN wait_event_type = 'Lock' THEN pg_blocking_pids(pid) END "
+    "AS blocked_by, "
+    "left(query, 300) AS query "
+    "FROM pg_stat_activity "
+    "WHERE datname = current_database() AND pid <> pg_backend_pid()) t")
+# The columns of a row, as the fields of policy.Backend.
+BACKEND_FIELDS = ("pid", "application_name", "client_port", "state",
+                  "wait_event_type", "wait_event", "backend_age_s",
+                  "xact_age_s", "query_age_s", "state_age_s", "blocked_by",
+                  "query")
+# The columns that are ages in seconds.
+AGE_FIELDS = ("backend_age_s", "xact_age_s", "query_age_s", "state_age_s")
+
+
+@dataclass(frozen=True)
+class GateResult:
+    """What the database gate saw (3.4.1).
+
+    green: whether the query returned valid JSON.
+    reason: for a red gate: "refused", "timeout", "too many clients",
+        "authentication" or "other".
+    detail: the first line of psql's error, for the alert.
+    backends: for a green gate, one dict per backend, BACKEND_FIELDS as
+        keys.
+
+    """
+
+    green: bool
+    reason: str = ""
+    detail: str = ""
+    backends: tuple[dict, ...] = ()
+
+
+def psql_environment(url: str, path: str, connect_timeout_s: int,
+                     statement_timeout_ms: int) -> dict[str, str]:
+    """Return the environment of the gate's psql (3.4.1).
+
+    The password goes in the environment, never in argv. Of the URL's
+    query only sslmode and host (a socket directory) are read: the gate
+    sets its own timeouts. LC_ALL=C keeps psql's messages in English,
+    which classify() reads.
+
+    url: config.database.url, with or without its +driver suffix.
+    path: the PATH in which to find psql.
+    connect_timeout_s: PGCONNECT_TIMEOUT.
+    statement_timeout_ms: the statement_timeout, through PGOPTIONS.
+
+    return: the whole environment of the subprocess.
+
+    """
+    parts = urlsplit(url)
+    env = {"PATH": path, "LC_ALL": "C", "PGAPPNAME": "cmsWatchdog",
+           "PGCONNECT_TIMEOUT": str(connect_timeout_s),
+           "PGOPTIONS": "-c statement_timeout=%d" % statement_timeout_ms}
+    if parts.hostname:
+        env["PGHOST"] = parts.hostname
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if port:
+        env["PGPORT"] = str(port)
+    if parts.username:
+        env["PGUSER"] = unquote(parts.username)
+    if parts.password is not None:
+        env["PGPASSWORD"] = unquote(parts.password)
+    database = unquote(parts.path.lstrip("/"))
+    if database:
+        env["PGDATABASE"] = database
+    query = parse_qs(parts.query)
+    if "sslmode" in query:
+        env["PGSSLMODE"] = query["sslmode"][-1]
+    if "host" in query:
+        env["PGHOST"] = ",".join(query["host"])
+    return env
+
+
+def classify(stderr: str) -> str:
+    """Return why psql failed, from its error text (in the C locale)."""
+    text = stderr.lower()
+    if "too many clients" in text or "remaining connection slots" in text:
+        return "too many clients"
+    if "authentication failed" in text or "no pg_hba.conf entry" in text:
+        return "authentication"
+    if "timeout expired" in text or "statement timeout" in text:
+        return "timeout"
+    if "connection refused" in text:
+        return "refused"
+    return "other"
+
+
+def _finite(value: object) -> bool:
+    """Tell whether value is a finite int or float (not a bool)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def parse_backends(text: str) -> tuple[dict, ...]:
+    """Read the gate's answer.
+
+    A row with an age that is neither a finite number nor null (NaN,
+    an infinity, text: json.loads takes them) is dropped: the policy
+    formats the ages as whole seconds.
+
+    text: psql's output, a JSON array of rows.
+
+    return: one dict per row, BACKEND_FIELDS as keys (missing ones
+        None), blocked_by a tuple of pids.
+
+    raise (ValueError): if text is not such an array.
+
+    """
+    rows = json.loads(text)
+    if not isinstance(rows, list):
+        raise ValueError("not a JSON array")
+    backends = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("pid"), int):
+            raise ValueError("a row without a pid")
+        if any(row.get(name) is not None and not _finite(row.get(name))
+               for name in AGE_FIELDS):
+            continue
+        backend = {name: row.get(name) for name in BACKEND_FIELDS}
+        backend["blocked_by"] = tuple(
+            pid for pid in (row.get("blocked_by") or ())
+            if isinstance(pid, int))
+        backends.append(backend)
+    return tuple(backends)
+
+
+async def db_gate(env: dict[str, str], kill_s: float,
+                  run: Callable[..., Awaitable[Any]] =
+                  asyncio.create_subprocess_exec) -> GateResult:
+    """Run the gate's query with psql, and read the snapshot (3.4.1).
+
+    env: the environment from psql_environment.
+    kill_s: when to kill a psql that has not finished.
+    run: asyncio.create_subprocess_exec (tests pass a fake).
+
+    return: the result; a green gate carries the snapshot.
+
+    """
+    try:
+        process = await run(
+            "psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c",
+            GATE_SQL, stdin=DEVNULL, stdout=PIPE, stderr=PIPE, env=env)
+    except OSError as error:
+        return GateResult(False, "other",
+                          "cannot run psql: %s" % describe(error))
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(),
+                                                kill_s)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        return GateResult(False, "timeout",
+                          "psql did not finish in %g s" % kill_s)
+    if process.returncode != 0:
+        text = stderr.decode("utf-8", "replace")
+        lines = [line.strip() for line in text.splitlines()
+                 if line.strip()]
+        return GateResult(False, classify(text), lines[0] if lines
+                          else "psql exited with %d" % process.returncode)
+    try:
+        backends = parse_backends(stdout.decode("utf-8", "replace"))
+    except ValueError as error:
+        return GateResult(False, "other", "the snapshot did not parse: %s"
+                          % describe(error))
+    return GateResult(True, backends=backends)
+
+
+def proc_facts(pid: int, proc: str = "/proc") -> dict | None:
+    """Return the /proc facts of a process, for the evidence (3.4).
+
+    pid: the process.
+    proc: where /proc is (tests pass a fake tree).
+
+    return: {"state", "wchan", "threads": {tid: state}, "cpu_s"
+        (utime+stime in seconds)}, or None if the process is gone.
+
+    """
+    try:
+        fields = stat_fields("%s/%d/stat" % (proc, pid))
+        cpu_s = (int(fields[11]) + int(fields[12])) / CLOCK_TICKS
+    except (OSError, ValueError, IndexError):
+        return None
+    try:
+        with open("%s/%d/wchan" % (proc, pid)) as f:
+            wchan = f.read().strip()
+    except OSError:
+        wchan = ""
+    threads = {}
+    try:
+        tids = os.listdir("%s/%d/task" % (proc, pid))
+    except OSError:
+        tids = []
+    for tid in tids:
+        try:
+            threads[int(tid)] = stat_fields(
+                "%s/%d/task/%s/stat" % (proc, pid, tid))[0]
+        except (OSError, ValueError, IndexError):
+            continue
+    return {"state": fields[0], "wchan": wchan, "threads": threads,
+            "cpu_s": cpu_s}
+
+
+def thread_cpu_s(pid: int, tid: int, proc: str = "/proc") -> float | None:
+    """Return a thread's utime+stime in seconds, or None if gone (R3)."""
+    try:
+        fields = stat_fields("%s/%d/task/%d/stat" % (proc, pid, tid))
+        return (int(fields[11]) + int(fields[12])) / CLOCK_TICKS
+    except (OSError, ValueError, IndexError):
+        return None
