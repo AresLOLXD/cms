@@ -162,6 +162,9 @@ WORKERS_LISTED = 3
 # action, so its held starts share one hold episode, whatever its
 # headline. A START decision has the same key.
 FATAL_KEY = ("-", "R5")
+# The alert key of the line of the FATAL programs that R5 leaves to a
+# human.
+FATAL_LEFT_KEY = ("-", "R5 left to you")
 # What R5's lines say tripped.
 FATAL_DETAIL = "FATAL after a database outage"
 
@@ -730,6 +733,9 @@ class PolicyState:
         again to a new LogService).
     near_miss: this hour's statistics.
     summary_mono: when the last hourly summary was emitted.
+    fatal_eligible: the FATAL programs that R5 could start in the last
+        non-starved cycle; one that it no longer can is left to a human
+        at once.
 
     """
 
@@ -752,6 +758,7 @@ class PolicyState:
     held_announced: dict[tuple[str, str], set[str]] = field(
         default_factory=dict)
     workers_quiet: int = 0
+    fatal_eligible: set[str] = field(default_factory=set)
 
     def shadow_for(self, klass: str) -> bool:
         """Tell whether an action on klass goes to the shadow (H9)."""
@@ -1463,24 +1470,20 @@ class _Cycle:
         green_cycles), H6 (the watchdog's own startup only), H7 (the
         FATAL budget), H8 and H9. A held start is a held trip: it opens
         the program's incident, and _held_starts gives the held starts
-        of the cycle one line, the batch's.
+        of the cycle one line, the batch's. _left_to_you gives one line
+        to the FATAL programs R5 cannot start.
 
         """
-        eligible = []
-        for program in self.obs.programs:
-            if not program.managed or program.state != "FATAL":
-                continue
-            if program.start_wall is not None \
+        fatal = sorted((program for program in self.obs.programs
+                        if program.managed and program.state == "FATAL"),
+                       key=lambda p: (CLASS_ORDER.index(p.klass), p.name))
+        eligible = [program for program in fatal
+                    if program.start_wall is not None
                     and self.state.ledger.red_since(
-                        program.start_wall - FATAL_RED_LOOKBACK_S):
-                eligible.append(program)
-            else:
-                self._alert(
-                    (program.name, "R5"), "ERROR",
-                    "Watchdog: %s is FATAL and the database answered when "
-                    "it last started: it is left to you. Read ./logs.sh, "
-                    "fix the cause, then start it with supervisorctl."
-                    % program.label)
+                        program.start_wall - FATAL_RED_LOOKBACK_S)]
+        self._left_to_you([program for program in fatal
+                           if program not in eligible])
+        self.state.fatal_eligible = {program.name for program in eligible}
         if not eligible:
             self._end_episode(FATAL_KEY)
             return
@@ -1492,8 +1495,7 @@ class _Cycle:
         incidents = self.state.ledger.incidents
         batches: dict[bool, list[ProgramFacts]] = {False: [], True: []}
         held: list[tuple[ProgramFacts, list[tuple[str, str]]]] = []
-        for program in sorted(eligible, key=lambda p: (
-                CLASS_ORDER.index(p.klass), p.name)):
+        for program in eligible:
             shadow = self.state.shadow_for(program.klass)
             holds = []
             if not self.obs.supervisor_ok:
@@ -1582,6 +1584,48 @@ class _Cycle:
         # hold, and its first urgent headline, are.
         self._held_alert(FATAL_KEY, text,
                          [headline] + [code for code, _ in others], False)
+
+    def _left_to_you(self, left: list[ProgramFacts]) -> None:
+        """Alert about the FATAL programs R5 cannot start, in one line.
+
+        R5 cannot start a FATAL program when the watchdog saw no
+        database outage since it last started, among the outages it
+        remembers (BUDGET_WINDOW_S after their end). The line is an
+        ERROR kept open while any such program is FATAL, and closed
+        with no line when none is. Like a group line, a program that
+        joins it is no state change; one that R5 could start in the
+        previous cycle is (its outage was forgotten, or it started again
+        since), and the line goes out at once.
+
+        left: the FATAL programs R5 cannot start, in class order.
+
+        """
+        if not left:
+            self.state.open_alerts.pop(FATAL_LEFT_KEY, None)
+            self.state.alert_sent.pop(FATAL_LEFT_KEY, None)
+            return
+        switched = any(program.name in self.state.fatal_eligible
+                       for program in left)
+        minutes = BUDGET_WINDOW_S // 60
+        if len(left) == 1:
+            text = ("Watchdog: %s is FATAL, and in the last %d minutes the "
+                    "watchdog saw no database outage since it last "
+                    "started: it is left to you, and R5 acts on it only "
+                    "after a later database outage. Read ./logs.sh, fix "
+                    "the cause, then start it with supervisorctl."
+                    % (left[0].label, minutes))
+        else:
+            text = ("Watchdog: %d programs are FATAL (%s), and in the last "
+                    "%d minutes the watchdog saw no database outage since "
+                    "they last started: they are left to you, and R5 acts "
+                    "on them only after a later database outage. Read "
+                    "./logs.sh, fix the cause, then start them with "
+                    "supervisorctl." % (
+                        len(left),
+                        _listed([program.label for program in left], ", "),
+                        minutes))
+        self._alert(FATAL_LEFT_KEY, "ERROR", text, change=switched,
+                    keep_open=True)
 
     # After a restart.
 

@@ -21,8 +21,9 @@ that follow a restart, the hourly summary and the status."""
 
 import unittest
 
-from cms.watchdog.policy import CYCLE_S, INVALIDATION_SECTION, \
-    OBSERVE, RESTART, START, Gate, NearMiss, Probe, program_status
+from cms.watchdog.policy import BUDGET_WINDOW_S, CYCLE_S, \
+    INVALIDATION_SECTION, OBSERVE, RESTART, START, Gate, NearMiss, Probe, \
+    program_status
 from cmstestsuite.unit_tests.watchdog.scenario import AWS, CWS0, CWS1, \
     ES, LS, PS, RED, RS, SS, W0, W1, Scenario, actions, alerts, busy, \
     lock_wait_snapshot, worker
@@ -30,6 +31,8 @@ from cmstestsuite.unit_tests.watchdog.scenario import AWS, CWS0, CWS1, \
 
 # The key of the line of R5's held starts: the batch's.
 HELD_STARTS = ("-", "R5")
+# The key of the line of the FATAL programs left to a human.
+LEFT_TO_YOU = ("-", "R5 left to you")
 
 
 def fatal(s: Scenario, *names: str) -> None:
@@ -47,6 +50,11 @@ def outage(s: Scenario, red_cycles: int = 2) -> None:
 def held_starts(decisions: list) -> list:
     """Return the line of R5's held starts among decisions, if any."""
     return [d for d in alerts(decisions) if d.key == HELD_STARTS]
+
+
+def left_to_you(decisions: list) -> list:
+    """Return the line of the programs left to a human, if any."""
+    return [d for d in alerts(decisions) if d.key == LEFT_TO_YOU]
 
 
 class TestFatalStarts(unittest.TestCase):
@@ -81,9 +89,76 @@ class TestFatalStarts(unittest.TestCase):
         fatal(s, SS)
         decisions = s.cycle()
         self.assertEqual(actions(decisions), [])
-        [alert] = [d for d in alerts(decisions) if d.key == (SS, "R5")]
+        [alert] = left_to_you(decisions)
         self.assertEqual(alert.level, "ERROR")
         self.assertIn("left to you", alert.text)
+        # It says what the watchdog can know, and promises no start.
+        self.assertEqual(
+            alert.text,
+            "Watchdog: cmsScoringService 0 is FATAL, and in the last 60 "
+            "minutes the watchdog saw no database outage since it last "
+            "started: it is left to you, and R5 acts on it only after a "
+            "later database outage. Read ./logs.sh, fix the cause, then "
+            "start it with supervisorctl.")
+        self.assertEqual(s.state.open_alerts[LEFT_TO_YOU].text, alert.text)
+
+    def test_programs_left_to_you_share_one_line(self):
+        s = Scenario()
+        s.warm_up()
+        fatal(s, W1, W0, CWS1, CWS0, AWS)
+        lines = [[d for d in alerts(s.cycle()) if "R5" in d.key[1]]
+                 for _ in range(21)]
+        # One line at once, then one per ALERT_REPEAT_S (20 cycles).
+        self.assertEqual([index for index, line in enumerate(lines)
+                          if line], [0, 20])
+        self.assertEqual([[d.key for d in line] for line in lines if line],
+                         [[LEFT_TO_YOU], [LEFT_TO_YOU]])
+        [line] = lines[0]
+        self.assertEqual(line.level, "ERROR")
+        self.assertEqual(
+            line.text,
+            "Watchdog: 5 programs are FATAL (cmsAdminWebServer 0, "
+            "cmsContestWebServer 0, cmsContestWebServer 1, and 2 more), "
+            "and in the last 60 minutes the watchdog saw no database "
+            "outage since they last started: they are left to you, and R5 "
+            "acts on them only after a later database outage. Read "
+            "./logs.sh, fix the cause, then start them with supervisorctl.")
+        # Once a human starts them, the line is closed.
+        for name, pid in ((W0, 105), (W1, 106), (CWS0, 108), (CWS1, 109),
+                          (AWS, 110)):
+            s.set(name, state="RUNNING", pid=pid, start_wall=s.wall + 5)
+        self.assertEqual(left_to_you(s.cycle()), [])
+        self.assertNotIn(LEFT_TO_YOU, s.state.open_alerts)
+
+    def test_a_start_is_left_to_you_once_its_outage_is_forgotten(self):
+        # The ledger forgets an outage BUDGET_WINDOW_S after its end: R5
+        # no longer starts SS, and the line says so at once, even while
+        # the line of the programs left to you is open for another one.
+        s = Scenario(mode=OBSERVE)
+        s.warm_up()
+        fatal(s, SS)
+        outage(s)
+        # The first green cycle ends the outage.
+        end = s.wall + CYCLE_S
+        while s.wall + CYCLE_S < end + BUDGET_WINDOW_S - 60:
+            s.cycle()
+        self.assertIn(HELD_STARTS, s.state.open_alerts)
+        fatal(s, CWS0)
+        [left] = left_to_you(s.cycle())
+        self.assertIn("cmsContestWebServer 0 is FATAL", left.text)
+        while s.wall + CYCLE_S < end + BUDGET_WINDOW_S:
+            self.assertEqual(left_to_you(s.cycle()), [])
+        decisions = s.cycle()
+        [left] = left_to_you(decisions)
+        self.assertTrue(left.text.startswith(
+            "Watchdog: 2 programs are FATAL (cmsScoringService 0, "
+            "cmsContestWebServer 0), and in the last 60 minutes"), left.text)
+        self.assertEqual(held_starts(decisions), [])
+        self.assertNotIn(HELD_STARTS, s.state.open_alerts)
+        self.assertEqual(s.state.open_alerts[LEFT_TO_YOU].text, left.text)
+        # Its FATAL budget frees 15 s later; it is no longer R5's.
+        for _ in range(4):
+            self.assertEqual(actions(s.cycle()), [])
 
     def test_a_red_interval_before_its_last_start_does_not_count(self):
         s = Scenario()
