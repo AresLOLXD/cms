@@ -345,6 +345,21 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
                                ("signal", signal.SIGKILL)])
         self.assertTrue(alive(child.pid))
 
+    async def test_an_error_after_term_is_a_failed_action(self):
+        child = self.child()
+        log: list = []
+        # Without /proc, the group cannot be checked once TERM is sent.
+        outcome = await self.actuator(
+            FakeSource(child), log, proc="/nonexistent").restart(
+            Target("cws", "ContestWebServer", child.pid), lambda: None,
+            lambda: None)
+        self.assertEqual((outcome.result, outcome.killed), ("failed", False))
+        self.assertTrue(outcome.detail.startswith("TERM sent; then "),
+                        outcome.detail)
+        self.assertIn("No such file or directory", outcome.detail)
+        self.assertEqual(log, [("signal", signal.SIGTERM)])
+        self.assertEqual(child.process.wait(timeout=5), -signal.SIGTERM)
+
     async def test_a_pidfd_error_is_a_failed_action(self):
         child = self.child()
         log: list = []

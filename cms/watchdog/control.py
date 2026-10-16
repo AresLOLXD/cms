@@ -329,13 +329,12 @@ class Outcome:
         failed" (a batch); "evidence" (a snapshot); "refused" (the pid
         changed or it is not RUNNING, nothing was signalled); "gone"
         (it exited on its own, before any TERM); "failed" (a system
-        call failed: detail says which, and TERM was sent only when it
-        is KILL); "unbooked" (the ledger could not be written, nothing
-        was done).
+        call failed, as detail says: TERM was sent when detail begins
+        with "TERM sent" or "KILL failed"); "unbooked" (the ledger
+        could not be written, nothing was done).
     detail: a sentence for the alert.
     new_pid: the program's pid after a restart.
-    killed: whether some process of the group was left for KILL after
-        the TERM wait.
+    killed: whether KILL was sent.
     usr1: what happened to the evidence USR1.
     evidence_error: why the evidence could not be written, if it
         could not.
@@ -658,9 +657,15 @@ class SignalActuator(DryRunActuator):
             except OSError as error:
                 return Outcome("failed", "TERM failed: %s" % error,
                                usr1=usr1, evidence_error=evidence_error)
-            await wait_readable(pidfd, self._term_wait_s)
+            try:
+                await wait_readable(pidfd, self._term_wait_s)
+                survivors = group_members(target.pid, self._proc)
+            except OSError as error:
+                return Outcome("failed", "TERM sent; then the group could "
+                               "not be checked: %s" % error, usr1=usr1,
+                               evidence_error=evidence_error)
             killed = False
-            if group_members(target.pid, self._proc):
+            if survivors:
                 try:
                     self._killpg(target.pid, signal.SIGKILL)
                     killed = True
