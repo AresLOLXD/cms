@@ -222,6 +222,83 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(log, [])
         self.assertTrue(alive(child.pid))
 
+    async def test_a_term_error_is_a_failed_action(self):
+        child = self.child("--usr1")
+        log: list = []
+        booked: list = []
+
+        def killpg(pid: int, signum: int) -> None:
+            log.append(("signal", signum))
+            raise PermissionError(1, "Operation not permitted")
+
+        outcome = await self.actuator(
+            FakeSource(child), log, killpg=killpg).restart(
+            Target("cws", "ContestWebServer", child.pid),
+            lambda: booked.append(True), lambda: None)
+        self.assertEqual((outcome.result, outcome.detail, outcome.killed),
+                         ("failed",
+                          "TERM failed: [Errno 1] Operation not permitted",
+                          False))
+        self.assertIn("USR1 sent", outcome.usr1)
+        self.assertEqual((log, booked), ([("signal", signal.SIGTERM)],
+                                         [True]))
+        self.assertTrue(alive(child.pid))
+
+    async def test_a_kill_error_is_a_failed_action(self):
+        child = self.child("--ignore-term")
+        log: list = []
+
+        def killpg(pid: int, signum: int) -> None:
+            log.append(("signal", signum))
+            if signum == signal.SIGKILL:
+                raise PermissionError(1, "Operation not permitted")
+            os.killpg(pid, signum)
+
+        outcome = await self.actuator(
+            FakeSource(child), log, killpg=killpg, term_wait_s=0.1).restart(
+            Target("cws", "ContestWebServer", child.pid), lambda: None,
+            lambda: None)
+        self.assertEqual((outcome.result, outcome.detail, outcome.killed),
+                         ("failed",
+                          "KILL failed: [Errno 1] Operation not permitted",
+                          False))
+        self.assertEqual(log, [("signal", signal.SIGTERM),
+                               ("signal", signal.SIGKILL)])
+        self.assertTrue(alive(child.pid))
+
+    async def test_a_pidfd_error_is_a_failed_action(self):
+        child = self.child()
+        log: list = []
+        booked: list = []
+
+        def pidfd_open(pid: int) -> int:
+            raise PermissionError(1, "Operation not permitted")
+
+        outcome = await self.actuator(
+            FakeSource(child), log, pidfd_open=pidfd_open).restart(
+            Target("cws", "ContestWebServer", child.pid),
+            lambda: booked.append(True), lambda: log.append("evidence"))
+        self.assertEqual((outcome.result, outcome.detail, booked),
+                         ("failed", "pidfd_open failed: [Errno 1] "
+                          "Operation not permitted", [True]))
+        self.assertEqual(log, [])
+        self.assertTrue(alive(child.pid))
+
+    async def test_a_usr1_error_does_not_stop_the_restart(self):
+        child = self.child("--usr1")
+
+        def send_signal(pidfd: int, signum: int) -> None:
+            raise PermissionError(1, "Operation not permitted")
+
+        outcome = await self.actuator(
+            FakeSource(child), [], send_signal=send_signal).restart(
+            Target("cws", "ContestWebServer", child.pid), lambda: None,
+            lambda: None)
+        self.assertEqual((outcome.result, outcome.usr1),
+                         ("restarted",
+                          "no USR1: [Errno 1] Operation not permitted"))
+        self.assertEqual(child.process.returncode, -signal.SIGTERM)
+
     async def test_no_new_pid_is_unconfirmed(self):
         child = self.child()
         source = FakeSource(child)

@@ -327,8 +327,9 @@ class Outcome:
         RUNNING in time); "would" (a dry run); "started" or "start
         failed" (a batch); "evidence" (a snapshot); "refused" (the pid
         changed or it is not RUNNING, nothing was signalled); "gone"
-        (it had exited); "unbooked" (the ledger could not be written,
-        nothing was done).
+        (it had exited); "failed" (a system call failed: detail says
+        which, and TERM was sent only when it is KILL); "unbooked" (the
+        ledger could not be written, nothing was done).
     detail: a sentence for the alert.
     new_pid: the program's pid after a restart.
     killed: whether some process of the group was left for KILL after
@@ -478,6 +479,8 @@ class DryRunActuator:
         except ProcessLookupError:
             return -1, Outcome("gone", "pid %d had already exited"
                                % target.pid)
+        except OSError as error:
+            return -1, Outcome("failed", "pidfd_open failed: %s" % error)
         try:
             current = await self._lookup(target.name)
         except Exception as error:
@@ -519,6 +522,9 @@ class DryRunActuator:
             self._send_signal(pidfd, signal.SIGUSR1)
         except ProcessLookupError:
             return "no USR1: the process exited", evidence_error
+        except OSError as error:
+            # Like a failed evidence write, it does not stop the action.
+            return "no USR1: %s" % error, evidence_error
         await asyncio.sleep(self._usr1_wait_s)
         return "USR1 sent: its stacks are in ./logs.sh", evidence_error
 
@@ -600,7 +606,8 @@ class SignalActuator(DryRunActuator):
         write_evidence: writes the evidence file; its failure is
             reported, and the action goes on.
 
-        return: the outcome.
+        return: the outcome: "unbooked", "gone", "refused", "failed",
+            "restarted" or "unconfirmed" (see Outcome).
 
         """
         unbooked = self._book(book)
@@ -616,6 +623,9 @@ class SignalActuator(DryRunActuator):
                 self._killpg(target.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            except OSError as error:
+                return Outcome("failed", "TERM failed: %s" % error,
+                               usr1=usr1, evidence_error=evidence_error)
             await wait_readable(pidfd, self._term_wait_s)
             killed = False
             if group_members(target.pid, self._proc):
@@ -624,6 +634,9 @@ class SignalActuator(DryRunActuator):
                     killed = True
                 except ProcessLookupError:
                     pass
+                except OSError as error:
+                    return Outcome("failed", "KILL failed: %s" % error,
+                                   usr1=usr1, evidence_error=evidence_error)
         finally:
             os.close(pidfd)
         new_pid = await self._confirm(target)
