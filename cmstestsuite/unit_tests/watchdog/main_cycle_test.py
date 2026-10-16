@@ -40,7 +40,8 @@ from cms.watchdog.control import DryRunActuator, Outcome, ProcessInfo, \
 from cms.watchdog.main import Alerter, Files, Watchdog, parse_classes, \
     restart_line, start_line, status_line, take_snapshot
 from cms.watchdog.policy import ENFORCE, HOLDS, OBSERVE, PAUSE_S, RESTART, \
-    START, SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, ProgramFacts
+    SELF_GUARD_S, START, SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, \
+    ProgramFacts
 from cms.watchdog.probes import GateResult, ProbeResult, RankingTarget, \
     RpcProbe
 
@@ -504,6 +505,22 @@ class TestCycle(unittest.IsolatedAsyncioTestCase):
         with open(rig.files.ledger) as f:
             self.assertEqual([b["program"] for b in json.load(f)["real"]],
                              ["cmscontestwebserver1"])
+        await rig.cycle()
+        self.assertEqual(len(rig.rearms), 15)
+
+    async def test_an_error_outside_the_actuator_is_alerted(self):
+        # A bug of the watchdog's own around an action: the action's
+        # task alerts it, and the cycles go on.
+        rig = Rig(self)
+
+        def broken(wall, program):
+            raise RuntimeError("bad name")
+
+        rig.files.evidence_name = broken
+        await rig.trip_cws1()
+        self.assertEqual(rig.actuator.calls, [])
+        self.assertIn("ERROR Watchdog: the restart of cmscontestwebserver1 "
+                      "failed unexpectedly: bad name", rig.lines()[-1])
         await rig.cycle()
         self.assertEqual(len(rig.rearms), 15)
 
@@ -972,6 +989,34 @@ class TestServe(unittest.TestCase):
         source.assert_called_once()
         self.assertEqual([call.args[0].port for call in probe.call_args_list],
                          [self.log_port])
+
+    def test_the_self_guard_is_armed_before_the_first_cycle(self):
+        armed: list = []
+        real_cycle = Watchdog.cycle
+
+        async def cycle(watchdog_, *args):
+            armed.append(self.guard.dump_traceback_later.call_count)
+            await real_cycle(watchdog_, *args)
+
+        with patch.object(Watchdog, "cycle", cycle):
+            self.assertEqual(self.serve(terminate_after=0.5), 0)
+        # Armed once before the first cycle; each cycle re-arms at its
+        # end.
+        self.assertEqual(armed[0], 1)
+        self.guard.dump_traceback_later.assert_called_with(SELF_GUARD_S,
+                                                           exit=True)
+
+    def test_an_error_of_a_cycle_ends_it_with_that_error(self):
+        # So that supervisord starts it again.
+        async def cycle(watchdog_, *args):
+            raise RuntimeError("a bug")
+
+        with patch.object(Watchdog, "cycle", cycle), \
+                self.assertRaisesRegex(RuntimeError, "a bug"):
+            self.serve()
+        self.assertIn("ERROR Watchdog: its cycle failed unexpectedly "
+                      "(RuntimeError: a bug)", self.out)
+        self.guard.cancel_dump_traceback_later.assert_called_once_with()
 
 
 class TestCommandLine(unittest.TestCase):
