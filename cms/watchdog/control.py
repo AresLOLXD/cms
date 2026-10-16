@@ -33,9 +33,10 @@ import concurrent.futures
 import http.client
 import os
 import shlex
+import signal
 import socket
 import xmlrpc.client
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -307,3 +308,360 @@ class ProcSource:
 
 # The process sources: main.py picks one.
 ProcessSource = SupervisorSource | ProcSource
+
+
+@dataclass(frozen=True)
+class Target:
+    """The process an action is about: a program and its pid."""
+
+    name: str
+    kind: str
+    pid: int
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """What an action did.
+
+    result: "restarted"; "unconfirmed" (signalled, but no new pid was
+        RUNNING in time); "would" (a dry run); "started" or "start
+        failed" (a batch); "evidence" (a snapshot); "refused" (the pid
+        changed or it is not RUNNING, nothing was signalled); "gone"
+        (it had exited); "unbooked" (the ledger could not be written,
+        nothing was done).
+    detail: a sentence for the alert.
+    new_pid: the program's pid after a restart.
+    killed: whether some process of the group was left for KILL after
+        the TERM wait.
+    usr1: what happened to the evidence USR1.
+    evidence_error: why the evidence could not be written, if it
+        could not.
+
+    """
+
+    result: str
+    detail: str = ""
+    new_pid: int | None = None
+    killed: bool = False
+    usr1: str = ""
+    evidence_error: str = ""
+
+
+def handles_signal(pid: int, signum: int, proc: str = "/proc") -> bool:
+    """Tell whether a process catches signum (SigCgt of its status)."""
+    try:
+        with open("%s/%d/status" % (proc, pid)) as f:
+            for line in f:
+                if line.startswith("SigCgt:"):
+                    return bool(int(line.split()[1], 16)
+                                & (1 << (signum - 1)))
+    except (OSError, ValueError, IndexError):
+        return False
+    return False
+
+
+def process_state(pid: int, proc: str = "/proc") -> str | None:
+    """Return a process's state letter, or None if it is gone."""
+    try:
+        return stat_fields("%s/%d/stat" % (proc, pid))[0]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def group_members(pgid: int, proc: str = "/proc") -> list[int]:
+    """Return the processes of a process group that are not zombies."""
+    members = []
+    for entry in os.listdir(proc):
+        if not entry.isdecimal():
+            continue
+        try:
+            fields = stat_fields("%s/%s/stat" % (proc, entry))
+        except (OSError, ValueError, IndexError):
+            continue
+        if len(fields) > 2 and fields[2] == str(pgid) \
+                and fields[0] not in ("Z", "X"):
+            members.append(int(entry))
+    return members
+
+
+async def wait_readable(fd: int, timeout: float) -> bool:
+    """Wait until fd is readable: for a pidfd, until the process exits.
+
+    fd: the file descriptor.
+    timeout: how long to wait at most, in seconds.
+
+    return: whether it became readable in time.
+
+    """
+    loop = asyncio.get_running_loop()
+    ready = loop.create_future()
+
+    def on_ready() -> None:
+        if not ready.done():
+            ready.set_result(None)
+
+    loop.add_reader(fd, on_ready)
+    try:
+        await asyncio.wait_for(ready, timeout)
+        return True
+    except TimeoutError:
+        return False
+    finally:
+        loop.remove_reader(fd)
+
+
+class DryRunActuator:
+    """The actuator of would-actions (3.7).
+
+    It books, checks that the pid is still the program's, writes the
+    evidence and sends the evidence USR1 (only to a process that
+    handles it), and then does nothing else: main.py logs "WOULD ...".
+
+    """
+
+    def __init__(self, source: ProcessSource, *, proc: str = "/proc",
+                 usr1_wait_s: float = 1.0,
+                 pidfd_open: Callable[[int], int] = os.pidfd_open,
+                 send_signal: Callable[[int, int], None] =
+                 signal.pidfd_send_signal):
+        """Prepare the actuator.
+
+        source: the process source (programs(), and start() for
+            SignalActuator).
+        proc: where /proc is.
+        usr1_wait_s: how long faulthandler gets to write the stacks.
+        pidfd_open, send_signal: os.pidfd_open and
+            signal.pidfd_send_signal (tests may replace them).
+
+        """
+        self._source = source
+        self._proc = proc
+        self._usr1_wait_s = usr1_wait_s
+        self._pidfd_open = pidfd_open
+        self._send_signal = send_signal
+
+    @staticmethod
+    def _book(book: Callable[[], None]) -> Outcome | None:
+        """Book an action, its first step (3.7, step 0).
+
+        book: writes the ledger and the journal.
+
+        return: None once booked, or the "unbooked" outcome when the
+            ledger could not be written: the action stops there.
+
+        """
+        try:
+            book()
+        except OSError as error:
+            return Outcome("unbooked", "its ledger could not be written: "
+                           "%s" % error)
+        return None
+
+    async def _lookup(self, name: str) -> ProcessInfo | None:
+        for info in await self._source.programs():
+            if info.name == name:
+                return info
+        return None
+
+    async def _open_verified(self,
+                             target: Target) -> tuple[int, Outcome | None]:
+        """Open a pidfd of target, still the program's (3.7, step 1).
+
+        Opening it first, then re-reading the source, binds the pidfd to
+        the process the source names: a pid reused later cannot be hit.
+
+        return: (pidfd, None), or (-1, the refusal).
+
+        """
+        try:
+            pidfd = self._pidfd_open(target.pid)
+        except ProcessLookupError:
+            return -1, Outcome("gone", "pid %d had already exited"
+                               % target.pid)
+        try:
+            current = await self._lookup(target.name)
+        except Exception as error:
+            os.close(pidfd)
+            return -1, Outcome("refused", "the process source did not "
+                               "answer: %s" % error)
+        if current is None or current.state != "RUNNING" \
+                or current.pid != target.pid:
+            os.close(pidfd)
+            return -1, Outcome("refused", "it is no longer RUNNING as pid "
+                               "%d" % target.pid)
+        return pidfd, None
+
+    async def _evidence(self, pidfd: int, target: Target,
+                        write_evidence: Callable[[], None]
+                        ) -> tuple[str, str]:
+        """Write the evidence, then send the USR1 if it is safe (3.8).
+
+        return: (what happened to the USR1, the evidence's error or "").
+
+        """
+        evidence_error = ""
+        try:
+            write_evidence()
+        except Exception as error:
+            evidence_error = " ".join(str(error).split()) \
+                or type(error).__name__
+        if target.kind not in USR1_KINDS:
+            return ("no USR1: %s is not a CMS service" % target.kind,
+                    evidence_error)
+        if process_state(target.pid, self._proc) == "T":
+            return ("no USR1: the process is stopped (state T)",
+                    evidence_error)
+        if not handles_signal(target.pid, signal.SIGUSR1, self._proc):
+            return "no USR1: the process does not handle it", evidence_error
+        try:
+            # The leader only, never the group: a Worker's isolate keeper
+            # does not handle USR1, and it would die of it.
+            self._send_signal(pidfd, signal.SIGUSR1)
+        except ProcessLookupError:
+            return "no USR1: the process exited", evidence_error
+        await asyncio.sleep(self._usr1_wait_s)
+        return "USR1 sent: its stacks are in ./logs.sh", evidence_error
+
+    async def snapshot(self, target: Target,
+                       write_evidence: Callable[[], None]) -> Outcome:
+        """Write the evidence and send the USR1, booking nothing.
+
+        For cmsWatchdog --snapshot, and steps 1 and 2 of an action.
+
+        """
+        pidfd, refusal = await self._open_verified(target)
+        if refusal is not None:
+            return refusal
+        try:
+            usr1, evidence_error = await self._evidence(pidfd, target,
+                                                        write_evidence)
+        finally:
+            os.close(pidfd)
+        return Outcome("evidence", usr1=usr1, evidence_error=evidence_error)
+
+    async def restart(self, target: Target, book: Callable[[], None],
+                      write_evidence: Callable[[], None]) -> Outcome:
+        """Book a would-restart, then do steps 1 and 2 only."""
+        unbooked = self._book(book)
+        if unbooked is not None:
+            return unbooked
+        outcome = await self.snapshot(target, write_evidence)
+        if outcome.result != "evidence":
+            return outcome
+        return Outcome("would", usr1=outcome.usr1,
+                       evidence_error=outcome.evidence_error)
+
+    async def start(self, names: Sequence[str],
+                    book: Callable[[], None]) -> Outcome:
+        """Book a would-start of a batch; start nothing."""
+        unbooked = self._book(book)
+        if unbooked is not None:
+            return unbooked
+        return Outcome("would")
+
+
+class SignalActuator(DryRunActuator):
+    """The actuator of enforce mode (3.7).
+
+    A restart is a signal to the program's process group: TERM, a wait
+    for the leader to exit, KILL to whatever is left, and supervisord's
+    autorestart starts it again. It never runs supervisorctl.
+
+    """
+
+    def __init__(self, source: SupervisorSource, *,
+                 term_wait_s: float = 10.0, confirm_s: float = 30.0,
+                 poll_s: float = 1.0,
+                 killpg: Callable[[int, int], None] = os.killpg,
+                 **kwargs: Any):
+        """Prepare the actuator.
+
+        source: a process source that can act (SupervisorSource).
+        term_wait_s: how long TERM gets before KILL.
+        confirm_s: how long the new pid gets to be RUNNING.
+        poll_s: how often the source is read meanwhile.
+        killpg: os.killpg (tests may wrap it).
+        kwargs: those of DryRunActuator.
+
+        """
+        super().__init__(source, **kwargs)
+        self._term_wait_s = term_wait_s
+        self._confirm_s = confirm_s
+        self._poll_s = poll_s
+        self._killpg = killpg
+
+    async def restart(self, target: Target, book: Callable[[], None],
+                      write_evidence: Callable[[], None]) -> Outcome:
+        """Restart target (3.7, steps 0 to 7).
+
+        target: the program and the pid the policy saw.
+        book: writes the ledger and the journal; an OSError stops the
+            action before anything else.
+        write_evidence: writes the evidence file; its failure is
+            reported, and the action goes on.
+
+        return: the outcome.
+
+        """
+        unbooked = self._book(book)
+        if unbooked is not None:
+            return unbooked
+        pidfd, refusal = await self._open_verified(target)
+        if refusal is not None:
+            return refusal
+        try:
+            usr1, evidence_error = await self._evidence(pidfd, target,
+                                                        write_evidence)
+            try:
+                self._killpg(target.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            await wait_readable(pidfd, self._term_wait_s)
+            killed = False
+            if group_members(target.pid, self._proc):
+                try:
+                    self._killpg(target.pid, signal.SIGKILL)
+                    killed = True
+                except ProcessLookupError:
+                    pass
+        finally:
+            os.close(pidfd)
+        new_pid = await self._confirm(target)
+        if new_pid is None:
+            return Outcome("unconfirmed", "no new pid was RUNNING within "
+                           "%g s" % self._confirm_s, killed=killed,
+                           usr1=usr1, evidence_error=evidence_error)
+        return Outcome("restarted", new_pid=new_pid, killed=killed,
+                       usr1=usr1, evidence_error=evidence_error)
+
+    async def _confirm(self, target: Target) -> int | None:
+        """Return the new pid once RUNNING, or None after confirm_s."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._confirm_s
+        while True:
+            try:
+                current = await self._lookup(target.name)
+            except Exception:
+                current = None
+            if current is not None and current.state == "RUNNING" \
+                    and current.pid not in (None, target.pid):
+                return current.pid
+            if loop.time() >= deadline:
+                return None
+            await asyncio.sleep(self._poll_s)
+
+    async def start(self, names: Sequence[str],
+                    book: Callable[[], None]) -> Outcome:
+        """Start a batch of FATAL programs, in order (R5)."""
+        unbooked = self._book(book)
+        if unbooked is not None:
+            return unbooked
+        failures = []
+        for name in names:
+            try:
+                await self._source.start(name)
+            except Exception as error:
+                failures.append("%s: %s" % (name, error))
+        if failures:
+            return Outcome("start failed", "; ".join(failures))
+        return Outcome("started")
