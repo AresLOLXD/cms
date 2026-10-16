@@ -248,6 +248,15 @@ class TestAlerter(unittest.IsolatedAsyncioTestCase):
             ("Log", log_record("WARNING", "Watchdog: 3 starts held", WALL)),
             ("Log", log_record("ERROR", "Watchdog: 2 left to you", WALL))])
 
+    async def test_a_broken_stdout_does_not_lose_the_logservice_copy(self):
+        out, log = io.StringIO(), FakeLog()
+        out.close()
+        alerter = Alerter(log, out)
+        alerter.emit("ERROR", "Watchdog: red", WALL)
+        await alerter.flush()
+        self.assertEqual(log.calls, [
+            ("Log", log_record("ERROR", "Watchdog: red", WALL))])
+
     async def test_without_logservice(self):
         out = io.StringIO()
         alerter = Alerter(None, out)

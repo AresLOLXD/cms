@@ -214,12 +214,20 @@ class Alerter:
         self._pending: list[dict] = []
 
     def emit(self, level: str, text: str, wall: float) -> None:
-        """Print an alert, and queue it for LogService if WARNING+."""
-        print("%s %s %s" % (utc(wall), level, text), file=self._out,
-              flush=True)
+        """Print an alert, and queue it for LogService if WARNING+.
+
+        A channel that fails does not take the other one with it.
+
+        """
         if self._log_service is not None \
                 and LEVELS[level] >= LEVELS["WARNING"]:
             self._pending.append(log_record(level, text, wall))
+        try:
+            print("%s %s %s" % (utc(wall), level, text), file=self._out,
+                  flush=True)
+        except (OSError, ValueError):
+            # A closed or broken stdout: nowhere left to say it.
+            pass
 
     def resend(self, alerts: Iterable[policy.Decision], wall: float) -> None:
         """Queue the open alerts again, for a restarted LogService.
