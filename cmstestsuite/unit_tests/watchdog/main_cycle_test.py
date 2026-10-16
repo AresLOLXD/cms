@@ -201,7 +201,9 @@ class Rig:
         self.log = FakeLog()
         self.source = FakeSource()
         self.prober = FakeProber()
-        self.actuator = FakeActuator(Outcome("restarted", new_pid=999))
+        self.actuator = FakeActuator(Outcome(
+            "restarted", new_pid=999,
+            usr1="USR1 sent: its stacks are in ./logs.sh"))
         self.dry_run = FakeActuator(Outcome(
             "would", usr1="no USR1: the process does not handle it"),
             start_result="would")
@@ -422,7 +424,8 @@ class TestCycle(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "WARNING Watchdog: restarted cmsContestWebServer 1 (pid "
             "109→999) after 5 of its last 6 favicon probes failed (R1); "
-            "DB OK; evidence log/watchdog/%s; stacks in ./logs.sh." % name,
+            "DB OK; evidence log/watchdog/%s; USR1 sent: its stacks are in "
+            "./logs.sh." % name,
             rig.lines()[-1])
 
     async def test_a_would_restart_in_observe_mode(self):
@@ -923,11 +926,12 @@ class TestLines(unittest.TestCase):
 
     def test_restart_lines(self):
         cases = (
-            (Outcome("restarted", new_pid=999, killed=True), "WARNING",
+            (Outcome("restarted", new_pid=999, killed=True, usr1=self.USR1),
+             "WARNING",
              "Watchdog: restarted cmsContestWebServer 1 (pid 109→999, KILL "
              "after 10 s) after 5 of its last 6 favicon probes failed "
-             "(R1); DB OK; evidence log/watchdog/e.json; stacks in "
-             "./logs.sh."),
+             "(R1); DB OK; evidence log/watchdog/e.json; USR1 sent: its "
+             "stacks are in ./logs.sh."),
             (Outcome("unconfirmed", "no new pid was RUNNING within 30 s",
                      killed=True), "ERROR",
              "Watchdog: sent TERM and KILL to cmsContestWebServer 1 (pid "
@@ -950,6 +954,30 @@ class TestLines(unittest.TestCase):
                 self.assertEqual(
                     restart_line(self.DECISION, self.PROGRAM, outcome,
                                  "e.json", 0), (level, line))
+
+    def test_the_stacks_are_named_only_when_usr1_was_sent(self):
+        # A Worker that never connected does not handle USR1: its
+        # restart wrote no stacks.
+        no_usr1 = "no USR1: the process does not handle it"
+        cases = (
+            (Outcome("restarted", new_pid=999, usr1=no_usr1), "WARNING",
+             "Watchdog: restarted cmsContestWebServer 1 (pid 109→999) %s; "
+             "DB OK; evidence log/watchdog/e.json; %s."
+             % (self.WHAT, no_usr1)),
+            (Outcome("unconfirmed", "no new pid was RUNNING within 30 s",
+                     usr1=self.USR1), "ERROR",
+             "Watchdog: sent TERM to cmsContestWebServer 1 (pid 109) %s, "
+             "but no new pid was RUNNING within 30 s; evidence "
+             "log/watchdog/e.json; %s. Check ./status.sh: a program left "
+             "FATAL is started again only after a database outage."
+             % (self.WHAT, self.USR1)),
+        )
+        for outcome, level, line in cases:
+            with self.subTest(result=outcome.result):
+                self.assertEqual(
+                    restart_line(self.DECISION, self.PROGRAM, outcome,
+                                 "e.json", 0), (level, line))
+        self.assertNotIn("stacks", cases[0][2])
 
     def test_the_lines_of_a_restart_that_went_wrong(self):
         # Each says which signals were sent: none of them says "nothing

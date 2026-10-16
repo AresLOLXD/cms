@@ -589,12 +589,13 @@ def restart_line(decision: policy.Decision, program: policy.ProgramFacts,
                "after cmsWatchdog --snapshot.")
     result = outcome.result
     if result == "restarted":
+        # The USR1 says where the stacks are, or why there are none.
         return "WARNING", (
-            "Watchdog: restarted %s (pid %d→%d%s) after %s; DB OK; %s; "
-            "stacks in ./logs.sh." % (
-                program.label, program.pid, outcome.new_pid,
-                ", KILL after %d s" % policy.TERM_WAIT_S
-                if outcome.killed else "", what, where))
+            "Watchdog: restarted %s (pid %d→%d%s) after %s; DB OK; %s%s."
+            % (program.label, program.pid, outcome.new_pid,
+               ", KILL after %d s" % policy.TERM_WAIT_S
+               if outcome.killed else "", what, where,
+               "; " + outcome.usr1 if outcome.usr1 else ""))
     if result == "would":
         if decision.shadow:
             tail = ("class %s is not in CMS_WATCHDOG_RESTART (H9), so "
@@ -608,11 +609,11 @@ def restart_line(decision: policy.Decision, program: policy.ProgramFacts,
                     tail))
     if result == "unconfirmed":
         return "ERROR", (
-            "Watchdog: sent TERM%s to %s (pid %d) after %s, but %s. Check "
-            "./status.sh: a program left FATAL is started again only "
-            "after a database outage." % (
+            "Watchdog: sent TERM%s to %s (pid %d) after %s, but %s%s. "
+            "Check ./status.sh: a program left FATAL is started again "
+            "only after a database outage." % (
                 " and KILL" if outcome.killed else "", program.label,
-                program.pid, what, outcome.detail))
+                program.pid, what, outcome.detail, evidence_step))
     if result == "unbooked":
         return "ERROR", (
             "Watchdog: did not restart %s: %s, and an unbooked restart "
