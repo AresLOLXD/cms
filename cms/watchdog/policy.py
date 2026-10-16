@@ -1651,7 +1651,11 @@ class _Cycle:
             if program_state.restarted_mono is None or name in unknown:
                 continue
             program = by_name.get(name)
-            label = program.label if program is not None else name
+            # A program the source no longer lists keeps the label of
+            # its restart's booking.
+            label = program.label if program is not None else next(
+                (booking.label for booking in reversed(self.state.ledger.real)
+                 if booking.program == name), name)
             elapsed = self.mono - program_state.restarted_mono
             if program is not None and program.state == "RUNNING" \
                     and program.pid != program_state.restarted_pid \

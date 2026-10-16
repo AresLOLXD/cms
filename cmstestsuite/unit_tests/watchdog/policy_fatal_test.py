@@ -429,6 +429,16 @@ class TestDidItHelp(unittest.TestCase):
         self.assertIn("cmsContestWebServer 1 is still failing 120 s after "
                       "the restart", history[7][0])
 
+    def test_a_program_gone_from_the_observation_keeps_its_name(self):
+        s = self.restarted()
+        # supervisord no longer lists it (its block was removed).
+        del s.programs[CWS1]
+        history = [self.help_lines(s.cycle()) for _ in range(8)]
+        self.assertEqual(
+            history[7],
+            ["Watchdog: cmsContestWebServer 1 is still failing 120 s after "
+             "the restart: look at its evidence file and ./logs.sh."])
+
     def test_no_line_follows_a_would_action(self):
         s = Scenario(mode=OBSERVE)
         s.warm_up()
