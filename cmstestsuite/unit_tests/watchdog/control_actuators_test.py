@@ -89,7 +89,8 @@ class FakeSource:
     """A process source over one child, as supervisord would show it.
 
     Once the child has exited, it shows the program RUNNING again as
-    NEW_PID, as supervisord's autorestart would.
+    NEW_PID, as supervisord's autorestart would. Each programs() call
+    takes programs_delay seconds.
 
     """
 
@@ -99,8 +100,11 @@ class FakeSource:
         self.pid_override: int | None = None
         self.started: list[str] = []
         self.start_error: Exception | None = None
+        self.programs_delay = 0.0
 
     async def programs(self) -> list[ProcessInfo]:
+        if self.programs_delay:
+            await asyncio.sleep(self.programs_delay)
         pid = (self.child.pid if self.child.process.poll() is None
                else NEW_PID)
         if self.pid_override is not None:
@@ -327,6 +331,20 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
             Target("cws", "ContestWebServer", child.pid), lambda: None,
             lambda: None)
         self.assertEqual(outcome.result, "unconfirmed")
+
+    async def test_the_confirmation_ends_at_its_deadline(self):
+        child = self.child()
+        target = Target("cws", "ContestWebServer", child.pid)
+        # The child keeps running: no new pid ever shows.
+        for delay, poll_s in ((2.0, 0.05), (0.0, 5.0)):
+            with self.subTest(delay=delay, poll_s=poll_s):
+                source = FakeSource(child)
+                source.programs_delay = delay
+                actuator = self.actuator(source, [], confirm_s=0.3,
+                                         poll_s=poll_s)
+                start = time.monotonic()
+                self.assertIsNone(await actuator._confirm(target))
+                self.assertLess(time.monotonic() - start, 0.3 + 0.5)
 
     async def test_start(self):
         child = self.child()

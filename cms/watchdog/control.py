@@ -619,6 +619,12 @@ class SignalActuator(DryRunActuator):
                       write_evidence: Callable[[], None]) -> Outcome:
         """Restart target (3.7, steps 0 to 7).
 
+        It returns within one read of the source (step 1) + usr1_wait_s
+        + term_wait_s + confirm_s, plus the booking and the evidence
+        write. With the defaults and SupervisorSource's 5 s timeout, at
+        worst 12 s (two supervisord calls, when a new program appeared)
+        + 1 + 10 + 30 = 53 s: close to the 60 s self-guard (3.11).
+
         target: the program and the pid the policy saw.
         book: writes the ledger and the journal; an OSError stops the
             action before anything else.
@@ -673,20 +679,28 @@ class SignalActuator(DryRunActuator):
                        usr1=usr1, evidence_error=evidence_error)
 
     async def _confirm(self, target: Target) -> int | None:
-        """Return the new pid once RUNNING, or None after confirm_s."""
+        """Return the new pid once RUNNING, or None after confirm_s.
+
+        Each read of the source and each pause is cut at the time left,
+        so it returns within confirm_s however slow the source is.
+
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._confirm_s
         while True:
             try:
-                current = await self._lookup(target.name)
+                current = await asyncio.wait_for(
+                    self._lookup(target.name),
+                    max(0.0, deadline - loop.time()))
             except Exception:
                 current = None
             if current is not None and current.state == "RUNNING" \
                     and current.pid not in (None, target.pid):
                 return current.pid
-            if loop.time() >= deadline:
+            left = deadline - loop.time()
+            if left <= 0:
                 return None
-            await asyncio.sleep(self._poll_s)
+            await asyncio.sleep(min(self._poll_s, left))
 
     async def start(self, names: Sequence[str],
                     book: Callable[[], None]) -> Outcome:
