@@ -29,6 +29,7 @@ import asyncio
 import json
 import os
 import re
+import socket
 import ssl
 import time
 import uuid
@@ -64,18 +65,44 @@ def probe_host(address: str) -> str:
     return "127.0.0.1" if address in ("", "0.0.0.0") else address
 
 
+def _errno_of(error: OSError) -> int | None:
+    """Return the POSIX errno that error stands for, if it has one.
+
+    error: an error of a connection.
+
+    return: its errno; for the error that asyncio makes of a host with
+        several addresses that all failed (no errno, the texts of the
+        failures joined), the errno that all the failures share; else
+        None.
+
+    """
+    if isinstance(error, (socket.gaierror, socket.herror, ssl.SSLError)):
+        # Their numbers belong to getaddrinfo and OpenSSL, not to errno.h.
+        return None
+    if error.errno:
+        return error.errno
+    text = str(error)
+    if error.errno is None and text.startswith("Multiple exceptions: "):
+        shared = set(re.findall(r"\[Errno (\d+)\]", text))
+        if len(shared) == 1:
+            return int(shared.pop())
+    return None
+
+
 def describe(error: BaseException) -> str:
     """Return an error as one short line.
 
     An OSError gets its errno's name first: asyncio's "Connect call
-    failed" does not say "Connection refused" by itself.
+    failed" does not say "Connection refused" by itself. The errors of
+    name resolution and of TLS keep their own text.
 
     """
     if isinstance(error, TimeoutError):
         return "timed out"
     text = " ".join(str(error).split())
-    if isinstance(error, OSError) and error.errno:
-        reason = os.strerror(error.errno)
+    code = _errno_of(error) if isinstance(error, OSError) else None
+    if code:
+        reason = os.strerror(code)
         if reason not in text:
             text = "%s: %s" % (reason, text)
     return text[:200] or type(error).__name__

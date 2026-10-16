@@ -22,14 +22,15 @@ import asyncio
 import http.server
 import json
 import socket
+import ssl
 import threading
 import unittest
 from unittest.mock import patch
 
 from cms.conf import Address
 from cms.io.async_service import AsyncService
-from cms.watchdog.probes import RpcProbe, http_probe, probe_host, \
-    ranking_target
+from cms.watchdog.probes import RpcProbe, describe, http_probe, \
+    probe_host, ranking_target
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
 
@@ -112,6 +113,53 @@ class TestHttpProbe(unittest.IsolatedAsyncioTestCase):
         result = await http_probe(probe_host("0.0.0.0"), wildcard.port,
                                   "/static/favicon.ico", 5)
         self.assertTrue(result.ok)
+
+    async def test_a_refusal_says_refused_even_for_a_dual_stack_name(self):
+        # "localhost" may resolve to ::1 and 127.0.0.1: asyncio then
+        # joins the two refusals into one error without an errno.
+        result = await http_probe("localhost", free_port(), "/", 5)
+        self.assertFalse(result.ok)
+        self.assertIn("refused", result.error.lower())
+
+    async def test_a_failed_tls_handshake_keeps_the_ssl_text(self):
+        result = await http_probe("127.0.0.1", self.http.port, "/", 5,
+                                  tls=True)
+        self.assertFalse(result.ok)
+        self.assertIn("[SSL", result.error)
+        self.assertNotIn("not permitted", result.error)
+
+
+class TestDescribe(unittest.TestCase):
+
+    def test_a_name_that_does_not_resolve_keeps_its_own_text(self):
+        error = socket.gaierror(-2, "Name or service not known")
+        self.assertEqual(describe(error),
+                         "[Errno -2] Name or service not known")
+
+    def test_a_tls_error_keeps_its_own_text(self):
+        text = ("[SSL: WRONG_VERSION_NUMBER] wrong version number "
+                "(_ssl.c:1000)")
+        self.assertEqual(describe(ssl.SSLError(1, text)), text)
+
+    def test_the_refusals_of_every_address_say_refused(self):
+        error = OSError(
+            "Multiple exceptions: [Errno 111] Connect call failed "
+            "('::1', 8890, 0, 0), [Errno 111] Connect call failed "
+            "('127.0.0.1', 8890)")
+        self.assertTrue(describe(error).startswith(
+            "Connection refused: Multiple exceptions: "))
+
+    def test_different_failures_of_the_addresses_are_shown_as_they_are(self):
+        text = ("Multiple exceptions: [Errno 101] Network is unreachable "
+                "('::1', 8890, 0, 0), [Errno 111] Connect call failed "
+                "('127.0.0.1', 8890)")
+        self.assertEqual(describe(OSError(text)), text)
+
+    def test_a_plain_refusal_names_its_errno(self):
+        error = ConnectionRefusedError(111, "Connect call failed "
+                                       "('127.0.0.1', 8890)")
+        self.assertEqual(describe(error), "Connection refused: [Errno 111] "
+                         "Connect call failed ('127.0.0.1', 8890)")
 
 
 class TestRankingTarget(unittest.TestCase):
