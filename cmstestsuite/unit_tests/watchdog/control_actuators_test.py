@@ -391,7 +391,7 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
         child = self.child()
         target = Target("cws", "ContestWebServer", child.pid)
         # The child keeps running: no new pid ever shows.
-        for delay, poll_s in ((2.0, 0.05), (0.0, 5.0)):
+        for delay, poll_s in ((2.0, 0.05), (0.0, 5.0), (2.0, 5.0)):
             with self.subTest(delay=delay, poll_s=poll_s):
                 source = FakeSource(child)
                 source.programs_delay = delay
@@ -399,7 +399,21 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
                                          poll_s=poll_s)
                 start = time.monotonic()
                 self.assertIsNone(await actuator._confirm(target))
-                self.assertLess(time.monotonic() - start, 0.3 + 0.5)
+                # confirm_s + min(poll_s, 1 s), plus a margin.
+                self.assertLess(time.monotonic() - start,
+                                0.3 + min(poll_s, 1.0) + 0.3)
+
+    async def test_a_pid_that_shows_at_the_deadline_is_confirmed(self):
+        child = self.child()
+        source = FakeSource(child)
+        source.pid_override = child.pid
+        # Reads at 0, 0.4 and 0.8 s miss it; only the read at the 1 s
+        # deadline, after the last pause, can see it.
+        asyncio.get_running_loop().call_later(
+            0.9, setattr, source, "pid_override", NEW_PID)
+        actuator = self.actuator(source, [], confirm_s=1.0, poll_s=0.4)
+        self.assertEqual(await actuator._confirm(
+            Target("cws", "ContestWebServer", child.pid)), NEW_PID)
 
     async def test_start(self):
         child = self.child()

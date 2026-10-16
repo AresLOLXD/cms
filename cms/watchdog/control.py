@@ -620,10 +620,11 @@ class SignalActuator(DryRunActuator):
         """Restart target (3.7, steps 0 to 7).
 
         It returns within one read of the source (step 1) + usr1_wait_s
-        + term_wait_s + confirm_s, plus the booking and the evidence
-        write. With the defaults and SupervisorSource's 5 s timeout, at
-        worst 12 s (two supervisord calls, when a new program appeared)
-        + 1 + 10 + 30 = 53 s: close to the 60 s self-guard (3.11).
+        + term_wait_s + confirm_s + min(poll_s, 1 s), plus the booking
+        and the evidence write. With the defaults and SupervisorSource's
+        5 s timeout, at worst 12 s (two supervisord calls, when a new
+        program appeared) + 1 + 10 + 30 + 1 = 54 s: close to the 60 s
+        self-guard (3.11).
 
         target: the program and the pid the policy saw.
         book: writes the ledger and the journal; an OSError stops the
@@ -681,8 +682,10 @@ class SignalActuator(DryRunActuator):
     async def _confirm(self, target: Target) -> int | None:
         """Return the new pid once RUNNING, or None after confirm_s.
 
-        Each read of the source and each pause is cut at the time left,
-        so it returns within confirm_s however slow the source is.
+        Each pause is cut at the time left, and so is each read of the
+        source, but never below min(poll_s, 1 s), so that the read at
+        the deadline runs. It returns within confirm_s + min(poll_s,
+        1 s), however slow the source is.
 
         """
         loop = asyncio.get_running_loop()
@@ -691,7 +694,7 @@ class SignalActuator(DryRunActuator):
             try:
                 current = await asyncio.wait_for(
                     self._lookup(target.name),
-                    max(0.0, deadline - loop.time()))
+                    max(deadline - loop.time(), min(self._poll_s, 1.0)))
             except Exception:
                 current = None
             if current is not None and current.state == "RUNNING" \
