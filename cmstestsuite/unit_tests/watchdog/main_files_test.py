@@ -164,6 +164,24 @@ class TestFiles(unittest.TestCase):
             self.assertEqual(f.read(), before)
         self.assertEqual(os.listdir(self.run_dir), ["watchdog-ledger.json"])
 
+    def test_a_value_json_cannot_hold_is_a_failed_write(self):
+        cycle: dict = {}
+        cycle["itself"] = cycle
+        evidence = os.path.join(self.files.evidence_dir, "x.json")
+        writes = (
+            ("status", self.files.save_status, self.files.status),
+            ("journal", self.files.append_journal, self.files.journal),
+            ("evidence",
+             lambda value: self.files.write_evidence("x.json", value),
+             evidence))
+        for name, write, path in writes:
+            for what, value in (("a tuple key", {("a", "b"): 1}),
+                                ("a cycle", cycle)):
+                with self.subTest(file=name, value=what):
+                    with self.assertRaises(OSError):
+                        write(value)
+                    self.assertFalse(os.path.exists(path))
+
     def test_the_status_is_written_atomically(self):
         self.files.save_status({"time": WALL, "mode": "observe"})
         with open(self.files.status) as f:

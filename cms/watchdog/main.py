@@ -85,6 +85,26 @@ def write_atomic(path: str, text: str) -> None:
         raise
 
 
+def _to_json(value: object, indent: int | None = None) -> str:
+    """Return value as the text of a file of the watchdog.
+
+    value: what to write; what JSON does not know is written as str().
+    indent: as json.dumps's.
+
+    return: the text.
+
+    raise (OSError): if JSON cannot hold it (a key that is not a
+        string or a number, a cycle): a failed write, which the
+        callers handle as one.
+
+    """
+    try:
+        return json.dumps(value, indent=indent, sort_keys=True,
+                          default=str)
+    except (TypeError, ValueError) as error:
+        raise OSError("not JSON: %s" % error) from error
+
+
 class Files:
     """Where the watchdog keeps its state, and how it writes it (3.10).
 
@@ -168,14 +188,14 @@ class Files:
 
     def save_status(self, status: Mapping) -> None:
         """Write the status file (raise OSError if it cannot be)."""
-        write_atomic(self.status,
-                     json.dumps(status, sort_keys=True, default=str))
+        write_atomic(self.status, _to_json(status))
 
     def append_journal(self, record: Mapping) -> None:
         """Append a line to the journal (raise OSError if it cannot)."""
+        line = _to_json(record) + "\n"
         os.makedirs(self.evidence_dir, exist_ok=True)
         with open(self.journal, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, sort_keys=True, default=str) + "\n")
+            f.write(line)
 
     def evidence_name(self, wall: float, program: str) -> str:
         """Return the name of an evidence file in evidence_dir."""
@@ -186,8 +206,7 @@ class Files:
     def write_evidence(self, name: str, evidence: Mapping) -> None:
         """Write an evidence file (raise OSError if it cannot be)."""
         write_atomic(os.path.join(self.evidence_dir, name),
-                     json.dumps(evidence, indent=1, sort_keys=True,
-                                default=str))
+                     _to_json(evidence, indent=1))
 
 
 def log_record(level: str, text: str, wall: float) -> dict:
