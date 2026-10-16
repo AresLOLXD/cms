@@ -190,12 +190,19 @@ class FakeService:
     """An asyncio server that speaks CMS's RPC wire format.
 
     The method "fail" gets an error answer; every other method gets
-    {"method": its name}, after delay seconds.
+    {"method": its name}, after delay seconds. The fault, when set, is
+    the name of a key of FAULTS: the answer it turns.
 
     """
 
+    FAULTS = {
+        "missing_fields": lambda answer: {"__id": answer["__id"]},
+        "not_an_object": lambda answer: [answer],
+    }
+
     def __init__(self, delay: float = 0.0):
         self.delay = delay
+        self.fault = ""
         self.connections = 0
         self.requests: list[dict] = []
         self.writers: list[asyncio.StreamWriter] = []
@@ -225,6 +232,8 @@ class FakeService:
                           "__error": None}
                 if request["__method"] == "fail":
                     answer.update(__data=None, __error="boom\nTraceback")
+                if self.fault:
+                    answer = self.FAULTS[self.fault](answer)
                 writer.write(json.dumps(answer).encode() + b"\r\n")
                 await writer.drain()
         except ConnectionError:
@@ -256,6 +265,15 @@ class TestRpcProbe(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "boom Traceback")
         self.assertFalse(self.probe.connected)
+
+    async def test_an_answer_that_is_not_whole_is_a_miss_and_closes(self):
+        for fault in ("missing_fields", "not_an_object"):
+            with self.subTest(fault=fault):
+                self.service.fault = fault
+                result = await self.probe.call("health")
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error, "a bad answer")
+                self.assertFalse(self.probe.connected)
 
     async def test_after_a_timeout_a_late_answer_is_never_read(self):
         self.service.delay = 0.5

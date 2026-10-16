@@ -317,9 +317,12 @@ class RpcProbe:
         except (ConnectionResetError, BrokenPipeError) as error:
             raise _StaleConnection() from error
         response = json.loads(line)
+        # As CMS's own client: an answer has all three fields.
         if not isinstance(response, dict) \
-                or response.get("__id") != request_id:
+                or not {"__id", "__data", "__error"} <= response.keys():
+            raise ValueError("a bad answer")
+        if response["__id"] != request_id:
             raise ValueError("an answer to another request")
-        if response.get("__error"):
+        if response["__error"]:
             raise RemoteError(describe(Exception(response["__error"])))
-        return response.get("__data")
+        return response["__data"]
