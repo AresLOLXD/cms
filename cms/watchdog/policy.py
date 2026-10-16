@@ -155,9 +155,15 @@ GATE_ANSWERED_REASONS: tuple[str, ...] = ("refused", "too many clients",
 # element.
 WORKERS_GROUP = "workers"
 WORKERS_KEY = (WORKERS_GROUP, "R4")
-# A Workers' group line names at most this many Workers, and this many
-# reasons of its headline hold, so that it stays a line.
+# A group line (the Workers', R5's) names at most this many programs,
+# and this many reasons of its headline hold, so that it stays a line.
 WORKERS_LISTED = 3
+# The alert key of the line of R5's held starts: the batch is one
+# action, so its held starts share one hold episode, whatever its
+# headline. A START decision has the same key.
+FATAL_KEY = ("-", "R5")
+# What R5's lines say tripped.
+FATAL_DETAIL = "FATAL after a database outage"
 
 # Decision.action and Booking.action.
 ALERT = "alert"
@@ -791,6 +797,12 @@ FATAL_HOLD_HINTS: dict[str, str] = {
     "H6": "Nothing to do yet: R5 decides once the watchdog's own grace ends.",
     "H7": ("Check ./logs.sh, then start it by hand with supervisorctl if "
            "needed."),
+}
+# The same, said of several programs.
+FATAL_GROUP_HOLD_HINTS: dict[str, str] = {
+    **FATAL_HOLD_HINTS,
+    "H7": ("Check ./logs.sh, then start them by hand with supervisorctl "
+           "if needed."),
 }
 
 
@@ -1450,9 +1462,8 @@ class _Cycle:
         R5 obeys H1, H2 (its own FATAL_GREEN_CYCLES of green, read from
         green_cycles), H6 (the watchdog's own startup only), H7 (the
         FATAL budget), H8 and H9. A held start is a held trip: it opens
-        the program's incident, and _held writes its line under the
-        same rules as R1-R4's ("... fails R5 (FATAL after a database
-        outage) but is held by H<n>: ...").
+        the program's incident, and _held_starts gives the held starts
+        of the cycle one line, the batch's.
 
         """
         eligible = []
@@ -1470,12 +1481,17 @@ class _Cycle:
                     "it last started: it is left to you. Read ./logs.sh, "
                     "fix the cause, then start it with supervisorctl."
                     % program.label)
-        if not eligible or not self.obs.gate.green \
+        if not eligible:
+            self._end_episode(FATAL_KEY)
+            return
+        if not self.obs.gate.green \
                 or self.state.green_cycles < FATAL_GREEN_CYCLES:
+            # R5 judges no start in this cycle: its hold episode stays.
             return
         since_start = self.mono - self.state.started_mono
         incidents = self.state.ledger.incidents
         batches: dict[bool, list[ProgramFacts]] = {False: [], True: []}
+        held: list[tuple[ProgramFacts, list[tuple[str, str]]]] = []
         for program in sorted(eligible, key=lambda p: (
                 CLASS_ORDER.index(p.klass), p.name)):
             shadow = self.state.shadow_for(program.klass)
@@ -1491,16 +1507,14 @@ class _Cycle:
                 holds.append(("H7", budget))
             if self.acted or self.obs.in_flight:
                 holds.append(("H8", "another action is in flight"))
-            opened = program.name not in incidents
-            if opened:
+            if program.name not in incidents:
                 incidents[program.name] = {
                     "rule": "R5", "opened": self.wall, "passes": 0}
             if holds:
-                self._held(Trip(program, "R5",
-                                "FATAL after a database outage"),
-                           holds, opened)
+                held.append((program, holds))
             else:
                 batches[shadow].append(program)
+        self._held_starts(held)
         for shadow in (False, True):
             batch = batches[shadow]
             if not batch:
@@ -1515,10 +1529,59 @@ class _Cycle:
                 self._forget_episodes(program.name)
             self.acted = True
             self.decisions.append(Decision(
-                START, text="FATAL after a database outage",
-                key=("-", "R5"),
+                START, text=FATAL_DETAIL, key=FATAL_KEY,
                 programs=tuple(program.name for program in batch),
                 rule="R5", would=would, shadow=shadow))
+
+    def _held_starts(
+            self, held: list[tuple[ProgramFacts, list[tuple[str, str]]]]
+    ) -> None:
+        """Alert about the held starts of R5, in one line: the batch's.
+
+        The batch is one action, so its held starts share one hold
+        episode, FATAL_KEY, however many programs it holds and whatever
+        its headline: _held_alert rate-limits it, and it ends in a cycle
+        in which R5 holds no start. The line names the programs, then
+        the reasons of the headline (H7 gives one per program), both
+        capped at WORKERS_LISTED, and every other hold that applies to
+        any of them. The headline is the first hold, in HOLDS order,
+        that holds every one of them: H1, H6 and H8 hold every start or
+        none, and H7 holds each on its own budget.
+
+        held: (program, holds) of each held start, in class order.
+
+        """
+        if not held:
+            self._end_episode(FATAL_KEY)
+            return
+        reasons: dict[str, list[str]] = {}
+        for _program, holds in held:
+            for code, reason in holds:
+                known = reasons.setdefault(code, [])
+                if reason not in known:
+                    known.append(reason)
+        codes = [{code for code, _reason in holds} for _program, holds in held]
+        headline = next(code for code in HOLDS
+                        if all(code in mine for mine in codes))
+        why = _listed(reasons[headline], "; ")
+        others = [(code, reasons[code][0]) for code in HOLDS
+                  if code in reasons and code != headline]
+        if len(held) == 1:
+            text = "Watchdog: %s fails R5 (%s) but is held by %s: %s." % (
+                held[0][0].label, FATAL_DETAIL, headline, why)
+            hints = FATAL_HOLD_HINTS
+        else:
+            labels = _listed([program.label for program, _ in held], ", ")
+            text = ("Watchdog: %d programs fail R5 together (%s: %s) and "
+                    "are held by %s: %s." % (len(held), FATAL_DETAIL, labels,
+                                             headline, why))
+            hints = FATAL_GROUP_HOLD_HINTS
+        text += _other_holds([(headline, why)] + others)
+        text += " " + hints[headline]
+        # A program that joins the batch is no state change: entering a
+        # hold, and its first urgent headline, are.
+        self._held_alert(FATAL_KEY, text,
+                         [headline] + [code for code, _ in others], False)
 
     # After a restart.
 
@@ -1679,11 +1742,20 @@ class _Cycle:
         state.workers_quiet += 1
         if state.workers_quiet >= PASSES_TO_RESOLVE:
             state.workers_quiet = 0
-            # No "Resolved:" line closes the group line: the end of its
-            # episode does.
-            for table in (state.held_headline, state.held_announced,
-                          state.alert_sent, state.open_alerts):
-                table.pop(WORKERS_KEY, None)
+            self._end_episode(WORKERS_KEY)
+
+    def _end_episode(self, key: tuple[str, str]) -> None:
+        """End the hold episode of a group line, and close the line.
+
+        No "Resolved:" line closes a group line: the end of its episode
+        does, and its next line is entering a hold again.
+
+        key: WORKERS_KEY or FATAL_KEY.
+
+        """
+        for table in (self.state.held_headline, self.state.held_announced,
+                      self.state.alert_sent, self.state.open_alerts):
+            table.pop(key, None)
 
     def _early_warnings(self) -> None:
         """Emit the early warnings of the cycle (3.5, 3.9)."""
@@ -1971,8 +2043,7 @@ class _Cycle:
         text = "Watchdog: %s fails %s (%s) but is held by %s: %s." % (
             program.label, trip.rule, trip.detail, headline, reason)
         text += _other_holds(holds)
-        hints = FATAL_HOLD_HINTS if trip.rule == "R5" else HOLD_HINTS
-        text += " " + hints[headline]
+        text += " " + HOLD_HINTS[headline]
         self._held_alert((program.name, trip.rule), text,
                          [code for code, _ in holds], opened)
 

@@ -25,7 +25,11 @@ from cms.watchdog.policy import CYCLE_S, INVALIDATION_SECTION, \
     OBSERVE, RESTART, START, Gate, NearMiss, Probe, program_status
 from cmstestsuite.unit_tests.watchdog.scenario import AWS, CWS0, CWS1, \
     ES, LS, PS, RED, RS, SS, W0, W1, Scenario, actions, alerts, busy, \
-    held, lock_wait_snapshot, worker
+    lock_wait_snapshot, worker
+
+
+# The key of the line of R5's held starts: the batch's.
+HELD_STARTS = ("-", "R5")
 
 
 def fatal(s: Scenario, *names: str) -> None:
@@ -38,6 +42,11 @@ def outage(s: Scenario, red_cycles: int = 2) -> None:
     """Run red cycles: a database outage."""
     for _ in range(red_cycles):
         s.cycle(gate=RED)
+
+
+def held_starts(decisions: list) -> list:
+    """Return the line of R5's held starts among decisions, if any."""
+    return [d for d in alerts(decisions) if d.key == HELD_STARTS]
 
 
 class TestFatalStarts(unittest.TestCase):
@@ -110,7 +119,7 @@ class TestFatalStarts(unittest.TestCase):
         history = [s.cycle() for _ in range(7)]
         self.assertEqual([bool(actions(d)) for d in history],
                          [False] * 6 + [True])
-        [alert] = held(history[0], SS)
+        [alert] = held_starts(history[0])
         self.assertIn("held by H6: the watchdog itself started 30 s ago",
                       alert.text)
         # A FATAL program is not starting; whether the watchdog starts
@@ -124,7 +133,7 @@ class TestFatalStarts(unittest.TestCase):
         fatal(s, SS)
         s.cycle(gate=RED)
         s.cycle()
-        [alert] = held(s.cycle(supervisor_ok=False), SS)
+        [alert] = held_starts(s.cycle(supervisor_ok=False))
         self.assertEqual(alert.holds, ("H1", "H6"))
         self.assertEqual(
             alert.text,
@@ -143,7 +152,7 @@ class TestFatalStarts(unittest.TestCase):
         self.assertTrue(actions(s.cycle())[0].would)
         decisions = s.cycle()
         self.assertEqual(actions(decisions), [])
-        [alert] = held(decisions, SS)
+        [alert] = held_starts(decisions)
         self.assertIn("held by H7: will not start cmsScoringService 0",
                       alert.text)
         self.assertEqual(s.state.ledger.count(SS, START, False, s.wall), 2)
@@ -160,7 +169,7 @@ class TestFatalStarts(unittest.TestCase):
         s.cycle()
         self.assertEqual(actions(s.cycle())[0].programs, (SS,))
         self.assertEqual(actions(s.cycle())[0].programs, (SS,))
-        [alert] = held(s.cycle(), SS)
+        [alert] = held_starts(s.cycle())
         self.assertEqual(
             alert.text,
             "Watchdog: cmsScoringService 0 fails R5 (FATAL after a "
@@ -190,8 +199,67 @@ class TestFatalStarts(unittest.TestCase):
         s.cycle()
         decisions = s.cycle(in_flight=True)
         self.assertEqual(actions(decisions), [])
-        self.assertIn("held by H8", held(decisions, SS)[0].text)
+        self.assertIn("held by H8", held_starts(decisions)[0].text)
+        self.assertIn(HELD_STARTS, s.state.open_alerts)
         self.assertEqual(actions(s.cycle())[0].programs, (SS,))
+        # No start is held any more: the hold episode is over.
+        self.assertNotIn(HELD_STARTS, s.state.open_alerts)
+
+    def test_held_starts_share_one_line(self):
+        # Observe mode, the rollout default: after its 2 would-starts,
+        # every program left FATAL enters H7 in the same cycle.
+        s = Scenario(mode=OBSERVE)
+        s.warm_up()
+        fatal(s, LS, RS, SS, ES, W0, W1, PS, CWS0, CWS1, AWS)
+        outage(s)
+        lines = [[d for d in alerts(s.cycle()) if d.key[1] == "R5"]
+                 for _ in range(25)]
+        # One line at once, then one per ALERT_REPEAT_S (20 cycles).
+        self.assertEqual([index for index, line in enumerate(lines)
+                          if line], [3, 23])
+        self.assertEqual([len(line) for line in lines if line], [1, 1])
+        [line] = lines[3]
+        self.assertEqual((line.key, line.level, line.holds),
+                         (HELD_STARTS, "WARNING", ("H7",)))
+        self.assertEqual(
+            line.text,
+            "Watchdog: 10 programs fail R5 together (FATAL after a "
+            "database outage: cmsLogService 0, cmsResourceService 0, "
+            "cmsEvaluationService 0, and 7 more) and are held by H7: will "
+            "not start cmsLogService 0 before 09:03 UTC: at most 2 starts "
+            "of a FATAL program in 60 minutes; will not start "
+            "cmsResourceService 0 before 09:03 UTC: at most 2 starts of a "
+            "FATAL program in 60 minutes; will not start "
+            "cmsEvaluationService 0 before 09:03 UTC: at most 2 starts of "
+            "a FATAL program in 60 minutes; and 7 more. Check ./logs.sh, "
+            "then start them by hand with supervisorctl if needed.")
+        self.assertEqual(s.state.open_alerts[HELD_STARTS].text, line.text)
+        # Each program still has its own incident.
+        self.assertEqual(
+            {name: incident["rule"]
+             for name, incident in s.state.ledger.incidents.items()},
+            dict.fromkeys((LS, RS, SS, ES, W0, W1, PS, CWS0, CWS1, AWS),
+                          "R5"))
+
+    def test_the_headline_of_held_starts_holds_every_one_of_them(self):
+        s = Scenario(mode=OBSERVE)
+        s.warm_up()
+        fatal(s, SS)
+        outage(s)
+        s.cycle()
+        s.cycle()
+        s.cycle()
+        # CWS0 went FATAL during the outage too, but later: SS has used
+        # its budget, CWS0 has not.
+        s.set(CWS0, state="FATAL", pid=None, start_wall=s.wall - 40)
+        [alert] = held_starts(s.cycle(in_flight=True))
+        self.assertEqual(alert.holds, ("H8", "H7"))
+        self.assertEqual(
+            alert.text,
+            "Watchdog: 2 programs fail R5 together (FATAL after a database "
+            "outage: cmsScoringService 0, cmsContestWebServer 0) and are "
+            "held by H8: another action is in flight. Also: H7. Nothing to "
+            "do: another action is running.")
 
 
 class TestRankings(unittest.TestCase):
