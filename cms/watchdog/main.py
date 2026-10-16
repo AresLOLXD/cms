@@ -35,6 +35,7 @@ docs/superpowers/specs/2026-10-10-watchdog-design.md.
 import contextlib
 import json
 import os
+import re
 import secrets
 import sys
 import time
@@ -198,10 +199,22 @@ class Files:
             f.write(line)
 
     def evidence_name(self, wall: float, program: str) -> str:
-        """Return the name of an evidence file in evidence_dir."""
+        """Return the name of an evidence file in evidence_dir.
+
+        The program's name keeps its letters, digits, "-", "_" and ".";
+        any other character becomes "_". So no name has a "/" to leave
+        evidence_dir by, and none starts with a dot: it starts with the
+        time.
+
+        wall: when it happened (epoch seconds).
+        program: the program's name.
+
+        return: the name, "20270115T080000Z-cmsLogService_0.json".
+
+        """
         return "%s-%s.json" % (
             time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(wall)),
-            program.replace(" ", "_"))
+            re.sub(r"[^A-Za-z0-9_.-]", "_", program))
 
     def write_evidence(self, name: str, evidence: Mapping) -> None:
         """Write an evidence file (raise OSError if it cannot be)."""

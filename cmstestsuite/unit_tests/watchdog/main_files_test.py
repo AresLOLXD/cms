@@ -206,6 +206,24 @@ class TestFiles(unittest.TestCase):
                                "x.json")) as f:
             self.assertEqual(json.load(f), {"rule": "R1"})
 
+    def test_an_evidence_name_stays_in_its_directory(self):
+        for program, expected in (
+                ("../../etc/passwd",
+                 "20270115T080000Z-.._.._etc_passwd.json"),
+                ("..", "20270115T080000Z-...json"),
+                ("cms Contest/Web\nServer 1",
+                 "20270115T080000Z-cms_Contest_Web_Server_1.json")):
+            with self.subTest(program=program):
+                name = self.files.evidence_name(WALL, program)
+                self.assertEqual(name, expected)
+                self.assertNotIn("/", name)
+                self.assertFalse(name.startswith("."))
+        self.files.write_evidence(
+            self.files.evidence_name(WALL, "../../x"), {})
+        self.assertEqual(os.listdir(self.files.evidence_dir),
+                         ["20270115T080000Z-.._.._x.json"])
+        self.assertEqual(os.listdir(self.root), ["log"])
+
 
 class TestWriteAtomic(unittest.TestCase):
 
