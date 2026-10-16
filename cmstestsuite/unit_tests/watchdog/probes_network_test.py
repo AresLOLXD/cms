@@ -28,19 +28,24 @@ import unittest
 from unittest.mock import patch
 
 from cms.conf import Address
+from cms.io.async_rpc import MAX_MESSAGE_SIZE as CMS_MAX_MESSAGE_SIZE
 from cms.io.async_service import AsyncService
-from cms.watchdog.probes import RpcProbe, describe, http_probe, \
-    probe_host, ranking_target
+from cms.watchdog.probes import MAX_MESSAGE_SIZE, RpcProbe, describe, \
+    http_probe, probe_host, ranking_target
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    """200 for the favicon, 401 for /private, 404 otherwise."""
+    """200 for the favicon, 401 for /private, the code of /status/<code>
+    and 404 otherwise."""
 
     def do_GET(self):
-        code = {"/static/favicon.ico": 200, "/private": 401}.get(
-            self.path, 404)
+        if self.path.startswith("/status/"):
+            code = int(self.path[len("/status/"):])
+        else:
+            code = {"/static/favicon.ico": 200, "/private": 401}.get(
+                self.path, 404)
         self.send_response(code)
         self.end_headers()
 
@@ -86,6 +91,38 @@ class TestHttpProbe(unittest.IsolatedAsyncioTestCase):
                                   "/static/missing.ico", 5)
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "HTTP status 404")
+
+    async def test_2xx_and_3xx_pass_and_the_other_statuses_fail(self):
+        for status, passes in ((199, False), (200, True), (299, True),
+                               (300, True), (399, True), (400, False),
+                               (503, False)):
+            with self.subTest(status=status):
+                result = await http_probe("127.0.0.1", self.http.port,
+                                          "/status/%d" % status, 5)
+                self.assertEqual(result.ok, passes)
+                if not passes:
+                    self.assertEqual(result.error,
+                                     "HTTP status %d" % status)
+
+    async def test_what_is_not_a_status_line_fails_even_a_ranking(self):
+        async def answer_with(reply: bytes, reader, writer) -> None:
+            await reader.readline()
+            writer.write(reply)
+            await writer.drain()
+            writer.close()
+
+        for reply in (b"garbage\r\n", b"HTTP/1.1 OK\r\n", b""):
+            with self.subTest(reply=reply):
+                server = await asyncio.start_server(
+                    lambda reader, writer: answer_with(reply, reader,
+                                                       writer),
+                    "127.0.0.1", 0)
+                async with server:
+                    result = await http_probe(
+                        "127.0.0.1", server.sockets[0].getsockname()[1],
+                        "/", 5, any_status=True)
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error, "no HTTP status line")
 
     async def test_any_status_line_passes_a_ranking(self):
         result = await http_probe("127.0.0.1", self.http.port, "/private",
@@ -162,6 +199,12 @@ class TestDescribe(unittest.TestCase):
                          "Connect call failed ('127.0.0.1', 8890)")
 
 
+class TestRpcLimits(unittest.TestCase):
+
+    def test_the_probe_reads_as_much_as_a_cms_service_sends(self):
+        self.assertEqual(MAX_MESSAGE_SIZE, CMS_MAX_MESSAGE_SIZE)
+
+
 class TestRankingTarget(unittest.TestCase):
 
     def test_the_address_and_no_credentials(self):
@@ -191,11 +234,13 @@ class FakeService:
 
     The method "fail" gets an error answer; every other method gets
     {"method": its name}, after delay seconds. The fault, when set, is
-    the name of a key of FAULTS: the answer it turns.
+    the name of a key of FAULTS: the answer it turns, or "close" to close
+    the connection without answering.
 
     """
 
     FAULTS = {
+        "wrong_id": lambda answer: {**answer, "__id": "another-request"},
         "missing_fields": lambda answer: {"__id": answer["__id"]},
         "not_an_object": lambda answer: [answer],
     }
@@ -232,6 +277,8 @@ class FakeService:
                           "__error": None}
                 if request["__method"] == "fail":
                     answer.update(__data=None, __error="boom\nTraceback")
+                if self.fault == "close":
+                    break
                 if self.fault:
                     answer = self.FAULTS[self.fault](answer)
                 writer.write(json.dumps(answer).encode() + b"\r\n")
@@ -274,6 +321,37 @@ class TestRpcProbe(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(result.ok)
                 self.assertEqual(result.error, "a bad answer")
                 self.assertFalse(self.probe.connected)
+
+    async def test_an_answer_to_another_request_is_a_miss_and_closes(self):
+        self.service.fault = "wrong_id"
+        result = await self.probe.call("health")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "an answer to another request")
+        self.assertFalse(self.probe.connected)
+
+    async def test_a_fresh_connection_closed_unanswered_is_not_retried(self):
+        self.service.fault = "close"
+        result = await self.probe.call("health")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error,
+                         "the service closed the connection before "
+                         "answering")
+        self.assertFalse(self.probe.connected)
+        self.assertEqual(self.service.connections, 1)
+
+    async def test_a_reused_connection_and_its_retry_both_closed_is_a_miss(
+            self):
+        self.assertTrue((await self.probe.call("health")).ok)
+        self.service.fault = "close"
+        result = await self.probe.call("health")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error,
+                         "the service closed the connection before "
+                         "answering")
+        self.assertFalse(self.probe.connected)
+        self.assertEqual(self.service.connections, 2)
+        self.service.fault = ""
+        self.assertTrue((await self.probe.call("health")).ok)
 
     async def test_after_a_timeout_a_late_answer_is_never_read(self):
         self.service.delay = 0.5
