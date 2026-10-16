@@ -32,6 +32,7 @@ import asyncio
 import concurrent.futures
 import http.client
 import os
+import select
 import shlex
 import signal
 import socket
@@ -327,9 +328,10 @@ class Outcome:
         RUNNING in time); "would" (a dry run); "started" or "start
         failed" (a batch); "evidence" (a snapshot); "refused" (the pid
         changed or it is not RUNNING, nothing was signalled); "gone"
-        (it had exited); "failed" (a system call failed: detail says
-        which, and TERM was sent only when it is KILL); "unbooked" (the
-        ledger could not be written, nothing was done).
+        (it exited on its own, before any TERM); "failed" (a system
+        call failed: detail says which, and TERM was sent only when it
+        is KILL); "unbooked" (the ledger could not be written, nothing
+        was done).
     detail: a sentence for the alert.
     new_pid: the program's pid after a restart.
     killed: whether some process of the group was left for KILL after
@@ -409,6 +411,23 @@ async def wait_readable(fd: int, timeout: float) -> bool:
         return False
     finally:
         loop.remove_reader(fd)
+
+
+def has_exited(pidfd: int) -> bool:
+    """Tell, without waiting, whether a pidfd's process has exited.
+
+    A pidfd is readable once its process has exited, a zombie included.
+    wait_readable(pidfd, 0) cannot tell: asyncio.wait_for gives up
+    before the reader can run.
+
+    pidfd: the pidfd.
+
+    return: whether its process has exited.
+
+    """
+    poller = select.poll()
+    poller.register(pidfd, select.POLLIN)
+    return bool(poller.poll(0))
 
 
 class DryRunActuator:
@@ -619,6 +638,12 @@ class SignalActuator(DryRunActuator):
         try:
             usr1, evidence_error = await self._evidence(pidfd, target,
                                                         write_evidence)
+            # Exited meanwhile, it was not restarted by us; and while it
+            # has not, its pid, so the group's, is still its own.
+            if has_exited(pidfd):
+                return Outcome("gone", "pid %d exited before its TERM"
+                               % target.pid, usr1=usr1,
+                               evidence_error=evidence_error)
             try:
                 self._killpg(target.pid, signal.SIGTERM)
             except ProcessLookupError:

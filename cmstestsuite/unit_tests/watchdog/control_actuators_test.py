@@ -170,6 +170,26 @@ class TestSignalActuator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.result, "gone")
         self.assertEqual(log, [])
 
+    async def test_a_leader_that_exits_before_its_term_is_gone(self):
+        child = self.child()
+        log: list = []
+
+        def write_evidence() -> None:
+            # It dies meanwhile (a crash, or an operator's restart); a
+            # zombie, it still holds its pid.
+            os.kill(child.pid, signal.SIGKILL)
+            deadline = time.monotonic() + 5
+            while process_state(child.pid) != "Z" \
+                    and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        outcome = await self.actuator(FakeSource(child), log).restart(
+            Target("cws", "ContestWebServer", child.pid), lambda: None,
+            write_evidence)
+        self.assertEqual((outcome.result, outcome.usr1),
+                         ("gone", "no USR1: the process does not handle it"))
+        self.assertEqual(log, [])
+
     async def test_a_changed_pid_is_refused_with_nothing_signalled(self):
         child = self.child()
         source = FakeSource(child)
