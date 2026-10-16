@@ -167,8 +167,32 @@ class TestFatalStarts(unittest.TestCase):
         for _ in range(5):
             s.cycle()
         fatal(s, SS)
-        for _ in range(3):
-            self.assertEqual(actions(s.cycle()), [])
+        history = [s.cycle() for _ in range(3)]
+        self.assertEqual([actions(decisions) for decisions in history],
+                         [[]] * 3)
+        # R5 judged it, and left it to a human.
+        [alert] = left_to_you(history[0])
+        self.assertEqual(alert.level, "ERROR")
+        self.assertIn("cmsScoringService 0 is FATAL", alert.text)
+
+    def test_the_red_lookback_is_15_s_before_the_last_start(self):
+        # An outage that ended exactly FATAL_RED_LOOKBACK_S before the
+        # last start does not count; one that ended a second later does.
+        for offset, started in ((14.0, True), (15.0, False)):
+            with self.subTest(offset=offset):
+                s = Scenario()
+                s.warm_up()
+                outage(s)
+                s.cycle()
+                # That first green cycle ended the outage.
+                end = s.wall
+                s.set(SS, state="FATAL", pid=None, start_wall=end + offset)
+                decisions = s.cycle()
+                self.assertEqual(
+                    [d.programs for d in actions(decisions)],
+                    [(SS,)] if started else [])
+                self.assertEqual(len(left_to_you(decisions)),
+                                 0 if started else 1)
 
     def test_it_ignores_h3_h4_h5_and_the_program_grace(self):
         s = Scenario()
