@@ -511,6 +511,26 @@ class TestEvidenceSignal(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((outcome.result, source.started), ("would", []))
 
 
+class TestIntervals(unittest.TestCase):
+
+    def test_a_non_positive_interval_is_refused(self):
+        # A poll_s of 0 or less would read the source in a busy loop; a
+        # term_wait_s would KILL with no grace, a confirm_s would never
+        # confirm.
+        for name in ("term_wait_s", "confirm_s", "poll_s"):
+            for value in (0, -1.0, float("nan")):
+                with self.subTest(name=name, value=value), \
+                        self.assertRaises(ValueError):
+                    SignalActuator(None, **{name: value})
+        for value in (-0.5, float("nan")):
+            with self.subTest(usr1_wait_s=value), \
+                    self.assertRaises(ValueError):
+                DryRunActuator(None, usr1_wait_s=value)
+        # No wait after the USR1 is not an interval: it is allowed.
+        DryRunActuator(None, usr1_wait_s=0)
+        SignalActuator(None, term_wait_s=0.1, confirm_s=0.1, poll_s=0.1)
+
+
 class TestAllowList(unittest.TestCase):
 
     def test_the_usr1_kinds_are_the_services_that_register_it(self):

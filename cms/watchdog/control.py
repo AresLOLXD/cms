@@ -448,11 +448,17 @@ class DryRunActuator:
         source: the process source (programs(), and start() for
             SignalActuator).
         proc: where /proc is.
-        usr1_wait_s: how long faulthandler gets to write the stacks.
+        usr1_wait_s: how long faulthandler gets to write the stacks (0:
+            no wait).
         pidfd_open, send_signal: os.pidfd_open and
             signal.pidfd_send_signal (tests may replace them).
 
+        raise (ValueError): if usr1_wait_s is negative or not a number.
+
         """
+        if not usr1_wait_s >= 0:
+            raise ValueError("usr1_wait_s must be 0 or more, not %r"
+                             % usr1_wait_s)
         self._source = source
         self._proc = proc
         self._usr1_wait_s = usr1_wait_s
@@ -607,7 +613,16 @@ class SignalActuator(DryRunActuator):
         killpg: os.killpg (tests may wrap it).
         kwargs: those of DryRunActuator.
 
+        raise (ValueError): if an interval is not more than 0 (a poll_s
+            of 0 would read the source in a busy loop), or a kwarg is
+            invalid.
+
         """
+        for name, value in (("term_wait_s", term_wait_s),
+                            ("confirm_s", confirm_s), ("poll_s", poll_s)):
+            if not value > 0:
+                raise ValueError("%s must be more than 0, not %r"
+                                 % (name, value))
         super().__init__(source, **kwargs)
         self._term_wait_s = term_wait_s
         self._confirm_s = confirm_s
