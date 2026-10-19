@@ -725,7 +725,8 @@ class Watchdog:
         state: the policy state (with the ledger read at startup).
         source: the process source.
         actuator: the actuator of real actions (a SignalActuator, or a
-            DryRunActuator when the source cannot act).
+            DryRunActuator in observe mode or when the source cannot
+            act).
         dry_run: the actuator of would-actions.
         prober: a Prober (or a fake with the same methods).
         files: where the state goes.
@@ -1271,9 +1272,11 @@ async def serve(mode: str, restart_classes: frozenset[str],
     source = (control.SupervisorSource() if process_source == "supervisor"
               else control.ProcSource())
     dry_run = control.DryRunActuator(source, usr1_wait_s=policy.USR1_WAIT_S)
+    # Observe mode never signals: it gets no actuator that can.
     actuator = control.SignalActuator(
         source, term_wait_s=policy.TERM_WAIT_S, confirm_s=policy.CONFIRM_S,
-        usr1_wait_s=policy.USR1_WAIT_S) if source.can_act else dry_run
+        usr1_wait_s=policy.USR1_WAIT_S) \
+        if source.can_act and mode == policy.ENFORCE else dry_run
     prober = Prober(_gate_environment())
     rankings = [target for target in map(probes.ranking_target,
                                          config.proxy_service.rankings)

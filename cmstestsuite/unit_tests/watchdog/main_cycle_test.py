@@ -1006,6 +1006,22 @@ class TestServe(unittest.TestCase):
         self.guard.dump_traceback_later.assert_called_with(SELF_GUARD_S,
                                                            exit=True)
 
+    def test_observe_mode_builds_no_signal_actuator(self):
+        # supervisord's source can act, but observe mode never signals:
+        # not even its actuator of real actions can.
+        self.assertTrue(SupervisorSource.can_act)
+        actuators: list = []
+        real_cycle = Watchdog.cycle
+
+        async def cycle(watchdog_, *args):
+            actuators.append((watchdog_.actuator, watchdog_.dry_run))
+            await real_cycle(watchdog_, *args)
+
+        with patch.object(Watchdog, "cycle", cycle):
+            self.assertEqual(self.serve(terminate_after=0.5), 0)
+        actuator, dry_run = actuators[0]
+        self.assertIs(actuator, dry_run)
+
     def test_an_error_of_a_cycle_ends_it_with_that_error(self):
         # So that supervisord starts it again.
         async def cycle(watchdog_, *args):
