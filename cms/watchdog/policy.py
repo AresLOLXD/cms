@@ -43,8 +43,8 @@ from typing import TypeVar
 CYCLE_S = 15.0
 # A cycle that starts this late is starved: it decides nothing.
 STARVED_LAG_S = 5.0
-# More than this since the previous cycle is a pause: every miss window
-# is cleared.
+# More than this since the previous cycle, plus the lag a cycle may have
+# (STARVED_LAG_S), is a pause: every miss window is cleared.
 PAUSE_S = 30.0
 
 # The probes (3.4).
@@ -1087,9 +1087,16 @@ class _Cycle:
             state.green_cycles += 1
 
     def _track_pause(self) -> None:
-        """Clear every window after a pause of the watchdog (3.3)."""
+        """Clear every window after a pause of the watchdog (3.3).
+
+        By the schedule, a cycle of up to PAUSE_S seconds is followed
+        PAUSE_S seconds after its start at most, plus the next cycle's
+        lag: a timer's overshoot, up to STARVED_LAG_S before that cycle
+        is starved. Only a longer gap is a pause.
+
+        """
         gap = self.obs.since_previous_s
-        if gap is not None and gap > PAUSE_S:
+        if gap is not None and gap > PAUSE_S + STARVED_LAG_S:
             self._clear_windows()
             self.decisions.append(Decision(
                 ALERT, key=("-", "pause"),
