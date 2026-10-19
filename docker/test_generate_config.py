@@ -1,5 +1,6 @@
 """Unit tests for docker/generate_config.py."""
 
+import ast
 import configparser
 import os
 import re
@@ -594,3 +595,16 @@ def test_watchdog_invalid_knobs_exit(monkeypatch, capsys, variables):
         gc.generate_supervisord_conf()
     name = next(iter(variables))
     assert name in capsys.readouterr().err
+
+
+def test_watchdog_classes_are_the_policys():
+    # cmsWatchdog exits at argparse on a class it does not know, and
+    # ends FATAL. docker/ imports nothing from cms: read policy.py.
+    path = os.path.join(os.path.dirname(__file__), "..", "cms", "watchdog",
+                        "policy.py")
+    with open(path) as f:
+        tree = ast.parse(f.read())
+    [order] = [ast.literal_eval(node.value) for node in tree.body
+               if isinstance(node, ast.AnnAssign)
+               and getattr(node.target, "id", None) == "CLASS_ORDER"]
+    assert sorted(gc.WATCHDOG_CLASSES) == sorted(order)
