@@ -6,7 +6,7 @@
 #            [--users-a N] [--users-b N] [--login-window S] [--contest S] \
 #            [--end-burst S] [--rate R] [--end-burst-factor F] \
 #            [--workers N] [--cws N] [--request-time-header NAME] \
-#            [--poll-cap SECONDS] [--faults]
+#            [--poll-cap SECONDS] [--faults] [--watchdog]
 #
 # The defaults are the 2026-09-30 full1 values: users-a 175, users-b 75,
 # login-window 150, contest 1500, end-burst 300, rate 45 (submissions per
@@ -23,6 +23,10 @@
 # faults.py, which injects the database faults of #39 at fixed times of
 # the contest, and then faultstats.py, which writes out/<name>/faults.md
 # (see "Fault runs" in the README). It needs passwordless sudo.
+# --watchdog (fork target only) also runs cmsWatchdog in observe mode
+# with the /proc source in the cms container, from before ProxyService
+# starts, and then watchdogstats.py, which writes out/<name>/watchdog.md
+# (see "Watchdog runs" in the README).
 #   smoke: ./run.sh --target fork --profile portable --name smoke \
 #              --users-a 14 --users-b 6 --login-window 60 --contest 480 \
 #              --end-burst 120 --rate 10
@@ -37,7 +41,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER='' POLL_CAP=''
 UA=175 UB=75 LOGIN=150 CONTEST=1500 ENDB=300 RATE=45 EBF=1.0 WORKERS=8 CWS=2
-FAULTS=0
+FAULTS=0 WATCHDOG=0
 
 usage() {
   sed -n '2,/^# left running/p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -60,6 +64,7 @@ while (($#)); do
     --request-time-header) REQUEST_TIME_HEADER=${2:?--request-time-header needs a value}; shift 2 ;;
     --poll-cap) POLL_CAP=${2:?--poll-cap needs a value}; shift 2 ;;
     --faults) FAULTS=1; shift ;;
+    --watchdog) WATCHDOG=1; shift ;;
     -h | --help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage; exit 2 ;;
   esac
@@ -89,6 +94,10 @@ if ((FAULTS)); then
     echo "--faults needs --contest 2100 or more: the scores after the last fault arrive about 1770 s after the start" >&2
     exit 2
   fi
+fi
+if ((WATCHDOG)) && [[ $TARGET != fork ]]; then
+  echo "--watchdog runs on the fork target only" >&2
+  exit 2
 fi
 
 PROJ=cmsload-$TARGET
@@ -215,6 +224,10 @@ collect() {
   take_census end "$OUT/processes_end.txt"
   # shellcheck disable=SC2016  # expanded in the container
   compose exec -T cms bash -c 'kill "$(cat /loadtest/run/monitor.pid)"' >/dev/null 2>&1
+  if ((WATCHDOG)); then
+    # shellcheck disable=SC2016  # expanded in the container
+    compose exec -T cms bash -c 'kill "$(cat /loadtest/run/watchdog.pid)"' >/dev/null 2>&1
+  fi
   if compose exec -T cms python3 /loadtest/db_export.py >"$OUT/db_export.json.tmp"; then
     mv "$OUT/db_export.json.tmp" "$OUT/db_export.json"
   else
@@ -341,6 +354,12 @@ with open(path + ".tmp", "w") as f:
 os.replace(path + ".tmp", path)
 ' "$OUT/users.json" "$TARGET" "$POLL_CAP"
 
+# The watchdog starts before ProxyService, so that its status history
+# covers the whole run; watchdogstats.py lets ProxyService appear late.
+if ((WATCHDOG)); then
+  compose exec -d cms bash -c "echo \$\$ >/loadtest/run/watchdog.pid; exec cmsWatchdog --mode observe --process-source proc --status-history /loadtest/out/$NAME/watchdog_status.jsonl >>/loadtest/out/$NAME/watchdog.log 2>&1"
+fi
+
 # ProxyService starts now that the contests exist. The portable profile has
 # one ranked contest; the full one serves every contest and ranking group
 # ("-c ALL" is multi-contest mode; without -c ProxyService would ask for a
@@ -405,6 +424,11 @@ if ((FAULTS)); then
   python3 "$HERE/faultstats.py" "$OUT" >"$OUT/faults.md" ||
     echo "A fault criterion failed, see $OUT/faults.md" >&2
   cat "$OUT/faults.md"
+fi
+if ((WATCHDOG)); then
+  python3 "$HERE/watchdogstats.py" "$OUT" --cws "$CWS" --workers "$WORKERS" >"$OUT/watchdog.md" ||
+    echo "A watchdog criterion failed, see $OUT/watchdog.md" >&2
+  cat "$OUT/watchdog.md"
 fi
 echo "Run $NAME done: $OUT"
 exit "$driver_rc"
