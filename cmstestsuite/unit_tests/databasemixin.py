@@ -38,6 +38,7 @@ same regardless of the path used to reach it.
 
 from datetime import timedelta
 
+from sqlalchemy import text
 
 from cms.db import engine, metadata, Admin, Announcement, Contest, Dataset, \
     Evaluation, Executable, File, Group, Manager, Message, Participation, \
@@ -304,6 +305,22 @@ class DatabaseMixin(DatabaseObjectGeneratorMixin):
         for table in metadata.tables.values():
             self.session.execute(table.delete())
         self.session.commit()
+
+    @staticmethod
+    def held_advisory_locks(session: Session) -> list[tuple[int, int]]:
+        """Return the advisory locks held by the session's connection.
+
+        session: the session to look at; this query starts its
+            transaction if it has none.
+
+        return: the two keys of each lock taken with the two-key form
+            of pg_advisory_lock and its variants, sorted.
+
+        """
+        return [tuple(row) for row in session.execute(text(
+            "SELECT classid::bigint, objid::bigint FROM pg_locks "
+            "WHERE locktype = 'advisory' AND objsubid = 2 "
+            "AND pid = pg_backend_pid() ORDER BY 1, 2"))]
 
     @staticmethod
     def add_fsobject(digest, content):

@@ -36,6 +36,8 @@ from cms.db import Token, Submission
 from cms.db.session import Session
 from cms.db.task import Task
 from cms.db.user import Participation
+from cms.server.contest.submission.check import CONCURRENT_REQUEST_TEXT, \
+    try_lock_limit_checks
 
 
 __all__ = [
@@ -356,11 +358,20 @@ def accept_token(
     return: the Token that was added to the database.
 
     raise (UnacceptableToken): if some of the requirements that have to
-        be met in order for the request to be accepted don't hold.
+        be met in order for the request to be accepted don't hold, or
+        if another request of the contestant held the lock of their
+        tokens.
     raise (TokenAlreadyPlayed): if the request is for adding a token to
         a submission that already has one.
 
     """
+    # Always first: every check below, down to submission.token, reads
+    # the contestant's tokens, which the lock protects.
+    if not try_lock_limit_checks(
+            sql_session, submission.participation, "token"):
+        raise UnacceptableToken(
+            N_("Token request discarded"), CONCURRENT_REQUEST_TEXT)
+
     tokens_available_ = tokens_available(submission.participation,
                                          submission.task, timestamp)
 

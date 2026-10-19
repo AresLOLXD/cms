@@ -312,6 +312,9 @@ msgstr "Ejecutando..."
 msgid "Executed"
 msgstr "Ejecutado"
 
+msgid "Another request from your account was being processed at the same moment, so this one was not accepted. Wait a few seconds and try again."
+msgstr "Otro pedido de su cuenta se estaba procesando en el mismo momento, por lo que este no fue aceptado. Espere unos segundos e intente nuevamente."
+
 msgid "Too many submissions!"
 msgstr "¡Demasiados envíos!"
 

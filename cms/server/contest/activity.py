@@ -44,6 +44,14 @@ logger = logging.getLogger(__name__)
 # Key space of this log's advisory locks: the first key of the
 # two-key form of pg_advisory_xact_lock (an int32), the participation
 # id being the second, so that the log does not claim every lock key.
+#
+# The fork's advisory lock namespaces are four ASCII letters read as a
+# big-endian int32, all below 2^31. Never reuse one for something else,
+# and keep this list in sync with the one in submission/check.py:
+# - ACTV 0x41435456: this log's flush;
+# - SUBM 0x5355424D: the limit checks of accept_submission;
+# - UTST 0x55545354: the limit checks of accept_user_test;
+# - TOKN 0x544F4B4E: the checks of accept_token.
 ACTIVITY_LOCK_NAMESPACE = 0x41435456  # "ACTV" in ASCII.
 
 # How many participations a flush writes per transaction. It bounds

@@ -309,6 +309,9 @@ msgstr ""
 msgid "Executed"
 msgstr ""
 
+msgid "Another request from your account was being processed at the same moment, so this one was not accepted. Wait a few seconds and try again."
+msgstr ""
+
 msgid "Too many submissions!"
 msgstr ""
 

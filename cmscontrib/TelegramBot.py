@@ -20,6 +20,7 @@ import collections
 from collections.abc import Awaitable, Callable
 from typing import Any
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 
@@ -413,31 +414,57 @@ class TelegramBot:
         new["msg_id"] = msg_id
         return new
 
+    def _read_questions_and_announcements(
+        self,
+    ) -> tuple[list[dict], list[dict]]:
+        """Read the questions and the announcements from the DB.
+
+        The participation and the user of each question are loaded in the
+        same query as the question, so the number of queries does not
+        depend on how many participants asked something. The dicts are
+        built before the session is closed, so they can be used by the
+        caller afterwards.
+
+        return: the questions, in the order they were asked (each with the
+            "username" of the participant who asked it), and the
+            announcements (none when the bot serves all the contests).
+
+        """
+        with SessionGen() as session:
+            query = (
+                select(Question)
+                .join(Participation)
+                .options(
+                    joinedload(Question.participation)
+                    .joinedload(Participation.user))
+                .order_by(Question.id)
+            )
+            if self.contest_id is not None:
+                query = query.filter(
+                    Participation.contest_id == self.contest_id)
+
+            def q_to_dict(q) -> dict:
+                d = sqlalchemy_to_dict(q)
+                d["username"] = q.participation.user.username
+                return d
+
+            qs = [q_to_dict(x) for x in session.execute(query).scalars().all()]
+            if self.contest_id is None:
+                anns = []
+            else:
+                anns = [
+                    sqlalchemy_to_dict(x)
+                    for x in session.execute(
+                        select(Announcement)
+                        .filter(Announcement.contest_id == self.contest_id)
+                    ).scalars().all()
+                ]
+        return qs, anns
+
     async def db_loop(self):
         while True:
             logger.debug("Reading questions and announcements from DB")
-            with SessionGen() as session:
-                query = select(Question).join(Participation)
-                if self.contest_id is not None:
-                    query = query.filter(
-                        Participation.contest_id == self.contest_id)
-
-                def q_to_dict(q) -> dict:
-                    d = sqlalchemy_to_dict(q)
-                    d["username"] = q.participation.user.username
-                    return d
-
-                qs = [q_to_dict(x) for x in session.execute(query).scalars().all()]
-                if self.contest_id is None:
-                    anns = []
-                else:
-                    anns = [
-                        sqlalchemy_to_dict(x)
-                        for x in session.execute(
-                            select(Announcement)
-                            .filter(Announcement.contest_id == self.contest_id)
-                        ).scalars().all()
-                    ]
+            qs, anns = self._read_questions_and_announcements()
             for q in qs:
                 await self.store_question(q, self.question_callback)
             for ann in anns:
