@@ -98,8 +98,9 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
     run `./up.sh` again.
   - Start any SQL you apply by hand with `SET lock_timeout = '5s';`, so
     that it gives up instead of making the contest wait behind its lock.
-- `./status.sh`: every container is `Up`, and every program in the
-  supervisor list is `RUNNING`.
+- `./status.sh`: every container is `Up`, every program in the supervisor
+  list is `RUNNING`, and the watchdog's line says that its last cycle was a
+  few seconds ago.
 - In the Admin Web Server, open **Overview**. The **Workers status** title
   reads "(N connected, M configured)": N must equal M.
 - On **Ranking groups**, the **State** column says what you expect for each
@@ -269,6 +270,175 @@ sets) and a non-empty `application_name`: here `-c`, the name of a
 `./logs.sh --tail 2000 cms | grep -E 'timeout expired|closed the connection|Lost the database|Connection timed out|could not receive data from server'`
 must print nothing.
 
+## When the watchdog alerts
+
+`cmsWatchdog` checks every CMS program every 15 seconds (see "The watchdog"
+in [docker-deployment.md](docker-deployment.md)). In `./logs.sh cms` its lines
+read `<UTC time> <LEVEL> Watchdog: …`, or `<UTC time> <LEVEL> Resolved: …`
+when a problem is over; its warnings and errors also appear in the **Logs**
+table on **Overview**, from `Watchdog,0`. `./status.sh` ends with its state. In
+`observe` mode it restarts nothing: its `WOULD restart` lines say what
+`enforce` would have done.
+
+### What its lines mean
+
+| Line | What it means | What to do |
+|------|---------------|------------|
+| `started in … mode …` | The watchdog started (also each time the container starts). It acts on nothing in its first 120 seconds. | Nothing. |
+| `early warning: …` | A program missed 3 of its last 6 checks, or one of its sections is past half its limit. | Watch it; read `./logs.sh cms`. The line says what the watchdog does at the limit, in this mode, and which hold applies now. |
+| `restarted … (pid A→B …) after …` | It restarted a hung program: TERM, then KILL after 10 seconds if needed. The end of the line says where its stacks are, or why there are none. | Read the evidence file it names, and the stacks in `./logs.sh cms`. For a Contest Web Server, see "When a Contest Web Server restarts". |
+| `WOULD restart … after …` | In `observe` mode, or for a class that is not in `CMS_WATCHDOG_RESTART`, it would have restarted the program. | Decide by hand, after `cmsWatchdog --snapshot` (see "The evidence"). |
+| `… answers again N s after the restart` | The restart helped: the program passes its checks again. | Nothing. |
+| `… is still failing 120 s after the restart` | The restart did not help. | Read the evidence and the logs; restart again by hand only once the cause is known. |
+| `sent TERM … but no new pid was RUNNING within 30 s` | It signalled the program, but supervisord did not show it `RUNNING` again within 30 seconds. | Check `./status.sh`. If the program is `FATAL`, read `./logs.sh cms`, fix the cause, then start it with `supervisorctl`. |
+| `did not restart …; nothing was signalled` | Between its check and the restart, the program exited or got another pid, so it did nothing. | Nothing, if `./status.sh` shows it `RUNNING`. |
+| `did not restart …: its ledger could not be written …` | It could not record the restart in its ledger, so it did nothing: an unrecorded restart would escape the budget. | Check the free space of the container (the ledger is in its run directory); until the ledger can be written, it restarts nothing. |
+| `… fails R… (…) but is held by H…` or `N Workers trip R4 together (…) and are held by H…` | It would restart the program (or start it, for R5), but a hold stops it. | Follow the row of that hold in "The holds". |
+| `the database gate is red (…)` | PostgreSQL does not answer, or has no free connection; nothing is restarted meanwhile. | Follow "When the database misbehaves". |
+| `FATAL, and in the last … minutes the watchdog saw no database outage` | A program stopped for a reason other than a database outage. | Read `./logs.sh cms`, fix the cause, then start it with `supervisorctl`. |
+| `started …, left FATAL by a database outage` | After an outage, it started the programs the outage had left `FATAL`. | Check `./status.sh`. |
+| `WOULD start …, left FATAL by a database outage` | In `observe` mode, or for a class that is not in `CMS_WATCHDOG_RESTART`, it would have started them. | Check `./status.sh`, and start them with `supervisorctl`. |
+| `could not start all of …` or `did not start …: its ledger could not be written …` | supervisord did not start some of them, or the watchdog could not record the batch in its ledger and started nothing. | Read `./logs.sh cms`, then start them with `supervisorctl`. |
+| `re-evaluation still running for N min` | A re-evaluation holds the Evaluation Service's lock; it is never restarted for that. | Nothing, unless new submissions must be graded first. |
+| `ranking … does not answer` | A ranking does not answer; the watchdog cannot restart it. | Check the ranking container with `./status.sh` and `./logs.sh ranking`. |
+| `pid N answers on the RPC port of …` | Another process answers on the program's RPC port, not the one supervisord started. The watchdog does nothing about it. | Check `./status.sh` and `ps` in the `cms` container, and end the stray process by hand. |
+| `Resolved: …` | A problem it alerted about is over: the program passes its checks again, the database answers again, or the ranking answers again. | Nothing. |
+| `the evidence of … could not be written`, or `its journal …`, `its status file …` or `its status history … could not be written` | A file of the watchdog could not be written (a full disk, for example); its restarts go on. | Check the free space of the disk that holds the file it names. |
+| `its ledger … could not be written` | Its ledger could not be written at the end of a cycle: a restart stops at its booking until it can be. | Check the free space of the container (the ledger is in its run directory); until the ledger can be written, it restarts nothing. |
+| `its ledger … did not parse (…)` | At its start, its ledger could not be read: every budget counts as used for 60 minutes. | Nothing; restart by hand if needed, after `cmsWatchdog --snapshot`. |
+| `the restart of …`, `the start of …` (or `the would-restart of …`, `the would-start of …`) followed by `failed unexpectedly: …` or `was interrupted: …` | An unexpected error stopped one of its actions, or the watchdog was stopped while it ran one. | Check `./status.sh`, and keep the lines around it for the developers. |
+| `paused for N s` | The watchdog itself was paused (the host, the VM or the container). | Nothing, if it happens once. |
+| `… is gone: no process runs it any more …` | Only in the load-test harness, which reads `/proc` instead of supervisord. | Nothing. |
+| `hourly near-miss summary` | How close each check came to its limit in the last hour. | Nothing; it is the record for switching `enforce` on. |
+
+### The holds
+
+A hold stops a restart and leaves an alert. The alert names the first hold
+that applies (`held by H…`) and lists the others. While the hold lasts, the line
+repeats every 5 minutes with the hold that applies then; the first time H7 or H3
+applies, it goes out at once.
+
+| Hold | It applies when | What to do |
+|------|-----------------|------------|
+| H1 | supervisord did not answer. | Run `./status.sh`. |
+| H2 | The database does not answer, or has answered for less than 120 seconds. | Follow "When the database misbehaves". |
+| H3 | A CMS session has waited more than 30 seconds for a database lock. The alert names up to 3 waiting sessions and up to 3 blockers of each: its pid, its program, its state and how long its transaction has been open. | See "A lock blocks CMS". Ending a blocker is your decision. |
+| H4 | Two or more programs of the same class fail together (two Contest Web Servers, for example). | Find what they share (the database, the disk, the load). Restart them by hand one at a time, and only once you know the cause. |
+| H5 | More than a third of the programs it probes fail a check at once (the Workers are not counted). | Check the load of the server and of the database. |
+| H6 | The program, or the watchdog itself, started less than 120 seconds ago, or the watchdog acted on it less than 120 seconds ago. | Nothing: wait. |
+| H7 | Its budget is used: 2 restarts of a program, or 3 of its pool, per hour. The alert says until when (`will not restart … before HH:MM UTC`). | Restart it by hand if needed, after `cmsWatchdog --snapshot`. |
+| H8 | Another restart is still running. | Nothing. |
+
+### A lock blocks CMS
+
+An H3 alert names the session that holds the lock, for example
+`pid 900 ('psql', idle in transaction, transaction open 300 s)`. If it is a
+session you know (an operator's `psql`, a long export), let it finish or end
+it. Find it with the holder query of "When the database misbehaves", and end
+it with `SELECT pg_terminate_backend(<pid>);` the same way.
+
+After a restart, a blocker marked `orphan of pid N` is the database session of
+the process the watchdog killed (pid N): its connection is gone, but
+PostgreSQL may keep its transaction and its locks. End it with
+`pg_terminate_backend` as above. End only a blocker marked that way: an
+unmarked blocker with the same program name may be the new process's own
+session.
+
+### The evidence
+
+Before every restart and every `WOULD restart`, the watchdog writes a file in
+the `watchdog/` directory of the CMS log volume (`log/watchdog/` in its
+alerts): the decision, the program's last 6 checks, the last `health()`
+answer it received from the program (with the stack of a stuck section), the
+database sessions and the state of the process. It also makes the program
+write the stack of each of its threads to `./logs.sh cms` (lines that start
+with `Thread 0x` and `Current thread 0x`), unless the program is stopped.
+`actions.jsonl`, in the same directory, lists every action with its time. To
+list them:
+
+```bash
+docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+    exec -T cms ls -l /home/cmsuser/cms/log/watchdog
+```
+
+Before you restart a program by hand, keep the same evidence with:
+
+```bash
+docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+    exec -T cms cmsWatchdog --snapshot <program>
+```
+
+`<program>` is the name that `./status.sh` shows, for example
+`cmscontestwebserver2`. It restarts nothing, and it prints the file it wrote.
+
+### When a Contest Web Server restarts
+
+- With the Caddy profile of "Health checks in the reverse proxy" in
+  [docker-deployment.md](docker-deployment.md), its users move to another
+  process within about 35 seconds; without it, they get errors for up to 30
+  seconds after the restart.
+- A submission cut off by the restart may have been saved: tell the
+  contestants to check their list of submissions before they send it again.
+- Up to 60 seconds of participant activity of that process are lost. The
+  restart times, for the review of simultaneous activity, are in
+  `actions.jsonl`.
+- If every process answers 503 with `no upstreams`, it heals by itself within
+  about 30 seconds: restart nothing.
+
+### Turning it off
+
+- **Until the container restarts**, with no downtime:
+
+  ```bash
+  docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+      exec cms supervisorctl -c /home/cmsuser/cms/etc/supervisord.conf stop cmswatchdog
+  ```
+
+- **For good:** set `CMS_WATCHDOG=off` in `.env`, then run `./up.sh`; it
+  recreates the containers, so every service restarts.
+
+### Switching enforce on
+
+Only between contests (never on a contest day, nor in the 3 days before one),
+and only for the classes that passed all of these in `observe` mode:
+
+- every drill of the watchdog's validation passed on the deployed version;
+- at least one session with real users (a contest, or a rehearsal of 2 hours
+  or more) ran in `observe` mode;
+- every `WOULD restart` line is explained, and no H4 or H5 alert appeared
+  outside known database events;
+- the hourly summaries stayed under half of each limit: at most 2 misses in 6
+  checks, no Evaluation Service section older than 90 seconds with no
+  statement for 30 seconds (re-evaluations aside), no scoring longer than 90
+  seconds, and no ranking send idle for 90 seconds;
+- the nightly 05:00 restart was seen at least 7 times;
+- you ran the game day (below).
+
+Then, in one edit of `.env`, set `CMS_WATCHDOG=enforce` and set
+`CMS_WATCHDOG_RESTART` to only those classes (for example
+`CMS_WATCHDOG_RESTART=web`), run `./up.sh`, and run the game day again. Add
+`workers` later, once `observe` mode has shown no false Worker alert.
+
+### The game day
+
+In a quiet window and never on a contest day: once in `observe` mode, and once
+right after switching `enforce` on.
+
+1. Stop a Contest Web Server for 120 seconds, then let it go on (here process
+   3; use one that exists):
+
+   ```bash
+   docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
+       exec -T cms bash -c 'pid=$(supervisorctl -c /home/cmsuser/cms/etc/supervisord.conf pid cmscontestwebserver3); kill -STOP "$pid"; sleep 120; kill -CONT "$pid"'
+   ```
+
+2. Do the same with the Scoring Service (`cmsscoringservice`) for 240
+   seconds.
+3. Check the reverse proxy's log, the **Logs** table on **Overview**,
+   `./logs.sh cms` and the evidence directory: an early warning, then
+   `WOULD restart` (`restarted` in `enforce` mode), and no line about the
+   other programs.
+
 ## At the end
 
 1. **Last-second submissions.** There is no grace period. A submission
@@ -346,3 +516,6 @@ must print nothing.
 | The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out`, `Lost the database connection before the session's rollback` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | A deploy stops at `db-init`, and `./logs.sh db-init` shows `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, end it, then run `./up.sh` again | "When the database misbehaves" (above) |
 | The logs say `Finalized result … (a write was cut)` | Nothing: the Evaluation Service completed a result whose outcome write was cut. If it repeats for many results, follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
+| `Watchdog: … held by H…` in the logs or in the **Logs** table | Follow the row of that hold in "The holds" | "When the watchdog alerts" (above) |
+| `Watchdog: restarted …` or `Watchdog: WOULD restart …` | Read the evidence; tell the contestants of a restarted Contest Web Server to check their submissions | "When the watchdog alerts" (above) |
+| `./status.sh` shows `no status file`, or a watchdog line whose last cycle is minutes old | The watchdog is not running: check its row (`cmswatchdog`) in `./status.sh` and read `./logs.sh cms` | "When the watchdog alerts" (above) |
