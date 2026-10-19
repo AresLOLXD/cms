@@ -50,6 +50,16 @@ HALF_MISSES = 2
 HALF_SECTION_S = 90.0
 HALF_ES_IDLE_S = 30.0
 INVALIDATION = "post_finish_lock:_invalidate_submission_sync"
+# The probes every program needs latency samples of: favicon for the
+# kinds judged on it, health() for every kind but the Worker.
+FAVICON_KINDS = frozenset({"ContestWebServer", "AdminWebServer"})
+HEALTH_KINDS = FAVICON_KINDS | {"LogService", "ResourceService",
+                                "EvaluationService", "ScoringService",
+                                "ProxyService"}
+# Three cycles of policy.CYCLE_S (15 s): the longest the status history
+# may go without a cycle. Past it the watchdog stopped or stalled (its
+# self-guard exits after 60 s, and nothing restarts it in the harness).
+MAX_CYCLE_GAP_S = 45.0
 # A fault shows in the gate from up to one gate probe (7 s) before it
 # to one cycle and one probe (22 s) after it.
 FAULT_BEFORE_S = 7.0
@@ -163,9 +173,34 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
                  "all, from the driver's start",
                  bool(cycles) and not never and not problems))
 
+    # The rows above judge only the cycles there are: the cycles must
+    # also cover the run, and every F2 and F3 window.
+    moments = sorted(item["time"] for item in statuses)
+    end = max((request["t"] for request in requests), default=None)
+    covered = moments[-1] if moments and end is not None else None
+    rows.append(("last cycle at most %g s before the driver's last request"
+                 % MAX_CYCLE_GAP_S,
+                 "none" if covered is None else "%.0f s" % (end - covered),
+                 "%g s" % MAX_CYCLE_GAP_S,
+                 covered is not None and end - covered <= MAX_CYCLE_GAP_S))
+    if start is not None:
+        # From the driver's start on: the last cycle before it (the
+        # start itself if there is none) and every cycle after it.
+        moments = ([moment for moment in moments if moment < start][-1:]
+                   or [start]) + [moment for moment in moments
+                                  if moment >= start]
+    gaps = ["%.0f s after %d" % (later - earlier, earlier)
+            for earlier, later in zip(moments, moments[1:])
+            if later - earlier > MAX_CYCLE_GAP_S]
+    rows.append(("no gap over %g s between cycles" % MAX_CYCLE_GAP_S,
+                 ", ".join(gaps[:3]) or "none", "none", not gaps))
+    empty = ["%d-%d" % window for window in windows
+             if not any(inside(item["time"], [window]) for item in statuses)]
+    rows.append(("a cycle inside every F2 and F3 window",
+                 ", ".join(empty) or "all", "all", not empty))
+
     http: dict[str, list[float]] = {}
     rpc: dict[str, list[float]] = {}
-    probed: set[str] = set()
     max_misses = 0
     es_bad: list[str] = []
     es_idle = 0.0
@@ -180,8 +215,6 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
         for program in item["programs"]:
             label = program.get("label") or program["name"]
             for key, table in (("http", http), ("rpc", rpc)):
-                if program.get(key + "_ok") is not None:
-                    probed.add(label)
                 if program.get(key + "_latency_s") is not None:
                     table.setdefault(label, []).append(
                         program[key + "_latency_s"])
@@ -201,10 +234,15 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
                 if kind == "ProxyService" and idle_s > HALF_SECTION_S:
                     ps_bad.append("%d s" % idle_s)
 
-    without = sorted(label for label in probed
-                     if not http.get(label) and not rpc.get(label))
+    # Expected from each program's kind ("cms<Kind> <shard>"), not from
+    # the probes the status history shows.
+    missing = ["%s %s" % (label, name)
+               for label in expected_labels(cws, workers)
+               for name, table, kinds in (("favicon", http, FAVICON_KINDS),
+                                          ("health()", rpc, HEALTH_KINDS))
+               if label.split()[0][3:] in kinds and not table.get(label)]
     rows.append(("probe latencies for every probed program",
-                 ", ".join(without) or "all", "all", not without))
+                 ", ".join(missing) or "all", "all", not missing))
     # The criteria of L1 and L2. A fault run (L3) is judged by the rows
     # above: F2 and F3 push these past half their trips by design, so
     # there they are only recorded.
@@ -212,10 +250,11 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
     for name, table, timeout in (("favicon", http, HTTP_TIMEOUT_S),
                                  ("health()", rpc, RPC_TIMEOUT_S)):
         worst = max((p_quantile(values, 0.99) or 0.0
-                     for values in table.values()), default=0.0)
+                     for values in table.values()), default=None)
         load_rows.append(("%s p99 under 1/3 of %g s" % (name, timeout),
-                          "%.2f s" % worst, "%.2f s" % (timeout / 3),
-                          worst < timeout / 3))
+                          "no samples" if worst is None
+                          else "%.2f s" % worst, "%.2f s" % (timeout / 3),
+                          worst is not None and worst < timeout / 3))
     load_rows.append(("at most 2 misses in 6", str(max_misses),
                       str(HALF_MISSES), max_misses <= HALF_MISSES))
     load_rows.append(("ES sections under half their trip",

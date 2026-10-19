@@ -39,6 +39,13 @@ LABELS = ["cmsLogService 0", "cmsEvaluationService 0",
           "cmsScoringService 0", "cmsProxyService 0",
           "cmsContestWebServer 0", "cmsContestWebServer 1",
           "cmsAdminWebServer 0", "cmsWorker 0"]
+WEB = ["cmsContestWebServer 0", "cmsContestWebServer 1", "cmsAdminWebServer 0"]
+LAST = "last cycle at most 45 s before the driver's last request"
+GAP = "no gap over 45 s between cycles"
+WINDOW = "a cycle inside every F2 and F3 window"
+SAMPLES = "probe latencies for every probed program"
+FAVICON_P99 = "favicon p99 under 1/3 of 5 s"
+HEALTH_P99 = "health() p99 under 1/3 of 3 s"
 
 
 def entry(label: str, **changes) -> dict:
@@ -90,6 +97,15 @@ class WatchdogStatsTest(unittest.TestCase):
                 json.dump(self.faults, f)
         rows, _ = watchdogstats.check(self.run_dir, cws=2, workers=1)
         return {criterion: passed for criterion, _, _, passed in rows}
+
+    def value(self, criterion: str) -> str:
+        """Return the value of a row, from the files rows() wrote."""
+        rows, _ = watchdogstats.check(self.run_dir, cws=2, workers=1)
+        return next(value for name, value, _, _ in rows if name == criterion)
+
+    def add_request(self, when: float) -> None:
+        with open(os.path.join(self.run_dir, "requests.jsonl"), "a") as f:
+            f.write(json.dumps({"t": when, "dur": 0.1}) + "\n")
 
     def test_a_quiet_run_passes(self):
         rows = self.rows()
@@ -203,6 +219,95 @@ class WatchdogStatsTest(unittest.TestCase):
                                  "cmsContestWebServer 1 (pid 100) after"))
         self.assertFalse(self.rows()["no WOULD line"])
 
+    def test_a_watchdog_that_stops_early_fails(self):
+        # Its self-guard exits after a 60 s stall, and the harness has
+        # no supervisord to start it again: the cycles it left pass.
+        self.statuses = self.statuses[:20]
+        self.add_request(START + 15 * 39)
+        rows = self.rows()
+        self.assertTrue(rows["every program in every cycle"])
+        self.assertFalse(rows[LAST])
+        self.assertEqual(self.value(LAST), "300 s")
+
+    def test_the_last_cycle_may_come_45_s_before_the_last_request(self):
+        self.add_request(START + 15 * 39 + 45)
+        self.assertTrue(self.rows()[LAST])
+        self.add_request(START + 15 * 39 + 46)
+        self.assertFalse(self.rows()[LAST])
+
+    def test_a_gap_between_cycles_fails(self):
+        del self.statuses[20:22]  # From 285 s to 330 s: 45 s, fine.
+        self.assertTrue(self.rows()[GAP])
+        del self.statuses[20]  # From 285 s to 345 s: 60 s.
+        self.assertFalse(self.rows()[GAP])
+        self.assertIn("60 s after %d" % (START + 285), self.value(GAP))
+
+    def test_a_gap_across_the_driver_start_fails(self):
+        # The driver starts at 30 s.
+        del self.statuses[1:5]  # From 0 s to 75 s.
+        self.assertFalse(self.rows()[GAP])
+        # A watchdog with no cycle before the driver's start: its first
+        # cycle counts from that start.
+        del self.statuses[0]  # The first cycle at 75 s: 45 s, fine.
+        self.assertTrue(self.rows()[GAP])
+        del self.statuses[0]  # The first cycle at 90 s: 60 s.
+        self.assertFalse(self.rows()[GAP])
+
+    def test_a_fault_window_without_a_cycle_fails(self):
+        # No cycle falls inside F3's 13 s, but the gate's slack widens
+        # its window over the cycles at 300 s and 315 s.
+        self.faults = [{"fault": "F3", "start": START + 301,
+                        "end": START + 314}]
+        self.assertTrue(self.rows()[WINDOW])
+        self.faults.append({"fault": "F2", "start": START + 1000,
+                            "end": START + 1090})
+        self.assertFalse(self.rows()[WINDOW])
+        self.assertEqual(self.value(WINDOW), "%d-%d" % (
+            START + 1000 - watchdogstats.FAULT_BEFORE_S,
+            START + 1090 + watchdogstats.FAULT_AFTER_S))
+
+    def test_a_run_without_favicon_samples_fails(self):
+        failed = {"http_ok": False, "http_latency_s": None}
+        self.statuses = [status(index, changes=dict.fromkeys(WEB, failed))
+                         for index in range(40)]
+        rows = self.rows()
+        self.assertFalse(rows[FAVICON_P99])
+        self.assertEqual(self.value(FAVICON_P99), "no samples")
+        self.assertFalse(rows[SAMPLES])
+
+    def test_a_run_without_health_samples_fails(self):
+        failed = {"rpc_ok": False, "rpc_latency_s": None}
+        probed = [label for label in LABELS if label != "cmsWorker 0"]
+        self.statuses = [status(index, changes=dict.fromkeys(probed, failed))
+                         for index in range(40)]
+        rows = self.rows()
+        self.assertFalse(rows[HEALTH_P99])
+        self.assertEqual(self.value(HEALTH_P99), "no samples")
+        self.assertFalse(rows[SAMPLES])
+
+    def test_a_web_server_needs_favicon_samples_of_its_own(self):
+        # Its health() answers and its favicon never does. In a fault
+        # run too, where the p99 and miss rows are only recorded.
+        self.statuses = [status(index, changes={"cmsContestWebServer 1": {
+            "http_ok": False, "http_latency_s": None}})
+            for index in range(40)]
+        self.assertFalse(self.rows()[SAMPLES])
+        self.assertEqual(self.value(SAMPLES), "cmsContestWebServer 1 favicon")
+        self.faults = [{"fault": "F2", "start": START + 100,
+                        "end": START + 190}]
+        self.assertFalse(self.rows()[SAMPLES])
+
+    def test_an_empty_or_missing_status_history_fails(self):
+        self.statuses = []
+        failing = [SAMPLES, FAVICON_P99, HEALTH_P99, LAST,
+                   "every program in every cycle"]
+        rows = self.rows()
+        self.assertEqual([name for name in failing if rows[name]], [])
+        os.remove(os.path.join(self.run_dir, "watchdog_status.jsonl"))
+        rows, _ = watchdogstats.check(self.run_dir, cws=2, workers=1)
+        passed = {criterion: ok for criterion, _, _, ok in rows}
+        self.assertEqual([name for name in failing if passed[name]], [])
+
     def test_the_constants_match_the_policy(self):
         self.assertEqual(watchdogstats.HTTP_TIMEOUT_S,
                          policy.HTTP_TIMEOUT_S)
@@ -215,6 +320,9 @@ class WatchdogStatsTest(unittest.TestCase):
                          policy.ES_IDLE_WARN_S)
         self.assertEqual(watchdogstats.INVALIDATION,
                          policy.INVALIDATION_SECTION)
+        self.assertEqual(watchdogstats.MAX_CYCLE_GAP_S, 3 * policy.CYCLE_S)
+        self.assertEqual(watchdogstats.FAVICON_KINDS, policy.HTTP_KINDS)
+        self.assertEqual(watchdogstats.HEALTH_KINDS, policy.HEALTH_KINDS)
 
 
 if __name__ == "__main__":

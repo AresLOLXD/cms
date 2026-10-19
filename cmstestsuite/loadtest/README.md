@@ -456,8 +456,13 @@ cycle) and its output in `out/<name>/watchdog.log`. After the run,
 - every program (ES, SS, PS, LogService, every CWS, AWS, every Worker)
   in every cycle from the driver's first request; ProxyService may
   appear late, since `run.sh` starts it once the contests exist;
-- probe latencies for every probed program, favicon and `health()` p99
-  under a third of their timeouts (5 s and 3 s);
+- cycles that cover the run (a watchdog that stops or stalls fails): the
+  last one at most 45 s (3 cycles) before the driver's last request, no
+  gap over 45 s between two from the driver's start on, and one inside
+  every F2 and F3 window (widened as for the holds);
+- favicon latencies for every CWS and AWS and `health()` latencies for
+  every program but the Workers; favicon and `health()` p99 under a
+  third of their timeouts (5 s and 3 s), and no samples fails;
 - every near miss under half its trip: at most 2 misses in 6, no ES
   section older than 90 s with no statement for 30 s (re-evaluations
   aside), no SS execution over 90 s (unless it overlapped a
@@ -466,10 +471,10 @@ cycle) and its output in `out/<name>/watchdog.log`. After the run,
 
 With `--faults` too (L3), the criteria are those of L3: no `WOULD` line,
 holds and a red gate only inside the F2 and F3 windows (so nothing for F1
-and F4), every program in every cycle, and latency samples for every
-probed program. The p99 and near-miss rows are then only recorded
-(`(recorded: a fault run)`): F2 and F3 push them past half their trips by
-design.
+and F4), every program in every cycle, cycles that cover the run and
+every F2 and F3 window, and latency samples for every probe. The p99
+and near-miss rows are then only recorded (`(recorded: a fault run)`):
+F2 and F3 push them past half their trips by design.
 
 ## Limits
 
