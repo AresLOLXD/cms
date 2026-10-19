@@ -1553,7 +1553,9 @@ class _Cycle:
         capped at WORKERS_LISTED, and every other hold that applies to
         any of them. The headline is the first hold, in HOLDS order,
         that holds every one of them: H1, H6 and H8 hold every start or
-        none, and H7 holds each on its own budget.
+        none, and H7 holds each on its own budget. Starts with no hold
+        in common, which cannot happen today, would be headed by the
+        first hold of any of them.
 
         held: (program, holds) of each held start, in class order.
 
@@ -1568,8 +1570,9 @@ class _Cycle:
                 if reason not in known:
                     known.append(reason)
         codes = [{code for code, _reason in holds} for _program, holds in held]
-        headline = next(code for code in HOLDS
-                        if all(code in mine for mine in codes))
+        headline = next((code for code in HOLDS
+                         if all(code in mine for mine in codes)),
+                        min(reasons, key=HOLDS.index))
         why = _listed(reasons[headline], "; ")
         others = [(code, reasons[code][0]) for code in HOLDS
                   if code in reasons and code != headline]

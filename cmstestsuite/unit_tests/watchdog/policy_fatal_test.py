@@ -23,7 +23,7 @@ import unittest
 
 from cms.watchdog.policy import BUDGET_WINDOW_S, CYCLE_S, \
     INVALIDATION_SECTION, OBSERVE, RESTART, START, Gate, NearMiss, Probe, \
-    program_status
+    _Cycle, program_status
 from cmstestsuite.unit_tests.watchdog.scenario import AWS, CWS0, CWS1, \
     ES, LS, PS, RED, RS, SS, W0, W1, Scenario, actions, alerts, busy, \
     lock_wait_snapshot, worker
@@ -260,6 +260,22 @@ class TestFatalStarts(unittest.TestCase):
             "database outage) but is held by H1: supervisord did not "
             "answer in this cycle. Also: H6. Check ./status.sh.")
         self.assertEqual(s.state.ledger.incidents[SS]["rule"], "R5")
+
+    def test_starts_with_no_hold_in_common_still_get_their_line(self):
+        # H1, H6 and H8 hold every start or none, so the held starts of
+        # a cycle share a hold today. Starts that did not would get a
+        # line headed by their first hold, not a StopIteration that
+        # ends the cycle.
+        s = Scenario()
+        s.warm_up()
+        cycle = _Cycle(s.state, s.observation, s.mono, s.wall)
+        cycle._held_starts([
+            (s.programs[SS], [("H7", "its budget is used")]),
+            (s.programs[PS], [("H1", "supervisord did not answer")])])
+        [line] = held_starts(cycle.decisions)
+        self.assertEqual(line.holds, ("H1", "H7"))
+        self.assertIn("are held by H1: supervisord did not answer. Also: "
+                      "H7.", line.text)
 
     def test_it_has_its_own_budget(self):
         s = Scenario(mode=OBSERVE)
