@@ -20,3 +20,4 @@ test_logs/
 dumps/
 .superpowers/
 .worktrees/
+graphify-out/
