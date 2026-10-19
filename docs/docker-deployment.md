@@ -255,9 +255,125 @@ recommendation: CMS works without it.
 
 The `cms` container is configured with `ulimits nofile 65536` to allow many
 concurrent database connections. It also has a `stop_grace_period: 180s` to let
-supervisord stop the ContestWebServer shards one after another, each waiting up
-to 40 seconds to flush the participant activity log. The `ranking` container
-gets `ulimits nofile 65536` as well.
+supervisord stop the watchdog (up to 5 seconds) and then the ContestWebServer
+shards one after another, each waiting up to 40 seconds to flush the
+participant activity log. The `ranking` container gets `ulimits nofile 65536`
+as well.
+
+## The watchdog
+
+`cmsWatchdog` runs in the `cms` container, next to the CMS services. Every 15
+seconds it checks that each one answers, and it can restart a program that is
+alive but hung: a Contest Web Server that stopped answering, an Evaluation
+Service stuck in a locked section, a Worker the Evaluation Service gave up on.
+It restarts only that program, never the container, and never while the
+database does not answer or while several programs fail together. After a
+database outage, it also starts the programs that the outage left `FATAL`.
+"When the watchdog alerts" in [Contest day](contest-day.md) says what its
+alerts mean and how to turn it off.
+
+Two variables of `.env` set it up; apply a change with `./up.sh`:
+
+| Variable | What it does |
+|----------|--------------|
+| `CMS_WATCHDOG` | `observe` (the default): it logs what it would do (`WOULD restart …`) and restarts nothing. `enforce`: it restarts. `off`: it does not run. |
+| `CMS_WATCHDOG_RESTART` | The classes that `enforce` may restart, comma-separated: `web` (Contest and Admin Web Servers), `core` (Evaluation, Scoring and Proxy services), `infra` (Log and Resource services) and `workers`. The default, also when empty, is `web,core,infra`. Set it in the same edit that sets `CMS_WATCHDOG=enforce`, with only the classes that passed their checks (see "When the watchdog alerts"). |
+
+`./status.sh` ends with the watchdog's line, for example
+`watchdog: observe, last cycle 4 s ago, 0 open alerts`.
+
+The watchdog reaches the database through `CMS_DB_URL`, and three things
+about it matter. Do not set `application_name` in the URL: the check for an
+Evaluation Service stuck in a locked section relies on the
+`fallback_application_name` that CMS sets. Put the database password in
+`CMS_DB_URL`, not in `PGPASSWORD` or `.pgpass`, and write `@` and `%` in it
+percent-encoded (`%40` and `%25`). Keep the `lc_messages` of the PostgreSQL
+server in English (`C`): the database check tells why the database did not
+answer from the English text of the error, and with another language it
+reports those errors as `other`.
+
+### With an external PostgreSQL
+
+The watchdog reads `pg_stat_activity` to tell a hung program from one that
+waits for a database lock. On an external PostgreSQL where the CMS role is not
+a superuser, the rows of other roles' sessions (an operator's `psql`, for
+example) hide most of their fields, and the watchdog's alerts show them as
+`unknown`. To let it see them, run this once as a superuser, with the role of
+`CMS_DB_URL` instead of `cms`:
+
+```sql
+GRANT pg_read_all_stats TO cms;
+```
+
+## Health checks in the reverse proxy
+
+With several Contest Web Server processes, the reverse proxy should stop
+sending users to a process that does not answer, and send them back once it
+answers again. Caddy's defaults do not: one failed check ejects a process for
+30 seconds, and with `lb_policy cookie` a user stays pinned to a dead process.
+Until this is applied, even a restart of one process by hand gives its users
+errors (502) for up to 30 seconds. This profile, tested on Caddy 2.11.7, moves
+users off a hung process within about 35 seconds. In the site of the Contest
+Web Server (keep your other options), list after `reverse_proxy` the port of
+every Contest Web Server process: `CMS_CWS_HTTP_PORT` (8888 by default) for
+process 0, then one more for each next process, up to
+`CMS_CWS_HTTP_PORT + CMS_CWS_COUNT - 1`. Never list the port of the Admin Web
+Server (`CMS_AWS_HTTP_PORT`):
+
+```
+reverse_proxy 127.0.0.1:8888 127.0.0.1:<port of process 1> {
+    lb_policy cookie
+    lb_try_duration 15s
+    lb_try_interval 250ms
+
+    health_uri /static/favicon.ico
+    health_interval 10s
+    health_timeout 5s
+    health_fails 3
+    health_passes 1
+
+    fail_duration 10s
+    max_fails 1
+
+    transport http {
+        dial_timeout 3s
+        response_header_timeout 120s
+    }
+}
+```
+
+For the Admin Web Server, set only `lb_try_duration 15s`,
+`lb_try_interval 250ms` and `dial_timeout 3s` (in `transport http`): no health
+checks and no `response_header_timeout`, because exports can be slow and there
+is no other process to send the request to.
+
+Why these values:
+
+- A process is ejected after 25 to 35 seconds without an answer, far above the
+  2 to 3 seconds that a busy commit can freeze it.
+- `max_fails 1` (the passive check) is what makes the cookie policy move a
+  pinned user off a dead process at once.
+- `response_header_timeout` must exceed the database pool timeout (60 seconds)
+  plus the time of a handler.
+- Do not set `unhealthy_status`, `unhealthy_latency`,
+  `unhealthy_request_count` or `lb_retry_match`. By default Caddy retries only
+  GET requests, which is right: a POST (a submission) may already have been
+  saved.
+
+Optionally, show a page for 502 and 503 with `handle_errors`, for example:
+"The server is busy. Wait a minute and reload. Submissions already sent are
+saved: check your list before sending again."
+
+To apply it:
+
+1. Back up the site file.
+2. Run `caddy validate` on it, then reload Caddy gracefully.
+3. Check that the admin API's `/reverse_proxy/upstreams` shows `fails: 0` for
+   every process.
+4. Never on a contest day, and never in the same window as a CMS deploy.
+
+Revisit it when the lock limits of #39 stage 2 land: then `health_fails 5`,
+and maybe a `response_header_timeout` of 180 seconds.
 
 ## Common operations
 

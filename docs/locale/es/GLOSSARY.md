@@ -61,8 +61,9 @@ competencia"); `docker-deployment.po` quotes "Despliegue" (a heading of
 `multi-contest`), "Configuración de nginx" (`docker-scripts`) and "Scripts
 auxiliares", "Puertos" and "Envíos al final de la competencia" (its own
 headings); `docker-scripts.po` quotes "Antes de un día de examen"
-(`multi-contest`), "1. Respalda todo" (`migrating-to-multi-contest`) and
-"Envíos al final de la competencia" (`docker-deployment`); `importing-users.po`
+(`multi-contest`), "1. Respalda todo" (`migrating-to-multi-contest`),
+"Envíos al final de la competencia" (`docker-deployment`) and "El
+watchdog" (`docker-deployment`); `importing-users.po`
 quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`);
 `participant-activity.po` quotes "Configuración de nginx" (`docker-scripts`);
 `contest-day.po` also quotes "Después de la competencia" (a heading of

@@ -105,3 +105,21 @@ def test_supervisorctl_runs_under_a_10_s_timeout(run_status, tmp_path):
     assert len(status) == 1
     assert "exec -T cms timeout 10 supervisorctl -c " in status[0]
     assert status[0].endswith(" status")
+
+
+def test_the_watchdog_line_closes_the_status(run_status, tmp_path):
+    log = tmp_path / "docker.log"
+    result = run_status(FAKE_LOG=str(log), FAKE_WATCHDOG_LINE=(
+        "watchdog: observe, last cycle 4 s ago, 0 open alerts"))
+    assert result.stdout.rstrip().endswith(
+        "watchdog: observe, last cycle 4 s ago, 0 open alerts")
+    commands = log.read_text().splitlines()
+    assert any("exec -T cms timeout 10 cmsWatchdog --status" in line
+               for line in commands)
+
+
+def test_a_watchdog_that_does_not_answer(run_status):
+    result = run_status(FAKE_WATCHDOG_RC="1")
+    assert result.returncode == 0
+    assert result.stdout.rstrip().endswith(
+        "(no answer from the cms container)")

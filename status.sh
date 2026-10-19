@@ -25,3 +25,8 @@ case $status in
   124) echo "(supervisord did not answer in 10 s)" ;;
   *) echo "(container not running)" ;;
 esac
+
+echo ""
+echo "── Watchdog ─────────────────────────────────────────"
+"${COMPOSE_CMD[@]}" exec -T cms timeout 10 cmsWatchdog --status \
+  2>/dev/null || echo "(no answer from the cms container)"
