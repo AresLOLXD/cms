@@ -426,6 +426,10 @@ Then, in one edit of `.env`, set `CMS_WATCHDOG=enforce` and set
 `CMS_WATCHDOG_RESTART=web`), run `./up.sh`, and run the game day again. Add
 `workers` later, once `observe` mode has shown no false Worker alert.
 
+A value of `CMS_WATCHDOG` or `CMS_WATCHDOG_RESTART` that is not valid (a typo)
+stops the `cms` container from starting: `./up.sh` fails its wait within about
+90 seconds, and `./logs.sh cms` says which variable is wrong.
+
 ### The game day
 
 In a quiet window and never on a contest day: once in `observe` mode, and once
