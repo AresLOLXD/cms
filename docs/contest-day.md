@@ -106,6 +106,35 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 - On **Ranking groups**, the **State** column says what you expect for each
   group, and its "next:" times match the contest (see "Checking a schedule"
   in [multi-contest.md](multi-contest.md)).
+- Check the compile limit against your tasks. The submissions of the
+  rehearsal, or of a previous contest, record the CPU seconds each
+  compilation took. This query gives the median (`p50`), the 95th percentile
+  (`p95`) and the maximum of those seconds for each task and language, over
+  the active dataset of each task, the largest maximum first:
+
+  ```sql
+  SELECT t.name AS task, s.language, count(*) AS compilations,
+         round(percentile_cont(0.5)  WITHIN GROUP (ORDER BY sr.compilation_time)::numeric, 2) AS p50,
+         round(percentile_cont(0.95) WITHIN GROUP (ORDER BY sr.compilation_time)::numeric, 2) AS p95,
+         round(max(sr.compilation_time)::numeric, 2) AS max
+  FROM submission_results sr
+  JOIN submissions s ON s.id = sr.submission_id
+  JOIN tasks t ON t.id = s.task_id
+  WHERE sr.dataset_id = t.active_dataset_id AND sr.compilation_time IS NOT NULL
+  GROUP BY t.name, s.language
+  ORDER BY max DESC;
+  ```
+
+  Run it as the holder query is run (see "When the database misbehaves"):
+  in that command, put this query, written on one line (it has no quotes),
+  between the double quotes after `-c`; or run it with `psql` on the
+  database host. Compare the maximum of each row with
+  `CMS_COMPILATION_MAX_TIME_S` (20 seconds when it is unset; see
+  [docker-deployment.md](docker-deployment.md)). In the 2025 contest the
+  C++20 maximum was 10.48 seconds against a limit of 10, and two
+  compilations failed with a false "Compilation timed out". To change the
+  limit, set `CMS_COMPILATION_MAX_TIME_S` in `.env` and run `./up.sh`,
+  choosing no rebuild (1).
 - Ask the contestants to **log in before the start**. Checking a password
   costs about 0.2 seconds of CPU, and each Contest Web Server process checks
   at most 4 at a time, so a whole room logging in at the start time makes
