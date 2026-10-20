@@ -365,8 +365,8 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
 ```
 
 These files are sensitive: they name the database sessions and show their
-statements (with the values in them left out), so look through one before you
-post it anywhere public.
+statements (the quoted values in them are left out; numbers, comments and
+names stay), so look through one before you post it anywhere public.
 
 Before you restart a program by hand, keep the same evidence with:
 
