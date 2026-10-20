@@ -45,7 +45,7 @@ from gevent.server import StreamServer
 from cms import ConfigError, config, mkdir, ServiceCoord, Address, \
     get_service_address
 from cms.log import root_logger, shell_handler, ServiceFilter, \
-    DetailedFormatter, LogServiceHandler, FileHandler
+    DetailedFormatter, LogServiceHandler, FileHandler, prune_old_logs
 from .rpc import rpc_method, RemoteServiceServer, RemoteServiceClient, \
     FakeRemoteServiceClient
 from .health import register_stack_dump
@@ -123,6 +123,7 @@ class Service:
                                "%s-%d" % (self.name, self.shard))
         mkdir(config.global_.log_dir)
         mkdir(log_dir)
+        prune_old_logs(log_dir)
 
         log_filename = time.strftime("%Y-%m-%d-%H-%M-%S.log")
 

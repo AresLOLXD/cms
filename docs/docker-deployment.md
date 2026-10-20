@@ -394,6 +394,9 @@ and maybe a `response_header_timeout` of 180 seconds.
 ./logs.sh -f
 ```
 
+Every service, LogService included, deletes the `.log` files older than 30
+days from its own directory in the log volume (`cms-logs`) when it starts.
+
 **Stop everything:**
 ```bash
 ./down.sh

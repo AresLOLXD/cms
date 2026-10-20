@@ -31,7 +31,8 @@ from collections import deque
 from cms import config, mkdir
 from cms.io.async_service import AsyncService
 from cms.io.rpc import rpc_method
-from cms.log import root_logger, shell_handler, FileHandler, DetailedFormatter
+from cms.log import root_logger, shell_handler, FileHandler, \
+    DetailedFormatter, prune_old_logs
 
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class LogService(AsyncService):
             logger.error("Cannot create necessary directories.")
             self.exit()
             return
+        prune_old_logs(log_dir)
         log_filename = "%d.log" % int(time.time())
 
         # Install a global file handler.

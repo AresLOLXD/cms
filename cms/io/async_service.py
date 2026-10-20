@@ -42,7 +42,7 @@ from gevent.backdoor import BackdoorServer
 from cms import ConfigError, config, mkdir, ServiceCoord, Address, \
     get_service_address
 from cms.log import root_logger, shell_handler, ServiceFilter, \
-    DetailedFormatter, LogServiceHandler, FileHandler
+    DetailedFormatter, LogServiceHandler, FileHandler, prune_old_logs
 from cms.io.rpc import rpc_method, RPCError
 from .async_rpc import AsyncRemoteServiceServer, AsyncRemoteServiceClient, \
     AsyncFakeRemoteServiceClient, MAX_MESSAGE_SIZE
@@ -281,6 +281,7 @@ class AsyncService:
                                "%s-%d" % (self.name, self.shard))
         mkdir(config.global_.log_dir)
         mkdir(log_dir)
+        prune_old_logs(log_dir)
 
         log_filename = time.strftime("%Y-%m-%d-%H-%M-%S.log")
 
