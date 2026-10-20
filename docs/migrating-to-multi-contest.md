@@ -14,18 +14,14 @@ retire. Run each command from that stack's directory.
 
 For each stack, while it is running:
 
-    # Database (local Docker database, --profile localdb)
-    source .env
-    docker compose -f docker/docker-compose.prod.yml --env-file .env --profile localdb \
-      -p "$CMS_PROJECT_NAME" exec -T db \
-      pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup-$(date +%F).sql
+    sudo ./backup.sh before-migration
 
-    # Contest data, as a CMS dump
-    ./export.sh
-
-If you use an external database, run `pg_dump` against the URL in
-`CMS_DB_URL` instead. Keep these files until the first exam on the new setup
-has finished.
+It takes a full copy of the database, ranking groups and activity log
+included, into `backups/` (see `backup.sh` in
+[Docker Scripts Guide](docker-scripts.md)). A stack that does not have
+`backup.sh` yet needs `git pull` first: that only changes files, the
+containers keep running. Keep the backup until the first exam on the new
+setup has finished.
 
 ## 2. Update stack A
 
@@ -128,4 +124,5 @@ Contest Web Server. Reload the proxy.
 
 The new database columns are harmless to the old setup: with a single
 contest id they are ignored. To get back the exact pre-migration database,
-restore the `backup-*.sql` taken in step 1.
+restore the backup taken in step 1 (see "Restoring a backup" in
+[Docker Scripts Guide](docker-scripts.md)).

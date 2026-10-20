@@ -2,7 +2,7 @@
 
 ## Introduction
 
-These eight scripts handle everything needed to start, stop, and manage the contest system. Instead of typing one very long command with confusing flags (easy to mistype and hard to remember), you run a simple script. Each script does one thing and gives you clear feedback about what's happening.
+These ten scripts handle everything needed to start, stop, and manage the contest system. Instead of typing one very long command with confusing flags (easy to mistype and hard to remember), you run a simple script. Each script does one thing and gives you clear feedback about what's happening.
 
 ## Before you start
 
@@ -138,9 +138,8 @@ The backup does **not** contain:
   [Participant activity](participant-activity.md)).
 
 For a complete copy of the database, ranking groups and activity log
-included, also keep a `pg_dump` of it, as in "1. Back up everything" in
-[Migrating from one deployment per contest to a single multi-contest deployment](migrating-to-multi-contest.md).
-Restoring a `pg_dump` is not covered in this manual.
+included, use `backup.sh` (see below). To restore that copy, follow
+"Restoring a backup".
 
 ### import.sh
 
@@ -166,6 +165,325 @@ day" in [Running several contests at once](multi-contest.md).
 
 The activity log is not restored either, and `-d` deletes the one in the
 database.
+
+### backup.sh
+
+Makes a full backup of the database with `pg_dump`. Unlike `export.sh`, it
+has everything the database has: the ranking groups, the participant
+activity log and the admin accounts. It copies the database as it was at one
+moment, even while the database is in use. It needs `sudo`, and refuses to
+run without it, because only root can remove what it writes.
+
+```bash
+sudo ./backup.sh [label] [-j N]
+```
+
+- `label` (optional) is added to the name of the backup. It can have only
+  letters, digits, `_` and `-`.
+- `-j N` is the number of workers of `pg_dump` (default `4`). More workers
+  finish sooner and use more CPU of the database server.
+
+Before it dumps anything, the script reads the connection from `.env`
+(`CMS_DB_URL`, or `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` when
+`CMS_USE_LOCALDB=true`). It needs the Docker network of the project: if there
+is none, it tells you to run `./up.sh` first. It pulls the `postgres:N` image
+that does the dump if the server does not have it; N is the major version of
+the PostgreSQL server, but never below 17, because `pg_dump` 17 or newer
+spreads the large objects across the workers. It stops if `backups/` has less
+free space than the database takes. Then it prints a summary and asks for one
+confirmation, whose default is no:
+
+```
+Database:   cmsdb on 172.18.0.1:5432 (PostgreSQL 16.15)
+Size:       18G
+Free space: 120G in /home/ops/cms/backups
+Workers:    4
+Image:      postgres:17
+Backup:     /home/ops/cms/backups/cms-20261010-120000-before-exam
+Start the backup? [y/N]
+```
+
+The backup is the directory `backups/cms-YYYYmmdd-HHMMSS` of the project
+root, with `-label` at the end if you gave one. `backups/` has mode 700, git
+and Docker ignore it, and it is not `dumps/`, so `./import.sh` does not list
+the backups. While `backup.sh` writes a backup, the name of its directory
+ends in `.partial`; it renames the directory when the backup is complete and
+checked, so a directory without `.partial` is a finished backup. If you stop
+the script with Ctrl+C, or it fails, it removes the `.partial` directory.
+
+Inside the backup:
+
+- The dump, in the directory format of `pg_dump` compressed with zstd.
+- `MANIFEST`: the exact row count of every table, the number of large
+  objects, the date (UTC), the Git commit, the version of the fork, the
+  versions of PostgreSQL and `pg_dump`, and the name, encoding, locale and own
+  settings of the database.
+- `SHA256SUMS`: the SHA-256 of every other file.
+
+Before the rename, the script reads the table of contents of the dump and
+checks that it has a `TABLE DATA` entry for every table of `MANIFEST` and the
+same number of large objects. At the end it prints the path, the size, how
+long it took and an `rsync -a` line to copy the backup off the server, which
+you run from your machine:
+
+```
+Backup complete: /home/ops/cms/backups/cms-20261010-120000-before-exam
+Size:     5.1G
+Duration: 142 s
+Copy it off the server, from your machine:
+  rsync -a --rsync-path="sudo rsync" ops@cms-live:/home/ops/cms/backups/cms-20261010-120000-before-exam ./
+Reminder: .env is not inside the backup; keep a copy of it somewhere safe.
+```
+
+The files of the backup belong to root and nobody else can read them. The
+backup has neither `.env` nor the Docker volumes.
+
+### verify-backup.sh
+
+Proves that a backup made by `backup.sh` restores, before you need it. It
+needs only Docker: no `.env`, no CMS and no access to the database, so you
+can run it on your own machine after copying the backup, or on the server
+outside the contest hours. It restores the whole backup into a PostgreSQL
+container that it removes at the end, so it needs the disk space of one copy
+of the database in Docker's storage, and it takes about as long as a restore.
+
+```bash
+./verify-backup.sh <backup dir>
+```
+
+The files of a backup belong to root and nobody else can read them. On the
+server, run the script with `sudo`. After an `rsync -a` to another machine,
+run it as the user who ran `rsync`, who owns the files. It refuses a
+directory that ends in `.partial`.
+
+It runs these checks, in this order:
+
+1. The checksums: every file must match `SHA256SUMS`. If not, it stops there
+   (`ERROR: the checksums do not match`).
+2. It starts a throwaway `postgres:N` container without network, where N is
+   the major version of the `pg_dump` that made the backup (from `MANIFEST`),
+   and restores the backup in it with `pg_restore --exit-on-error`, one worker
+   per CPU. The container is removed at the end, and also if you press Ctrl+C.
+3. The checks on the restored database. All three run, and each failure
+   prints a line that starts with `FAILED:`:
+   - The row count of every table, and the number of large objects, equal
+     those of `MANIFEST`.
+   - Every `fsobjects.loid` points to a large object that exists.
+   - The SHA1 of the content of every large object equals `fsobjects.digest`.
+
+Large objects that no `fsobjects` row uses are only reported, as a line that
+starts with `Info:`; that is not an error.
+
+The exit status is 0 when everything passes, after the line `OK: <dir>
+restores; the checksums, the counts and the large objects match.` Otherwise it
+is 1, and the line that starts with `ERROR:` or `FAILED:` names the check that
+failed. Do not trust a backup that fails.
+
+## Restoring a backup
+
+A restore is a procedure, not a script: it stops CMS and renames databases in
+production, so a person runs each step. It restores a backup of `backup.sh`
+into a new database while CMS keeps running, and CMS is stopped only to swap
+the names, for about one to three minutes. Run every command in one bash
+shell, in the project root, as a user that can run `docker`. The commands
+write the database name without quotes, so it must have only lowercase
+letters, digits and underscores, as `cmsdb`. Restoring `.env` and restoring
+onto a PostgreSQL major older than the one that made the backup are not
+covered.
+
+Set these first, in the shell you will use for all the steps. Change only
+`BACKUP`, which is the absolute path of the backup, and `WORKERS`, which is the
+number of workers of `pg_restore` (keep it low while CMS is serving a
+contest):
+
+```bash
+source docker/_lib.sh           # COMPOSE_CMD: docker compose with the project's file and name
+source docker/_backup_lib.sh
+db_connection_from_env          # PGHOST, PGPORT, PGUSER, PGPASSWORD and PGDATABASE, from .env
+NETWORK=$(compose_network)      # the Docker network of the project
+DB=$PGDATABASE                  # the live database
+CMS_USER=$PGUSER                # the database user of CMS
+BACKUP=$PWD/backups/cms-20261010-120000
+WORKERS=4
+OLD=${DB}_before_restore_$(date +%Y%m%d_%H%M%S)
+
+# Runs a PostgreSQL client in a container on the network of CMS, with the backup at /backup.
+PGIMAGE=postgres:17
+pgc() {
+  docker run --rm --init --network "$NETWORK" \
+    --mount "type=bind,source=$BACKUP,target=/backup,readonly" \
+    -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGOPTIONS "$PGIMAGE" "$@"
+}
+# The value of a key of MANIFEST.
+manifest() { pgc cat /backup/MANIFEST | awk -F'\t' -v key="$1" '$1 == key { print $2 }'; }
+
+# The client must be as new as the server, and at least 17.
+VERSION_NUM=$(pgc psql -X -At -d postgres -c 'SHOW server_version_num')
+PGIMAGE=postgres:$(pick_pg_major "$VERSION_NUM")
+# --exit-on-error needs a server of major 17 or newer (see step 2 of "Restore into a new database").
+EXIT_ON_ERROR=; if (( VERSION_NUM >= 170000 )); then EXIT_ON_ERROR=--exit-on-error; fi
+echo "$NETWORK $DB $CMS_USER $PGHOST:$PGPORT $VERSION_NUM $PGIMAGE $OLD"
+```
+
+The last line prints what you set, for example `cms-prod_default cmsdb
+cmsuser 172.18.0.1:5432 160015 postgres:17 cmsdb_before_restore_20261012_093000`.
+Close the shell when you finish: it holds the database password.
+
+**Preflight**, with CMS still running:
+
+1. The backup is intact:
+   ```bash
+   pgc sh -c 'cd /backup && sha256sum --quiet --strict -c SHA256SUMS' && echo "checksums OK"
+   pgc pg_restore -l /backup > /dev/null && echo "table of contents OK"
+   ```
+   It prints `checksums OK` and `table of contents OK`. For a stronger test,
+   run `sudo ./verify-backup.sh "$BACKUP"` instead.
+2. The server is not older than the one that made the backup:
+   ```bash
+   pgc cat /backup/MANIFEST | grep -E '^(created_utc|server_version|pg_dump_version|encoding|lc_collate|lc_ctype|large_objects)'
+   echo "server major: $(( VERSION_NUM / 10000 ))"
+   ```
+   It prints, for example (a tab separates each name from its value):
+   ```
+   created_utc       2026-10-10T18:12:40Z
+   server_version    16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
+   pg_dump_version   17.6
+   encoding          UTF8
+   lc_collate        en_US.UTF-8
+   lc_ctype          en_US.UTF-8
+   large_objects     34876
+   server major: 16
+   ```
+   The `server major` must not be lower than the major of `server_version`.
+3. The CMS database user can create databases:
+   ```bash
+   pgc psql -X -At -d postgres -c "SELECT rolcreatedb OR rolsuper FROM pg_roles WHERE rolname = current_user"
+   ```
+   It prints `t`. If it prints `f`, run this on the PostgreSQL server, which
+   prints `ALTER ROLE`, and repeat the step:
+   ```bash
+   sudo -u postgres psql -c "ALTER ROLE $CMS_USER CREATEDB;"
+   ```
+4. There is room for a second copy of the database:
+   ```bash
+   pgc psql -X -At -d postgres -c "SELECT pg_size_pretty(pg_database_size('$DB'))"
+   df -h "$(sudo -u postgres psql -X -At -c 'SHOW data_directory')"
+   ```
+   The `Avail` column of `df` must be larger than the size, with room to
+   spare. With the bundled database (`CMS_USE_LOCALDB=true`), use
+   `"${COMPOSE_CMD[@]}" exec -T db df -h /var/lib/postgresql/data` instead of
+   the second command.
+
+**Restore into a new database**, with CMS still running and the live
+database untouched:
+
+1. Create the database `${DB}_restore`, with the encoding and the locale of
+   `MANIFEST`:
+   ```bash
+   pgc psql -X -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${DB}_restore OWNER $CMS_USER TEMPLATE template0 ENCODING '$(manifest encoding)' LC_COLLATE '$(manifest lc_collate)' LC_CTYPE '$(manifest lc_ctype)'"
+   ```
+   It prints `CREATE DATABASE`. If it says that the database already exists,
+   an earlier attempt left it: drop it with
+   `pgc psql -X -d postgres -c "DROP DATABASE ${DB}_restore"` and repeat.
+2. Restore the backup, as the CMS user, so that the CMS user owns the large
+   objects. If `postgres` owns them, CMS gets `permission denied for large
+   object` on every file. `synchronous_commit=off` makes it faster:
+   ```bash
+   PGOPTIONS='-c synchronous_commit=off' pgc pg_restore -Fd -j "$WORKERS" --no-owner --no-acl $EXIT_ON_ERROR -d "${DB}_restore" /backup 2> "/tmp/restore-$OLD.err"; echo "pg_restore exit status: $?"
+   ```
+   It prints nothing while it works and takes minutes (cms-live, with 18 GB
+   and 34876 large objects, took about 6 minutes with 16 workers on 6 vCPUs).
+   With a server of major 17 or newer it must print `pg_restore exit status:
+   0`, and the error file must be empty. With an older server, `pg_restore`
+   17 sends `SET transaction_timeout = 0` on every connection and the server
+   rejects it. The error file then has this harmless error, once for each
+   worker and twice for the leader, each followed by the line `Command was:
+   SET transaction_timeout = 0;`, and the exit status is 1:
+   ```
+   pg_restore: error: could not execute query: ERROR:  unrecognized configuration parameter "transaction_timeout"
+   ```
+   That is why `--exit-on-error` is only used with a server of major 17 or
+   newer. Read the error file for any other error:
+   ```bash
+   grep 'pg_restore: error:' "/tmp/restore-$OLD.err" | grep -v transaction_timeout
+   ```
+   It must print nothing. A line printed is a failed restore: drop
+   `${DB}_restore` as in step 1, find the cause and start again. Do not trust
+   the `errors ignored on restore` count that `pg_restore` prints at the end:
+   it leaves out the errors of the workers.
+3. Check the restored copy against `MANIFEST`:
+   ```bash
+   EXPECTED=$(pgc cat /backup/MANIFEST | awk -F'\t' '$1 == "table" { print $2 "\t" $3 } $1 == "large_objects" { print "(large objects)\t" $2 }')
+   ACTUAL=$(pgc psql -X -At -F $'\t' -d "${DB}_restore" -c "SELECT tablename, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', tablename), false, true, '')))[1]::text FROM pg_tables WHERE schemaname = 'public' UNION ALL SELECT '(large objects)', count(*)::text FROM pg_largeobject_metadata")
+   manifest_compare "$EXPECTED" "$ACTUAL" && echo "counts match"
+   pgc psql -X -At -d "${DB}_restore" -c "SELECT count(*) FROM pg_largeobject_metadata WHERE pg_get_userbyid(lomowner) <> current_user"
+   pgc vacuumdb --analyze-only -j "$WORKERS" -d "${DB}_restore"
+   ```
+   The first command prints `counts match`; if the counts differ, it prints
+   one line for each table that differs, as `table: <in MANIFEST> vs
+   <restored>`. The second prints `0`, the number of large objects that the
+   CMS user does not own. `vacuumdb` prints nothing.
+
+**Switch**, the only downtime:
+
+1. Stop CMS. Never use `down`: it recreates the Docker network, and its
+   gateway, the address at which an external database is reached, can change.
+   ```bash
+   "${COMPOSE_CMD[@]}" stop cms
+   ```
+   It prints the `cms` container as `Stopped`. Contestants are disconnected
+   from here.
+2. End the sessions that remain on the live database:
+   ```bash
+   pgc psql -X -At -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB' AND usename = current_user"
+   ```
+   It prints a `t` for each session it ended, or nothing.
+3. Put the copy in place and keep the old database under another name:
+   ```bash
+   pgc psql -X -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB RENAME TO $OLD" -c "ALTER DATABASE ${DB}_restore RENAME TO $DB"
+   ```
+   It prints `ALTER DATABASE` twice. If it says that the database is being
+   accessed by other users, a session of another user is open (for example
+   your own `psql`): close it and repeat steps 2 and 3.
+4. Apply again the settings of the database, because the copy does not have
+   them:
+   ```bash
+   pgc cat /backup/MANIFEST | grep '^database_setting'
+   ```
+   It prints nothing if the database has none. Each line it prints has three
+   columns, separated by a tab: `database_setting`, a role or `*`, and
+   `name=value`. For a line with `*`, run
+   `pgc psql -X -d postgres -c "ALTER DATABASE $DB SET name TO 'value'"`. For a
+   line with a role, run
+   `pgc psql -X -d postgres -c "ALTER ROLE role IN DATABASE $DB SET name TO 'value'"`.
+5. Start CMS:
+   ```bash
+   "${COMPOSE_CMD[@]}" up -d --no-recreate --no-build --wait cms
+   ```
+   It returns when the `cms` container is healthy, after 30 to 60 seconds.
+6. If CMS does not come up, or the data is wrong, go back: repeat steps 1 and
+   2, swap the names back, which leaves the failed copy as `${DB}_restore`,
+   and repeat step 5:
+   ```bash
+   pgc psql -X -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB RENAME TO ${DB}_restore" -c "ALTER DATABASE $OLD RENAME TO $DB"
+   ```
+
+**After the switch**:
+
+- Run `./status.sh`: every container is `Up` and every program `RUNNING`.
+- In the Admin Web Server, open **Overview**. The **Workers status** title
+  reads "(N connected, M configured)": N must equal M.
+- On **Ranking groups**, press **Regenerate** on each group, so that the
+  scoreboards match the restored data.
+- Check the **Active** flag of each contest: it is as it was when the backup
+  was made.
+- When you are satisfied, and not before, drop the old database. It cannot
+  be undone. If you closed the shell, set `OLD` to the name that the first
+  command prints:
+  ```bash
+  pgc psql -X -At -d postgres -c "SELECT datname FROM pg_database WHERE datname LIKE '${DB}\_before\_restore\_%'"
+  pgc psql -X -d postgres -c "DROP DATABASE $OLD"
+  ```
 
 ## Configuring the project name
 
