@@ -296,10 +296,10 @@ server in English (`C`): the database check tells why the database did not
 answer from the English text of the error, and with another language it
 reports those errors as `other`.
 
-Of the options in the URL, the database check gives `psql` only `sslmode` and
-`host` (and nothing of its own environment, so `PGSSL…` variables do not reach
-it): if the database needs another one (`sslrootcert`, `sslcert`, `sslkey`),
-or the URL names several hosts with their ports
+A fourth thing is the options in the URL: the database check gives `psql` only
+`sslmode` and `host` (and nothing of its own environment, so `PGSSL…`
+variables do not reach it): if the database needs another one (`sslrootcert`,
+`sslcert`, `sslkey`), or the URL names several hosts with their ports
 (`?host=a:5432&host=b:5432`), the check fails for good and every restart stays
 held (H2), with an error alert open, until the URL is simplified.
 
