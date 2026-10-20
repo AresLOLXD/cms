@@ -105,12 +105,15 @@ compose_network() {
 
 # pg_tool MAJOR CMD... — run CMD in a postgres:MAJOR container on the compose
 # network. The PG* variables go in by name, so the password stays out of argv.
-# The fixed name lets a trap remove the container.
+# The name is PG_TOOL_NAME (default cms-pgtool-$$), so a trap can remove the
+# container and two can live at once. The array PG_TOOL_ARGS, if the caller
+# sets it, adds docker run arguments (a mount with -v, -i for stdin).
 pg_tool() {
   local major="$1" network
   shift
   network="$(compose_network)" || return
-  docker run --rm --init --name "cms-pgtool-$$" --network "$network" \
+  docker run --rm --init --name "${PG_TOOL_NAME:-cms-pgtool-$$}" \
+    --network "$network" ${PG_TOOL_ARGS[@]+"${PG_TOOL_ARGS[@]}"} \
     -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
     "postgres:$major" "$@"
 }

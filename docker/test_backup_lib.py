@@ -258,6 +258,40 @@ def test_pg_tool_runs_in_the_compose_network_without_secrets_in_argv(
     assert "s3cr" not in log.read_text()
 
 
+def test_pg_tool_default_name_is_unchanged(run, tmp_path):
+    # Under set -u, with the extra arguments unset or empty.
+    for setup in ("", "PG_TOOL_ARGS=();"):
+        log = tmp_path / "docker.log"
+        log.unlink(missing_ok=True)
+        result = run('set -u; %s echo "$$"; pg_tool 17 true' % setup,
+                     with_lib=True, CMS_PROJECT_NAME="proj",
+                     FAKE_NETWORK="proj_default")
+        assert result.returncode == 0, result.stderr
+        docker_run = log.read_text().splitlines()[1]
+        assert docker_run == (
+            "run --rm --init --name cms-pgtool-%s --network proj_default "
+            "-e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE "
+            "postgres:17 true" % result.stdout.strip())
+
+
+def test_pg_tool_name_and_extra_args_can_be_overridden(run, tmp_path):
+    log = tmp_path / "docker.log"
+    # Two containers alive at once need two names; the dump needs a mount.
+    result = run('parse_db_url "$URL"; PG_TOOL_NAME=cms-pgtool-dump; '
+                 'PG_TOOL_ARGS=(-v "$BACKUPS:/backup" -i); '
+                 "pg_tool 17 pg_dump -f /backup/x",
+                 with_lib=True, CMS_PROJECT_NAME="proj",
+                 FAKE_NETWORK="proj_default", BACKUPS="/srv/backups",
+                 URL="postgresql://cms:s3cr%40t@db/cmsdb")
+    assert result.returncode == 0, result.stderr
+    assert log.read_text().splitlines()[1] == (
+        "run --rm --init --name cms-pgtool-dump --network proj_default "
+        "-v /srv/backups:/backup -i "
+        "-e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE "
+        "postgres:17 pg_dump -f /backup/x")
+    assert "s3cr" not in log.read_text()
+
+
 def test_compose_network_fails_when_the_stack_was_never_started(run):
     result = run("pg_tool 17 psql", with_lib=True, CMS_PROJECT_NAME="proj")
     assert result.returncode != 0
