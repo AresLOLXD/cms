@@ -311,6 +311,10 @@ class AsyncService:
             remote_handler = AsyncLogServiceHandler(log_service, self)
             remote_handler.setLevel(logging.INFO)
             remote_handler.addFilter(filter_)
+            # The access lines are already in the local file and in
+            # stdout; sending each one would cost an RPC per request.
+            remote_handler.addFilter(
+                lambda record: record.name != "tornado.access")
             root_logger.addHandler(remote_handler)
 
     async def _handle_connection(
