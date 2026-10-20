@@ -112,8 +112,9 @@ during a live contest.
      the `pg_dump` version, the database name, encoding, `LC_COLLATE`,
      `LC_CTYPE` and the database-level settings (`pg_db_role_setting`).
 6. Run `nice -n 10 pg_dump --snapshot=<id> -Fd -j N --compress=zstd:3
-   -f backups/<name>.partial`. Fall back to `gzip:6` only if zstd is not
-   supported. The tool runs as root with `umask 077`. `backups/` is mode 700.
+   -f backups/<name>.partial`. zstd is always available in the official
+   `postgres:17+` image, so there is no fallback. The tool runs as root with
+   `umask 077`. `backups/` is mode 700.
 7. Close the snapshot session. Verify:
    - `pg_restore -l` parses the TOC;
    - one `TABLE DATA` entry per table in the manifest;
