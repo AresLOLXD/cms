@@ -158,7 +158,10 @@ Preflight, with CMS still running:
 
 - `sha256sum -c SHA256SUMS` and `pg_restore -l` on the backup (or run
   `verify-backup.sh` first).
-- The server major is not lower than the dump's `pg_dump` major.
+- The server you restore onto is not older than the source server that made
+  the backup (the `server_version` in `MANIFEST`). A server older than the
+  dump's `pg_dump` is fine (cms-live: server 16, `pg_dump` 17); it is why
+  `--exit-on-error` is not used there.
 - The CMS database user can create databases; if not, the exact
   `ALTER ROLE <user> CREATEDB;` to run with `sudo -u postgres psql`.
 - Free space for a second copy of the database.
