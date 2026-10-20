@@ -175,10 +175,16 @@ def iptables_argv(pid: int, action: str,
 def client_port_rules(client_port: int) -> tuple[tuple[str, ...], ...]:
     """Return the DROP rules of one client connection to PostgreSQL.
 
-    In PostgreSQL's network namespace: what arrives from that client
-    port, and what leaves to it, except on the loopback. They cut one
-    connection of a program and leave its other connections, and every
-    other program, alone (the watchdog's drills D7 and D15, #38).
+    Two rules in PostgreSQL's network namespace: one drops the TCP
+    packets that arrive from that client port to port 5432, the other
+    those that leave from port 5432 to that client port, from or to any
+    address, on every interface but the loopback (! -i lo, ! -o lo).
+    So a connection from another address that uses the same port
+    number is cut too. In the compose stack of the watchdog's drills D7
+    and D15 (#38), every database client has the address of the cms
+    container, where a port number names one connection, and the
+    harness's own psql connects from inside the database container, not
+    through an interface the rules match.
 
     client_port: the connection's client_port in pg_stat_activity.
 
