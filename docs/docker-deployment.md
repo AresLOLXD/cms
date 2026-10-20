@@ -282,6 +282,10 @@ Two variables of `.env` set it up; apply a change with `./up.sh`:
 `./status.sh` ends with the watchdog's line, for example
 `watchdog: observe, last cycle 4 s ago, 0 open alerts`.
 
+It also sends `GET /` to each ranking every 15 seconds, and the Ranking Web
+Server logs every request it gets: about 5,760 lines a day in the log of each
+ranking (`./logs.sh ranking`).
+
 The watchdog reaches the database through `CMS_DB_URL`, and three things
 about it matter. Do not set `application_name` in the URL: the check for an
 Evaluation Service stuck in a locked section relies on the
