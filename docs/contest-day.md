@@ -326,7 +326,7 @@ applies, it goes out at once.
 | H4 | Two or more programs of the same class fail together (two Contest Web Servers, for example). | Find what they share (the database, the disk, the load). Restart them by hand one at a time, and only once you know the cause. |
 | H5 | More than a third of the programs it probes fail a check at once (the Workers are not counted). | Check the load of the server and of the database. |
 | H6 | The program, or the watchdog itself, started less than 120 seconds ago, or the watchdog acted on it less than 120 seconds ago. | If the program or the watchdog started: wait. If the watchdog acted on it (or would have): it judges the program again 120 seconds after that; in `observe` mode, or for a class that is not in `CMS_WATCHDOG_RESTART`, it restarts nothing, so decide by hand, after `cmsWatchdog --snapshot`. |
-| H7 | Its budget is used: 2 restarts of a program, or 3 of its pool, per hour. The alert says until when (`will not restart … before HH:MM UTC`). | Restart it by hand if needed, after `cmsWatchdog --snapshot`. |
+| H7 | Its budget is used: 2 restarts of a program, or 3 of its pool, per hour; for a `FATAL` program, 2 starts per hour; or its ledger did not parse, and every budget counts as used for 60 minutes. The alert says until when (`will not restart … before HH:MM UTC`, or `will not start … before HH:MM UTC`). | A running program: restart it by hand if needed, after `cmsWatchdog --snapshot`. A `FATAL` program: read `./logs.sh cms`, then start it by hand with `supervisorctl` if needed. |
 | H8 | Another restart is still running. | Nothing. |
 
 ### A lock blocks CMS
