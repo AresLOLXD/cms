@@ -41,6 +41,7 @@ in the values marked `CHANGE_ME`:
 | `CMS_RWS_PASSWORD` | Password CMS uses to send scores to the Ranking Web Server. The Ranking Web Server port is only accessible through the reverse proxy (TLS, rate limiting): never keep `CHANGE_ME`. |
 | `CMS_CWS_COOKIE_DURATION` | Contestant session lifetime in seconds (default `18000` = 5 hours). Every authenticated request renews the session cookie, including background polls (notifications, submission status), so the session only expires after this long without any request. Must be a positive integer. An open contest page keeps its session alive, so on shared computers contestants must log out and close the tab. |
 | `CMS_CWS_REQUEST_TIME_HEADER` | Optional, empty by default (off). The header in which your reverse proxy writes when it received each request, so that a busy server still accepts the submissions sent before the contest stop. Set it only as explained in "Submissions at the contest stop" below. |
+| `CMS_COMPILATION_MAX_TIME_S` | Optional, unset by default (the built-in 20 seconds). The CPU seconds a submission may use to compile, a positive number such as `30` or `12.5`; any other value stops the container at startup. The wall-clock limit is 2 x this value + 1, so the CPU limit is the one that bites. |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
