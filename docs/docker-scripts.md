@@ -81,7 +81,9 @@ Shows whether all services are running correctly. Lists each container (a lightw
 
 If supervisord does not answer within 10 seconds, the script prints `(supervisord did not answer in 10 s)` instead of waiting forever. `(container not running)` means that the `cms` container is not running.
 
-The last part is the watchdog's line (see "The watchdog" in [Docker deployment](docker-deployment.md)): its mode, how long ago its last cycle ran, and how many of its alerts are open. `(no answer from the cms container)` means that the `cms` container did not run the command.
+Next comes the watchdog's line (see "The watchdog" in [Docker deployment](docker-deployment.md)): its mode, how long ago its last cycle ran, and how many of its alerts are open. `(no answer from the cms container)` means that the `cms` container did not run the command.
+
+The last part, `Disk`, shows how full the log volume is: the filesystem, its size, what is used and what is available (in blocks of 1 KiB), and the percentage used, as `df -P` reports them inside the `cms` container. From 80%, it adds the line `WARNING: the log disk is N% full`. It prints `(no answer from the cms container)` too when that container did not run the command.
 
 Every program runs with `stopasgroup` and `killasgroup`: stopping or restarting one with `supervisorctl` also ends the processes it started, such as the sandboxes of a Worker.
 

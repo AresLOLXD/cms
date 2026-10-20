@@ -305,7 +305,7 @@ must print nothing.
 in [docker-deployment.md](docker-deployment.md)). In `./logs.sh cms` its lines
 read `<UTC time> <LEVEL> Watchdog: …`, or `<UTC time> <LEVEL> Resolved: …`
 when a problem is over; its warnings and errors also appear in the **Logs**
-table on **Overview**, from `Watchdog,0`. `./status.sh` ends with its state. In
+table on **Overview**, from `Watchdog,0`. `./status.sh` shows its state. In
 `observe` mode it restarts nothing: its `WOULD restart` lines say what
 `enforce` would have done.
 

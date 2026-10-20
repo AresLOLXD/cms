@@ -30,3 +30,17 @@ echo ""
 echo "── Watchdog ─────────────────────────────────────────"
 "${COMPOSE_CMD[@]}" exec -T cms timeout 10 cmsWatchdog --status \
   2>/dev/null || echo "(no answer from the cms container)"
+
+echo ""
+echo "── Disk ─────────────────────────────────────────────"
+# df -P puts each filesystem on one line: the figures are on the second.
+if disk=$("${COMPOSE_CMD[@]}" exec -T cms timeout 10 df -P /home/cmsuser/cms/log \
+  2>/dev/null); then
+  echo "$disk"
+  use=$(awk 'NR == 2 { sub("%", "", $5); print $5 }' <<<"$disk")
+  if [[ "$use" =~ ^[0-9]+$ ]] && ((use >= 80)); then
+    echo "WARNING: the log disk is ${use}% full"
+  fi
+else
+  echo "(no answer from the cms container)"
+fi
