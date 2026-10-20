@@ -4,6 +4,8 @@
 
 import asyncio
 import unittest
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from cms.io.async_priorityqueue import AsyncPriorityQueue
 from cms.io.priorityqueue import QueueItem
@@ -41,6 +43,57 @@ class TestAsyncPriorityQueueBasics(unittest.IsolatedAsyncioTestCase):
         queue = AsyncPriorityQueue()
         with self.assertRaises(LookupError):
             await queue.pop(wait=False)
+
+
+class TestAsyncPriorityQueueDefaultTimestamp(
+    unittest.IsolatedAsyncioTestCase,
+):
+    """The default timestamp must not go backwards with the clock."""
+
+    T0 = datetime(2026, 10, 19, 12, 0, 0)
+
+    def set_clock(self, *times):
+        patcher = patch("cms.io.async_priorityqueue.make_datetime",
+                        side_effect=times)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def test_default_timestamps_never_go_backwards(self):
+        self.set_clock(self.T0, self.T0 - timedelta(hours=1),
+                       self.T0 - timedelta(hours=2))
+        queue = AsyncPriorityQueue()
+        items = [FakeItem(name) for name in "abc"]
+        for item in items:
+            queue.push(item)
+
+        popped = [(await queue.pop()).item for _ in items]
+        self.assertEqual(popped, items)
+
+    async def test_default_timestamps_are_strictly_increasing_when_the_clock_does_not_move(
+        self,
+    ):
+        self.set_clock(self.T0, self.T0, self.T0)
+        queue = AsyncPriorityQueue()
+        for name in "abc":
+            queue.push(FakeItem(name))
+
+        stamps = [(await queue.pop()).timestamp for _ in range(3)]
+        self.assertTrue(stamps[0] < stamps[1] < stamps[2], stamps)
+
+    async def test_explicit_timestamps_are_kept(self):
+        self.set_clock(self.T0)
+        queue = AsyncPriorityQueue()
+        queue.push(FakeItem("default"))
+        later = self.T0 + timedelta(days=1)
+        earlier = self.T0 - timedelta(days=1)
+        queue.push(FakeItem("x"), timestamp=later)
+        queue.push(FakeItem("y"), timestamp=earlier)
+
+        # The earlier submission goes first, as ES needs for fairness.
+        first = await queue.pop()
+        self.assertEqual((first.item, first.timestamp),
+                         (FakeItem("y"), earlier))
+        self.assertEqual(queue._last_default_timestamp, self.T0)
 
 
 class TestAsyncPriorityQueueBlockingWait(unittest.IsolatedAsyncioTestCase):

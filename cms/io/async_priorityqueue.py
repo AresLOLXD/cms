@@ -12,7 +12,7 @@ synchronous blocking .wait() the way gevent.event.Event does.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import typing
 
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -58,6 +58,9 @@ class AsyncPriorityQueue(typing.Generic[QueueItemT]):
 
         # Index of the next element that will be added to the queue.
         self._next_index = 0
+
+        # The last timestamp given by default (not an explicit one).
+        self._last_default_timestamp: datetime | None = None
 
     def __len__(self):
         return len(self._queue)
@@ -144,7 +147,8 @@ class AsyncPriorityQueue(typing.Generic[QueueItemT]):
         timestamp: datetime | None = None,
     ) -> bool:
         """Push an item in the queue. If timestamp is not specified,
-        uses the current time.
+        uses the current time, but never earlier than the previous
+        default one, even if the clock steps back.
 
         item: the item to add to the queue.
         priority: the priority of the item, or None for
@@ -163,6 +167,15 @@ class AsyncPriorityQueue(typing.Generic[QueueItemT]):
             priority = AsyncPriorityQueue.PRIORITY_MEDIUM
         if timestamp is None:
             timestamp = make_datetime()
+            if self._last_default_timestamp is not None:
+                timestamp = max(
+                    timestamp,
+                    self._last_default_timestamp + timedelta(microseconds=1))
+            # shortcut: after a backward step the default stamps run
+            # ahead of the clock until it catches up, so they sort late
+            # against explicit ones (ES); upgrade only if a clock step
+            # ever matters for ES fairness.
+            self._last_default_timestamp = timestamp
 
         index = self._next_index
         self._next_index += 1
