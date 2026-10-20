@@ -5,7 +5,7 @@ import json
 import threading
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
@@ -303,6 +303,22 @@ class TestProxyExecutorFailures(unittest.IsolatedAsyncioTestCase):
                  QueueEntry(second, 2, stamp, 8)]
 
         await self.executor.execute(batch)
+
+        self.assertEqual(
+            [entry.item for entry in await self.drain()], [first, second])
+
+    async def test_operations_are_sent_in_order_when_the_clock_steps_back(
+        self,
+    ):
+        # The second operation is enqueued after the clock stepped
+        # back: it must still win over the first one, as it is newer.
+        first = ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {"v": 1}})
+        second = ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {"v": 2}})
+        now = datetime(2026, 10, 19, 12, 0, 0)
+        with patch("cms.io.async_priorityqueue.make_datetime",
+                   side_effect=[now, now - timedelta(hours=1)]):
+            self.executor.enqueue(first)
+            self.executor.enqueue(second)
 
         self.assertEqual(
             [entry.item for entry in await self.drain()], [first, second])
