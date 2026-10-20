@@ -15,6 +15,10 @@ from urllib.parse import quote as _url_quote
 
 INSECURE_SECRET_KEY = "8e045a51e4b102ea803c06f92841a1fb"
 
+# cmsWatchdog (#38): its modes, and the classes enforce may restart.
+WATCHDOG_MODES = ("off", "observe", "enforce")
+WATCHDOG_CLASSES = ("web", "core", "infra", "workers")
+
 
 def _toml_str(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -34,6 +38,32 @@ def _get(var: str, default: str) -> str:
 
 def _get_int(var: str, default: int) -> int:
     return int(os.environ.get(var) or default)
+
+
+def watchdog_settings() -> tuple[str, str]:
+    """Read CMS_WATCHDOG and CMS_WATCHDOG_RESTART; exit on a bad value.
+
+    Case and spaces do not matter and a class given twice counts once.
+    An empty value means the default, as for the other variables.
+    """
+    raw_mode = _get("CMS_WATCHDOG", "observe")
+    mode = raw_mode.strip().lower()
+    if mode not in WATCHDOG_MODES:
+        print(f"ERROR: CMS_WATCHDOG must be off, observe or enforce, got "
+              f"{raw_mode!r}.", file=sys.stderr)
+        sys.exit(1)
+    raw_classes = _get("CMS_WATCHDOG_RESTART", "web,core,infra")
+    classes: list[str] = []
+    for item in raw_classes.split(","):
+        item = item.strip().lower()
+        if item and item not in classes:
+            classes.append(item)
+    if not classes or any(item not in WATCHDOG_CLASSES for item in classes):
+        print(f"ERROR: CMS_WATCHDOG_RESTART must be a comma-separated "
+              f"subset of {','.join(WATCHDOG_CLASSES)}, got "
+              f"{raw_classes!r}.", file=sys.stderr)
+        sys.exit(1)
+    return mode, ",".join(classes)
 
 
 def validate_required() -> None:
@@ -139,7 +169,6 @@ two_phase_evaluation = {two_phase_evaluation}
 LogService = [["localhost", 29000]]
 ResourceService = [["localhost", 28000]]
 ScoringService = [["localhost", 28500]]
-Checker = [["localhost", 22000]]
 EvaluationService = [["{es_bind_host}", 25000]]
 Worker = [{worker_entries}]
 ContestWebServer = [{cws_entries}]
@@ -205,6 +234,7 @@ def generate_supervisord_conf() -> str:
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
     contest_id = _require("CMS_CONTEST_ID")
+    watchdog_mode, watchdog_restart = watchdog_settings()
     contest_flag = f" -c {contest_id}" if contest_id != "ALL" else ""
     bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
@@ -221,6 +251,13 @@ def generate_supervisord_conf() -> str:
             f"command={command}\n"
             "autostart=true\n"
             "autorestart=true\n"
+            # supervisord's backoff is linear: about 8 minutes of tries
+            # before FATAL, which outlasts a short database outage.
+            "startretries=30\n"
+            # A stop or a restart also ends what the program started
+            # (a Worker's isolate keeper, #38).
+            "stopasgroup=true\n"
+            "killasgroup=true\n"
             f"{stop_wait}"
             "stdout_logfile=/dev/stdout\n"
             "stdout_logfile_maxbytes=0\n"
@@ -291,10 +328,20 @@ def generate_supervisord_conf() -> str:
             f"directory=/home/cmsuser/cms-loader\n"
             f"command=/home/cmsuser/cms-loader/node_modules/.bin/tsx src/index.ts\n"
             f"environment={env_str}\n"
-            "autostart=true\nautorestart=true\n"
+            "autostart=true\nautorestart=true\nstartretries=30\n"
+            "stopasgroup=true\nkillasgroup=true\n"
             "stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n"
             "stderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n"
         )
+
+    if watchdog_mode != "off":
+        # Priority 90: it starts last and stops first. Its own stop is
+        # quick, so it gets 5 s (the stop_grace_period counts them).
+        blocks.append(program(
+            "cmswatchdog",
+            f"cmsWatchdog --mode {watchdog_mode} "
+            f"--restart {watchdog_restart}",
+            90, stop_wait_secs=5))
 
     return "\n".join(blocks)
 

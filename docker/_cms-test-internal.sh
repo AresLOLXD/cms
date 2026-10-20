@@ -48,15 +48,15 @@ timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
 UNIT_GEVENT=$?
 
 # docker/generate_config.py builds the production configs from environment
-# variables. Its tests are plain Python (no gevent, no cms import), so they
-# need neither group; running them on their own (given a path, pytest
-# ignores testpaths) gives them a junit file and exit code of their own.
-# This comes before the asyncio group because that one writes the final
-# coverage report.
+# variables. Its tests, and status.sh's (run with a fake docker), are plain
+# Python (no gevent, no cms import), so they need neither group; running
+# them on their own (given a path, pytest ignores testpaths) gives them a
+# junit file and exit code of their own. This comes before the asyncio
+# group because that one writes the final coverage report.
 timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
     pytest --cov . --cov-append --cov-report= \
     --junitxml=codecov/junit-docker.xml -o junit_family=legacy \
-    docker/test_generate_config.py
+    docker/test_generate_config.py docker/test_status_sh.py
 UNIT_DOCKER=$?
 
 IGNORE_ARGS="--ignore=cmstestsuite/unit_tests/cmscontrib --ignore=cmstestsuite/unit_tests/cmsranking --ignore=cmstestsuite/unit_tests/db/rankinggroup_test.py"

@@ -136,8 +136,9 @@ services:
     # supervisord stops its programs one after another, and each
     # ContestWebServer may wait up to 40 s (stopwaitsecs, see
     # docker/generate_config.py) for its activity log flush, so the worst case
-    # is the SUM of those waits: 4 ContestWebServers = 160 s, plus the other
-    # programs. Normal shutdowns take seconds; this is only the upper bound.
+    # is the SUM of those waits: 4 ContestWebServers = 160 s, plus 5 s for
+    # cmsWatchdog = 165 s, plus the other programs. Normal shutdowns take
+    # seconds; this is only the upper bound.
     stop_grace_period: 180s
     healthcheck:
       test: ["CMD-SHELL", "curl -sfL --max-time 4 http://localhost:${CMS_AWS_HTTP_PORT:-8889}/ || exit 1"]

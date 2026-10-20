@@ -48,6 +48,7 @@ from cms.log import root_logger, shell_handler, ServiceFilter, \
     DetailedFormatter, LogServiceHandler, FileHandler
 from .rpc import rpc_method, RemoteServiceServer, RemoteServiceClient, \
     FakeRemoteServiceClient
+from .health import register_stack_dump
 
 
 logger = logging.getLogger(__name__)
@@ -292,6 +293,9 @@ class Service:
         return: True if successful.
 
         """
+        # Here and not in __init__ (see cms.io.health).
+        register_stack_dump()
+
         try:
             self.rpc_server.start()
 

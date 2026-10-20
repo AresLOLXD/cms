@@ -77,7 +77,13 @@ Stops all running services. The data is preserved — you can run `./up.sh` agai
 
 ### status.sh
 
-Shows whether all services are running correctly. Lists each container (a lightweight virtual environment) with its current state. All should say `Up`.
+Shows whether all services are running correctly. Lists each container (a lightweight virtual environment) with its current state, then each program that supervisord runs in the `cms` container. Every container should say `Up`, and every program `RUNNING`; a program you stopped on purpose says `STOPPED`, and the list is still shown.
+
+If supervisord does not answer within 10 seconds, the script prints `(supervisord did not answer in 10 s)` instead of waiting forever. `(container not running)` means that the `cms` container is not running.
+
+The last part is the watchdog's line (see "The watchdog" in [Docker deployment](docker-deployment.md)): its mode, how long ago its last cycle ran, and how many of its alerts are open. `(no answer from the cms container)` means that the `cms` container did not run the command.
+
+Every program runs with `stopasgroup` and `killasgroup`: stopping or restarting one with `supervisorctl` also ends the processes it started, such as the sandboxes of a Worker.
 
 ```bash
 ./status.sh
@@ -264,7 +270,7 @@ Then restart with `./restart.sh`.
 
 `CMS_CONTEST_ID` is required — without it, `supervisord.conf` is not generated and no services start at all. On a fresh install the contest does not exist in the database yet, so `cmsContestWebServer`, `cmsEvaluationService` and `cmsProxyService` (and the Telegram bot, if configured) stop with this message. This is normal.
 
-The admin server (`cmsAdminWebServer`) still starts and is available at port 8889. Use it to create or import your first contest. The generated `supervisord.conf` sets `autorestart=true` on every service but leaves `startretries` at the supervisord default (3), so supervisord may give up on a service that keeps exiting right after it starts. Once the contest exists, run `./restart.sh` instead of waiting for the failed services to recover.
+The admin server (`cmsAdminWebServer`) still starts and is available at port 8889. Use it to create or import your first contest. The generated `supervisord.conf` sets `autorestart=true` and `startretries=30` on every service, so supervisord keeps starting a service that exits right after it starts for about 8 minutes, then gives up on it (`FATAL`). Once the contest exists, run `./restart.sh` instead of waiting for the failed services to recover.
 
 Afterwards, run `./contest.sh` to confirm the ID is correct.
 

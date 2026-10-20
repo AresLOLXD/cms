@@ -1,5 +1,6 @@
 """Unit tests for docker/generate_config.py."""
 
+import ast
 import configparser
 import os
 import re
@@ -118,13 +119,14 @@ def test_prod_compose_gives_cms_time_to_stop_gracefully(monkeypatch):
     grace = _prod_compose_services()["cms"]["stop_grace_period"]
     assert grace.endswith("s")
     programs = _supervisord_programs(gc.generate_supervisord_conf())
-    cws_stop_total = sum(
+    stop_total = sum(
         int(program["stopwaitsecs"])
         for name, program in programs.items()
-        if name.startswith("cmscontestwebserver")
+        if name.startswith("cmscontestwebserver") or name == "cmswatchdog"
     )
-    assert cws_stop_total == 4 * 40
-    assert int(grace[:-1]) > cws_stop_total
+    # 4 ContestWebServers of 40 s each, and the watchdog's 5 s.
+    assert stop_total == 4 * 40 + 5
+    assert int(grace[:-1]) > stop_total
 
 
 def test_dockerfile_creates_the_data_dir_as_cmsuser(monkeypatch):
@@ -298,6 +300,8 @@ def test_supervisord_contest_web_servers_wait_for_the_activity_log_flush(monkeyp
     for name, program in programs.items():
         if name in cws_names:
             assert program["stopwaitsecs"] == "40"
+        elif name == "cmswatchdog":
+            assert program["stopwaitsecs"] == "5"
         else:
             assert "stopwaitsecs" not in program
 
@@ -502,3 +506,105 @@ def test_ranking_credentials_match_the_proxy_service_url(
 
     assert ranking["username"] == unquote(proxy_url.username)
     assert ranking["password"] == unquote(proxy_url.password)
+
+
+def test_supervisord_every_program_stops_as_a_group_and_retries(
+        monkeypatch):
+    # stopasgroup and killasgroup: stopping a program also ends what it
+    # started (a Worker's isolate keeper). startretries=30: supervisord's
+    # backoff is linear, so a program that cannot start (the database is
+    # down) goes FATAL after about 8 minutes, not 7 seconds (#38).
+    _set(monkeypatch, {
+        "CMS_CWS_COUNT": "2", "CMS_WORKER_COUNT": "2",
+        "CMS_TELEGRAM_BOT_TOKEN": "t", "CMS_TELEGRAM_CHAT_ID": "c",
+        "CMS_LOADER_SESSION_SECRET": "s", "CMS_LOADER_ADMIN_USER": "u",
+        "CMS_LOADER_ADMIN_PASSWORD": "p"})
+    programs = _supervisord_programs(gc.generate_supervisord_conf())
+    assert {"cmstelegrambot", "cmsloader", "cmsworker1",
+            "cmscontestwebserver1"} <= set(programs)
+    for name, program in programs.items():
+        assert program["stopasgroup"] == "true", name
+        assert program["killasgroup"] == "true", name
+        assert program["startretries"] == "30", name
+        assert "startsecs" not in program, name
+
+
+def test_cms_toml_has_no_checker(monkeypatch):
+    # Nothing starts a Checker, so the Admin Web Server listed it as not
+    # running (#38).
+    _set(monkeypatch)
+    services = tomllib.loads(gc.generate_cms_toml())["services"]
+    assert "Checker" not in services
+    assert "LogService" in services
+
+
+def _watchdog(monkeypatch, extra=None):
+    for name in ("CMS_WATCHDOG", "CMS_WATCHDOG_RESTART"):
+        monkeypatch.delenv(name, raising=False)
+    _set(monkeypatch, extra)
+    return _supervisord_programs(gc.generate_supervisord_conf()).get(
+        "cmswatchdog")
+
+
+def test_supervisord_watchdog_observes_by_default(monkeypatch):
+    program = _watchdog(monkeypatch)
+    assert program["command"] == \
+        "cmsWatchdog --mode observe --restart web,core,infra"
+    assert program["priority"] == "90"
+    assert program["stopwaitsecs"] == "5"
+    assert program["startretries"] == "30"
+    assert program["stopasgroup"] == "true"
+    assert program["killasgroup"] == "true"
+
+
+def test_supervisord_watchdog_enforce(monkeypatch):
+    program = _watchdog(monkeypatch, {
+        "CMS_WATCHDOG": "enforce",
+        "CMS_WATCHDOG_RESTART": "web,core,infra,workers"})
+    assert program["command"] == \
+        "cmsWatchdog --mode enforce --restart web,core,infra,workers"
+
+
+def test_supervisord_watchdog_off(monkeypatch):
+    assert _watchdog(monkeypatch, {"CMS_WATCHDOG": "off"}) is None
+
+
+def test_watchdog_knobs_are_normalized(monkeypatch):
+    program = _watchdog(monkeypatch, {
+        "CMS_WATCHDOG": " Enforce ",
+        "CMS_WATCHDOG_RESTART": "Web, core,,web,"})
+    assert program["command"] == \
+        "cmsWatchdog --mode enforce --restart web,core"
+
+
+def test_watchdog_restart_empty_means_the_default(monkeypatch):
+    program = _watchdog(monkeypatch, {"CMS_WATCHDOG_RESTART": ""})
+    assert program["command"].endswith("--restart web,core,infra")
+
+
+@pytest.mark.parametrize("variables", [
+    {"CMS_WATCHDOG": "on"},
+    {"CMS_WATCHDOG_RESTART": "web,db"},
+    {"CMS_WATCHDOG_RESTART": " , "},
+])
+def test_watchdog_invalid_knobs_exit(monkeypatch, capsys, variables):
+    for name in ("CMS_WATCHDOG", "CMS_WATCHDOG_RESTART"):
+        monkeypatch.delenv(name, raising=False)
+    _set(monkeypatch, variables)
+    with pytest.raises(SystemExit):
+        gc.generate_supervisord_conf()
+    name = next(iter(variables))
+    assert name in capsys.readouterr().err
+
+
+def test_watchdog_classes_are_the_policys():
+    # cmsWatchdog exits at argparse on a class it does not know, and
+    # ends FATAL. docker/ imports nothing from cms: read policy.py.
+    path = os.path.join(os.path.dirname(__file__), "..", "cms", "watchdog",
+                        "policy.py")
+    with open(path) as f:
+        tree = ast.parse(f.read())
+    [order] = [ast.literal_eval(node.value) for node in tree.body
+               if isinstance(node, ast.AnnAssign)
+               and getattr(node.target, "id", None) == "CLASS_ORDER"]
+    assert sorted(gc.WATCHDOG_CLASSES) == sorted(order)

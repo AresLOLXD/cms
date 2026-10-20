@@ -50,6 +50,7 @@ from cms.db import SessionGen, Session, Contest, Participation, Task, \
     RankingGroup, Submission, get_submissions
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
+from cms.io.health import BusyTracker
 from cms.io.priorityqueue import QueueEntry
 from cms.io.rpc import rpc_method
 from cmscommon.datetime import make_timestamp
@@ -399,6 +400,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         self,
         ranking: str,
         on_refused: Callable[[list[RefusedEntity]], None] | None = None,
+        busy: BusyTracker | None = None,
     ):
         """Create a proxy for the ranking at the given URL.
 
@@ -408,6 +410,9 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         on_refused: if given, called on the event loop after each
             round in which the ranking refused some entities on their
             own, with those entities.
+        busy: the service's busy sections (see cms.io.health): a batch
+            is the section "send", and each request a step of it. A
+            private tracker if None.
 
         """
         super().__init__(batch_executions=True)
@@ -416,12 +421,13 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         self._visible_ranking = safe_url(ranking)
 
         self._on_refused = on_refused
+        self._busy = busy if busy is not None else BusyTracker()
         # The entities the ranking refused on their own in the current
-        # round: _execute_sync adds them, execute hands them over.
+        # round: _send_batch_sync adds them, execute hands them over.
         self._refused_in_round: list[RefusedEntity] = []
         # The status of the last refusal _send got (see
         # RejectedError.status_code: None if the data could not be
-        # encoded). Only _execute_sync uses it, one batch at a time.
+        # encoded). Only _send_batch_sync uses it, one batch at a time.
         self._last_refusal_status: int | None = None
 
         # For each namespace whose data the ranking could not take: how
@@ -439,7 +445,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         # The namespaces whose visibility settings the ranking refused
         # the last time they were sent. Their data is dropped until it
         # takes new ones, as it could show the data while they should
-        # be hidden. Only _execute_sync uses it, one batch at a time.
+        # be hidden. Only _send_batch_sync uses it, one batch at a time.
         self._rejected_visibility: set[str | None] = set()
 
     @staticmethod
@@ -589,6 +595,23 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
             queueing.cancel()
 
     def _execute_sync(
+        self, entries: list[QueueEntry[ProxyOperation]]
+    ) -> list[QueueEntry[ProxyOperation]]:
+        """Run _send_batch_sync as the section "send".
+
+        Runs inside loop.run_in_executor. The wait before a retry
+        happens in execute(), after this returns, so it is not part of
+        the section (see cms.io.health).
+
+        entries: entries containing the operations to perform.
+
+        return: what _send_batch_sync returns.
+
+        """
+        with self._busy.busy("send"):
+            return self._send_batch_sync(entries)
+
+    def _send_batch_sync(
         self, entries: list[QueueEntry[ProxyOperation]]
     ) -> list[QueueEntry[ProxyOperation]]:
         """Send the given batch of operations, synchronously.
@@ -937,12 +960,14 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                     operation = "deleting %s from ranking %s%s" % (
                         name, self._visible_ranking, prefix)
                     logger.debug(operation.capitalize())
+                    self._busy.step()
                     safe_delete_data(
                         self._ranking, "%s%s/" % (prefix, name), operation)
             elif type_ == self.VISIBILITY_TYPE:
                 operation = "sending visibility to ranking %s%s" % (
                     self._visible_ranking, prefix)
                 logger.debug(operation.capitalize())
+                self._busy.step()
                 safe_put_data(self._ranking, "%svisibility" % prefix,
                               data, operation)
             else:
@@ -953,6 +978,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
                 operation = "sending %s to ranking %s%s" % (
                     name, self._visible_ranking, prefix)
                 logger.debug(operation.capitalize())
+                self._busy.step()
                 safe_put_data(
                     self._ranking, "%s%s/" % (prefix, name), data, operation,
                     invalid_at_debug=alone)
@@ -1047,8 +1073,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         # Create one executor for each ranking.
         self.rankings = list()
         for ranking in config.proxy_service.rankings:
-            self.add_executor(
-                ProxyExecutor(ranking, on_refused=self._on_refused))
+            self.add_executor(ProxyExecutor(
+                ranking, on_refused=self._on_refused, busy=self._busy))
 
         # Enqueue the dispatch of some initial data to rankings. Needs
         # to be done before the sweeper is started, as otherwise RWS

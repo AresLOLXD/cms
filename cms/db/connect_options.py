@@ -58,6 +58,12 @@ LIBPQ_DEFAULTS: dict[str, str] = {
 }
 
 
+# Seconds a session waits for a free pooled connection before it fails
+# (QueuePool's pool_timeout), in both engines. cmsWatchdog's liveness
+# trips must stay above it (#38, cms/watchdog/policy.py).
+POOL_TIMEOUT_S = 60
+
+
 def program_name(argv: Sequence[str]) -> str:
     """Return the name a program shows in pg_stat_activity.
 

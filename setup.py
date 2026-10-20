@@ -153,6 +153,7 @@ setup(
             "cmsSpoolExporter=cmscontrib.SpoolExporter:main",
             "cmsPrometheusExporter=cmscontrib.PrometheusExporter:main",
             "cmsTelegramBot=cmscontrib.TelegramBot:main",
+            "cmsWatchdog=cms.watchdog.main:main",
         ],
         "cms.grading.tasktypes": [
             "Batch=cms.grading.tasktypes.Batch:Batch",

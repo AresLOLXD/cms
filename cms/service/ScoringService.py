@@ -28,12 +28,14 @@
 from datetime import datetime
 import asyncio
 import logging
+from typing import Any
 
 from cms import ServiceCoord, config
 from cms.db import SessionGen, Submission, SubmissionResult, Dataset, \
     get_submission_results
 from cms.io.async_rpc import FIRE_AND_FORGET_TIMEOUT, NotificationFailureLatch
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
+from cms.io.health import BusyTracker
 from cms.io.priorityqueue import QueueEntry
 from cms.io.rpc import RPCError, rpc_method
 from cmscommon.datetime import make_datetime
@@ -44,9 +46,13 @@ logger = logging.getLogger(__name__)
 
 
 class ScoringExecutor(AsyncExecutor[ScoringOperation]):
-    def __init__(self, proxy_service):
+    def __init__(self, proxy_service: Any,
+                 busy: BusyTracker | None = None):
         super().__init__()
         self.proxy_service = proxy_service
+        # The service's busy sections (see cms.io.health): an execution
+        # is the section "score". Tests may build one without it.
+        self._busy = busy if busy is not None else BusyTracker()
         self.proxy_notifications = NotificationFailureLatch(
             logger, "ScoringService", ServiceCoord("ProxyService", 0),
             "nothing is lost, its sweeper will send these scores to the "
@@ -99,6 +105,19 @@ class ScoringExecutor(AsyncExecutor[ScoringOperation]):
             self.proxy_notifications.succeeded()
 
     def _execute_sync(self, operation: ScoringOperation) -> int | None:
+        """Run _score_sync as the section "score" (see cms.io.health).
+
+        Runs inside loop.run_in_executor, like _score_sync.
+
+        operation: the operation to perform.
+
+        return: what _score_sync returns.
+
+        """
+        with self._busy.busy("score"):
+            return self._score_sync(operation)
+
+    def _score_sync(self, operation: ScoringOperation) -> int | None:
         """Do the actual DB work for execute(), synchronously.
 
         Runs inside loop.run_in_executor -- must not touch any
@@ -207,7 +226,7 @@ class ScoringService(AsyncTriggeredService[ScoringOperation, ScoringExecutor]):
             ServiceCoord("ProxyService", 0),
             must_be_present=ranking_enabled)
 
-        self.add_executor(ScoringExecutor(self.proxy_service))
+        self.add_executor(ScoringExecutor(self.proxy_service, busy=self._busy))
         self.start_sweeper(347.0)
 
     async def _missing_operations(self) -> int:

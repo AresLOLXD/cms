@@ -31,6 +31,11 @@ times after the contest start ("start" in users.json) it injects:
   180 s after its end, the runbook's partition step: end the CMS
   backends left idle in a transaction since before that end.
 
+With --drop-client-ports, it does not run the schedule: it drops only the
+PostgreSQL connections of the given client ports (from pg_stat_activity),
+in PostgreSQL's network namespace, until SIGTERM, Ctrl-C or --max-s; the
+watchdog's drills D7 and D15 (#38) use it.
+
 It writes each fault's start and end (epoch seconds) to faults.json,
 again after each fault, for faultstats.py. CMS backends are those whose
 application_name starts with "cms", so the monitor and psql are spared.
@@ -51,7 +56,7 @@ import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 
 # Seconds after the contest start.
@@ -165,6 +170,34 @@ def iptables_argv(pid: int, action: str,
     """
     return ["sudo", "nsenter", "-t", str(pid), "-n", "iptables", action,
             *rule]
+
+
+def client_port_rules(client_port: int) -> tuple[tuple[str, ...], ...]:
+    """Return the DROP rules of one client connection to PostgreSQL.
+
+    Two rules in PostgreSQL's network namespace: one drops the TCP
+    packets that arrive from that client port to port 5432, the other
+    those that leave from port 5432 to that client port, from or to any
+    address, on every interface but the loopback (! -i lo, ! -o lo).
+    So a connection from another address that uses the same port
+    number is cut too. In the compose stack of the watchdog's drills D7
+    and D15 (#38), every database client has the address of the cms
+    container, where a port number names one connection, and the
+    harness's own psql connects from inside the database container, not
+    through an interface the rules match.
+
+    client_port: the connection's client_port in pg_stat_activity.
+
+    return: the rules, for iptables_argv.
+
+    """
+    port = str(client_port)
+    return (
+        ("INPUT", "!", "-i", "lo", "-p", "tcp", "--sport", port,
+         "--dport", "5432", "-j", "DROP"),
+        ("OUTPUT", "!", "-o", "lo", "-p", "tcp", "--sport", "5432",
+         "--dport", port, "-j", "DROP"),
+    )
 
 
 class Injector:
@@ -385,6 +418,34 @@ class Injector:
             "duration": round(end - start, 1),
             "message": SETUP_DB_MESSAGE in output})
 
+    def drop_client_ports(self, ports: Sequence[int], max_s: float) -> None:
+        """Drop the PostgreSQL connections of some client ports.
+
+        The drop lasts max_s seconds, or until SIGTERM or Ctrl-C (a
+        drill ends it right after the watchdog's restart is confirmed);
+        either way the rules are removed and the record saved.
+
+        ports: the client ports, from pg_stat_activity.
+        max_s: how long the drop lasts at most.
+
+        """
+        pid = self.db_pid()
+        record: dict = {"fault": "client-drop", "ports": list(ports),
+                        "start": self.clock()}
+        self.records.append(record)
+        try:
+            for port in ports:
+                for rule in client_port_rules(port):
+                    # Recorded before it goes in, as in f2.
+                    self.rules.append((pid, rule))
+                    self.run(iptables_argv(pid, "-I", rule))
+            self.save()
+            self.sleep(max_s)
+        finally:
+            record["end"] = self.clock()
+            record["rules_removed"] = self._delete_rules()
+            self.save()
+
     def _delete_rules(self) -> bool:
         """Delete the DROP rules in place, the last added first.
 
@@ -495,24 +556,49 @@ class Injector:
             print(json.dumps(self.records[-1]), flush=True)
 
 
+def _client_ports(text: str) -> list[int]:
+    """Read --drop-client-ports: comma-separated port numbers."""
+    try:
+        ports = [int(port) for port in text.split(",") if port.strip()]
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+    if not ports or not all(0 < port < 65536 for port in ports):
+        raise argparse.ArgumentTypeError("not a list of ports: %r" % text)
+    return ports
+
+
 def main() -> int:
     """Parse the arguments and inject the faults."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--project", required=True)
     parser.add_argument("--compose-file", required=True)
     parser.add_argument("--env-file", required=True)
-    parser.add_argument("--users-file", required=True,
+    parser.add_argument("--users-file",
                         help="users.json, for the contest start")
     parser.add_argument("--out", required=True, help="faults.json")
+    parser.add_argument(
+        "--drop-client-ports", type=_client_ports, metavar="PORTS",
+        help="instead of the schedule, drop the PostgreSQL connections "
+             "of these comma-separated client ports")
+    parser.add_argument("--max-s", type=float, default=300.0,
+                        help="how long --drop-client-ports lasts at most")
     args = parser.parse_args()
-    with open(args.users_file) as f:
-        contest_start = json.load(f)["start"]
+    if args.drop_client_ports is None and args.users_file is None:
+        parser.error("--users-file is required without "
+                     "--drop-client-ports")
+    contest_start = None
+    if args.drop_client_ports is None:
+        with open(args.users_file) as f:
+            contest_start = json.load(f)["start"]
     injector = Injector(args.project, args.compose_file, args.env_file,
                         args.out)
     # run.sh ends the injector with SIGTERM if the run ends first.
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(143))
     try:
-        injector.run_schedule(contest_start)
+        if args.drop_client_ports is not None:
+            injector.drop_client_ports(args.drop_client_ports, args.max_s)
+        else:
+            injector.run_schedule(contest_start)
     finally:
         # A second SIGTERM must not cut the cleanup short.
         signal.signal(signal.SIGTERM, signal.SIG_IGN)

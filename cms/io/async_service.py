@@ -46,6 +46,7 @@ from cms.log import root_logger, shell_handler, ServiceFilter, \
 from cms.io.rpc import rpc_method, RPCError
 from .async_rpc import AsyncRemoteServiceServer, AsyncRemoteServiceClient, \
     AsyncFakeRemoteServiceClient, MAX_MESSAGE_SIZE
+from .health import BusyTracker, register_stack_dump
 
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,12 @@ class AsyncService:
 
         # Dictionaries of (to be) connected AsyncRemoteServiceClients.
         self.remote_services: dict[ServiceCoord, AsyncRemoteServiceClient] = {}
+
+        # The sections that must not hang (see cms.io.health), which
+        # health() reports, and when the service was built, for its
+        # uptime.
+        self._busy = BusyTracker()
+        self._started_at = time.monotonic()
 
         self.initialize_logging()
 
@@ -478,6 +485,9 @@ class AsyncService:
     async def _async_run(self) -> bool:
         self._loop = asyncio.get_running_loop()
         self._exit_event = asyncio.Event()
+        # Here and not in __init__: a service built in a test must not
+        # change the test process (see cms.io.health).
+        register_stack_dump()
 
         if self._exit_requested:
             logger.info("%s %d was asked to shut down before starting, "
@@ -574,3 +584,32 @@ class AsyncService:
         """
         logger.info("Trying to exit as asked by another service (%s).", reason)
         self.exit()
+
+    @rpc_method
+    def health(self) -> dict:
+        """Report that the event loop is free, and what is in progress.
+
+        It runs on the event loop, so any answer at all proves that the
+        loop is not blocked. cmsWatchdog calls it every 15 seconds
+        (#38).
+
+        return: "pid", the process id; "uptime_s", the seconds since
+            the service was built; "busy", the sections in progress
+            (see BusyTracker.report), the oldest first; and the fields
+            of _health_extra().
+
+        """
+        return {
+            "pid": os.getpid(),
+            "uptime_s": time.monotonic() - self._started_at,
+            "busy": self._busy.report(),
+            **self._health_extra(),
+        }
+
+    def _health_extra(self) -> dict:
+        """Return the service's own fields for health(): none here.
+
+        return: a dict merged into health()'s answer.
+
+        """
+        return {}

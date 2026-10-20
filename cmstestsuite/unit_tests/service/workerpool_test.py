@@ -18,6 +18,7 @@
 """Tests for the RPCs WorkerPool sends to the workers."""
 
 import asyncio
+import json
 import unittest
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,7 +28,7 @@ from cms.io.async_rpc import AsyncFakeRemoteServiceClient
 from cms.service.esoperations import ESOperation
 from cms.service.workerpool import (
     JOB_OVERHEAD_S, WorkerPool, job_group_timeout)
-from cmscommon.datetime import make_datetime
+from cmscommon.datetime import make_datetime, make_timestamp
 from cmstestsuite.unit_tests.stuckpeer import StuckPeer, connect_client
 
 
@@ -516,6 +517,60 @@ class TestReenableOnReconnect(unittest.TestCase):
         with self.assertNoLogs("cms.service.workerpool", level="WARNING"):
             self.pool.on_worker_connected(self.coord)
         self.assertIs(self.pool._operations[0], WorkerPool.WORKER_INACTIVE)
+
+
+class TestStatusOfDisabledWorkers(unittest.TestCase):
+    """The fields cmsWatchdog (#38) reads from workers_status."""
+
+    def setUp(self):
+        self.pool = _single_worker_pool()
+        self.coord = ServiceCoord("Worker", 0)
+
+    def _time_out(self) -> int:
+        shard = self.pool.acquire_worker([_operation("001")])
+        self.pool._start_time[shard] = \
+            make_datetime() - timedelta(seconds=601)
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.pool.check_timeouts()
+        return shard
+
+    def test_a_new_worker_is_not_disabled(self):
+        status = self.pool.get_status()["0"]
+        self.assertIs(status["disabled_by_timeout"], False)
+        self.assertIsNone(status["disabled_at"])
+
+    def test_the_timeout_sets_disabled_at(self):
+        before = make_timestamp(make_datetime())
+        self._time_out()
+        after = make_timestamp(make_datetime())
+
+        status = self.pool.get_status()["0"]
+
+        self.assertIs(status["disabled_by_timeout"], True)
+        self.assertGreaterEqual(status["disabled_at"], before)
+        self.assertLessEqual(status["disabled_at"], after)
+        # The RPC answer must stay JSON.
+        json.dumps(self.pool.get_status())
+
+    def test_reconnecting_clears_disabled_at(self):
+        self._time_out()
+        with self.assertLogs("cms.service.workerpool", level="WARNING"):
+            self.pool.on_worker_connected(self.coord)
+        status = self.pool.get_status()["0"]
+        self.assertIs(status["disabled_by_timeout"], False)
+        self.assertIsNone(status["disabled_at"])
+
+    def test_enabling_or_disabling_by_hand_clears_disabled_at(self):
+        shard = self._time_out()
+        self.pool.enable_worker(shard)
+        self.assertIsNone(self.pool.get_status()["0"]["disabled_at"])
+
+        self._time_out()
+        self.pool.enable_worker(shard)
+        self.pool.disable_worker(shard)
+        status = self.pool.get_status()["0"]
+        self.assertIs(status["disabled_by_timeout"], False)
+        self.assertIsNone(status["disabled_at"])
 
 
 if __name__ == "__main__":

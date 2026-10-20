@@ -29,6 +29,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(__file__), "..", "..", "loadtest"))
@@ -729,6 +730,74 @@ class InjectorTest(unittest.TestCase):
         recovered = faults.F2_AT + faults.F2_DROP_S + faults.F2_STEP_AFTER_S
         self.assertLessEqual(recovered + faultstats.SCORES_LIMIT_S,
                              faults.MIN_CONTEST_S - 120)
+
+
+class ClientDropTest(unittest.TestCase):
+    """The single-connection drops of the watchdog's drills (#38)."""
+
+    setUp = InjectorTest.setUp
+    _injector = InjectorTest._injector
+
+    def test_the_rules_cut_one_client_port_both_ways(self):
+        self.assertEqual(faults.client_port_rules(51234), (
+            ("INPUT", "!", "-i", "lo", "-p", "tcp", "--sport", "51234",
+             "--dport", "5432", "-j", "DROP"),
+            ("OUTPUT", "!", "-o", "lo", "-p", "tcp", "--sport", "5432",
+             "--dport", "51234", "-j", "DROP")))
+
+    def test_the_drop_goes_in_and_comes_out(self):
+        injector = self._injector()
+        started = self.time.now
+        injector.drop_client_ports([51234, 51236], 300)
+        rules = [rule for port in (51234, 51236)
+                 for rule in faults.client_port_rules(port)]
+        self.assertEqual(
+            [command for command in self.runner.commands
+             if command[0] == "sudo"],
+            [faults.iptables_argv(4242, "-I", rule) for rule in rules]
+            + [faults.iptables_argv(4242, "-D", rule)
+               for rule in reversed(rules)])
+        self.assertEqual(injector.records[-1], {
+            "fault": "client-drop", "ports": [51234, 51236],
+            "start": started, "end": started + 300,
+            "rules_removed": True})
+        self.assertEqual(injector.rules, [])
+        with open(self.out) as f:
+            self.assertEqual(json.load(f)[-1]["fault"], "client-drop")
+
+    def test_an_interrupted_drop_still_removes_its_rules(self):
+        injector = self._injector(time_source=FakeTime(interrupt_at=300))
+        with self.assertRaises(SystemExit):
+            injector.drop_client_ports([51234], 300)
+        self.assertEqual(
+            [command for command in self.runner.commands
+             if command[0] == "sudo" and "-D" in command],
+            [faults.iptables_argv(4242, "-D", rule)
+             for rule in reversed(faults.client_port_rules(51234))])
+        self.assertEqual(injector.rules, [])
+        self.assertIn("end", injector.records[-1])
+
+    def test_the_command_line(self):
+        argv = ["faults.py", "--project", "p", "--compose-file", "c",
+                "--env-file", "e", "--out", self.out,
+                "--drop-client-ports", "51234,51236", "--max-s", "5"]
+        with patch.object(sys, "argv", argv), \
+                patch.object(faults, "Injector") as injector_class, \
+                patch.object(faults.signal, "signal"):
+            self.assertEqual(faults.main(), 0)
+        injector = injector_class.return_value
+        injector.drop_client_ports.assert_called_once_with([51234, 51236],
+                                                           5.0)
+        injector.run_schedule.assert_not_called()
+        injector.cleanup.assert_called_once_with()
+
+    def test_the_schedule_still_needs_the_users_file(self):
+        argv = ["faults.py", "--project", "p", "--compose-file", "c",
+                "--env-file", "e", "--out", self.out]
+        with patch.object(sys, "argv", argv), \
+                contextlib.redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            faults.main()
 
 
 if __name__ == "__main__":

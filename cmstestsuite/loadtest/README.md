@@ -148,6 +148,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
 | `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
 | `--poll-cap` | (none) | longest delay in seconds between two status polls of a submission; the driver applies it after each multiplication of the backoff, like the fork's `task_submissions.html`, which caps it at 10 s (`PAGE_POLL_CAP_S` in `driver.py`; a test keeps it equal to the page's). Each submission caps at the value times (0.9 + hash * 0.2), the hash that staggers its backoff, so the capped polls of a burst of submissions do not line up in waves. Without the option the backoff has no limit, like upstream's page. The driver emulates the browser, so it applies to both targets. Must be a finite number greater than 0. `run.sh` records it in `users.json` |
+| `--watchdog` | off | also runs `cmsWatchdog` in observe mode with the `/proc` source in the `cms` container, and `watchdogstats.py` at the end (fork target only; see "Watchdog runs") |
 
 The defaults are the `full1` values of the 2026-09-30 run. `run.sh`
 brings the stack up with a fresh database, waits for every service
@@ -437,6 +438,43 @@ the `faults` job runs the fork once per profile, smoke-sized, and shows
 `faults.md` in its summary (a `FAIL` does not fail the job). A
 `loadtest/runner-check-<topic>` branch runs only the 5-minute check that
 a runner can use `nsenter`, `iptables` and `docker pause`.
+
+## Watchdog runs
+
+`run.sh --watchdog` (fork target only) runs
+`cmsWatchdog --mode observe --process-source proc` in the `cms`
+container from before ProxyService starts, with
+`--status-history out/<name>/watchdog_status.jsonl` (one status per
+cycle) and its output in `out/<name>/watchdog.log`. After the run,
+`watchdogstats.py out/<name> --cws N --workers N` writes
+`out/<name>/watchdog.md`: one row per criterion of "Harness L" in
+`docs/superpowers/specs/2026-10-10-watchdog-design.md`, `pass` or
+`FAIL`, then the probe latencies (p50 and p99 per program):
+
+- no `WOULD` line; holds and a red gate only inside the F2 and F3
+  windows of `faults.json` (none without `--faults`);
+- every program (ES, SS, PS, LogService, every CWS, AWS, every Worker)
+  in every cycle from the driver's first request; ProxyService may
+  appear late, since `run.sh` starts it once the contests exist;
+- cycles that cover the run (a watchdog that stops or stalls fails): the
+  last one at most 45 s (3 cycles) before the driver's last request, no
+  gap over 45 s between two from the driver's start on, and one inside
+  every F2 and F3 window (widened as for the holds);
+- favicon latencies for every CWS and AWS and `health()` latencies for
+  every program but the Workers; favicon and `health()` p99 under a
+  third of their timeouts (5 s and 3 s), and no samples fails;
+- every near miss under half its trip: at most 2 misses in 6, no ES
+  section older than 90 s with no statement for 30 s (re-evaluations
+  aside), no SS execution over 90 s (unless it overlapped a
+  re-evaluation), no PS send idle over 90 s; the longest ES `idle_s`
+  inside a section is recorded as a margin.
+
+With `--faults` too (L3), the criteria are those of L3: no `WOULD` line,
+holds and a red gate only inside the F2 and F3 windows (so nothing for F1
+and F4), every program in every cycle, cycles that cover the run and
+every F2 and F3 window, and latency samples for every probe. The p99
+and near-miss rows are then only recorded (`(recorded: a fault run)`):
+F2 and F3 push them past half their trips by design.
 
 ## Limits
 

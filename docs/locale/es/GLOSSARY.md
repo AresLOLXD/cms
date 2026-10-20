@@ -57,12 +57,15 @@ When you change the translation of a heading, grep its old text in every
 "Cuando un ranking está mal", "Eliminar un ranking antiguo", 'Los botones
 "ahora"', "Modo de fallo", "Escalar el Contest Web Server", "Avisos de
 ProxyService que necesitan a un operador", "Envíos al final de la
-competencia"); `docker-deployment.po` quotes "Despliegue" (a heading of
-`multi-contest`), "Configuración de nginx" (`docker-scripts`) and "Scripts
+competencia") and "El watchdog" and "Revisiones de salud en el proxy
+inverso" (`docker-deployment`); `docker-deployment.po` quotes "Despliegue"
+(a heading of `multi-contest`), "Configuración de nginx"
+(`docker-scripts`), "Cuando el watchdog alerta" (`contest-day`) and "Scripts
 auxiliares", "Puertos" and "Envíos al final de la competencia" (its own
 headings); `docker-scripts.po` quotes "Antes de un día de examen"
-(`multi-contest`), "1. Respalda todo" (`migrating-to-multi-contest`) and
-"Envíos al final de la competencia" (`docker-deployment`); `importing-users.po`
+(`multi-contest`), "1. Respalda todo" (`migrating-to-multi-contest`),
+"Envíos al final de la competencia" (`docker-deployment`) and "El
+watchdog" (`docker-deployment`); `importing-users.po`
 quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`);
 `participant-activity.po` quotes "Configuración de nginx" (`docker-scripts`);
 `contest-day.po` also quotes "Después de la competencia" (a heading of
