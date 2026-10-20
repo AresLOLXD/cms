@@ -1107,10 +1107,13 @@ class _Cycle:
     def _track_pause(self) -> None:
         """Clear every window after a pause of the watchdog (3.3).
 
-        By the schedule, a cycle of up to PAUSE_S seconds is followed
+        By the schedule, a cycle that ends less than PAUSE_S seconds
+        after its slot (its own lag plus its duration) is followed
         PAUSE_S seconds after its start at most, plus the next cycle's
         lag: a timer's overshoot, up to STARVED_LAG_S before that cycle
-        is starved. Only a longer gap is a pause.
+        is starved. Only a longer gap is a pause. A cycle that ends
+        later skips one more slot, so the next one can look like a
+        pause.
 
         """
         gap = self.obs.since_previous_s

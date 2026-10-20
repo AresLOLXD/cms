@@ -775,10 +775,12 @@ class Watchdog:
         Each cycle gets its lag (how late it started) and the time since
         the previous one: a starved or paused watchdog tells the policy.
         The schedule keeps its grid: a cycle that ends after its next
-        slot skips the slots it missed, so that a cycle of up to 30 s is
+        slot skips the slots it missed, so that a cycle that ends less
+        than 30 s after its slot (its own lag plus its duration) is
         followed 30 s after its start at most, plus the next cycle's lag
         (a timer wakes a little late), which the policy does not count
-        as a pause.
+        as a pause. One that ends later skips one more slot, and the
+        next cycle can be reported as a pause.
 
         clock, wall_clock, sleep: time.monotonic, time.time and
             asyncio.sleep (tests pass fakes).
