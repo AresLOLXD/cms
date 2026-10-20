@@ -32,6 +32,8 @@ while (( $# )); do
 done
 [[ "$workers" =~ ^[1-9][0-9]*$ ]] || die "-j needs a number of workers (got: $workers)"
 name="$(backup_name "$label")"
+# The dump is written by root in the container: only root can remove it.
+[[ "$(id -u)" == 0 ]] || die "run it as root: sudo ./backup.sh [label] [-j N]"
 
 backups="$REPO_ROOT/backups"
 snapshot_container="cms-pgtool-$$-snapshot"
@@ -39,7 +41,11 @@ partial=""
 
 # Removing both tool containers also ends the snapshot session.
 cleanup() {
+  # A second Ctrl+C must not stop the cleanup half way.
+  trap '' INT TERM HUP
   docker rm -f "cms-pgtool-$$" "$snapshot_container" >/dev/null 2>&1 || true
+  # A dump container that was still starting may create .partial only now.
+  if [[ -n "${dump_pid:-}" ]]; then wait "$dump_pid" 2>/dev/null || true; fi
   if [[ -n "$partial" ]]; then rm -rf "$partial"; fi
 }
 trap cleanup EXIT
@@ -113,8 +119,12 @@ session_query() {
 
 # Every row is "key<TAB>value"; the table counts come from one generated
 # query, so a new table is counted with no list to update. psql and pg_dump
-# come from the same image, so VERSION_NAME is pg_dump's version.
+# come from the same image, so VERSION_NAME is pg_dump's version. The
+# timeouts are turned off as pg_dump does, so the server keeps the session.
 manifest_sql=$(cat <<'SQL'
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
 BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;
 SELECT 'snapshot', pg_export_snapshot();
 SELECT 'server_version', current_setting('server_version');
@@ -154,8 +164,11 @@ echo "Dumping with $workers workers..."
   pg_tool "$major" nice -n 10 pg_dump --snapshot="$snapshot" -Fd -j "$workers" \
     --compress=zstd:3 -f "/backups/$name.partial"
 ) &
+dump_pid=$!
 # Unlike a foreground command, wait lets the INT and TERM traps run at once.
-wait "$!" || die "pg_dump failed"
+wait "$dump_pid" || die "pg_dump failed"
+# The container's umask is 022: keep every file of the backup to root.
+chmod -R go= "$partial"
 
 # ── 7. Close the session and verify ─────────────────────────────────────────
 reply=$(session_query "SELECT 1;") \

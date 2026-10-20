@@ -54,6 +54,7 @@ FAKE_DOCKER = textwrap.dedent(r"""
         exit 0 ;;
       rm)
         shift 2
+        if [[ -n "${FAKE_RM_SLEEP:-}" ]]; then sleep "$FAKE_RM_SLEEP"; fi
         for name in "$@"; do
           if [[ -f "$FAKE_DIR/$name.pid" ]]; then
             kill "$(cat "$FAKE_DIR/$name.pid")" 2>/dev/null
@@ -72,6 +73,10 @@ FAKE_DOCKER = textwrap.dedent(r"""
       shift
     done
     shift
+    # The dump container is still being created: "rm -f" cannot reach it.
+    if [[ "$1" == nice && -n "${FAKE_DUMP_START_DELAY:-}" ]]; then
+      sleep "$FAKE_DUMP_START_DELAY"
+    fi
     echo $$ >"$FAKE_DIR/$name.pid"
     case "$1" in
       psql)
@@ -103,6 +108,8 @@ FAKE_DOCKER = textwrap.dedent(r"""
         dir="$mount${last#/backups}"
         mkdir "$dir"
         echo toc >"$dir/toc.dat"
+        # The container's umask is 022, not the script's 077.
+        chmod 644 "$dir/toc.dat"
         echo rows >"$dir/3001.dat.zst"
         for (( oid = 16401; oid < 16401 + ${FAKE_BLOBS:-3}; oid++ )); do
           echo blob >"$dir/blob_$oid.dat.zst"
@@ -133,6 +140,12 @@ FAKE_DF = textwrap.dedent("""\
     echo "/dev/fake 900000000 1 ${FAKE_DF_AVAIL_KB:-500000000} 1% /"
     """)
 
+# The tests run as a normal user; backup.sh needs root.
+FAKE_ID = textwrap.dedent("""\
+    #!/usr/bin/env bash
+    if [[ "$1" == -u ]]; then echo "${FAKE_UID:-0}"; else echo operator; fi
+    """)
+
 
 @pytest.fixture
 def repo(tmp_path):
@@ -150,7 +163,8 @@ def backup(repo, tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (tmp_path / "fake").mkdir()
-    for name, text in (("docker", FAKE_DOCKER), ("df", FAKE_DF)):
+    for name, text in (("docker", FAKE_DOCKER), ("df", FAKE_DF),
+                       ("id", FAKE_ID)):
         (bin_dir / name).write_text(text)
         (bin_dir / name).chmod(0o755)
 
@@ -273,15 +287,103 @@ def test_ctrl_c_cleans_up(backup, repo, tmp_path):
     process = backup(FAKE_DUMP_SLEEP="30")
     process.stdin.write("y\n")
     process.stdin.flush()
-    deadline = time.monotonic() + 20
-    while not list((repo / "backups").glob("*.partial")):
-        assert time.monotonic() < deadline, "the dump never started"
-        time.sleep(0.05)
+    wait_for(lambda: list((repo / "backups").glob("*.partial")),
+             "the dump never started")
     os.killpg(process.pid, signal.SIGINT)
     # Well before the 30 s sleep of the fake pg_dump ends.
     result = finish(process, answer=None)
     assert result.returncode == 130
     assert_nothing_left(repo, tmp_path, result)
+
+
+def wait_for(condition, what: str) -> None:
+    deadline = time.monotonic() + 20
+    while not condition():
+        assert time.monotonic() < deadline, what
+        time.sleep(0.05)
+
+
+def test_a_second_ctrl_c_does_not_stop_the_cleanup(backup, repo, tmp_path):
+    process = backup(FAKE_DUMP_SLEEP="10", FAKE_RM_SLEEP="2")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: list((repo / "backups").glob("*.partial")),
+             "the dump never started")
+    os.killpg(process.pid, signal.SIGINT)
+    wait_for(lambda: any(line.startswith("rm -f ")
+                         for line in log_lines(tmp_path)),
+             "the cleanup never started")
+    os.killpg(process.pid, signal.SIGINT)
+    result = finish(process, answer=None)
+    assert result.returncode == 130
+    assert_nothing_left(repo, tmp_path, result)
+
+
+def test_ctrl_c_while_the_dump_container_starts_leaves_nothing(
+        backup, repo, tmp_path):
+    # "rm -f" finds no container yet; pg_dump creates .partial after it.
+    process = backup(FAKE_DUMP_START_DELAY="1")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: any(" pg_dump " in line
+                         for line in log_lines(tmp_path)),
+             "the dump never started")
+    os.killpg(process.pid, signal.SIGINT)
+    result = finish(process, answer=None)
+    assert result.returncode == 130
+    assert list((repo / "backups").iterdir()) == []
+
+
+def test_it_refuses_to_run_without_root(backup, repo, tmp_path):
+    result = finish(backup("pre", FAKE_UID="1"))
+    assert result.returncode != 0
+    assert "run it as root: sudo ./backup.sh" in result.stderr
+    assert log_lines(tmp_path) == []
+    assert not (repo / "backups").exists()
+
+
+def test_no_file_of_the_backup_is_readable_by_others(backup, repo):
+    result = finish(backup())
+    assert result.returncode == 0, result.stderr
+    (backup_dir,) = (repo / "backups").iterdir()
+    paths = [backup_dir, *backup_dir.iterdir()]
+    assert "toc.dat" in [path.name for path in paths]
+    for path in paths:
+        assert path.stat().st_mode & 0o077 == 0, path
+
+
+def test_the_session_turns_the_server_timeouts_off(backup, tmp_path):
+    result = finish(backup())
+    assert result.returncode == 0, result.stderr
+    session = [line for line in log_lines(tmp_path)
+               if line.startswith("session: ")]
+    begin = session.index(
+        "session: BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;")
+    for setting in ("statement_timeout", "lock_timeout",
+                    "idle_in_transaction_session_timeout"):
+        assert "session: SET %s = 0;" % setting in session[:begin]
+
+
+def test_exactly_enough_free_space_passes(backup, repo):
+    # 1000 KiB free is 1024000 bytes.
+    result = finish(backup(FAKE_DF_AVAIL_KB="1000", FAKE_DB_SIZE="1024000"))
+    assert result.returncode == 0, result.stderr
+    result = finish(backup(FAKE_DF_AVAIL_KB="1000", FAKE_DB_SIZE="1024001"))
+    assert result.returncode != 0
+    assert "not enough free space" in result.stderr
+
+
+def test_a_failed_run_leaves_an_existing_finished_backup_untouched(
+        backup, repo):
+    finished = repo / "backups" / "cms-20260101-000000-old"
+    finished.mkdir(parents=True)
+    (finished / "MANIFEST").write_text("table\tusers\t5\n")
+    result = finish(backup(FAKE_DUMP_RC="1"))
+    assert result.returncode != 0
+    assert [path.name for path in (repo / "backups").iterdir()] == [
+        finished.name]
+    assert [path.name for path in finished.iterdir()] == ["MANIFEST"]
+    assert (finished / "MANIFEST").read_text() == "table\tusers\t5\n"
 
 
 def test_a_snapshot_session_that_ends_during_the_dump_fails(
@@ -347,9 +449,11 @@ def test_a_complete_run_writes_manifest_checksums_and_renames(
     # The session takes the snapshot first, in REPEATABLE READ.
     session = [line for line in log_lines(tmp_path)
                if line.startswith("session: ")]
-    assert session[0].startswith(
+    begin = next(i for i, line in enumerate(session)
+                 if line.startswith("session: BEGIN "))
+    assert session[begin].startswith(
         "session: BEGIN ISOLATION LEVEL REPEATABLE READ")
-    assert "pg_export_snapshot()" in session[1]
+    assert "pg_export_snapshot()" in session[begin + 1]
     # The session ends after the dump and before the verification.
     lines = log_lines(tmp_path)
     assert (lines.index(dump_line(tmp_path))
