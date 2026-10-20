@@ -142,14 +142,23 @@ class FileHandlerMixin(RequestHandler):
         FileCacher.get_size, which always asks the backend (for the DB
         one, two connections per call) even for an already cached file.
 
+        Serving a file that is still in the local cache although its
+        object is gone from the DB is accepted on purpose (#12): every
+        handler takes the digest from a DB row, and the bytes belong to
+        the digest.
+
         """
         fobj = file_cacher.get_file(digest)
         try:
-            size = os.fstat(fobj.fileno()).st_size
-        except OSError:
-            # Not backed by a real file (e.g. an in-memory buffer).
-            size = fobj.seek(0, io.SEEK_END)
-            fobj.seek(0)
+            try:
+                size = os.fstat(fobj.fileno()).st_size
+            except OSError:
+                # Not backed by a real file (e.g. an in-memory buffer).
+                size = fobj.seek(0, io.SEEK_END)
+                fobj.seek(0)
+        except BaseException:
+            fobj.close()
+            raise
         return fobj, size
 
 

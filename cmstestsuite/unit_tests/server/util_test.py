@@ -253,6 +253,40 @@ class OpenFileAndSizeTest(unittest.TestCase):
         self.assertEqual(size, len(content))
         self.assertEqual(fobj.read(), content)
 
+    def test_open_file_and_size_closes_the_file_when_the_size_lookup_fails(
+            self):
+        from unittest.mock import MagicMock
+        from cms.server.util import FileHandlerMixin
+
+        fobj = MagicMock()
+        fobj.fileno.side_effect = OSError("no file descriptor")
+        fobj.seek.side_effect = OSError("seek failed")
+        file_cacher = MagicMock()
+        file_cacher.get_file.return_value = fobj
+
+        with self.assertRaises(OSError):
+            FileHandlerMixin._open_file_and_size(file_cacher, "digest")
+
+        fobj.close.assert_called_once_with()
+
+    def test_open_file_and_size_returns_the_open_file_and_its_size(self):
+        import io
+        from unittest.mock import MagicMock
+        from cms.server.util import FileHandlerMixin
+
+        content = b"statement" * 10
+        fobj = io.BytesIO(content)
+        file_cacher = MagicMock()
+        file_cacher.get_file.return_value = fobj
+
+        result, size = FileHandlerMixin._open_file_and_size(
+            file_cacher, "digest")
+
+        self.assertIs(result, fobj)
+        self.assertFalse(fobj.closed)
+        self.assertEqual(size, len(content))
+        self.assertEqual(fobj.tell(), 0)
+
 
 class MultiContestDecoratorReturnsFetchResultTest(unittest.IsolatedAsyncioTestCase):
     """Regression test for a Critical bug: multi_contest used to not
