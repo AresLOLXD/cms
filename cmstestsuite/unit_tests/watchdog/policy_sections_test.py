@@ -707,7 +707,20 @@ class TestWorkersEpisode(unittest.TestCase):
             "1) and are held by H6: the watchdog's last action or "
             "would-action on cmsWorker 0 was 30 s ago; the watchdog's last "
             "action or would-action on cmsWorker 1 was 15 s ago. Also: H7. "
-            "Nothing to do yet: they are still starting.")
+            "The watchdog judges each again 120 s after its last action or "
+            "would-action on it.")
+
+    def test_a_grace_group_line_in_observe_mode_is_left_to_you(self):
+        s = Scenario(mode=OBSERVE)
+        s.warm_up()
+        self.use_up_budgets(s)
+        s.state.programs[W0].last_action_mono = s.mono - CYCLE_S
+        s.state.programs[W1].last_action_mono = s.mono
+        [line] = held(s.cycle(workers=self.both(s)), "workers")
+        self.assertEqual(line.holds, ("H6", "H7"))
+        self.assertTrue(line.text.endswith(
+            "on it. It restarts nothing here: decide by hand, after "
+            "cmsWatchdog --snapshot."), line.text)
 
     def test_workers_that_recover_together_share_one_resolved_line(self):
         s, workers = self.fourteen_workers()

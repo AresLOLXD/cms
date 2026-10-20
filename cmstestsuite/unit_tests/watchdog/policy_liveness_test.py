@@ -20,9 +20,9 @@
 
 import unittest
 
-from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, GATE_KILL_S, \
-    OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, Ledger, \
-    Probe, busy_sections, hhmm_utc
+from cms.watchdog.policy import ALERT_REPEAT_S, CYCLE_S, ENFORCE, \
+    GATE_KILL_S, OBSERVE, RESTART, SERVICES_POOL, Backend, Booking, Gate, \
+    Ledger, Probe, busy_sections, hhmm_utc
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, \
     DEFAULT_PROGRAMS, ES, GREEN, LS, RED, W0, W1, Scenario, actions, \
     alerts, held, lock_wait_snapshot, program
@@ -535,13 +535,18 @@ class TestHoldsAlone(unittest.TestCase):
         self.assertEqual(alert.holds, ("H8",))
 
     def test_h6_the_program_just_started(self):
-        s = Scenario()
-        s.warm_up()
-        for _ in range(4):
-            s.cycle(fail=[CWS1])
-        s.set(CWS1, start_wall=s.wall + CYCLE_S - 60)
-        alert = self.assertHeldBy(s.cycle(fail=[CWS1]), "H6")
-        self.assertIn("cmsContestWebServer 1 started 60 s ago", alert.text)
+        # Only there is the program starting, whatever the mode.
+        for mode in (ENFORCE, OBSERVE):
+            with self.subTest(mode=mode):
+                s = Scenario(mode=mode)
+                s.warm_up()
+                for _ in range(4):
+                    s.cycle(fail=[CWS1])
+                s.set(CWS1, start_wall=s.wall + CYCLE_S - 60)
+                alert = self.assertHeldBy(s.cycle(fail=[CWS1]), "H6")
+                self.assertIn("cmsContestWebServer 1 started 60 s ago. "
+                              "Nothing to do yet: it is still starting.",
+                              alert.text)
 
     def test_h6_the_watchdog_just_started(self):
         s = Scenario()
@@ -549,16 +554,31 @@ class TestHoldsAlone(unittest.TestCase):
         # not assume it was red, so H2 does not hold; only H6 does.
         alert = self.assertHeldBy(trip(s), "H6")
         self.assertEqual(alert.holds, ("H6",))
-        self.assertIn("the watchdog itself started 60 s ago", alert.text)
+        self.assertIn("the watchdog itself started 60 s ago. Nothing to do "
+                      "yet: the watchdog is still starting.", alert.text)
 
     def test_h6_the_last_would_action(self):
+        # Observe mode restarts nothing: the next step is a human's.
         s = Scenario(mode=OBSERVE)
         s.warm_up()
         [would] = actions(trip(s))
         self.assertTrue(would.would)
         alert = self.assertHeldBy(s.cycle(fail=[CWS1]), "H6")
-        self.assertIn("its last action or would-action was 15 s ago",
+        self.assertIn("its last action or would-action was 15 s ago. The "
+                      "watchdog judges it again 120 s after its last "
+                      "action or would-action. It restarts nothing here: "
+                      "decide by hand, after cmsWatchdog --snapshot.",
                       alert.text)
+
+    def test_h6_the_last_would_action_of_h9(self):
+        s = Scenario(restart=("core", "infra"))
+        s.warm_up()
+        [would] = actions(trip(s))
+        self.assertTrue(would.shadow)
+        alert = self.assertHeldBy(s.cycle(fail=[CWS1]), "H6")
+        self.assertTrue(alert.text.endswith(
+            ". It restarts nothing here: decide by hand, after cmsWatchdog "
+            "--snapshot."), alert.text)
 
     def test_h6_the_last_real_action(self):
         s = Scenario()
@@ -568,8 +588,10 @@ class TestHoldsAlone(unittest.TestCase):
         # The restart is not visible yet (the program keeps its start
         # time): the action itself gives the grace, as in observe mode.
         alert = self.assertHeldBy(s.cycle(fail=[CWS1]), "H6")
-        self.assertIn("its last action or would-action was 15 s ago",
-                      alert.text)
+        self.assertTrue(alert.text.endswith(
+            "its last action or would-action was 15 s ago. The watchdog "
+            "judges it again 120 s after its last action or "
+            "would-action."), alert.text)
 
     def test_h7_the_budget(self):
         s = Scenario()

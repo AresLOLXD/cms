@@ -24,8 +24,10 @@
   flight.
 - Observe mode and enforce mode with every class enabled decide the
   same, apart from the actuator: the would flag, the "did it help"
-  lines, which follow real restarts only, and the early warnings, which
-  say what the mode does at the trip (they are compared by key).
+  lines, which follow real restarts only, the early warnings, which
+  say what the mode does at the trip (they are compared by key), and
+  the next step of a line that H6 holds after an action, which observe
+  mode leaves to a human (BY_HAND_HINT).
 
 No script has a lock wait whose blocker is a session of a program the
 watchdog restarted: H3's "orphan of pid N" mark follows real restarts
@@ -37,7 +39,8 @@ modes word that line differently by design.
 import unittest
 from dataclasses import replace
 
-from cms.watchdog.policy import ENFORCE, OBSERVE, RESTART, START
+from cms.watchdog.policy import BY_HAND_HINT, ENFORCE, OBSERVE, RESTART, \
+    START
 from cmstestsuite.unit_tests.watchdog.scenario import CWS0, CWS1, ES, \
     RED, SS, WALL0, Scenario, worker
 
@@ -86,7 +89,8 @@ def play(mode: str, name: str) -> list[tuple[dict, list]]:
 def comparable(decisions: list) -> list:
     """Drop what only the mode explains (see the module docstring)."""
     return [replace(d, would=False,
-                    text="" if d.key[1].endswith(" warning") else d.text)
+                    text="" if d.key[1].endswith(" warning")
+                    else d.text.replace(" " + BY_HAND_HINT, ""))
             for d in decisions if d.key[1] != "help"]
 
 

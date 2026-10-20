@@ -443,16 +443,19 @@ class TestCycle(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Watchdog: WOULD restart cmsContestWebServer 1 (pid "
                       "109) after 5 of its last 6 favicon probes failed "
                       "(R1); DB OK; evidence log/watchdog/", line)
+        # It restarts nothing: the next step is a human's.
         self.assertTrue(line.endswith(
             "no USR1: the process does not handle it; observe mode: "
-            "nothing was restarted."))
+            "nothing was restarted. Decide by hand, after cmsWatchdog "
+            "--snapshot."), line)
 
     async def test_a_would_restart_of_a_class_not_enabled(self):
         rig = Rig(self, restart=("core", "infra"))
         await rig.trip_cws1()
-        self.assertIn("class web is not in CMS_WATCHDOG_RESTART (H9), so "
-                      "nothing was done; shadow count 1 of 2 this hour.",
-                      rig.lines()[-1])
+        self.assertTrue(rig.lines()[-1].endswith(
+            "class web is not in CMS_WATCHDOG_RESTART (H9), so nothing was "
+            "done; shadow count 1 of 2 this hour. Decide by hand, after "
+            "cmsWatchdog --snapshot."), rig.lines()[-1])
 
     async def test_a_restart_that_did_not_happen_did_not_help(self):
         # Only a restart that may have signalled the program gets "answers
@@ -1211,7 +1214,8 @@ class TestLines(unittest.TestCase):
             (self.WOULD, Outcome("would", usr1=self.USR1), "WARNING",
              "Watchdog: WOULD restart cmsContestWebServer 1 (pid 109) %s; "
              "DB OK; evidence log/watchdog/e.json; %s; observe mode: "
-             "nothing was restarted." % (self.WHAT, self.USR1)),
+             "nothing was restarted. Decide by hand, after cmsWatchdog "
+             "--snapshot." % (self.WHAT, self.USR1)),
         )
         for decision, outcome, level, line in cases:
             with self.subTest(detail=outcome.detail or outcome.result):

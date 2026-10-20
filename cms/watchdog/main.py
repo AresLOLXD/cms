@@ -615,6 +615,8 @@ def restart_line(decision: policy.Decision, program: policy.ProgramFacts,
                     % (program.klass, shadow_count, policy.PROGRAM_BUDGET))
         else:
             tail = "observe mode: nothing was restarted."
+        # Only a human can restart it: say the next step (3.9).
+        tail += " Decide by hand, after cmsWatchdog --snapshot."
         return "WARNING", (
             "Watchdog: WOULD restart %s (pid %d) after %s; DB OK; %s; %s; "
             "%s" % (program.label, program.pid, what, where, outcome.usr1,

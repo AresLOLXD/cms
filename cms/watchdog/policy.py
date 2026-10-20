@@ -780,7 +780,8 @@ class Trip:
     detail: str
 
 
-# The next step that an alert names for each headline hold (3.9).
+# The next step that an alert names for each headline hold (3.9); H6's
+# depends on the clause that applied (GRACE_HINTS).
 HOLD_HINTS: dict[str, str] = {
     "H1": "Check ./status.sh.",
     "H2": ("Nothing to do: the watchdog waits for the database (see "
@@ -790,7 +791,6 @@ HOLD_HINTS: dict[str, str] = {
     "H4": ("Find what the failing programs share before restarting any "
            "of them by hand."),
     "H5": "Check the load of the server and of the database.",
-    "H6": "Nothing to do yet: it is still starting.",
     "H7": "Restart it by hand if needed, after cmsWatchdog --snapshot.",
     "H8": "Nothing to do: another action is running.",
 }
@@ -798,9 +798,27 @@ HOLD_HINTS: dict[str, str] = {
 # about one program, said of several.
 WORKERS_HOLD_HINTS: dict[str, str] = {
     **HOLD_HINTS,
-    "H6": "Nothing to do yet: they are still starting.",
     "H7": "Restart them by hand if needed, after cmsWatchdog --snapshot.",
 }
+# The next step of a line headed by H6, by the clause of _grace that
+# applied: only in "started" is the program starting.
+GRACE_HINTS: dict[str, str] = {
+    "watchdog": "Nothing to do yet: the watchdog is still starting.",
+    "started": "Nothing to do yet: it is still starting.",
+    "action": ("The watchdog judges it again %d s after its last action "
+               "or would-action." % GRACE_S),
+}
+# The same, said of several Workers.
+WORKERS_GRACE_HINTS: dict[str, str] = {
+    **GRACE_HINTS,
+    "started": "Nothing to do yet: they are still starting.",
+    "action": ("The watchdog judges each again %d s after its last action "
+               "or would-action on it." % GRACE_S),
+}
+# What the "action" hint adds where the watchdog restarts nothing
+# (observe mode, a class of H9): only a human can restart there.
+BY_HAND_HINT = ("It restarts nothing here: decide by hand, after "
+                "cmsWatchdog --snapshot.")
 # The next step of a held R5 start: a FATAL program runs no process, so
 # it is not starting (H6 holds R5 for the watchdog's own startup only),
 # and cmsWatchdog --snapshot has no stacks to write; its log says why it
@@ -1941,7 +1959,7 @@ class _Cycle:
                 ("H3", self._lock_wait()),
                 ("H4", self._correlation(program)),
                 ("H5", self._global_failure()),
-                ("H6", self._grace(program)),
+                ("H6", self._grace(program)[1]),
                 ("H7", self._budget(program, RESTART, shadow))):
             if reason:
                 holds.append((code, reason))
@@ -2078,35 +2096,62 @@ class _Cycle:
                     "cycle" % (len(failed), len(probed)))
         return ""
 
-    def _grace(self, program: ProgramFacts, named: bool = False) -> str:
-        """Describe why program is still in its grace (H6), or "".
+    def _grace(self, program: ProgramFacts,
+               named: bool = False) -> tuple[str, str]:
+        """Describe why program is still in its grace (H6).
 
         program: the program that tripped.
         named: whether the reason must name the program, for a line
             about several programs.
 
-        return: the reason, or "" if H6 does not apply.
+        return: the clause that applied ("watchdog", "started" or
+            "action", the keys of GRACE_HINTS) and the reason, or
+            ("", "") if H6 does not apply.
 
         """
         since_start = self.mono - self.state.started_mono
         if since_start < GRACE_S:
-            return "the watchdog itself started %d s ago" % since_start
+            return ("watchdog",
+                    "the watchdog itself started %d s ago" % since_start)
         if program.start_wall is not None:
             running_for = age(self.wall, program.start_wall)
             if running_for < GRACE_S:
-                return "%s started %d s ago" % (program.label, running_for)
+                return ("started", "%s started %d s ago"
+                        % (program.label, running_for))
         program_state = self.state.programs.get(program.name)
         if program_state is not None \
                 and program_state.last_action_mono is not None:
             since_action = self.mono - program_state.last_action_mono
             if since_action < GRACE_S:
                 if named:
-                    return ("the watchdog's last action or would-action "
+                    return ("action",
+                            "the watchdog's last action or would-action "
                             "on %s was %d s ago"
                             % (program.label, since_action))
-                return ("its last action or would-action was %d s ago"
+                return ("action",
+                        "its last action or would-action was %d s ago"
                         % since_action)
-        return ""
+        return "", ""
+
+    def _grace_hint(self, program: ProgramFacts,
+                    hints: Mapping[str, str]) -> str:
+        """Return the next step of a line headed by H6 (3.9).
+
+        program: a program of the line.
+        hints: GRACE_HINTS, or WORKERS_GRACE_HINTS.
+
+        return: the hint of the clause of _grace that applied to it,
+            and, after an action where the watchdog restarts nothing
+            (observe mode, a class of H9), that the next step is a
+            human's.
+
+        """
+        clause = self._grace(program)[0]
+        hint = hints[clause]
+        if clause == "action" and (self.state.mode == OBSERVE
+                                   or self.state.shadow_for(program.klass)):
+            hint += " " + BY_HAND_HINT
+        return hint
 
     def _budget(self, program: ProgramFacts, action: str,
                 shadow: bool) -> str:
@@ -2138,7 +2183,8 @@ class _Cycle:
         text = "Watchdog: %s fails %s (%s) but is held by %s: %s." % (
             program.label, trip.rule, trip.detail, headline, reason)
         text += _other_holds(holds)
-        text += " " + HOLD_HINTS[headline]
+        text += " " + (self._grace_hint(program, GRACE_HINTS)
+                       if headline == "H6" else HOLD_HINTS[headline])
         self._held_alert((program.name, trip.rule), text,
                          [code for code, _ in holds], opened)
 
@@ -2211,7 +2257,7 @@ class _Cycle:
         elif headline == "H6":
             # Its reason about the last action does not name the Worker.
             why = _listed(list(dict.fromkeys(
-                self._grace(item[0].program, named=True)
+                self._grace(item[0].program, named=True)[1]
                 for item in group)), "; ")
         else:
             why = _listed(reasons[headline], "; ")
@@ -2221,7 +2267,13 @@ class _Cycle:
         text = ("Watchdog: %d Workers trip R4 together (%s) and are held "
                 "by %s: %s." % (len(group), labels, headline, why))
         text += _other_holds([(headline, why)] + others)
-        text += " " + WORKERS_HOLD_HINTS[headline]
+        # The Workers of the line share the clause of H6: the
+        # watchdog's own start holds every one, and R4 trips no Worker
+        # in its first GRACE_S seconds.
+        text += " " + (self._grace_hint(group[0][0].program,
+                                        WORKERS_GRACE_HINTS)
+                       if headline == "H6"
+                       else WORKERS_HOLD_HINTS[headline])
         # A Worker that joins the group is no state change: the line
         # would repeat as the Workers trip one after the other.
         self._held_alert(WORKERS_KEY, text,
