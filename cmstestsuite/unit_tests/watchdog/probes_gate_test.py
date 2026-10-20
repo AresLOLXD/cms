@@ -388,6 +388,25 @@ class TestSnapshot(unittest.TestCase):
                 [row] = parse_backends(json.dumps([dict(ROW, query=query)]))
                 self.assertEqual(row["query"], redacted)
 
+    def test_a_line_comment_ends_at_a_carriage_return_too(self):
+        # PostgreSQL's lexer ends "--" at "\n" or "\r": the literal after
+        # a bare "\r" is a literal, whatever the comment before it says.
+        cases = (
+            ("SELECT 1 -- x\r'plaintext:s3cret'",
+             "SELECT 1 -- x\r'…'"),
+            ("SELECT 1 -- it's\r'plaintext:s3cret'",
+             "SELECT 1 -- it's\r'…'"),
+            ("SELECT 1 -- x\r\n'plaintext:s3cret'",
+             "SELECT 1 -- x\r\n'…'"),
+            ("SELECT 1 -- x\n'plaintext:s3cret'",
+             "SELECT 1 -- x\n'…'"),
+        )
+        for query, redacted in cases:
+            with self.subTest(query=query):
+                [row] = parse_backends(json.dumps([dict(ROW, query=query)]))
+                self.assertEqual(row["query"], redacted)
+                self.assertNotIn("s3cret", row["query"])
+
     def test_a_query_that_does_not_read_is_cut_at_its_first_literal(self):
         # The gate cuts the query at 300 characters, maybe inside a
         # literal; and a backslash in a string depends on the session's
