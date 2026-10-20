@@ -280,7 +280,7 @@ Two variables of `.env` set it up; apply a change with `./up.sh`:
 | `CMS_WATCHDOG` | `observe` (the default): it logs what it would do (`WOULD restart …`) and restarts nothing. `enforce`: it restarts. `off`: it does not run. |
 | `CMS_WATCHDOG_RESTART` | The classes that `enforce` may restart, comma-separated: `web` (Contest and Admin Web Servers), `core` (Evaluation, Scoring and Proxy services), `infra` (Log and Resource services) and `workers`. The default, also when empty, is `web,core,infra`. Set it in the same edit that sets `CMS_WATCHDOG=enforce`, with only the classes that passed their checks (see "When the watchdog alerts"). |
 
-`./status.sh` ends with the watchdog's line, for example
+`./status.sh` shows the watchdog's line, for example
 `watchdog: observe, last cycle 4 s ago, 0 open alerts`.
 
 It also sends `GET /` to each ranking every 15 seconds, and the Ranking Web
@@ -393,6 +393,9 @@ and maybe a `response_header_timeout` of 180 seconds.
 ```bash
 ./logs.sh -f
 ```
+
+Every service, LogService included, deletes the `.log` files older than 30
+days from its own directory in the log volume (`cms-logs`) when it starts.
 
 **Stop everything:**
 ```bash

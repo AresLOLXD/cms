@@ -354,6 +354,30 @@ class TestLoggingHandlersUseThreadingLocks(
         self.assertIs(type(remote_handlers[0].lock), real_lock_type)
 
 
+class TestAccessLinesStayLocal(
+    ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase
+):
+    """Each web request would cost an RPC and a write in LogService."""
+
+    @patch("cms.io.async_service.get_service_address")
+    async def test_access_log_records_are_not_forwarded_to_log_service(
+        self, mock_get_address
+    ):
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        EchoingAsyncService(shard=0)
+        remote_handler, = [
+            handler for handler in root_logger.handlers
+            if isinstance(handler, AsyncLogServiceHandler)
+            and handler not in self._logging_isolation_handlers]
+
+        def record(name):
+            return logging.LogRecord(
+                name, logging.INFO, __file__, 1, "200 GET /", None, None)
+
+        self.assertFalse(remote_handler.filter(record("tornado.access")))
+        self.assertTrue(remote_handler.filter(record("cms.server")))
+
+
 class TestAddTimeout(unittest.IsolatedAsyncioTestCase):
 
     @patch("cms.io.async_service.get_service_address")

@@ -44,12 +44,21 @@
 # https://hg.python.org/cpython/file/4243df51fe43/Lib/logging/handlers.py
 
 import logging
+import os
 import sys
+import time
 import typing
 
 from cmscommon.terminal import colors, add_color_to_string, has_color_support
 if typing.TYPE_CHECKING:
     from cms.io.rpc import RemoteServiceClient
+
+
+# The service log files older than this are deleted when a service
+# starts (see prune_old_logs).
+# shortcut: 30 days is a constant; make it a config value if an
+# operator needs another retention
+LOG_MAX_AGE_DAYS = 30
 
 
 # The handlers below keep the stdlib (threading) lock on purpose. They
@@ -134,6 +143,39 @@ class LogServiceHandler(logging.Handler):
 
         """
         self._log_service.Log(**d)
+
+
+def prune_old_logs(log_dir: str, max_age_days: int = LOG_MAX_AGE_DAYS) -> int:
+    """Delete the log files that are too old from a log directory.
+
+    Only the regular files named *.log directly in the directory are
+    deleted: the last.log symlink, any other file and the
+    subdirectories stay. A file that cannot be deleted (it vanished,
+    no permission) is skipped.
+
+    log_dir: the directory where a service writes its log files.
+    max_age_days: delete the files last modified more than this many
+        days ago.
+
+    return: how many files were deleted.
+
+    """
+    try:
+        entries = list(os.scandir(log_dir))
+    except OSError:
+        return 0
+    cutoff = time.time() - max_age_days * 24 * 60 * 60
+    removed = 0
+    for entry in entries:
+        try:
+            if entry.name.endswith(".log") \
+                    and entry.is_file(follow_symlinks=False) \
+                    and entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                os.remove(entry.path)
+                removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def get_color_hash(string: str) -> int:

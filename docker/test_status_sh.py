@@ -39,6 +39,12 @@ FAKE_DOCKER = textwrap.dedent("""\
       *" cmsWatchdog "*)
         echo "${FAKE_WATCHDOG_LINE:-watchdog: observe}"
         exit "${FAKE_WATCHDOG_RC:-0}" ;;
+      *" df "*)
+        use="${FAKE_DF_USE:-42}"
+        echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+        echo "cms-logs 1000 $((use * 10)) $((1000 - use * 10)) ${use}%" \
+          "/home/cmsuser/cms/log"
+        exit "${FAKE_DF_RC:-0}" ;;
       *" ps "*)
         echo "NAME   STATUS"
         exit 0 ;;
@@ -107,11 +113,12 @@ def test_supervisorctl_runs_under_a_10_s_timeout(run_status, tmp_path):
     assert status[0].endswith(" status")
 
 
-def test_the_watchdog_line_closes_the_status(run_status, tmp_path):
+def test_the_watchdog_line_closes_the_watchdog_section(
+        run_status, tmp_path):
     log = tmp_path / "docker.log"
     result = run_status(FAKE_LOG=str(log), FAKE_WATCHDOG_LINE=(
         "watchdog: observe, last cycle 4 s ago, 0 open alerts"))
-    assert result.stdout.rstrip().endswith(
+    assert result.stdout.split("── Disk")[0].rstrip().endswith(
         "watchdog: observe, last cycle 4 s ago, 0 open alerts")
     commands = log.read_text().splitlines()
     assert any("exec -T cms timeout 10 cmsWatchdog --status" in line
@@ -121,5 +128,37 @@ def test_the_watchdog_line_closes_the_status(run_status, tmp_path):
 def test_a_watchdog_that_does_not_answer(run_status):
     result = run_status(FAKE_WATCHDOG_RC="1")
     assert result.returncode == 0
-    assert result.stdout.rstrip().endswith(
+    assert result.stdout.split("── Disk")[0].rstrip().endswith(
         "(no answer from the cms container)")
+
+
+def test_the_disk_section_shows_the_log_volume(run_status, tmp_path):
+    log = tmp_path / "docker.log"
+    result = run_status(FAKE_LOG=str(log), FAKE_DF_USE="42")
+    assert result.returncode == 0
+    assert "── Disk" in result.stdout
+    disk = result.stdout.split("── Disk")[1]
+    assert "cms-logs 1000 420 580 42% /home/cmsuser/cms/log" in disk
+    assert "WARNING" not in disk
+    commands = log.read_text().splitlines()
+    assert any(line.endswith(
+        "exec -T cms timeout 10 df -P /home/cmsuser/cms/log")
+        for line in commands)
+
+
+@pytest.mark.parametrize("use, warns", [
+    ("79", False), ("80", True), ("95", True)])
+def test_the_disk_section_warns_from_80_percent(run_status, use, warns):
+    result = run_status(FAKE_DF_USE=use)
+    assert result.returncode == 0
+    assert ("WARNING: the log disk is %s%% full" % use
+            in result.stdout) == warns
+    assert ("WARNING" in result.stdout) == warns
+
+
+def test_a_disk_check_that_does_not_answer(run_status):
+    result = run_status(FAKE_DF_RC="1")
+    assert result.returncode == 0
+    disk = result.stdout.split("── Disk")[1]
+    assert "(no answer from the cms container)" in disk
+    assert "WARNING" not in disk
