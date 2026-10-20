@@ -43,7 +43,7 @@ from cms.watchdog.policy import ENFORCE, HOLDS, OBSERVE, PAUSE_S, RESTART, \
     SELF_GUARD_S, START, SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, \
     ProgramFacts
 from cms.watchdog.probes import GateResult, ProbeResult, RankingTarget, \
-    RpcProbe
+    RpcProbe, db_gate
 
 
 WALL = 1_800_000_000.0
@@ -865,6 +865,35 @@ class TestSnapshot(unittest.IsolatedAsyncioTestCase):
                                      sleeper.pid)
         self.assertIsNone(sleeper.poll())
         self.assertFalse(os.path.exists(self.files.journal))
+
+    async def test_the_evidence_keeps_no_literal_of_a_statement(self):
+        # An idle backend keeps its last statement, with the parameters
+        # psycopg2 wrote into it: the AWS's last edit of a user.
+        self.source.set("cmscontestwebserver0", pid=sleeper(self))
+        row = {"pid": 77, "application_name": "cmsAdminWebServer 0",
+               "state": "idle", "query": "UPDATE \"user\" SET password = "
+               "'plaintext:s3cret' WHERE \"user\".id = 3"}
+
+        class Psql:
+            returncode = 0
+
+            async def communicate(self):
+                return json.dumps([row]).encode(), b""
+
+        async def run(*argv, **kwargs):
+            return Psql()
+
+        prober = FakeProber()
+        prober.gate = lambda: db_gate({}, 7.0, run=run)
+        code, text = await self.snapshot("cmscontestwebserver0", prober)
+        self.assertEqual(code, 0, text)
+        [name] = os.listdir(self.files.evidence_dir)
+        with open(os.path.join(self.files.evidence_dir, name)) as f:
+            written = f.read()
+        self.assertNotIn("s3cret", written)
+        self.assertEqual(
+            json.loads(written)["snapshot"][0]["query"],
+            "UPDATE \"user\" SET password = '…' WHERE \"user\".id = 3")
 
     async def test_a_snapshot_survives_a_probe_that_raises(self):
         self.source.set("cmscontestwebserver0", pid=sleeper(self))

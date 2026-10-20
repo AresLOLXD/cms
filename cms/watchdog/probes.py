@@ -485,13 +485,71 @@ def _is_pid_list(value: object) -> bool:
         isinstance(pid, int) and not isinstance(pid, bool) for pid in value)
 
 
+# One token of an SQL text, as far as PostgreSQL's lexer (scan.l) tells
+# a literal from the rest: a literal (an escape string, a string with
+# no backslash, a dollar-quoted string), a quoted identifier, a word
+# (which may hold a "$", so an E that ends one starts no escape
+# string), a number (which holds no "$": "1e3$$" starts a literal), a
+# parameter, a comment that nests none, or anything else. A string
+# with a backslash is no token: how it reads depends on the session's
+# standard_conforming_strings.
+SQL_TOKEN = re.compile(r"""
+      (?P<literal>
+          [Ee]'(?:[^'\\]|\\.|'')*'
+        | '(?:[^'\\]|'')*'
+        | \$(?P<tag>(?:[A-Za-z_\x80-\U0010ffff][A-Za-z0-9_\x80-\U0010ffff]*)?)
+          \$.*?\$(?P=tag)\$
+      )
+    | "(?:[^"]|"")*"
+    | [A-Za-z_\x80-\U0010ffff][A-Za-z0-9_$\x80-\U0010ffff]*
+    | [0-9][A-Za-z0-9_.\x80-\U0010ffff]*
+    | \$[0-9]+
+    | --[^\n]*
+    | /\*(?:[^*/]|\*(?!/)|/(?!\*))*\*/
+    | [^'"$A-Za-z0-9_\x80-\U0010ffff/-]+
+    | /(?!\*)
+    | -(?!-)
+""", re.X | re.S)
+
+
+def redact_literals(query: str) -> str:
+    """Replace each literal of an SQL text with '…' (3.8).
+
+    A backend's statement can hold a secret: psycopg2 writes the
+    parameters into the statement it sends, an idle backend keeps its
+    last one, and the AWS can store a password in plaintext. The
+    statement keeps its shape, quoted identifiers included. A text that
+    does not read with certainty (a literal cut at 300 characters, a
+    backslash in a string, a nested comment) is cut at its first quote
+    or dollar sign instead, where the first literal could start.
+
+    query: the statement of a backend, as pg_stat_activity shows it.
+
+    return: the statement with no literal.
+
+    """
+    parts = []
+    position = 0
+    while position < len(query):
+        match = SQL_TOKEN.match(query, position)
+        if match is None:
+            first = re.search(r"['$]", query)
+            return query if first is None else query[:first.start()] + "…"
+        parts.append("'…'" if match.group("literal") is not None
+                     else match.group())
+        position = match.end()
+    return "".join(parts)
+
+
 def parse_backends(text: str) -> tuple[dict, ...]:
     """Read the gate's answer.
 
     A row with an age that is neither a finite number nor null (NaN,
     an infinity, text: json.loads takes them) is dropped: the policy
     formats the ages as whole seconds. So is a row whose blocked_by is
-    neither null nor a list of pids.
+    neither null nor a list of pids. The literals of each query are
+    replaced (redact_literals): the snapshot goes to the evidence
+    files.
 
     text: psql's output, a JSON array of rows.
 
@@ -516,6 +574,8 @@ def parse_backends(text: str) -> tuple[dict, ...]:
             continue
         backend = {name: row.get(name) for name in BACKEND_FIELDS}
         backend["blocked_by"] = tuple(blocked_by or ())
+        if isinstance(backend["query"], str):
+            backend["query"] = redact_literals(backend["query"])
         backends.append(backend)
     return tuple(backends)
 

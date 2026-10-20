@@ -361,6 +361,10 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
     exec -T cms ls -l /home/cmsuser/cms/log/watchdog
 ```
 
+These files are sensitive: they name the database sessions and show their
+statements (with the values in them left out), so look through one before you
+post it anywhere public.
+
 Before you restart a program by hand, keep the same evidence with:
 
 ```bash

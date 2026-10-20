@@ -354,6 +354,62 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(Backend(**rows[0]).blocked_by, (88,))
         self.assertEqual(list(BACKEND_FIELDS), list(ROW))
 
+    def test_the_literals_of_a_query_are_replaced(self):
+        # psycopg2 writes the parameters into the statement, and an idle
+        # backend keeps its last one: a password the AWS stores in
+        # plaintext would reach the evidence files.
+        cases = (
+            ("UPDATE \"user\" SET password = 'plaintext:s3cret' WHERE id "
+             "= 3",
+             "UPDATE \"user\" SET password = '…' WHERE id = 3"),
+            ("INSERT INTO t VALUES ('it''s s3cret', 4)",
+             "INSERT INTO t VALUES ('…', 4)"),
+            ("SELECT E'it\\'s s3cret', e'\\\\', 5",
+             "SELECT '…', '…', 5"),
+            ("SELECT $$it's $ s3cret$$ AS a", "SELECT '…' AS a"),
+            ("SELECT $tag$ it's $$ s3cret $tag$, $1",
+             "SELECT '…', $1"),
+            # Quoted identifiers stay, a quote in them included.
+            ("SELECT \"it's\", \"a\"\"b\" FROM t WHERE p = 's3cret'",
+             "SELECT \"it's\", \"a\"\"b\" FROM t WHERE p = '…'"),
+            # A quote in a comment does not start a literal.
+            ("/* it's */ SELECT 's3cret' -- don't\nFROM t",
+             "/* it's */ SELECT '…' -- don't\nFROM t"),
+            # A literal with a prefix keeps it.
+            ("SELECT B'0101', N's3cret'", "SELECT B'…', N'…'"),
+            # A "$" continues a word, but not a number.
+            ("SELECT a$$b$$, 1e3$$s3cret$$", "SELECT a$$b$$, 1e3'…'"),
+            ("SELECT pid FROM pg_stat_activity WHERE datname = $1",
+             "SELECT pid FROM pg_stat_activity WHERE datname = $1"),
+            ("", ""),
+        )
+        for query, redacted in cases:
+            with self.subTest(query=query):
+                [row] = parse_backends(json.dumps([dict(ROW, query=query)]))
+                self.assertEqual(row["query"], redacted)
+
+    def test_a_query_that_does_not_read_is_cut_at_its_first_literal(self):
+        # The gate cuts the query at 300 characters, maybe inside a
+        # literal; and a backslash in a string depends on the session's
+        # standard_conforming_strings. Where a literal could start, the
+        # rest goes.
+        cases = (
+            ("UPDATE t SET a = 'x', password = 'plaintext:s3cr",
+             "UPDATE t SET a = …"),
+            ("SELECT E'it\\'s s3cr", "SELECT E…"),
+            ("SELECT $tag$ s3cr", "SELECT …"),
+            ("SELECT 'a\\', 's3cret'", "SELECT …"),
+            ("SELECT $x FROM t WHERE p = 's3cret'", "SELECT …"),
+            ("SELECT 1 /* /* nested */ */, 's3cret'", "SELECT 1 /* /* "
+             "nested */ */, …"),
+            ("SELECT \"unterminated", "SELECT \"unterminated"),
+        )
+        for query, redacted in cases:
+            with self.subTest(query=query):
+                [row] = parse_backends(json.dumps([dict(ROW, query=query)]))
+                self.assertEqual(row["query"], redacted)
+                self.assertNotIn("s3cr", row["query"])
+
     def test_a_row_with_a_blocked_by_that_is_not_pids_is_dropped(self):
         for value in (5, "88", {"88": 1}, [1, "x"], [True], [[88]]):
             with self.subTest(value=value):
