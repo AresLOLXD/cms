@@ -333,6 +333,36 @@ def test_cms_toml_telegram_partial(monkeypatch):
     assert "TelegramBot" not in toml
 
 
+def test_compilation_limit_unset_writes_no_sandbox_section(monkeypatch):
+    # The default (20 s) lives in cms/conf.py only; unset must not copy it.
+    _set(monkeypatch)
+    monkeypatch.delenv("CMS_COMPILATION_MAX_TIME_S", raising=False)
+    assert "sandbox" not in tomllib.loads(gc.generate_cms_toml())
+
+
+def test_compilation_limit_empty_means_the_default(monkeypatch):
+    # An empty "CMS_COMPILATION_MAX_TIME_S=" line in .env behaves as unset.
+    _set(monkeypatch, {"CMS_COMPILATION_MAX_TIME_S": ""})
+    assert "sandbox" not in tomllib.loads(gc.generate_cms_toml())
+
+
+@pytest.mark.parametrize("value, expected", [("30", 30.0), ("12.5", 12.5)])
+def test_compilation_limit_is_written_as_a_float(monkeypatch, value, expected):
+    _set(monkeypatch, {"CMS_COMPILATION_MAX_TIME_S": value})
+    toml = gc.generate_cms_toml()
+    limit = tomllib.loads(toml)["sandbox"]["compilation_sandbox_max_time_s"]
+    assert limit == expected and isinstance(limit, float)
+    assert f"compilation_sandbox_max_time_s = {expected}" in toml
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "abc", "nan", "inf", "1e999"])
+def test_compilation_limit_invalid_exits(monkeypatch, capsys, value):
+    _set(monkeypatch, {"CMS_COMPILATION_MAX_TIME_S": value})
+    with pytest.raises(SystemExit):
+        gc.generate_cms_toml()
+    assert "CMS_COMPILATION_MAX_TIME_S" in capsys.readouterr().err
+
+
 def test_supervisord_no_telegram_by_default(monkeypatch):
     _set(monkeypatch)
     conf = gc.generate_supervisord_conf()

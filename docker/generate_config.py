@@ -8,6 +8,7 @@ Set CMS_RANKING_ONLY=true to skip cms.toml and supervisord.conf entirely and
 write only cms_ranking.toml (used by the standalone ranking container).
 """
 
+import math
 import os
 import re
 import sys
@@ -134,6 +135,20 @@ def generate_cms_toml() -> str:
               file=sys.stderr)
         sys.exit(1)
 
+    # Unset writes no [sandbox] section: the default lives in cms/conf.py.
+    raw_compile_limit = _get("CMS_COMPILATION_MAX_TIME_S", "")
+    compile_limit = None
+    if raw_compile_limit:
+        try:
+            compile_limit = float(raw_compile_limit)
+        except ValueError:
+            compile_limit = 0.0
+        if not (math.isfinite(compile_limit) and compile_limit > 0):
+            print(f"ERROR: CMS_COMPILATION_MAX_TIME_S must be a positive "
+                  f"number of seconds, got {raw_compile_limit!r}.",
+                  file=sys.stderr)
+            sys.exit(1)
+
     cws_count = _get_int("CMS_CWS_COUNT", 1)
     worker_count = _get_int("CMS_WORKER_COUNT", 1)
     cws_http_port = _get_int("CMS_CWS_HTTP_PORT", 8888)
@@ -207,6 +222,11 @@ rankings = ["http://{_url_quote(rws_username, safe="")}:{_url_quote(rws_password
             f'\n[telegram_bot]\n'
             f'bot_token = "{_toml_str(bot_token)}"\n'
             f'chat_id = "{_toml_str(chat_id)}"\n'
+        )
+    if compile_limit is not None:
+        toml += (
+            f'\n[sandbox]\n'
+            f'compilation_sandbox_max_time_s = {compile_limit}\n'
         )
     return toml
 
