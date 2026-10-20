@@ -1,8 +1,8 @@
 # Design: full-database backup, verify and restore scripts
 
 **Date:** 2026-10-14
-**Status:** Draft, awaiting user review
-**Branch:** `feat/pg-backup` (from beta 6b777b79)
+**Status:** Scope approved by the user on 2026-10-20 (no `restore.sh`); ready for the plan
+**Branch:** `feat/pg-backup` (rebased onto main 14e169ef)
 
 ## Problem
 
@@ -21,10 +21,15 @@ executables) is stored as PostgreSQL large objects referenced by
 - `export.sh` keeps its current scope: moving contests between deployments.
   It gains nothing. Making it faster is a separate later project, measured on
   a real copy of the cms-live database.
-- The full backup is a new `backup.sh` built on `pg_dump`, plus `restore.sh`
-  and `verify-backup.sh`.
+- The full backup is a new `backup.sh` built on `pg_dump`, plus
+  `verify-backup.sh`. **Restoring is a documented procedure, not a script**
+  (decided 2026-10-20, see "Restoring a backup").
 - Approach A: `pg_dump` 17+ in directory format with `-j N` and zstd, so
   large objects use several cores.
+- **No `restore.sh` (user, 2026-10-20).** It would be the only script that stops
+  CMS and renames databases in production; restores are rare and supervised
+  by a person, and the manual restore of 2026-10-14 worked. The commands, with
+  the lessons of that day, go in the runbook.
 - Out of scope for this version: cron, retention, encryption, off-site copy,
   backing up `.env` or the Docker volumes, making `export.sh` faster.
 
@@ -65,7 +70,7 @@ executables) is stored as PostgreSQL large objects referenced by
 
 ### `docker/_backup_lib.sh` (sourced, no side effects)
 
-Pure helpers shared by the three scripts, unit tested:
+Pure helpers shared by the two scripts, unit tested:
 
 - `parse_db_url URL` → sets `PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE`.
   Handles `postgresql+psycopg2://`, `%`-encoded passwords, an optional port
@@ -142,61 +147,51 @@ outside contest hours.
 5. Exit 0 when everything passes. Otherwise exit non-zero and name the failed
    check.
 
-### `restore.sh`
+### Restoring a backup (a documented procedure, not a script)
 
-Usage: `sudo ./restore.sh [backup dir]`. Without an argument it lists the
-complete (not `.partial`) directories in `backups/`.
+It lives in `docs/docker-scripts.md` as a numbered procedure with the exact
+commands, to be run by a person who decides to accept the downtime. It
+contains:
 
 Preflight, with CMS still running:
 
-- `sha256sum -c` and `pg_restore -l`.
+- `sha256sum -c SHA256SUMS` and `pg_restore -l` on the backup (or run
+  `verify-backup.sh` first).
 - The server major is not lower than the dump's `pg_dump` major.
-- The tool image is present.
-- The CMS database user can create databases (`rolcreatedb` or superuser). If
-  not, print the exact `ALTER ROLE <user> CREATEDB;` to run with
-  `sudo -u postgres psql` and stop. With `localdb`, `POSTGRES_USER` is a
-  superuser.
+- The CMS database user can create databases; if not, the exact
+  `ALTER ROLE <user> CREATEDB;` to run with `sudo -u postgres psql`.
 - Free space for a second copy of the database.
-- Print the manifest counts next to the current database counts.
 
-The operator confirms by typing the database name.
+Restore into a new database, without touching the live one:
 
-Restore:
+1. `CREATE DATABASE <db>_restore OWNER <cms user> TEMPLATE template0` with the
+   manifest's encoding and locale.
+2. `pg_restore -Fd -j N --no-owner --no-acl` **as the CMS user**, so the large
+   objects are owned by that user (owned by `postgres`, CMS gets "permission
+   denied for large object" on every file). Use
+   `PGOPTIONS='-c synchronous_commit=off'`. With a server of major 17 or newer
+   add `--exit-on-error`; with an older one do not (the `transaction_timeout`
+   fact above): read stderr and treat any `pg_restore: error:` other than the
+   `transaction_timeout` one as a failure, and do not trust the "errors
+   ignored" count, which leaves out the workers.
+3. Check that the table counts and the large object count equal the manifest
+   and that no large object has an owner other than the CMS user; run
+   `vacuumdb --analyze-only`.
 
-1. Drop a leftover `<db>_restore` if one exists. Create it with
-   `OWNER <cms user> TEMPLATE template0` and the manifest's encoding and
-   locale.
-2. `pg_restore -Fd -j N --no-owner --no-acl` **as the CMS user**, so the
-   large objects are owned by that user. If they were owned by `postgres`,
-   CMS would get "permission denied for large object" on every file. Use
-   `PGOPTIONS='-c synchronous_commit=off'`. When the server major is 17 or
-   newer, add `--exit-on-error`. When it is older, `--exit-on-error` cannot
-   be used (see the `transaction_timeout` fact above): capture stderr and
-   treat any `pg_restore: error:` other than the `transaction_timeout` one
-   as a failure. Do not rely on the "errors ignored" count, which leaves out
-   the workers. On failure, drop `<db>_restore` and stop. The live database
-   is untouched.
-3. Check that the counts equal the manifest exactly, and that no large object
-   has an owner other than the CMS user. Run `vacuumdb --analyze-only`.
-4. Switch, the only downtime (about 1-3 minutes):
-   1. `compose stop cms`.
-   2. Terminate any remaining sessions on `<db>`.
-   3. `ALTER DATABASE <db> RENAME TO <db>_before_restore_<timestamp>`.
-   4. `ALTER DATABASE <db>_restore RENAME TO <db>`.
-   5. Re-apply the database-level settings from the manifest.
-   6. `compose up -d --no-recreate --no-build --wait cms`.
-5. If CMS does not come up, leave everything as it is and print the two
-   `RENAME` commands that roll back.
-6. Print the next steps:
-   - `./status.sh`;
-   - Workers connected equals configured;
-   - **Regenerate** on each ranking group;
-   - check the **Active** flags;
-   - the `DROP DATABASE <db>_before_restore_<timestamp>` to run once
-     satisfied.
+Switch (the only downtime, about 1-3 minutes):
 
-Not automated: dropping the old database, restoring `.env`, regenerating the
-scoreboards, restoring onto an older PostgreSQL major.
+1. `docker compose stop cms` (never `down`: it recreates the network).
+2. Terminate the remaining sessions on `<db>`.
+3. `ALTER DATABASE <db> RENAME TO <db>_before_restore_<timestamp>`, then
+   `ALTER DATABASE <db>_restore RENAME TO <db>`.
+4. Re-apply the database-level settings recorded in the manifest.
+5. `docker compose up -d --no-recreate --no-build --wait cms`.
+6. If CMS does not come up, roll back by renaming the two databases back.
+
+After: `./status.sh`; Workers connected equals configured; **Regenerate** on
+each ranking group; check the **Active** flags; and, once satisfied,
+`DROP DATABASE <db>_before_restore_<timestamp>`. Not covered: restoring `.env`
+and restoring onto an older PostgreSQL major.
 
 ### Repo changes
 
@@ -210,7 +205,8 @@ English sources, with the Spanish `.po` files updated in the same change,
 following `docs/locale/es/GLOSSARY.md`. The docs CI checks them.
 
 - `docs/docker-scripts.md`:
-  - new sections for `backup.sh`, `verify-backup.sh` and `restore.sh`;
+  - new sections for `backup.sh` and `verify-backup.sh`, and the section
+    "Restoring a backup" with the procedure above;
   - update the script count in the introduction;
   - in `export.sh`, point to `backup.sh` for a full backup;
   - remove "Restoring a `pg_dump` is not covered in this manual".
@@ -218,7 +214,8 @@ following `docs/locale/es/GLOSSARY.md`. The docs CI checks them.
 - `docs/contest-day.md`:
   - before and after the contest, `backup.sh` is the backup;
   - `export.sh` is only for moving contests;
-  - a restore means downtime and is the lead's decision.
+  - a restore means downtime and is the lead's decision; it points to
+    "Restoring a backup".
 - `docs/migrating-to-multi-contest.md`: step 1 uses `backup.sh`.
 
 ## Testing
@@ -235,19 +232,20 @@ following `docs/locale/es/GLOSSARY.md`. The docs CI checks them.
 2. **End to end, local, rootful Docker.** Two setups: the compose `localdb`
    (17), and an external `postgres:16` that mimics cms-live. Both are seeded
    with real CMS data that includes large objects. In each:
-   - `backup.sh` → `verify-backup.sh` → `restore.sh`;
-   - CMS starts and the counts match;
-   - rolling back with the printed `RENAME` commands works.
+   - `backup.sh` → `verify-backup.sh`;
+   - then the documented restore procedure, followed by hand once, copying its
+     commands as they are written (this tests the documentation): CMS starts
+     and the counts match;
+   - rolling back with the two `RENAME` commands works.
 3. **Speed.** Compare `-j 1` and `-j 8` against the 16 server. This confirms
    that `pg_dump` 17 really spreads large objects across workers. Record the
    numbers in the report.
 4. **Failures:**
    - a corrupted blob file → `verify-backup.sh` fails on the SHA1 check;
    - Ctrl+C during the dump → no `.partial` and no tool container are left;
-   - a user without CREATEDB → `restore.sh` prints the `ALTER ROLE` and
-     changes nothing;
-   - CMS not starting after the switch → the rollback commands are printed
-     and work.
+   - a user without CREATEDB → the procedure's preflight shows the
+     `ALTER ROLE` to run (followed by hand);
+   - CMS not starting after the switch → the rollback commands work.
 
 ## Risks
 
