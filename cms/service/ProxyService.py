@@ -423,11 +423,11 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         self._on_refused = on_refused
         self._busy = busy if busy is not None else BusyTracker()
         # The entities the ranking refused on their own in the current
-        # round: _execute_sync adds them, execute hands them over.
+        # round: _send_batch_sync adds them, execute hands them over.
         self._refused_in_round: list[RefusedEntity] = []
         # The status of the last refusal _send got (see
         # RejectedError.status_code: None if the data could not be
-        # encoded). Only _execute_sync uses it, one batch at a time.
+        # encoded). Only _send_batch_sync uses it, one batch at a time.
         self._last_refusal_status: int | None = None
 
         # For each namespace whose data the ranking could not take: how
@@ -445,7 +445,7 @@ class ProxyExecutor(AsyncExecutor[ProxyOperation]):
         # The namespaces whose visibility settings the ranking refused
         # the last time they were sent. Their data is dropped until it
         # takes new ones, as it could show the data while they should
-        # be hidden. Only _execute_sync uses it, one batch at a time.
+        # be hidden. Only _send_batch_sync uses it, one batch at a time.
         self._rejected_visibility: set[str | None] = set()
 
     @staticmethod

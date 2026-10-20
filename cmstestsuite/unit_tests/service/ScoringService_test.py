@@ -270,7 +270,7 @@ class ScoringServiceTest(
         # Compiled successfully but not yet evaluated: neither
         # compilation_failed() nor evaluated() holds, so needs_scoring()
         # is False and scored() is also False -- the third ValueError
-        # branch in _execute_sync.
+        # branch in _score_sync.
         submission, dataset, _submission_result = \
             self._build_submission_result(
                 compilation_outcome=True, active_dataset=True)
