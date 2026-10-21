@@ -24,7 +24,8 @@ fail() {
 
 # ── 1. The directory and its checksums ──────────────────────────────────────
 (( $# == 1 )) || { echo "Usage: ./verify-backup.sh <backup dir>" >&2; exit 1; }
-[[ -d "$1" ]] || die "$1 is not a directory"
+# backups/ is root's with mode 700: without sudo, -d cannot see inside it.
+[[ -d "$1" ]] || die "$1 is not a directory you can open: check the path, or run it with sudo"
 dir="$(cd -- "$1" && pwd -P)" || die "cannot enter $1"
 [[ "$dir" != *.partial ]] || die "$dir is a .partial directory: backup.sh did not finish it"
 # The files are root-owned with no access for others, and sha256sum runs here.

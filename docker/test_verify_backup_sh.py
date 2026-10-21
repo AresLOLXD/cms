@@ -249,6 +249,20 @@ def test_an_unreadable_file_stops_with_a_hint_to_use_sudo(
     assert log_lines(tmp_path) == []
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root enters any directory")
+def test_a_backup_in_a_closed_directory_gets_a_hint_to_use_sudo(
+        verify, backup_dir, tmp_path):
+    # backups/ has mode 700 and belongs to root.
+    backup_dir.parent.chmod(0)
+    try:
+        result = finish(verify(str(backup_dir)))
+    finally:
+        backup_dir.parent.chmod(0o700)
+    assert result.returncode != 0
+    assert "run it with sudo" in result.stderr
+    assert log_lines(tmp_path) == []
+
+
 @pytest.mark.parametrize("suffix", ["", "/"])
 def test_a_partial_directory_is_refused(verify, backup_dir, tmp_path, suffix):
     partial = backup_dir.rename(backup_dir.with_name(
