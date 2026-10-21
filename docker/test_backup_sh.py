@@ -217,14 +217,15 @@ def dump_line(tmp_path) -> str:
 
 def assert_nothing_left(repo, tmp_path,
                         result: subprocess.CompletedProcess) -> None:
-    """No backup, no .partial, and both containers were removed."""
+    """No backup, no .partial, and both containers were removed, with
+    the anonymous volume of the postgres image (-v)."""
     assert result.returncode != 0
     assert list((repo / "backups").iterdir()) == []
     (session,) = [line for line in docker_runs(tmp_path) if " -i " in line]
     pid = re.search(r"--name cms-pgtool-(\d+)-snapshot ", session).group(1)
     removals = [set(line.split()[2:]) for line in log_lines(tmp_path)
                 if line.startswith("rm -f ")]
-    containers = {"cms-pgtool-%s" % pid, "cms-pgtool-%s-snapshot" % pid}
+    containers = {"-v", "cms-pgtool-%s" % pid, "cms-pgtool-%s-snapshot" % pid}
     assert any(containers <= removed for removed in removals)
 
 

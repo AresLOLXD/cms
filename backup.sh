@@ -48,7 +48,8 @@ cleanup() {
   # and the container appears just after (up to 0.6 s with Docker 29), in the
   # Created state that --rm never removes: give it time to appear.
   if (( status > 128 )); then sleep 2; fi
-  docker rm -f "cms-pgtool-$$" "$snapshot_container" >/dev/null 2>&1 || true
+  # -v: the postgres image declares a volume, which only --rm or -v removes.
+  docker rm -f -v "cms-pgtool-$$" "$snapshot_container" >/dev/null 2>&1 || true
   # A dump container that was still starting may create .partial only now.
   if [[ -n "${dump_pid:-}" ]]; then wait "$dump_pid" 2>/dev/null || true; fi
   if [[ -n "$partial" ]]; then rm -rf "$partial"; fi
