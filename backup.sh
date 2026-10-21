@@ -41,8 +41,13 @@ partial=""
 
 # Removing both tool containers also ends the snapshot session.
 cleanup() {
+  local status=$?
   # A second Ctrl+C must not stop the cleanup half way.
   trap '' INT TERM HUP
+  # A docker run stopped while the daemon creates its container ends at once,
+  # and the container appears just after (up to 0.6 s with Docker 29), in the
+  # Created state that --rm never removes: give it time to appear.
+  if (( status > 128 )); then sleep 2; fi
   docker rm -f "cms-pgtool-$$" "$snapshot_container" >/dev/null 2>&1 || true
   # A dump container that was still starting may create .partial only now.
   if [[ -n "${dump_pid:-}" ]]; then wait "$dump_pid" 2>/dev/null || true; fi

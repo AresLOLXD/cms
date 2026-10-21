@@ -69,6 +69,13 @@ FAKE_DOCKER = textwrap.dedent(r"""
         shift
         while (( $# )) && [[ "$1" != --name ]]; do shift; done
         printf '%s' "${POSTGRES_PASSWORD-}" >"$FAKE_DIR/password"
+        # Ctrl+C while the daemon creates the container: the client ends,
+        # and the daemon still creates it just after, left Created.
+        if [[ -n "${FAKE_LATE_CREATE:-}" ]]; then
+          ( sleep 0.5; touch "$FAKE_DIR/$2.container" ) >/dev/null 2>&1 &
+          sleep 30
+          exit 130
+        fi
         touch "$FAKE_DIR/$2.container"
         echo 3f2a9c0d41b7
         exit 0 ;;
@@ -326,6 +333,20 @@ def test_sigterm_to_the_script_alone_is_handled_at_once(
     result = finish(process, timeout=10)
     assert result.returncode == 143
     assert_container_removed(tmp_path)
+
+
+def test_a_container_created_just_after_a_ctrl_c_is_removed(
+        verify, backup_dir, tmp_path):
+    # Seen with Docker 29: the container appears up to 0.6 s after the
+    # docker run it belongs to has ended, Created, with its volume.
+    process = verify(str(backup_dir), FAKE_LATE_CREATE="1")
+    wait_for(lambda: (tmp_path / "fake" / "password").exists(),
+             "docker run never started")
+    os.killpg(process.pid, signal.SIGINT)
+    result = finish(process, timeout=10)
+    assert result.returncode == 130
+    time.sleep(1)  # past the late create of the fake daemon
+    assert list((tmp_path / "fake").glob("*.container")) == []
 
 
 def test_a_second_ctrl_c_does_not_stop_the_cleanup(

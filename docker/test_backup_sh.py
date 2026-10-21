@@ -59,6 +59,7 @@ FAKE_DOCKER = textwrap.dedent(r"""
           if [[ -f "$FAKE_DIR/$name.pid" ]]; then
             kill "$(cat "$FAKE_DIR/$name.pid")" 2>/dev/null
           fi
+          rm -f "$FAKE_DIR/$name.created"
         done
         exit 0 ;;
       run) ;;
@@ -76,6 +77,13 @@ FAKE_DOCKER = textwrap.dedent(r"""
     # The dump container is still being created: "rm -f" cannot reach it.
     if [[ "$1" == nice && -n "${FAKE_DUMP_START_DELAY:-}" ]]; then
       sleep "$FAKE_DUMP_START_DELAY"
+    fi
+    # Ctrl+C while the daemon creates the container: the client ends, and
+    # the daemon still creates it just after, left Created ($name.created).
+    if [[ "$1" == nice && -n "${FAKE_LATE_CREATE:-}" ]]; then
+      ( sleep 1.5; touch "$FAKE_DIR/$name.created" ) >/dev/null 2>&1 &
+      sleep 1
+      exit 130
     fi
     echo $$ >"$FAKE_DIR/$name.pid"
     case "$1" in
@@ -331,6 +339,24 @@ def test_ctrl_c_while_the_dump_container_starts_leaves_nothing(
     os.killpg(process.pid, signal.SIGINT)
     result = finish(process, answer=None)
     assert result.returncode == 130
+    assert list((repo / "backups").iterdir()) == []
+
+
+def test_a_container_created_just_after_a_ctrl_c_is_removed(
+        backup, repo, tmp_path):
+    # Seen with Docker 29: the container appears up to 0.6 s after the
+    # docker run it belongs to has ended, Created, and --rm never removes it.
+    process = backup(FAKE_LATE_CREATE="1")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: any(" pg_dump " in line
+                         for line in log_lines(tmp_path)),
+             "the dump never started")
+    os.killpg(process.pid, signal.SIGINT)
+    result = finish(process, answer=None)
+    assert result.returncode == 130
+    time.sleep(1)  # past the late create of the fake daemon
+    assert list((tmp_path / "fake").glob("*.created")) == []
     assert list((repo / "backups").iterdir()) == []
 
 

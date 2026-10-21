@@ -52,9 +52,14 @@ major="$(pick_pg_major "$(( 10#${BASH_REMATCH[0]} * 10000 ))")"
 container="cms-verify-$$"
 
 cleanup() {
+  local status=$?
   # A second Ctrl+C must not stop the cleanup half way, and a dead terminal
   # must not get any output. -v removes the anonymous volume of the image.
   trap '' INT TERM HUP
+  # A docker run stopped while the daemon creates its container ends at once,
+  # and the container appears just after (up to 0.6 s with Docker 29), in the
+  # Created state: give it time to appear.
+  if (( status > 128 )); then sleep 2; fi
   docker rm -f -v "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
