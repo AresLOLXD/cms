@@ -824,7 +824,7 @@ These run locally, only when the user allows them, as for #39. A run that needs 
 |---|---|
 | L1 `full1` (250 users) | zero WOULD lines and zero holds; the gate always green; favicon and `health()` p99 under 1/3 of their timeouts; every near-miss maximum under half its trip (3.5) |
 | L2 1000 users | the same. The longest ES `idle_s` inside a section is recorded as a margin |
-| L3 `--faults` (#39 F1-F4) | the gate red only inside the F2 and F3 windows; holds logged there; zero WOULD lines; nothing for F1 and F4 |
+| L3 `--faults` (#39 F1-F4) | the gate red only inside the F2 and F3 windows; holds only inside them (an H2 hold up to 120 s after), recorded not required; zero restart or start decisions; nothing for F1 and F4 |
 
 **Game day on production.** The operator runs it in a quiet window, from the runbook:
 - SIGSTOP CWS 3 for 120 s, then SS for 240 s;
