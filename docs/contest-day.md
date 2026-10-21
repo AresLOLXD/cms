@@ -73,17 +73,17 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
   as the real one, with the same steps as on the day.
 - Note the commit you deployed and the last known-good one, in case you have
   to roll back (see "Rollback" in [multi-contest.md](multi-contest.md)).
-- Take a backup with `./export.sh` once the contests are set up.
-- That backup does not contain the ranking groups (their windows and staff
-  passwords included) nor which contest goes to which group. Note them down,
-  or keep a `pg_dump` too (see `export.sh` in
-  [Docker Scripts Guide](docker-scripts.md)).
+- Take a backup with `sudo ./backup.sh` once the contests are set up (see
+  `backup.sh` in [Docker Scripts Guide](docker-scripts.md)). It has the
+  ranking groups, their windows and staff passwords included. `./export.sh`
+  is only for moving contests between deployments.
 
 ## Before the start
 
 - Do not rebuild or update the deployment on the day. If you must deploy in
   an emergency:
-  - Do not deploy while `./export.sh` or another CLI tool is running.
+  - Do not deploy while `./export.sh`, `./backup.sh` or another CLI tool
+    is running.
   - The deploy can stop at `db-init` with
     `cmsSetupDB could not lock … within 5 s`: another session is using a
     table that the update changes, and that update changes nothing (an
@@ -517,14 +517,21 @@ right after switching `enforce` on.
 
 ## After the contest
 
-- Take a backup with `./export.sh` and copy the file from `dumps/` off the
-  server.
+- Take a backup with `sudo ./backup.sh`, copy it off the server with the
+  `rsync -a` line that it prints (it needs `sudo rsync` without a password on
+  the server), and check the copy with
+  `./verify-backup.sh` (see `backup.sh` and `verify-backup.sh` in
+  [Docker Scripts Guide](docker-scripts.md)).
+- A restore means downtime: CMS is stopped while the databases are swapped.
+  The lead decides it, and follows "Restoring a backup" in
+  [Docker Scripts Guide](docker-scripts.md).
 - Download the activity CSV of each contest before you remove
-  participations or restore a backup: the backup does not include it (see
-  "After the contest" in [Participant activity](participant-activity.md)).
-- The backup does not contain the ranking groups either. After restoring it
-  with `./import.sh`, even with `-d`, create the ranking groups again and
-  assign the contests (see `import.sh` in
+  participations or restore with `./import.sh`: an `./export.sh` backup does
+  not include it (see "After the contest" in
+  [Participant activity](participant-activity.md)).
+- An `./export.sh` backup does not contain the ranking groups either. After
+  restoring it with `./import.sh`, even with `-d`, create the ranking groups
+  again and assign the contests (see `import.sh` in
   [Docker Scripts Guide](docker-scripts.md)).
 - If a ranking group was renamed or deleted, remove its old scoreboard (see
   "Removing an old scoreboard" in [multi-contest.md](multi-contest.md)).

@@ -552,6 +552,8 @@ Run them from the repo root — they read `.env` automatically.
 | `./contest.sh` | Switch the active contest: lists available contests from the database, prompts for a new ID, and updates `CMS_CONTEST_ID` in `.env`. Optionally restarts services to apply the change. |
 | `./export.sh` | Back up contest data to a `.tar.gz` file in `dumps/`. |
 | `./import.sh` | Restore contest data from a backup in `dumps/` made with `./export.sh`. |
+| `./backup.sh` | Full backup of the database with `pg_dump`, into `backups/`. Run it with `sudo`. |
+| `./verify-backup.sh` | Restore a backup made with `./backup.sh` in a throwaway container and check it. |
 | `./sync-upstream.sh` | For the fork's maintainers, not for updating a deployment: merges the latest changes from the upstream `cms-dev/cms` repository into this fork's `main` and pushes it to `origin`. Requires an `upstream` remote: `git remote add upstream https://github.com/cms-dev/cms.git`. |
 
 For more detail on each script see [Docker Scripts Guide](docker-scripts.md).

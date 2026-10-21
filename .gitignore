@@ -18,6 +18,7 @@ codecov/
 test_logs/
 .env
 dumps/
+backups/
 .superpowers/
 .worktrees/
 graphify-out/

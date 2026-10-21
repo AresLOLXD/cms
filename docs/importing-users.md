@@ -336,10 +336,12 @@ page, these pages are in Spanish, and their texts are quoted as they appear.
 
 **A removal cannot be undone.** Before you remove anything:
 
-- Take a backup with `./export.sh` (see [Docker Scripts Guide](docker-scripts.md)).
+- Take a backup with `sudo ./backup.sh` (see `backup.sh` in
+  [Docker Scripts Guide](docker-scripts.md)). Unlike `./export.sh`, it
+  includes the activity log.
 - Download the activity CSV of the contests concerned. Removing a
-  participation deletes its activity log, and the backup does not include it
-  (see [Participant activity](participant-activity.md)).
+  participation deletes its activity log, and an `./export.sh` backup does
+  not include it (see [Participant activity](participant-activity.md)).
 - Do not remove anything while a contest is running: the submissions made
   during the contest are lost with it.
 
