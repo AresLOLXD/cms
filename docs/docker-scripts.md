@@ -417,7 +417,7 @@ database untouched:
    ACTUAL=$(pgc psql -X -At -F $'\t' -d "${DB}_restore" -c "SELECT tablename, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', tablename), false, true, '')))[1]::text FROM pg_tables WHERE schemaname = 'public' UNION ALL SELECT '(large objects)', count(*)::text FROM pg_largeobject_metadata")
    manifest_compare "$EXPECTED" "$ACTUAL" && echo "counts match"
    pgc psql -X -At -d "${DB}_restore" -c "SELECT count(*) FROM pg_largeobject_metadata WHERE pg_get_userbyid(lomowner) <> current_user"
-   pgc vacuumdb --analyze-only -j "$WORKERS" -d "${DB}_restore"
+   pgc vacuumdb -q --analyze-only -n public -j "$WORKERS" -d "${DB}_restore"
    ```
    The first command prints `counts match`; if the counts differ, it prints
    one line for each table that differs, as `table: <in MANIFEST> vs
