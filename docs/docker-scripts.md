@@ -329,6 +329,15 @@ The last line prints what you set, for example `cms-prod_default cmsdb
 cmsuser 172.18.0.1:5432 160015 postgres:17 cmsdb_before_restore_20261012_093000`.
 Close the shell when you finish: it holds the database password.
 
+If it prints an error with `no pg_hba.conf entry` and `database "postgres"`
+instead, the server lets the CMS user connect only to its own database, as
+`.env.example` suggests. The procedure also connects to the databases
+`postgres` and `${DB}_restore`: add them to the line of the CMS user in
+`pg_hba.conf`, for example
+`host cmsdb,postgres,cmsdb_restore cmsuser 172.18.0.0/16 scram-sha-256`,
+reload PostgreSQL with `sudo systemctl reload postgresql` and run this block
+again.
+
 **Preflight**, with CMS still running:
 
 1. The backup is intact:
