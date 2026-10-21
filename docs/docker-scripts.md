@@ -190,8 +190,14 @@ is none, it tells you to run `./up.sh` first. It pulls the `postgres:N` image
 that does the dump if the server does not have it; N is the major version of
 the PostgreSQL server, but never below 17, because `pg_dump` 17 or newer
 spreads the large objects across the workers. It stops if `backups/` has less
-free space than the database takes. Then it prints a summary and asks for one
-confirmation, whose default is no:
+free space than the database takes. A backup is usually a fraction of that:
+the dump of cms-live of 2026-10-14 took 9.7 GB for an 18 GB database. But if
+`backups/` is on the same filesystem as the PostgreSQL server, a backup that
+fills the disk can stop PostgreSQL, so keep an eye on the free space:
+`./status.sh` shows how full the disk of the log volume is, and warns from
+80%; if `backups/` is on another disk, check it with `df -h backups` before a
+backup. Then it prints a summary and asks for one confirmation, whose default
+is no:
 
 ```
 Database:   cmsdb on 172.18.0.1:5432 (PostgreSQL 16.15)
