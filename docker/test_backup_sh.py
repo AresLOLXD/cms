@@ -305,6 +305,18 @@ def test_ctrl_c_cleans_up(backup, repo, tmp_path):
     assert_nothing_left(repo, tmp_path, result)
 
 
+def test_sighup_cleans_up(backup, repo, tmp_path):
+    process = backup(FAKE_DUMP_SLEEP="30")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: list((repo / "backups").glob("*.partial")),
+             "the dump never started")
+    os.killpg(process.pid, signal.SIGHUP)
+    result = finish(process, answer=None)
+    assert result.returncode == 129
+    assert_nothing_left(repo, tmp_path, result)
+
+
 def wait_for(condition, what: str) -> None:
     deadline = time.monotonic() + 20
     while not condition():

@@ -417,7 +417,7 @@ def test_a_clean_backup_exits_zero(verify, backup_dir, tmp_path):
     jobs = subprocess.check_output(["nproc"], text=True).strip()
     # No network, the backup read-only, the password by name only.
     assert lines[0] == (
-        "run -d --name %s --network none -v %s:/backup:ro "
+        "run -d --name %s --network none -v %s:/backup:ro,z "
         "-e POSTGRES_PASSWORD postgres:17 -c fsync=off"
         % (name, backup_dir))
     restores = [line for line in lines if " pg_restore " in line]

@@ -73,7 +73,7 @@ echo "Starting a throwaway postgres:$major container..."
 # docker exec. The password is random per run and goes in by name only.
 password="$(head -c 24 /dev/urandom | base64 | tr -d '/+=')"
 POSTGRES_PASSWORD="$password" docker run -d --name "$container" --network none \
-  -v "$dir:/backup:ro" -e POSTGRES_PASSWORD "postgres:$major" -c fsync=off >/dev/null
+  -v "$dir:/backup:ro,z" -e POSTGRES_PASSWORD "postgres:$major" -c fsync=off >/dev/null
 unset password
 
 # The image's init runs a temporary server that only listens on its socket and
