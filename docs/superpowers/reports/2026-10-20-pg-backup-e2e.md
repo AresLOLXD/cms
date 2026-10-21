@@ -269,12 +269,28 @@ After each fix, the five docker test files passed (176 tests at the end),
 
 1. Outside contest hours, run `sudo ./backup.sh e2e-check`. Check the
    `Duration`, and the size against `df -h backups`.
-2. Run `sudo ./verify-backup.sh backups/cms-...-e2e-check`. It needs about
-   one copy of the database in Docker's storage.
+2. Run `sudo ./verify-backup.sh backups/cms-...-e2e-check`. `sudo ls backups/`
+   shows the name, because `backups/` belongs to root. It needs about one copy
+   of the database in Docker's storage.
 3. Run the variables block of "Restoring a backup". If it prints `no
    pg_hba.conf entry`, follow the new paragraph. Then run preflight steps 1-4
    only. They change nothing, except the `ALTER ROLE ... CREATEDB` if step 3
    prints `f`.
 4. Optionally, time `-j 4` against `-j 8` once, to choose the default for a
    contest day.
-5. Delete the test backup: `sudo rm -rf backups/cms-...-e2e-check`.
+5. From your machine, run the `rsync` line that item 1 printed. It runs `sudo
+   rsync` on the server without a terminal: if `sudo` asks for a password
+   there, it fails, and the owner picks the workaround (a `NOPASSWD` rule for
+   `rsync`, or `sudo cp` and `chown` first).
+6. On your machine, run `./verify-backup.sh` on that copy, with the default
+   Docker context. With SELinux enforcing, this is the first test of the `,z`
+   of its bind mount.
+7. While CMS is serving, run:
+   ```bash
+   sudo -u postgres psql -X -At -c "SELECT count(*), current_setting('max_connections') FROM pg_stat_activity"
+   ```
+   `backup.sh` opens `-j` + 2 connections (6 with the default `-j 4`), so the
+   first number it prints plus 6 must stay below the second.
+8. Delete the test backup: `sudo sh -c 'rm -rf backups/cms-*-e2e-check'`. The
+   `sh -c` expands the glob as root, because your user cannot list
+   `backups/`.

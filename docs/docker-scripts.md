@@ -215,7 +215,9 @@ and Docker ignore it, and it is not `dumps/`, so `./import.sh` does not list
 the backups. While `backup.sh` writes a backup, the name of its directory
 ends in `.partial`; it renames the directory when the backup is complete and
 checked, so a directory without `.partial` is a finished backup. If you stop
-the script with Ctrl+C, or it fails, it removes the `.partial` directory.
+the script with Ctrl+C, or it fails, it removes the `.partial` directory. If
+the script is killed with `kill -9` or the machine crashes, the `.partial`
+directory stays; it belongs to root, so remove it with `sudo rm -rf`.
 
 Inside the backup:
 
@@ -240,6 +242,12 @@ Copy it off the server, from your machine:
   rsync -a --rsync-path="sudo rsync" ops@cms-live:/home/ops/cms/backups/cms-20261010-120000-before-exam ./
 Reminder: .env is not inside the backup; keep a copy of it somewhere safe.
 ```
+
+The `rsync` line works only if your user on the server can run `sudo rsync`
+without a password, because the backup belongs to root. Try it once. If
+`sudo` asks for a password, give your user a `NOPASSWD` rule for `rsync`, or
+copy the backup with `sudo cp -r` and `sudo chown -R` to a directory of
+yours and run `rsync` on that copy.
 
 The files of the backup belong to root and nobody else can read them. The
 backup has neither `.env` nor the Docker volumes.
@@ -282,8 +290,9 @@ starts with `Info:`; that is not an error.
 
 The exit status is 0 when everything passes, after the line `OK: <dir>
 restores; the checksums, the counts and the large objects match.` Otherwise it
-is 1, and the line that starts with `ERROR:` or `FAILED:` names the check that
-failed. Do not trust a backup that fails.
+is not 0 (a failed image pull exits 125, and Ctrl+C exits 130), and the line
+that starts with `ERROR:` or `FAILED:` names the check that failed. Do not
+trust a backup that fails.
 
 ## Restoring a backup
 
@@ -298,7 +307,8 @@ onto a PostgreSQL major older than the one that made the backup are not
 covered.
 
 Set these first, in the shell you will use for all the steps. Change only
-`BACKUP`, which is the absolute path of the backup, and `WORKERS`, which is the
+`BACKUP`, which is the absolute path of the backup (`sudo ls backups/` shows
+the names, because `backups/` belongs to root), and `WORKERS`, which is the
 number of workers of `pg_restore` (keep it low while CMS is serving a
 contest):
 
@@ -352,7 +362,8 @@ again.
    pgc pg_restore -l /backup > /dev/null && echo "table of contents OK"
    ```
    It prints `checksums OK` and `table of contents OK`. For a stronger test,
-   run `sudo ./verify-backup.sh "$BACKUP"` instead.
+   run `sudo ./verify-backup.sh "$BACKUP"` instead. It uses every CPU, so run
+   it outside the contest hours.
 2. The server is not older than the one that made the backup:
    ```bash
    pgc cat /backup/MANIFEST | grep -E '^(created_utc|server_version|pg_dump_version|encoding|lc_collate|lc_ctype|large_objects)'
@@ -362,7 +373,7 @@ again.
    ```
    created_utc       2026-10-10T18:12:40Z
    server_version    16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
-   pg_dump_version   17.6
+   pg_dump_version   17.11 (Debian 17.11-1.pgdg13+2)
    encoding          UTF8
    lc_collate        en_US.UTF-8
    lc_ctype          en_US.UTF-8
@@ -455,11 +466,13 @@ database untouched:
    It prints a `t` for each session it ended, or nothing.
 3. Put the copy in place and keep the old database under another name:
    ```bash
-   pgc psql -X -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB RENAME TO $OLD" -c "ALTER DATABASE ${DB}_restore RENAME TO $DB"
+   pgc psql -X -1 -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB RENAME TO $OLD" -c "ALTER DATABASE ${DB}_restore RENAME TO $DB"
    ```
-   It prints `ALTER DATABASE` twice. If it says that the database is being
-   accessed by other users, a session of another user is open (for example
-   your own `psql`): close it and repeat steps 2 and 3.
+   Both renames happen, or neither does. It prints `ALTER DATABASE` twice. If
+   it says that the database is being accessed by other users, nothing was
+   renamed, even if it printed `ALTER DATABASE` once. A session of another
+   user is open (for example your own `psql`): close it and repeat steps 2
+   and 3.
 4. Apply again the settings of the database, because the copy does not have
    them:
    ```bash
@@ -476,12 +489,17 @@ database untouched:
    "${COMPOSE_CMD[@]}" up -d --no-recreate --no-build --wait cms
    ```
    It returns when the `cms` container is healthy, after 30 to 60 seconds.
+   Before `cms` starts, Compose runs `db-init` (`cmsSetupDB`) again on the
+   restored database, which migrates a backup made by older code to the
+   current schema. If `db-init` fails, CMS stays down: read
+   `./logs.sh db-init`.
 6. If CMS does not come up, or the data is wrong, go back: repeat steps 1 and
    2, swap the names back, which leaves the failed copy as `${DB}_restore`,
    and repeat step 5:
    ```bash
-   pgc psql -X -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB RENAME TO ${DB}_restore" -c "ALTER DATABASE $OLD RENAME TO $DB"
+   pgc psql -X -1 -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB RENAME TO ${DB}_restore" -c "ALTER DATABASE $OLD RENAME TO $DB"
    ```
+   As in step 3, both renames happen or neither does.
 
 **After the switch**:
 

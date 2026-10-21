@@ -123,6 +123,9 @@ Contest Web Server. Reload the proxy.
 3. Restore the previous reverse-proxy configuration.
 
 The new database columns are harmless to the old setup: with a single
-contest id they are ignored. To get back the exact pre-migration database,
+contest id they are ignored. To get back the data of before the migration,
 restore the backup taken in step 1 (see "Restoring a backup" in
-[Docker Scripts Guide](docker-scripts.md)).
+[Docker Scripts Guide](docker-scripts.md)). Do it with the new code: the
+restore runs `db-init` again, which adds the new columns to the restored
+database. To go back to the old code too, roll it back after the restore (see
+"Rollback" in [multi-contest.md](multi-contest.md)).

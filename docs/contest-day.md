@@ -82,7 +82,8 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 
 - Do not rebuild or update the deployment on the day. If you must deploy in
   an emergency:
-  - Do not deploy while `./export.sh` or another CLI tool is running.
+  - Do not deploy while `./export.sh`, `./backup.sh` or another CLI tool
+    is running.
   - The deploy can stop at `db-init` with
     `cmsSetupDB could not lock … within 5 s`: another session is using a
     table that the update changes, and that update changes nothing (an
@@ -517,7 +518,8 @@ right after switching `enforce` on.
 ## After the contest
 
 - Take a backup with `sudo ./backup.sh`, copy it off the server with the
-  `rsync -a` line that it prints, and check the copy with
+  `rsync -a` line that it prints (it needs `sudo rsync` without a password on
+  the server), and check the copy with
   `./verify-backup.sh` (see `backup.sh` and `verify-backup.sh` in
   [Docker Scripts Guide](docker-scripts.md)).
 - A restore means downtime: CMS is stopped while the databases are swapped.
