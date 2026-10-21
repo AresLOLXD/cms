@@ -451,8 +451,11 @@ cycle) and its output in `out/<name>/watchdog.log`. After the run,
 `docs/superpowers/specs/2026-10-10-watchdog-design.md`, `pass` or
 `FAIL`, then the probe latencies (p50 and p99 per program):
 
-- no `WOULD` line; holds and a red gate only inside the F2 and F3
-  windows of `faults.json` (none without `--faults`);
+- no restart or start decision (the `WOULD`, `did not` and `could not`
+  lines); holds and a red gate only inside the F2 and F3 windows of
+  `faults.json` (none without `--faults`), except that an H2 hold may
+  also be logged up to 120 s after a window, since it lasts that long
+  after the gate returns green;
 - every program (ES, SS, PS, LogService, every CWS, AWS, every Worker)
   in every cycle from the driver's first request; ProxyService may
   appear late, since `run.sh` starts it once the contests exist;
@@ -469,12 +472,15 @@ cycle) and its output in `out/<name>/watchdog.log`. After the run,
   re-evaluation), no PS send idle over 90 s; the longest ES `idle_s`
   inside a section is recorded as a margin.
 
-With `--faults` too (L3), the criteria are those of L3: no `WOULD` line,
-holds and a red gate only inside the F2 and F3 windows (so nothing for F1
-and F4), every program in every cycle, cycles that cover the run and
-every F2 and F3 window, and latency samples for every probe. The p99
-and near-miss rows are then only recorded (`(recorded: a fault run)`):
-F2 and F3 push them past half their trips by design.
+With `--faults` too (L3), the criteria are those of L3: no restart or
+start decision (the `WOULD`, `did not` and `could not` lines), holds and
+a red gate only inside the F2 and F3 windows (an H2 hold also up to 120 s
+after one; nothing for F1 and F4), every program in every cycle, cycles
+that cover the run and every F2 and F3 window, and latency samples for
+every probe. The holds and the red-gate cycles inside the windows are
+recorded, not required. The p99 and near-miss rows are only recorded
+(`(recorded: a fault run)`): F2 and F3 push them past half their trips by
+design.
 
 ## Limits
 

@@ -64,8 +64,19 @@ MAX_CYCLE_GAP_S = 45.0
 # to one cycle and one probe (22 s) after it.
 FAULT_BEFORE_S = 7.0
 FAULT_AFTER_S = 22.0
-WOULD = re.compile(r"\bWOULD (restart|start)\b")
-HELD = re.compile(r"\bheld by H\d\b")
+# An H2 hold lasts up to policy.GREEN_BEFORE_RESTART_S (120 s) after the
+# gate returns green, so its line may come that long after FAULT_AFTER_S.
+H2_AFTER_S = FAULT_AFTER_S + 120.0
+# Every line a dry run prints when it takes, or fails to take, a restart
+# or start decision (main.restart_line and main.start_line): "WOULD",
+# "did not" (unbooked, refused, gone), "could not" (failed), and the
+# error and interrupted forms ("the would-restart of ...", and "the
+# restart of ... failed unexpectedly" of Watchdog._act). Anchored on the
+# verb, so that trips, holds and warnings that say "restart" do not
+# match.
+DECISION = re.compile(
+    r"Watchdog: (WOULD |did not |could not |the (would-)?)(re)?start\b")
+HELD = re.compile(r"\bheld by (H\d)\b")
 LINE_TIME = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) UTC ")
 
 Row = tuple[str, str, str, bool]
@@ -98,20 +109,21 @@ def line_time(line: str) -> float | None:
 
 
 def fault_windows(run_dir: str) -> list[tuple[float, float]]:
-    """Return the windows of F2 and F3, widened by the gate's slack."""
+    """Return the windows of F2 and F3, as faults.json records them."""
     try:
         with open(os.path.join(run_dir, "faults.json")) as f:
             records = json.load(f)
     except FileNotFoundError:
         return []
-    return [(record["start"] - FAULT_BEFORE_S,
-             record["end"] + FAULT_AFTER_S)
-            for record in records
+    return [(record["start"], record["end"]) for record in records
             if record.get("fault") in ("F2", "F3") and "end" in record]
 
 
-def inside(moment: float, windows: list[tuple[float, float]]) -> bool:
-    return any(start <= moment <= end for start, end in windows)
+def inside(moment: float, windows: list[tuple[float, float]],
+           after_s: float = FAULT_AFTER_S) -> bool:
+    """Tell whether moment is in a window, widened by the gate's slack."""
+    return any(start - FAULT_BEFORE_S <= moment <= end + after_s
+               for start, end in windows)
 
 
 def expected_labels(cws: int, workers: int) -> list[str]:
@@ -138,12 +150,15 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
     fault_run = os.path.exists(os.path.join(run_dir, "faults.json"))
     rows: list[Row] = []
 
-    woulds = [line for line in lines if WOULD.search(line)]
-    rows.append(("no WOULD line", str(len(woulds)), "0", not woulds))
+    decisions = [line for line in lines if DECISION.search(line)]
+    rows.append(("no restart or start decision", str(len(decisions)), "0",
+                 not decisions))
 
-    held = [line for line in lines if HELD.search(line)]
-    outside = [line for line in held
-               if not inside(line_time(line) or 0.0, windows)]
+    held = [(line_time(line) or 0.0, match.group(1)) for line in lines
+            if (match := HELD.search(line))]
+    outside = [moment for moment, headline in held
+               if not inside(moment, windows, H2_AFTER_S if headline == "H2"
+                             else FAULT_AFTER_S)]
     rows.append(("holds only inside F2 and F3", "%d of %d"
                  % (len(outside), len(held)), "0 outside", not outside))
 
@@ -152,6 +167,12 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
     rows.append(("gate red only inside F2 and F3", "%d of %d cycles"
                  % (len(red_outside), len(red)), "0 outside",
                  not red_outside))
+    if fault_run:
+        rows.append(("holds inside F2 and F3", str(sum(
+            inside(moment, windows) for moment, _ in held)), "(recorded)",
+            True))
+        rows.append(("red gate cycles inside F2 and F3", str(sum(
+            inside(moment, windows) for moment in red)), "(recorded)", True))
 
     problems = []
     seen: set[str] = set()
@@ -180,7 +201,8 @@ def check(run_dir: str, cws: int, workers: int) -> tuple[list[Row],
     covered = moments[-1] if moments and end is not None else None
     rows.append(("last cycle at most %g s before the driver's last request"
                  % MAX_CYCLE_GAP_S,
-                 "none" if covered is None else "%.0f s" % (end - covered),
+                 "none" if covered is None
+                 else "%.0f s" % max(0, end - covered),
                  "%g s" % MAX_CYCLE_GAP_S,
                  covered is not None and end - covered <= MAX_CYCLE_GAP_S))
     if start is not None:
