@@ -155,6 +155,22 @@ class TestImportDataset(DatabaseMixin, unittest.TestCase):
                     .filter(Dataset.task_id == self.task_id)
                 ).scalar_one(), 2)
 
+    def test_a_dataset_is_validated_with_the_precision_of_the_db_task(self):
+        # The precision can be changed in AWS, so the loader's task and the
+        # stored one may disagree; the stored one is what scores the dataset.
+        self.task.score_precision = 1
+        self.session.commit()
+        task = self.get_task(name=self.task_name, score_precision=0)
+        new_dataset = self.get_dataset(
+            task=task, task_type="new_task_type", score_type="GroupMin",
+            score_type_parameters=[{"max_score": 12.5, "testcases": 1}])
+        Testcase(dataset=new_dataset, codename="a", public=True,
+                 input=unique_digest(), output=unique_digest())
+        ret = self.do_import(task, new_dataset, "new_desc")
+
+        self.assertTrue(ret)
+        self.assertDatasetInDb(self.task_id, "new_desc", "new_task_type")
+
     def test_dataset_exists(self):
         # Dataset already present, should not update.
         task_type = "new_task_type"

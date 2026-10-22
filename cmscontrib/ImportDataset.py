@@ -64,8 +64,7 @@ class DatasetImporter:
         if task is None:
             return False
 
-        # Keep the dataset and the task name; the task itself is dropped
-        # below, once the dataset is validated.
+        # Keep the dataset and the task name; the task itself is dropped below.
         dataset = task.active_dataset
         task_name = task.name
 
@@ -77,14 +76,15 @@ class DatasetImporter:
 
         with SessionGen() as session:
             try:
-                # Validate while the dataset is still tied to its task, which
-                # gives the score precision.
-                validate_dataset(dataset)
                 dataset.task = None
                 del task
 
                 task = task_from_db(task_name, session)
                 self._dataset_to_db(session, dataset, task)
+                # Validate once the dataset is tied to the task it ends up
+                # in: that task gives the score precision, and nothing is
+                # committed if this fails.
+                validate_dataset(dataset)
             except ImportDataError as e:
                 logger.error(str(e))
                 logger.info("Error while importing, no changes were made.")

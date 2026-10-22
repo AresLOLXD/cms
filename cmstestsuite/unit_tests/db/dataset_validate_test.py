@@ -52,6 +52,13 @@ class TestValidateScoreType(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "form a cycle"):
             dataset.validate_score_type()
 
+    def test_regexes_that_match_testcases_pass(self):
+        dataset = make_dataset(
+            [{"max_score": 30, "testcases": "^s1-"},
+             {"max_score": 70, "testcases": "^s2-", "depends_on": [0]}],
+            codenames=("s1-00", "s2-00", "s2-01"))
+        self.assertIsNone(dataset.validate_score_type())
+
     def test_a_regex_without_testcases_is_refused(self):
         dataset = make_dataset([{"max_score": 100, "testcases": "^z"}])
         with self.assertRaisesRegex(ValueError, "No testcase matches"):

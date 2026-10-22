@@ -213,7 +213,8 @@ class ContestImporter:
         raise (ImportDataError): in case of one of these errors:
             - if the task is not in the DB and user did not ask to import it;
             - if the loader cannot load the task;
-            - if the task is already in the DB, attached to another contest.
+            - if the task is already in the DB, attached to another contest;
+            - if a dataset that would be stored has invalid score parameters.
 
         """
         task_loader = self.loader.get_task_loader(taskname)
