@@ -97,15 +97,30 @@ window.addEventListener('DOMContentLoaded', () => {
 CMS.AWSUtils.SCORE_PARAMETERS_SELECTOR =
     "textarea[name^=score_type_parameters]";
 
+// A rejected save redirects back at once, so an older draft is a leftover of
+// a save that went through and must never be put back.
+CMS.AWSUtils.DRAFT_MAX_AGE_MS = 30000;
+
 CMS.AWSUtils.draft_key = function(field) {
     return "aws_draft:" + location.pathname + ":" + field.name;
+};
+
+// The server shows JSON compactly, so formatting alone is not a difference.
+CMS.AWSUtils.normalize_json_text = function(text) {
+    try {
+        return JSON.stringify(JSON.parse(text));
+    } catch (error) {
+        return text;
+    }
 };
 
 CMS.AWSUtils.save_score_parameter_drafts = function(form) {
     const selector = CMS.AWSUtils.SCORE_PARAMETERS_SELECTOR;
     try {
         for (const field of form.querySelectorAll(selector)) {
-            sessionStorage.setItem(CMS.AWSUtils.draft_key(field), field.value);
+            sessionStorage.setItem(
+                CMS.AWSUtils.draft_key(field),
+                JSON.stringify({text: field.value, time: Date.now()}));
         }
     } catch (error) {
         // No storage (e.g. a private window): the draft is just not kept.
@@ -117,22 +132,30 @@ CMS.AWSUtils.restore_score_parameter_drafts = function(root) {
     for (const field of (root || document).querySelectorAll(selector)) {
         try {
             const key = CMS.AWSUtils.draft_key(field);
-            const saved = sessionStorage.getItem(key);
-            if (saved === null) {
+            const raw = sessionStorage.getItem(key);
+            if (raw === null) {
                 continue;
             }
-            if (saved === field.value) {
+            // Each draft is used at most once, restored or not.
+            sessionStorage.removeItem(key);
+            const draft = JSON.parse(raw);
+            const age = Date.now() - draft.time;
+            if (typeof draft.text !== "string" ||
+                    !(age <= CMS.AWSUtils.DRAFT_MAX_AGE_MS)) {
+                continue;
+            }
+            const normalize = CMS.AWSUtils.normalize_json_text;
+            if (normalize(draft.text) === normalize(field.value)) {
                 // The save went through: the page shows what was typed.
-                sessionStorage.removeItem(key);
                 continue;
             }
-            field.value = saved;
+            field.value = draft.text;
             const note = document.createElement("div");
             note.className = "hint";
             note.textContent = "Restored your unsaved text.";
             field.after(note);
         } catch (error) {
-            // No storage: keep the value the page came with.
+            // No storage or an unreadable draft: keep the page's value.
         }
     }
 };
