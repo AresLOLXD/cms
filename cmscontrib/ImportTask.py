@@ -46,7 +46,8 @@ from cms.db.contest import Contest
 from cms.db.session import Session
 from cms.db import SessionGen, Task
 from cms.db.filecacher import FileCacher
-from cmscontrib.importing import ImportDataError, contest_from_db, update_task
+from cmscontrib.importing import ImportDataError, contest_from_db, \
+    update_task, validate_datasets
 from cmscontrib.loaders import choose_loader, build_epilog
 from cmscontrib.loaders.base_loader import TaskLoader
 
@@ -116,6 +117,7 @@ class TaskImporter:
         logger.info("Creating task on the database.")
         with SessionGen() as session:
             try:
+                validate_datasets(task)
                 contest = contest_from_db(self.contest_id, session)
                 task = self._task_to_db(
                     session, contest, task, task_has_changed)

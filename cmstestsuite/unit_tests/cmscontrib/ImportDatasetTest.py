@@ -23,8 +23,9 @@ import unittest
 from sqlalchemy import select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.testidgenerator import unique_digest
 
-from cms.db import Dataset, SessionGen
+from cms.db import Dataset, SessionGen, Testcase
 from cmscontrib.ImportDataset import DatasetImporter
 from cmscontrib.loaders.base_loader import TaskLoader
 
@@ -102,18 +103,41 @@ class TestImportDataset(DatabaseMixin, unittest.TestCase):
         task_type = "new_task_type"
         task = self.get_task(name=self.task_name)
         new_dataset = self.get_dataset(
-            task=task, description=desc_ignored, task_type=task_type)
+            task=task, description=desc_ignored, task_type=task_type,
+            score_type="Sum", score_type_parameters=100)
         ret = self.do_import(task, new_dataset, desc)
 
         self.assertTrue(ret)
         self.assertDatasetInDb(self.task_id, desc, task_type)
+
+    def test_an_invalid_dataset_is_refused_and_nothing_is_written(self):
+        # The dataset has a cyclic depends_on.
+        task = self.get_task(name=self.task_name)
+        new_dataset = self.get_dataset(
+            task=task, score_type="GroupMin",
+            score_type_parameters=[
+                {"max_score": 50, "testcases": 1, "depends_on": [1]},
+                {"max_score": 50, "testcases": 1, "depends_on": [0]}])
+        for codename in ("a", "b"):
+            Testcase(dataset=new_dataset, codename=codename, public=True,
+                     input=unique_digest(), output=unique_digest())
+        ret = self.do_import(task, new_dataset, "new_desc")
+
+        self.assertFalse(ret)
+        with SessionGen() as session:
+            self.assertEqual(
+                [d.description for d in session.execute(
+                    select(Dataset).filter(Dataset.task_id == self.task_id)
+                ).scalars()],
+                [self.dataset_desc])
 
     def test_dataset_exists(self):
         # Dataset already present, should not update.
         task_type = "new_task_type"
         task = self.get_task(name=self.task_name)
         new_dataset = self.get_dataset(
-            task=task, description="ignored", task_type=task_type)
+            task=task, description="ignored", task_type=task_type,
+            score_type="Sum", score_type_parameters=100)
         ret = self.do_import(task, new_dataset, self.dataset_desc)
 
         self.assertFalse(ret)
@@ -124,7 +148,8 @@ class TestImportDataset(DatabaseMixin, unittest.TestCase):
         task_type = "new_task_type"
         task = self.get_task(name="new_name")
         new_dataset = self.get_dataset(
-            task=task, description="ignored", task_type=task_type)
+            task=task, description="ignored", task_type=task_type,
+            score_type="Sum", score_type_parameters=100)
         ret = self.do_import(task, new_dataset, self.dataset_desc)
 
         self.assertFalse(ret)

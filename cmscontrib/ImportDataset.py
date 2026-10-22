@@ -40,7 +40,8 @@ from cms.db import Dataset, SessionGen
 from cms.db.session import Session
 from cms.db.task import Task
 from cms.db.filecacher import FileCacher
-from cmscontrib.importing import ImportDataError, task_from_db
+from cmscontrib.importing import ImportDataError, task_from_db, \
+    validate_datasets
 from cmscontrib.loaders import choose_loader, build_epilog
 from cmscontrib.loaders.base_loader import TaskLoader
 
@@ -65,9 +66,7 @@ class DatasetImporter:
 
         # Keep the dataset (and the task name) and delete the task
         dataset = task.active_dataset
-        dataset.task = None
         task_name = task.name
-        del task
 
         dataset.description = self.description
 
@@ -77,6 +76,12 @@ class DatasetImporter:
 
         with SessionGen() as session:
             try:
+                # Validate while the dataset is still tied to its task, which
+                # gives the score precision.
+                validate_datasets(task)
+                dataset.task = None
+                del task
+
                 task = task_from_db(task_name, session)
                 self._dataset_to_db(session, dataset, task)
             except ImportDataError as e:
