@@ -40,6 +40,7 @@ from werkzeug.test import Client, create_environ
 
 from cmscommon.crypto import build_password, hash_password
 from cmscommon.eventsource import EventSource, Publisher, Subscriber
+from cmsranking import visibility as visibility_module
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
@@ -694,6 +695,74 @@ class TestStaffLogin(VisibilityTestCase):
         page = self.client.get("/olim/", headers=self.with_cookie(cookie))
         self.assertEqual(page.status_code, 200)
         self.assertNotIn("Vista staff", page.get_data(as_text=True))
+
+
+class TestLoginQueueLimit(VisibilityTestCase):
+    """Only so many password checks may wait for the login threads."""
+
+    def setUp(self):
+        super().setUp()
+        # Not left to the code under test: a failing test must not leak
+        # a count into the next one.
+        patcher = patch.object(visibility_module, "_pending_logins", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+
+    def login(self, password: str):
+        return self.client.post(
+            "/olim/staff-login", data={"password": password})
+
+    def test_logins_past_the_limit_get_a_503(self):
+        # validate_password runs in a real thread of the pool, which only
+        # a primitive that gevent has not patched can block.
+        release = get_original("threading", "Event")()
+        # A thread left blocked would hang the login of the next tests.
+        self.addCleanup(release.set)
+        calls = []
+
+        def blocked(stored, password):
+            calls.append(password)
+            release.wait(5)
+            return True
+
+        with patch.object(visibility_module, "LOGIN_MAX_PENDING", 2):
+            with patch.object(visibility_module, "validate_password",
+                              blocked):
+                waiting = [gevent.spawn(self.login, "x") for _ in range(2)]
+                with gevent.Timeout(5):
+                    while len(calls) < 2:
+                        gevent.sleep(0.01)
+                with gevent.Timeout(1):
+                    response = self.login("x")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.headers["Retry-After"], "1")
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "no-store")
+                self.assertEqual(response.mimetype, "text/plain")
+                self.assertEqual(
+                    response.get_data(as_text=True),
+                    "Demasiados intentos de acceso. "
+                    "Intenta de nuevo en un momento.")
+                self.assertEqual(len(calls), 2)
+                release.set()
+                gevent.joinall(waiting, timeout=5, raise_error=True)
+            # Both slots came back: with a count that stayed at 2 this
+            # would be refused too.
+            self.assertEqual(self.login("s3cret").status_code, 303)
+
+    def test_a_failing_check_gives_its_slot_back(self):
+        def unknown_method(stored, password):
+            raise ValueError("unknown authentication method")
+
+        with patch.object(visibility_module, "validate_password",
+                          unknown_method), \
+                patch("cmsranking.visibility.gevent.sleep"):
+            statuses = [
+                self.login("x").status_code
+                for _ in range(visibility_module.LOGIN_MAX_PENDING + 2)]
+        self.assertEqual(statuses, [401] * len(statuses))
 
 
 class TestIndexPage(VisibilityTestCase):

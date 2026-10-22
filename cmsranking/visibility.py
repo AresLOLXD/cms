@@ -61,6 +61,16 @@ MAX_LOGIN_BODY = 4096
 # Threads that check staff passwords, apart from the pool that the hub
 # shares with everything else.
 LOGIN_THREADS = 2
+# Password checks that may wait for those threads, or run in them, at once.
+# A check takes about 250 ms, so this is a wait of about two seconds; the
+# next one is refused instead of queued without end.
+# shortcut: the cap is one for the whole process, not per client, so one
+# client can use it all; limit per IP if flooding becomes real.
+LOGIN_MAX_PENDING = 16
+# How many are waiting or running now. Gevent switches greenlets only when
+# one blocks, so the check and the increment need no lock if nothing
+# blocks between them.
+_pending_logins = 0
 
 # The environ key through which the guard tells the handlers to serve a
 # frozen group's data as it was at this Unix time.
@@ -577,9 +587,10 @@ class VisibilityGuard:
 
         return: a redirect that sets the staff cookie, or the notice with
             an error after a failed attempt (or a 413 if the body is too
-            big to be a login form).
+            big to be a login form, a 503 if too many checks are waiting).
 
         """
+        global _pending_logins
         # The gevent server hands the app a chunked body as a stream that
         # has no end but the client's. With a limit, werkzeug stops
         # reading at that many bytes and raises for a declared length or
@@ -601,6 +612,13 @@ class VisibilityGuard:
         stored = self.state.staff_password
         valid = False
         if stored is not None and password != "":
+            if _pending_logins >= LOGIN_MAX_PENDING:
+                return Response(
+                    "Demasiados intentos de acceso. "
+                    "Intenta de nuevo en un momento.", status=503,
+                    mimetype="text/plain",
+                    headers={**NO_STORE, "Retry-After": "1"})
+            _pending_logins += 1
             try:
                 # bcrypt takes about 250 ms of CPU. On the hub it would
                 # stop every public scoreboard during a burst of attempts,
@@ -610,6 +628,8 @@ class VisibilityGuard:
             except ValueError:
                 # An authentication method that is not known.
                 valid = False
+            finally:
+                _pending_logins -= 1
         if not valid:
             gevent.sleep(self.FAILED_LOGIN_DELAY)
             return self._notice(error=True, status=401, message=message,
