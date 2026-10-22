@@ -182,7 +182,7 @@ class TestApiSubmissionFullDetailsHandler(BaseApiHandlerTest):
         )
 
 
-class TestApiSubmitRefusals(BaseApiHandlerTest):
+class TestApiSubmitOutcomes(BaseApiHandlerTest):
 
     def post_refused(self, error):
         """Send a submission that accept_submission refuses with error."""
@@ -193,6 +193,21 @@ class TestApiSubmitRefusals(BaseApiHandlerTest):
                    side_effect=error):
             handler.post("my_task")
         return handler
+
+    def test_accepted_submission_is_queued_for_evaluation(self):
+        handler = self.create_handler(ApiSubmitHandler)
+        handler.sql_session = MagicMock()
+        handler.arrival_time = MagicMock()
+        handler.schedule_rpc = MagicMock()
+        handler.request.files = {}
+        with patch("cms.server.contest.handlers.api.accept_submission",
+                   return_value=self.submission):
+            handler.post("my_task")
+
+        self.assertEqual(handler.status_code, 200)
+        handler.schedule_rpc.assert_called_once_with(
+            handler.service.evaluation_service.new_submission,
+            submission_id=self.submission.id)
 
     def test_concurrent_submission_is_a_conflict(self):
         # A script may send it again: 422 would read as final.
