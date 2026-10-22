@@ -22,6 +22,7 @@ import unittest
 from cms.grading.scoretypes.GroupMin import GroupMin
 from cms.grading.scoretypes.GroupMul import GroupMul
 from cms.grading.scoretypes.GroupThreshold import GroupThreshold
+from cms.grading.steps.evaluation import EVALUATION_MESSAGES
 from cmstestsuite.unit_tests.grading.scoretypes.scoretypetestutils import \
     ScoreTypeTestMixin
 
@@ -260,6 +261,106 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
                 html = st.get_html_details(public_details)
                 self.assertNotIn("temporarily unavailable", html)
                 self.assertNotIn("Worth 0 because it depends on subtask", html)
+
+    @staticmethod
+    def skip(sr, *codenames):
+        """Make the evaluations look skipped by the failed dependency 0."""
+        for evaluation in sr.evaluations:
+            if evaluation.codename in codenames:
+                evaluation.text = [
+                    EVALUATION_MESSAGES.get("skipped_dependency").message,
+                    "0"]
+
+    def test_skipped_testcase_is_marked(self):
+        st = GroupMin(self.parameters, self.public, 2)
+        sr = self.get_submission_result(self.public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1")
+        _, details, _, public_details, _ = st.compute_score(sr)
+        for view in (details, public_details):
+            self.assertIs(view[1]["testcases"][0]["skipped"], True)
+            self.assertNotIn("skipped", view[0]["testcases"][0])
+            self.assertNotIn("skipped", view[2]["testcases"][0])
+
+    def _hidden_dataset(self, all_public):
+        """Return a score type whose subtask 1 (depends on 0, hidden) has
+        the testcases "1", "2" and "3", and its public testcases.
+
+        """
+        public = {"0": True, "1": True, "2": all_public, "3": True}
+        self.parameters = params(
+            (20, 1, {}),
+            (30, 3, {"depends_on": [0], "hide_dependency": True}))
+        return GroupMin(self.parameters, public, 2), public
+
+    def test_hidden_subtask_public_details_have_no_note_and_na_rows(self):
+        st, public = self._hidden_dataset(all_public=False)
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2", "3")
+        _, _, _, public_details, _ = st.compute_score(sr)
+        self.assertNotIn("zeroed_by_dependency", public_details[1])
+        self.assertEqual(public_details[1]["testcases"],
+                         [{"idx": "1"}, {"idx": "2"}, {"idx": "3"}])
+        html = st.get_html_details(public_details)
+        self.assertNotIn("Worth 0 because", html)
+
+    def test_hiding_does_not_touch_the_full_details(self):
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        for all_public in (False, True):
+            with self.subTest(all_public=all_public):
+                st, public = self._hidden_dataset(all_public)
+                sr = self.get_submission_result(public)
+                self.set_outcome(sr, "0", 0.0)
+                self.skip(sr, "1", "2", "3")
+                _, details, _, public_details, _ = st.compute_score(sr)
+                self.assertEqual(details[1]["zeroed_by_dependency"], 0)
+                for tc in details[1]["testcases"]:
+                    self.assertEqual(tc["text"], [message, "0"])
+                    self.assertIs(tc["skipped"], True)
+                self.assertIsNot(public_details[1], details[1])
+                self.assertNotIn("zeroed_by_dependency", public_details[1])
+                self.assertEqual(
+                    [tc["idx"] for tc in public_details[1]["testcases"]],
+                    ["1", "2", "3"])
+                for tc in public_details[1]["testcases"]:
+                    self.assertEqual(set(tc), {"idx"})
+
+    def test_hidden_subtask_that_graded_its_testcases_keeps_the_rows(self):
+        for all_public in (False, True):
+            with self.subTest(all_public=all_public):
+                st, public = self._hidden_dataset(all_public)
+                sr = self.get_submission_result(public)
+                self.set_outcome(sr, "0", 0.0)
+                _, details, _, public_details, _ = st.compute_score(sr)
+                self.assertEqual(details[1]["zeroed_by_dependency"], 0)
+                self.assertNotIn("zeroed_by_dependency", public_details[1])
+                rows = public_details[1]["testcases"]
+                self.assertEqual([tc["idx"] for tc in rows],
+                                 ["1", "2", "3"])
+                self.assertEqual(rows[0]["outcome"], "Correct")
+                self.assertEqual("outcome" in rows[1], all_public)
+
+    def test_not_hidden_public_details_are_unchanged(self):
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        st, public = self._partially_private_dataset()
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2")
+        _, details, _, public_details, _ = st.compute_score(sr)
+        self.assertEqual(public_details[1]["zeroed_by_dependency"], 0)
+        self.assertEqual(public_details[1]["testcases"][0]["text"],
+                         [message, "0"])
+        self.assertIs(public_details[1]["testcases"][0]["skipped"], True)
+        self.assertEqual(public_details[1]["testcases"][1], {"idx": "2"})
+        # A fully public subtask is still the same object as the full one.
+        st = GroupMin(self.parameters, self.public, 2)
+        sr = self.get_submission_result(self.public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1")
+        _, details, _, public_details, _ = st.compute_score(sr)
+        self.assertEqual(public_details[1], details[1])
+        self.assertEqual(public_details[1]["zeroed_by_dependency"], 0)
 
 
 if __name__ == "__main__":

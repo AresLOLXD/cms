@@ -441,6 +441,8 @@ class ScoreTypeGroup(ScoreTypeAlone):
                         "outcome": tc["outcome"],
                         "text": tc.get("text"),
                     }
+                    if tc.get("skipped"):
+                        filtered_tc["skipped"] = True
                     if feedback_level == FEEDBACK_LEVEL_FULL:
                         if "time" in tc:
                             filtered_tc["time"] = tc["time"]
@@ -623,6 +625,11 @@ class ScoreTypeGroup(ScoreTypeAlone):
                         "show_in_oi_restricted_feedback": self.public_testcases[tc_idx],
                     }
                 )
+                skipped_message = EVALUATION_MESSAGES.get(
+                    "skipped_dependency").message
+                if evaluations[tc_idx].text \
+                        and evaluations[tc_idx].text[0] == skipped_message:
+                    testcases[-1]["skipped"] = True
 
                 if self.public_testcases[tc_idx]:
                     public_testcases.append(testcases[-1])
@@ -673,7 +680,7 @@ class ScoreTypeGroup(ScoreTypeAlone):
             subtasks.append(subtask)
             if all(self.public_testcases[tc_idx] for tc_idx in target):
                 public_score += rounded_score
-                public_subtasks.append(subtasks[-1])
+                public_subtask = subtask
             else:
                 # The score of this subtask must not be revealed. Its
                 # dependency skip is already visible in the text of its
@@ -683,7 +690,16 @@ class ScoreTypeGroup(ScoreTypeAlone):
                     self.public_testcases[tc_idx] for tc_idx in target
                 ):
                     public_subtask["zeroed_by_dependency"] = zeroed[st_idx]
-                public_subtasks.append(public_subtask)
+            if self.hide_dependency[st_idx] and zeroed[st_idx] is not None:
+                # Copy: public_subtask may be the very object of the full
+                # details, which keep the note and the skipped rows.
+                public_subtask = {
+                    key: value for key, value in public_subtask.items()
+                    if key != "zeroed_by_dependency"}
+                public_subtask["testcases"] = [
+                    {"idx": tc["idx"]} if tc.get("skipped") else tc
+                    for tc in public_subtask["testcases"]]
+            public_subtasks.append(public_subtask)
             ranking_details.append("%g" % rounded_score)
 
         # The following line should be unnecessary since subtask scores
