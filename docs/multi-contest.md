@@ -381,8 +381,8 @@ The staff:
   persists afterwards: a login made while the group is hidden or frozen is
   still valid the next time it is hidden or frozen, until the staff press
   "Salir", the browser session ends or the staff password changes. If too many
-  password checks are already waiting (16), the Ranking Web Server answers 503
-  "Demasiados intentos de acceso. Intenta de nuevo en un momento." with
+  password checks are waiting or running (16), the Ranking Web Server answers
+  503 "Demasiados intentos de acceso. Intenta de nuevo en un momento." with
   `Retry-After: 1` instead of queuing the login: wait a moment and try again.
 - See everything live. The page carries the bar "Vista staff: ranking
   congelado para el público" (on a hidden group, "Vista staff: este ranking
