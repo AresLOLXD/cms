@@ -179,6 +179,17 @@ class CloneDatasetHandler(BaseHandler):
             clone_results = bool(self.get_argument("clone_results", False))
             dataset.clone_from(original_dataset, True, True, clone_results)
 
+            # The parameters may name testcases, so they can only be
+            # checked once the testcases have been copied.
+            try:
+                dataset.validate_score_type()
+            except ValueError as error:
+                self.service.add_notification(
+                    make_datetime(), "Invalid score type parameters",
+                    str(error))
+                self.redirect(fallback_page)
+                return
+
         # If the task does not yet have an active dataset, make this
         # one active.
         if task.active_dataset is None:
