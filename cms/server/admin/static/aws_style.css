@@ -762,6 +762,19 @@ span.info::after {
     content: "?";
 }
 
+.hint {
+    color: #666666;
+    font-size: 0.9em;
+    margin-left: 8px;
+}
+
+.subtask-dependency {
+    color: #666666;
+    font-size: 0.9em;
+    font-style: italic;
+    margin-bottom: 8px;
+}
+
 a.button-link {
     text-decoration: none;
     margin-right: 25px;

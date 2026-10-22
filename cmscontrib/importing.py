@@ -34,7 +34,8 @@ from cms.db.session import Session
 
 __all__ = [
     "contest_from_db", "task_from_db",
-    "update_contest", "update_task", "update_group"
+    "update_contest", "update_task", "update_group",
+    "validate_dataset", "validate_datasets"
 ]
 
 
@@ -82,6 +83,35 @@ def task_from_db(task_name: str | None, session: Session) -> Task | None:
         raise ImportDataError(
             "The specified task (name %s) does not exist." % task_name)
     return task
+
+
+def validate_dataset(dataset: Dataset) -> None:
+    """Check that the score type parameters of the dataset are valid
+
+    dataset: the dataset, as built by a loader, still tied to its task.
+
+    raise (ImportDataError): if the score type parameters do not build a
+        score type; the message names the task and the dataset.
+
+    """
+    try:
+        dataset.validate_score_type()
+    except ValueError as error:
+        raise ImportDataError(
+            "Task %s, dataset %s: %s"
+            % (dataset.task.name, dataset.description, error)) from error
+
+
+def validate_datasets(task: Task) -> None:
+    """Check that the score type parameters of every dataset are valid
+
+    task: the task, as built by a loader, with its datasets.
+
+    raise (ImportDataError): see validate_dataset.
+
+    """
+    for dataset in task.datasets:
+        validate_dataset(dataset)
 
 
 def _update_columns(old_object: Base, new_object: Base, spec=None):

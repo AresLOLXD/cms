@@ -40,7 +40,8 @@ from cms.db import Dataset, SessionGen
 from cms.db.session import Session
 from cms.db.task import Task
 from cms.db.filecacher import FileCacher
-from cmscontrib.importing import ImportDataError, task_from_db
+from cmscontrib.importing import ImportDataError, task_from_db, \
+    validate_dataset
 from cmscontrib.loaders import choose_loader, build_epilog
 from cmscontrib.loaders.base_loader import TaskLoader
 
@@ -63,11 +64,9 @@ class DatasetImporter:
         if task is None:
             return False
 
-        # Keep the dataset (and the task name) and delete the task
+        # Keep the dataset and the task name; the task itself is dropped below.
         dataset = task.active_dataset
-        dataset.task = None
         task_name = task.name
-        del task
 
         dataset.description = self.description
 
@@ -77,8 +76,15 @@ class DatasetImporter:
 
         with SessionGen() as session:
             try:
+                dataset.task = None
+                del task
+
                 task = task_from_db(task_name, session)
                 self._dataset_to_db(session, dataset, task)
+                # Validate once the dataset is tied to the task it ends up
+                # in: that task gives the score precision, and nothing is
+                # committed if this fails.
+                validate_dataset(dataset)
             except ImportDataError as e:
                 logger.error(str(e))
                 logger.info("Error while importing, no changes were made.")

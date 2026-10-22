@@ -438,10 +438,10 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
         </tr>
         <tr>
           <td>
-            <span class="info" title="Please see the score type documentation."></span>
+            <span class="info" title='Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.'></span>
             Score Parameters
           </td>
-          <td><textarea name="score_type_parameters_{{ dataset.id }}">{{ dataset.score_type_parameters|tojson|forceescape }}</textarea></td>
+          <td><textarea name="score_type_parameters_{{ dataset.id }}" rows="12">{{ dataset.score_type_parameters|tojson|forceescape }}</textarea></td>
         </tr>
       </table>
       <div class="hr"></div>
@@ -499,6 +499,7 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
 {% endif %}
          value="Update" />
   <input type="reset" value="Reset" />
+  <span class="hint">Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest.</span>
 </form>
 <form action="{{ url("tasks") }}" method="POST" style="display:inline;">
     {{ xsrf_form_html|safe }}

@@ -51,7 +51,7 @@ from cms.db.session import Session
 from cms.db import SessionGen, User, Team, Participation, Task, Contest, Group
 from cms.db.filecacher import FileCacher
 from cmscontrib.importing import ImportDataError, update_contest, \
-    update_group, update_task
+    update_group, update_task, validate_datasets
 from cmscontrib.loaders import choose_loader, build_epilog
 from cmscontrib.loaders.base_loader import BaseLoader, ContestLoader
 
@@ -213,7 +213,8 @@ class ContestImporter:
         raise (ImportDataError): in case of one of these errors:
             - if the task is not in the DB and user did not ask to import it;
             - if the loader cannot load the task;
-            - if the task is already in the DB, attached to another contest.
+            - if the task is already in the DB, attached to another contest;
+            - if a dataset that would be stored has invalid score parameters.
 
         """
         task_loader = self.loader.get_task_loader(taskname)
@@ -234,6 +235,7 @@ class ContestImporter:
             if task is None:
                 raise ImportDataError(
                     "Could not import task \"%s\"." % taskname)
+            validate_datasets(task)
 
             session.add(task)
 
@@ -249,6 +251,7 @@ class ContestImporter:
             if new_task is None:
                 raise ImportDataError(
                     "Could not reimport task \"%s\"." % taskname)
+            validate_datasets(new_task)
             logger.info("Task \"%s\" data has changed, updating it.", taskname)
             update_task(task, new_task, get_statements=not self.no_statements)
 

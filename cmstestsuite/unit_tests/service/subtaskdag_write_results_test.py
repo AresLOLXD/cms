@@ -22,6 +22,7 @@ and the sweeper choosing the dependency-aware path.
 """
 
 import asyncio
+import logging
 import unittest
 from unittest.mock import patch
 
@@ -426,6 +427,11 @@ MISALIGNED_PARAMETERS = [
 GATES_HOLDING_EACH_OTHER = "gates are holding each other"
 
 
+def _fallback_warnings(records):
+    return [record.getMessage() for record in records
+            if GATES_HOLDING_EACH_OTHER in record.getMessage()]
+
+
 class TestGatesHoldingEachOtherDoNotStall(
     WriteResultsFixtureMixin, ServiceLoggingIsolationMixin, DatabaseMixin,
     unittest.IsolatedAsyncioTestCase,
@@ -465,6 +471,100 @@ class TestGatesHoldingEachOtherDoNotStall(
         self.assertEqual({e.codename for e in result.evaluations},
                          set(SPLIT_GROUP_CODENAMES))
         self.assertTrue(result.evaluated())
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_a_testcase_in_no_subtask_is_named(self):
+        # Group s1 holds a testcase that no subtask selects: two-phase
+        # holds it like the others, but it is not an alignment problem.
+        self.add_testcase(self.dataset, codename="s1-04-orphan")
+        self.session.commit()
+        service = self._build_service()
+        with patch.object(service, "_enqueue_sync",
+                          return_value=True) as enqueue, \
+                self.assertLogs(
+                    "cms.service.EvaluationService", "WARNING") as logs:
+            await self._write_with(service, {"s1-00-sample": "1.0"})
+        self.assertEqual(
+            self._enqueued_evaluation_codenames(enqueue),
+            {"s1-01-scr-wa", "s1-02-scr-tle", "s1-03-x", "s1-04-orphan"})
+        self.assertIn(
+            "for testcase(s) s1-01-scr-wa, s1-02-scr-tle, s1-03-x, "
+            "s1-04-orphan (in no subtask: s1-04-orphan). The subtask "
+            "dependency",
+            _fallback_warnings(logs.records)[0])
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_the_misaligned_warning_has_no_orphan_note(self):
+        service = self._build_service()
+        with patch.object(service, "_enqueue_sync", return_value=True), \
+                self.assertLogs(
+                    "cms.service.EvaluationService", "WARNING") as logs:
+            await self._write_with(service, {"s1-00-sample": "1.0"})
+        warning = _fallback_warnings(logs.records)[0]
+        self.assertIn("for testcase(s) s1-01-scr-wa, s1-02-scr-tle, "
+                      "s1-03-x. The subtask dependency", warning)
+        self.assertNotIn("in no subtask", warning)
+
+    async def test_a_score_type_without_subtasks_has_no_orphan_note(self):
+        self.dataset.score_type = "Sum"
+        self.dataset.score_type_parameters = 1.0
+        self.session.commit()
+        service = self._build_service()
+        with patch("cms.service.EvaluationService.submission_get_operations",
+                   return_value=[]), \
+                patch.object(service, "_enqueue_sync",
+                             return_value=True) as enqueue, \
+                self.assertLogs(
+                    "cms.service.EvaluationService", "WARNING") as logs:
+            service.submission_enqueue_operations(self.submission)
+        self.assertEqual(self._enqueued_evaluation_codenames(enqueue),
+                         set(SPLIT_GROUP_CODENAMES))
+        self.assertNotIn("in no subtask", _fallback_warnings(logs.records)[0])
+
+
+# The layout of docs/subtask-dependencies.md: the codename group sN is
+# exactly subtask N-1.
+ALIGNED_CODENAMES = [
+    "s1-00-sample", "s1-01-scr-wa", "s1-02-x",
+    "s2-00-sample", "s2-01-scr-wa", "s2-02-x",
+    "s3-00-sample", "s3-01-x"]
+ALIGNED_PARAMETERS = [
+    {"max_score": 20, "testcases": "^s1-"},
+    {"max_score": 30, "testcases": "^s2-", "depends_on": [0]},
+    {"max_score": 50, "testcases": "^s3-", "depends_on": [0, 1]},
+]
+
+
+class TestAlignedDagNeverHoldsItself(
+    WriteResultsFixtureMixin, ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
+
+    SCORE_TYPE_PARAMETERS = ALIGNED_PARAMETERS
+    TESTCASE_CODENAMES = ALIGNED_CODENAMES
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_the_gates_always_release_something_until_done(self):
+        service = self._build_service()
+        with patch.object(service, "_enqueue_sync",
+                          return_value=True) as enqueue, \
+                self.assertLogs(
+                    "cms.service.EvaluationService", "WARNING") as logs:
+            # assertLogs needs a record, and the fallback must add none.
+            logging.getLogger("cms.service.EvaluationService").warning(
+                "Start.")
+            service.submission_enqueue_operations(self.submission)
+            result = self._current_result()
+            while not result.evaluated():
+                released = self._enqueued_evaluation_codenames(enqueue) - {
+                    e.codename for e in result.evaluations}
+                enqueue.reset_mock()
+                self.assertTrue(released, "the gates hold every testcase left")
+                result = await self._write_with(
+                    service, dict.fromkeys(sorted(released), "1.0"))
+        self.assertEqual(_fallback_warnings(logs.records), [])
+        self.assertEqual({e.codename for e in result.evaluations},
+                         set(ALIGNED_CODENAMES))
 
 
 class TestDependencySkipIsNotAScreeningFailure(

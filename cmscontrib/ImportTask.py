@@ -46,7 +46,8 @@ from cms.db.contest import Contest
 from cms.db.session import Session
 from cms.db import SessionGen, Task
 from cms.db.filecacher import FileCacher
-from cmscontrib.importing import ImportDataError, contest_from_db, update_task
+from cmscontrib.importing import ImportDataError, contest_from_db, \
+    update_task, validate_datasets
 from cmscontrib.loaders import choose_loader, build_epilog
 from cmscontrib.loaders.base_loader import TaskLoader
 
@@ -138,13 +139,15 @@ class TaskImporter:
 
         Return the task, or raise in case of one of these errors:
         - if the task is not in the DB and user did not ask to update it;
-        - if the task is already in the DB and attached to another contest.
+        - if the task is already in the DB and attached to another contest;
+        - if a dataset that would be stored has invalid score parameters.
 
         """
         task: Task | None = session.execute(
             select(Task).filter(Task.name == new_task.name)
         ).scalars().first()
         if task is None:
+            validate_datasets(new_task)
             if contest is not None:
                 logger.info("Attaching task to contest (id %s.)",
                             self.contest_id)
@@ -163,6 +166,7 @@ class TaskImporter:
                 "Task \"%s\" already tied to another contest." % task.name)
 
         if task_has_changed:
+            validate_datasets(new_task)
             logger.info(
                 "Task \"%s\" data has changed, updating it.", task.name)
             update_task(task, new_task, get_statements=not self.no_statement)

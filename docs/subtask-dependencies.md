@@ -96,9 +96,14 @@ Open the task page and go to **Datasets**. In the block of the dataset, under
 **Update** at the bottom of the page. The score type must be one of the group
 score types above.
 
-**Press Update after creating, cloning or importing a dataset too**, even if
-you did not change anything. Only Update checks the dependencies (see "Errors
-when saving").
+**Press Update after creating a dataset and adding its testcases.** A new
+dataset is not checked when you create it, because it has no testcases yet, and
+a regular expression that matches no testcase is an error. A clone and an
+import are checked when you make them (see "Errors when saving").
+
+The **Score Parameters** field is 12 lines tall, and its help text names
+`depends_on`. Next to **Update**, a hint says that Update does not rescore the
+submissions (see "Changing the dependencies after there are submissions").
 
 ### In `task.yaml`
 
@@ -140,30 +145,57 @@ its own score.
 
 ## Errors when saving
 
-AWS checks the score type parameters only when you press **Update** on the task
-page, and it checks every dataset of the task. **Creating** a dataset,
-**cloning** one and **importing** one (with a task loader) do not check them, so
-a wrong `depends_on` can get in without any message. After creating, cloning or
-importing a dataset, open the task page and press **Update**.
+AWS and the import commands run the same checks on the score type parameters of
+a dataset:
+
+- **Update** on the task page checks every dataset of the task.
+- **Cloning** a dataset checks the clone once its testcases are copied, so a
+  dataset with no testcases that selects them by regular expression is refused
+  with "No testcase matches against the regexp ...".
+- `cmsImportTask` checks the datasets of the task it stores: a new task, or an
+  existing one with `--update` whose data has changed. With `--update` and no
+  change it stores nothing and checks nothing.
+- `cmsImportContest` checks a new task (`--import-tasks`) and a task it updates
+  (`--update-tasks`).
+- `cmsImportDataset` checks the dataset it stores.
+
+**Creating** a dataset in AWS does not check it, because it has no testcases
+yet: after adding them, open the task page and press **Update**.
+`cmsDumpImporter` does not check the datasets it loads: it restores a dump, and
+refusing the dump would block restoring a database that already holds an older
+invalid dataset.
 
 A wrong `depends_on` is rejected like any other invalid score type parameter: a
 notification titled **"Invalid score type parameters"** shows one of the
 messages below. Nothing you changed on the task page is saved, not only the
 dataset.
 
+A refused clone shows the same notification and saves nothing. A refused import
+logs `Task <task>, dataset <description>: <message>` (the message that Update
+would show) and "Error while importing, no changes were made.", and stops
+without writing anything.
+
 If the text is not valid JSON, the notification is titled **"Invalid field(s)"**
 and reads `ValueError('Score type parameters are invalid JSON.')`.
 
 | Message | What to do |
 |---------|------------|
+| `Unknown score type "GroupMn".` | Write the name exactly as CMS has it; for dependencies, one of `GroupMin`, `GroupMul` and `GroupThreshold`. AWS offers only the score types CMS has, so you meet this message in an import, for example with a misspelled `score_type` in `task.yaml`. |
 | "Subtask 2: depends_on must be a list of subtask numbers." | Write `depends_on` as a list of integers, for example `[0, 1]`. Not a number alone, not text, not `null`, not `true`. |
 | "Subtask 1: depends on subtask 5, which does not exist (subtasks are numbered from 0 to 2)." | Use a number from 0 to the number of subtasks minus 1. |
 | "Subtask 1: a subtask cannot depend on itself." | Remove its own number from the list. |
 | "Subtask 2: depends_on repeats a subtask." | Write each number once. |
 | "The subtask dependencies form a cycle; subtasks in it or depending on it: 1, 2, 3." | Break the cycle. The subtasks named are the ones in the cycle and the ones that depend on it. |
 
-The numbers in the table are only examples: the messages show the numbers of
-your own parameters. The cycle check runs last, so fix the other errors first.
+The numbers and the score type name in the table are only examples: the
+messages show those of your own parameters. The cycle check runs last, so fix
+the other errors first.
+
+When AWS rejects a save, the page puts back the text you typed in **Score
+Parameters**, once, with the line "Restored your unsaved text." under the field.
+The text is kept only in that browser tab, and it comes back only if the page
+loads again within 30 seconds and the text differs from the stored one; spaces,
+line breaks and the order of the keys alone do not count.
 
 ## What the contestant sees
 
@@ -248,8 +280,13 @@ expression:
  {"max_score": 50, "testcases": "^s3-", "depends_on": [0, 1]}]
 ```
 
-The `italy_yaml` loader names the testcases `000`, `001`, …, so with it this
-example needs the testcases renamed to the `sN-nn-…` codenames after the import.
+The `italy_yaml` loader names the testcases `000`, `001`, …, so an import with
+these regular expressions or with lists of codenames is refused (for a regular
+expression: "No testcase matches against the regexp ..."). Import with the
+count form (`"testcases": 3`), rename the testcases to the
+`sN-nn-…` codenames (see "Getting these codenames" in
+[Two-phase grading](two-phase-grading.md)), then write the regular expressions
+in **Score Parameters** and press **Update**.
 
 ### When a dataset breaks the alignment rule
 
@@ -281,6 +318,18 @@ The warning can also appear on a dataset that follows the rule: when a testcase
 is in no subtask, or after a "Rerun" of a single testcase or a change of
 `depends_on` without **E** left an old "Not tested" evaluation behind. Grading
 still completes with the right scores.
+
+When some of the testcases listed belong to no subtask, the line adds
+`(in no subtask: <codenames>)` right after the list:
+
+```
+Submission 42, dataset 7: no operations left but no evaluation for testcase(s) s1-01-scr-wa, s9-01-x (in no subtask: s9-01-x). The subtask dependency and two-phase screening gates are holding each other (see the alignment rule in docs/subtask-dependencies.md); releasing these testcases without the gates.
+```
+
+If the only testcases listed are in that note, the cause is a testcase in no
+subtask, not a dataset that breaks the alignment rule. If other testcases are
+listed too, check the dataset against the rule: the line cannot tell a dataset
+that breaks it from an old "Not tested" evaluation.
 
 ## Latency
 
@@ -346,8 +395,8 @@ Dataset 7 declares subtask dependencies that cannot be used; grading it without 
 
 The number is the id of the dataset. Fix the parameters of the dataset.
 
-The same happens with a wrong `depends_on` that got in through a new dataset, a
-clone or an import (see "Errors when saving").
+The same happens with a wrong `depends_on` in a dataset created by hand that
+Update has not checked yet, or loaded from a dump (see "Errors when saving").
 
 > **Warning: unusable parameters stop the scoring.** "Grading without the
 > dependencies" is about the grading only. Parameters that the score type cannot
@@ -357,15 +406,19 @@ clone or an import (see "Errors when saving").
 > again every 347 seconds, until the parameters are corrected. Then the
 > submissions are scored by that periodic sweep, or at once with the **S**
 > button of the dataset (see "Changing the dependencies after there are
-> submissions"). A wrong `depends_on` that got in through a new dataset, a clone
-> or an import ends the same way.
+> submissions"). A wrong `depends_on` in a dataset created by hand that Update
+> has not checked yet, or loaded from a dump, ends the same way.
 
 ## Before the contest
 
 For every task that uses `depends_on`:
 
-1. After importing it, open the task page and press **Update** (see "Errors
-   when saving").
+1. Import it: the import checks the score type parameters of its datasets. For
+   a dataset you created by hand, or restored from a dump, open the task page
+   and press **Update** once its testcases are there (see "Errors when
+   saving"). Press **Update** once on it in any case: that also covers a task
+   that a reimport left alone and testcases that were added or deleted after
+   the import.
 2. Check that its datasets follow the alignment rule (see "Two-phase
    screening").
 3. With `CMS_TWO_PHASE_EVALUATION` set as it will be during the contest,

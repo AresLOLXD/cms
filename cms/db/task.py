@@ -511,6 +511,25 @@ class Dataset(Base):
             self._cached_public_testcases = public_testcases
         return self._cached_score_type_object
 
+    def validate_score_type(self) -> None:
+        """Check that the score type parameters build a score type.
+
+        It needs the testcases of the dataset already in place, because
+        the parameters may name them.
+
+        raise (ValueError): if they do not, or if the score type is
+            unknown; the message says why.
+
+        """
+        # Import late to avoid a circular dependency.
+        from cms.grading.scoretypes import SCORE_TYPES
+        if self.score_type not in SCORE_TYPES:
+            raise ValueError("Unknown score type \"%s\"." % self.score_type)
+        try:
+            self.score_type_object
+        except (AssertionError, ValueError) as error:
+            raise ValueError(str(error)) from error
+
     def clone_from(self, old_dataset: "Dataset", clone_managers: bool = True,
                    clone_testcases: bool = True, clone_results: bool = False):
         """Overwrite the data with that in dataset.

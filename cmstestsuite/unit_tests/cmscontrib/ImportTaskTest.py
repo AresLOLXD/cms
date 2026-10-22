@@ -23,10 +23,20 @@ import unittest
 from sqlalchemy import select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.testidgenerator import unique_digest
 
-from cms.db import SessionGen, Submission, Task
+from cms.db import SessionGen, Submission, Task, Testcase
 from cmscontrib.ImportTask import TaskImporter
 from cmscontrib.loaders.base_loader import TaskLoader
+
+
+CYCLIC_GROUP_MIN_PARAMETERS = [
+    {"max_score": 50, "testcases": 1, "depends_on": [1]},
+    {"max_score": 50, "testcases": 1, "depends_on": [0]}]
+
+VALID_GROUP_MIN_PARAMETERS = [
+    {"max_score": 20, "testcases": 1},
+    {"max_score": 80, "testcases": 1, "depends_on": [0]}]
 
 
 def fake_loader_factory(task, task_has_changed=False):
@@ -84,7 +94,8 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
     def assertTaskInDb(self, task_name, title, contest_id,
                        task_id=None, active_dataset_id=None, dataset_ids=None,
                        dataset_descriptions=None, dataset_task_types=None,
-                       dataset_manager_digests=None):
+                       dataset_manager_digests=None,
+                       dataset_score_type_parameters=None):
         """Assert that the task with the given data is in the DB
 
         The query is done by task name, and to avoid caching, we query from a
@@ -115,6 +126,10 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
             if dataset_task_types is not None:
                 self.assertCountEqual(dataset_task_types,
                                       (d.task_type for d in t.datasets))
+            if dataset_score_type_parameters is not None:
+                self.assertCountEqual(dataset_score_type_parameters,
+                                      (d.score_type_parameters
+                                       for d in t.datasets))
             if dataset_manager_digests is not None:
                 self.assertCountEqual(dataset_manager_digests,
                                       (m.digest
@@ -133,6 +148,81 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
         self.assertTrue(ret)
         self.assertTaskInDb(prefix + override_name, new_title, self.contest_id,
                             dataset_ids=[])
+
+    @classmethod
+    def get_group_min_dataset(cls, task, parameters):
+        """Create a loader-style GroupMin dataset with two testcases"""
+        dataset = cls.get_dataset(
+            task=task, score_type="GroupMin", score_type_parameters=parameters)
+        for codename in ("a", "b"):
+            Testcase(dataset=dataset, codename=codename, public=True,
+                     input=unique_digest(), output=unique_digest())
+        return dataset
+
+    def test_a_valid_dag_dataset_imports(self):
+        new_task = self.get_task(name="newtask", title="new_title")
+        dataset = self.get_group_min_dataset(
+            new_task, VALID_GROUP_MIN_PARAMETERS)
+        description = dataset.description
+        ret = self.do_import(new_task, self.contest_id, update=False)
+
+        self.assertTrue(ret)
+        self.assertTaskInDb(
+            "newtask", "new_title", self.contest_id,
+            dataset_descriptions=[description],
+            dataset_score_type_parameters=[VALID_GROUP_MIN_PARAMETERS])
+
+    def test_an_invalid_dataset_is_refused_and_nothing_is_written(self):
+        new_task = self.get_task(name="newtask", title="new_title")
+        self.get_group_min_dataset(new_task, CYCLIC_GROUP_MIN_PARAMETERS)
+        ret = self.do_import(new_task, self.contest_id, update=False)
+
+        self.assertFalse(ret)
+        with SessionGen() as session:
+            self.assertEqual(
+                session.execute(
+                    select(Task).filter(Task.name == "newtask")
+                ).scalars().all(), [])
+
+    def test_an_unknown_score_type_is_refused_and_nothing_is_written(self):
+        new_task = self.get_task(name="newtask", title="new_title")
+        self.get_dataset(task=new_task, score_type="NoSuchType",
+                         score_type_parameters=100)
+        ret = self.do_import(new_task, self.contest_id, update=False)
+
+        self.assertFalse(ret)
+        with SessionGen() as session:
+            self.assertEqual(
+                session.execute(
+                    select(Task).filter(Task.name == "newtask")
+                ).scalars().all(), [])
+
+    def test_an_invalid_dataset_is_refused_when_updating_a_task(self):
+        # The task is in the DB and the loader says it changed, but the new
+        # dataset has a cyclic depends_on: the stored task is left alone.
+        new_task = self.get_task(name=self.task_name, title="new_title")
+        self.get_group_min_dataset(new_task, CYCLIC_GROUP_MIN_PARAMETERS)
+        ret = self.do_import(new_task, self.contest_id, update=True,
+                             task_has_changed=True)
+
+        self.assertFalse(ret)
+        self.assertTaskInDb(self.task_name, self.task_title, self.contest_id,
+                            task_id=self.task_id,
+                            dataset_ids=[self.dataset_id])
+
+    def test_an_unchanged_task_is_not_validated(self):
+        # The task is in the DB and the loader says it did not change, so
+        # nothing is stored and its datasets are not looked at: an old task
+        # that was invalid before can still be re-imported with --update.
+        new_task = self.get_task(name=self.task_name, title="new_title")
+        self.get_group_min_dataset(new_task, CYCLIC_GROUP_MIN_PARAMETERS)
+        ret = self.do_import(new_task, self.contest_id, update=True,
+                             task_has_changed=False)
+
+        self.assertTrue(ret)
+        self.assertTaskInDb(self.task_name, self.task_title, self.contest_id,
+                            task_id=self.task_id,
+                            dataset_ids=[self.dataset_id])
 
     def test_clean_import_no_contest(self):
         # Completely new task, do not attach it to any contest.
@@ -177,7 +267,8 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
         new_title = "new_title"
         new_task = self.get_task(name=self.task_name, title=new_title)
         new_desc = "new_desc"
-        self.get_dataset(task=new_task, description=new_desc)
+        self.get_dataset(task=new_task, description=new_desc,
+                         score_type="Sum", score_type_parameters=100)
         ret = self.do_import(new_task, self.contest_id, update=True,
                              task_has_changed=True)
 
@@ -196,7 +287,8 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
         new_task = self.get_task(name=self.task_name, title=new_title)
         new_task_type = "Batch"
         self.get_dataset(task=new_task, description=self.dataset_description,
-                         task_type=new_task_type)
+                         task_type=new_task_type,
+                         score_type="Sum", score_type_parameters=100)
         self.assertNotEqual(new_task_type, self.dataset.task_type)
         ret = self.do_import(new_task, self.contest_id, update=True,
                              task_has_changed=True)
@@ -214,7 +306,8 @@ class TestImportTask(DatabaseMixin, unittest.TestCase):
         new_task = self.get_task(name=self.task_name, title=self.task_title)
         # New version of checker
         new_dataset = self.get_dataset(
-            task=new_task, description=self.dataset.description)
+            task=new_task, description=self.dataset.description,
+            score_type="Sum", score_type_parameters=100)
         new_checker = self.get_manager(dataset=new_dataset, filename="checker")
         ret = self.do_import(new_task, self.contest_id, update=True,
                              task_has_changed=True)

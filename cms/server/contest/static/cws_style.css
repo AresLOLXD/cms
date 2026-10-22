@@ -707,6 +707,13 @@ td.token_rules p:last-child {
     display: none;
 }
 
+#submission_detail .subtask-dependency {
+    color: #666666;
+    font-size: 0.9em;
+    font-style: italic;
+    margin-bottom: 8px;
+}
+
 #submission_detail table.testcase-list {
     table-layout: fixed;
     width: 100%;

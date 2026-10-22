@@ -23,10 +23,21 @@ import unittest
 from sqlalchemy import func, select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.testidgenerator import unique_digest
 
-from cms.db import Contest, SessionGen, Submission, User
+from cms.db import (
+    Contest, Dataset, SessionGen, Submission, Task, Testcase, User)
 from cmscontrib.ImportContest import ContestImporter
 from cmscontrib.loaders.base_loader import ContestLoader, TaskLoader
+
+
+CYCLIC_GROUP_MIN_PARAMETERS = [
+    {"max_score": 50, "testcases": 1, "depends_on": [1]},
+    {"max_score": 50, "testcases": 1, "depends_on": [0]}]
+
+VALID_GROUP_MIN_PARAMETERS = [
+    {"max_score": 20, "testcases": 1},
+    {"max_score": 80, "testcases": 1, "depends_on": [0]}]
 
 
 def fake_loader_factory(
@@ -206,6 +217,65 @@ class TestImportContest(DatabaseMixin, unittest.TestCase):
         ret = self.do_import(contest, [(task, True)], [], import_tasks=False)
 
         self.assertFalse(ret)
+
+    def get_task_with_group_min_dataset(self, parameters, **kwargs):
+        """Create a loader-style task with a two-testcase GroupMin dataset"""
+        task = self.get_task(**kwargs)
+        dataset = self.get_dataset(
+            task=task, score_type="GroupMin", score_type_parameters=parameters)
+        for codename in ("a", "b"):
+            Testcase(dataset=dataset, codename=codename, public=True,
+                     input=unique_digest(), output=unique_digest())
+        return task
+
+    def test_a_valid_dag_dataset_imports(self):
+        contest = self.get_contest(name="new_name", description="new_desc")
+        task = self.get_task_with_group_min_dataset(
+            VALID_GROUP_MIN_PARAMETERS, name="new_task_name",
+            title="new_task_title", contest=contest)
+        ret = self.do_import(contest, [(task, True)], [], import_tasks=True)
+
+        self.assertTrue(ret)
+        self.assertContestInDb("new_name", "new_desc",
+                               [("new_task_name", "new_task_title")], [])
+
+    def test_an_invalid_dataset_is_refused_and_nothing_is_written(self):
+        # Completely new contest, the task is imported, but its dataset has
+        # a cyclic depends_on: nothing, not even the contest, is stored.
+        contest = self.get_contest(name="new_name")
+        task = self.get_task_with_group_min_dataset(
+            CYCLIC_GROUP_MIN_PARAMETERS, name="new_task_name",
+            contest=contest)
+        ret = self.do_import(contest, [(task, True)], [], import_tasks=True)
+
+        self.assertFalse(ret)
+        with SessionGen() as session:
+            self.assertEqual(
+                session.execute(
+                    select(Contest).filter(Contest.name == "new_name")
+                ).scalars().all(), [])
+            self.assertEqual(
+                session.execute(
+                    select(Task).filter(Task.name == "new_task_name")
+                ).scalars().all(), [])
+
+    def test_an_invalid_dataset_is_refused_when_updating_a_task(self):
+        # The task is already in the DB and we ask to update it, but the new
+        # dataset has a cyclic depends_on: the stored task is left alone.
+        contest = self.get_contest(name=self.name)
+        task = self.get_task_with_group_min_dataset(
+            CYCLIC_GROUP_MIN_PARAMETERS, name=self.task_name,
+            title="new_task_title", contest=contest)
+        ret = self.do_import(contest, [(task, True)], [], update_tasks=True)
+
+        self.assertFalse(ret)
+        self.assertContestInDb(self.name, self.description,
+                               [(self.task_name, self.task_title)],
+                               [(self.username, self.last_name)])
+        with SessionGen() as session:
+            self.assertEqual(
+                [d.id for d in session.execute(select(Dataset)).scalars()],
+                [self.dataset_id])
 
     def test_import_task_in_db_already_attached_fail(self):
         # Completely new contest, but the task is already attached to another

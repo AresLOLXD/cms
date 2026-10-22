@@ -727,16 +727,25 @@ class TestLoginQueueLimit(VisibilityTestCase):
             "/olim/staff-login", data={"password": password})
 
     def test_logins_past_the_limit_get_a_503(self):
-        # validate_password runs in a real thread of the pool, which only
-        # a primitive that gevent has not patched can block.
-        release = get_original("threading", "Event")()
+        # A real lock: after patch_all() even the original Event cannot
+        # wake the OS thread that runs validate_password.
+        gate = get_original("_thread", "allocate_lock")()
+        gate.acquire()
+
+        def open_gate():
+            try:
+                gate.release()
+            except RuntimeError:
+                pass  # already open
+
         # A thread left blocked would hang the login of the next tests.
-        self.addCleanup(release.set)
+        self.addCleanup(open_gate)
         calls = []
 
         def blocked(stored, password):
             calls.append(password)
-            release.wait(5)
+            if gate.acquire(timeout=5):
+                gate.release()
             return True
 
         with patch.object(visibility_module, "LOGIN_MAX_PENDING", 2):
@@ -759,7 +768,7 @@ class TestLoginQueueLimit(VisibilityTestCase):
                     "Demasiados intentos de acceso. "
                     "Intenta de nuevo en un momento.")
                 self.assertEqual(len(calls), 2)
-                release.set()
+                open_gate()
                 gevent.joinall(waiting, timeout=5, raise_error=True)
                 self.assertEqual(len(calls), 2)
             # Both slots came back: with a count that stayed at 2 this

@@ -130,10 +130,10 @@ You are cloning the dataset "{{ original_dataset.description }}".
     </tr>
     <tr>
       <td>
-        <span class="info" title="Please see the score type documentation."></span>
+        <span class="info" title='Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.'></span>
         Score Parameters
       </td>
-      <td><textarea name="score_type_parameters">{{ original_dataset.score_type_parameters|tojson|forceescape if original_dataset is not none else "" }}</textarea></td>
+      <td><textarea name="score_type_parameters" rows="12">{{ original_dataset.score_type_parameters|tojson|forceescape if original_dataset is not none else "" }}</textarea></td>
     </tr>
   </table>
 <input type="submit" value="Create"/>
