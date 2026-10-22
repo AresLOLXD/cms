@@ -88,6 +88,16 @@ class TestRegisterTeamsFromFlags(unittest.TestCase):
         self.assertIn("BCA", self.team_store)
         self.assertIn("CUSTOM", self.team_store)
 
+    def test_skips_a_flag_whose_name_is_not_a_valid_key(self):
+        # Store.create refuses keys outside [A-Za-z0-9_] with InvalidKey.
+        self._add_image("foo-bar.png")
+        self._add_image("JAL.png")
+        with self.assertLogs("cmsranking.seed", level="WARNING") as logs:
+            _register_teams_from_flags(self.flags_dir, self.team_store)
+        self.assertIn("JAL", self.team_store)
+        self.assertNotIn("foo-bar", self.team_store)
+        self.assertIn("Could not register team 'foo-bar'.", logs.output[0])
+
 
 class TestCopyBundledFlags(unittest.TestCase):
 

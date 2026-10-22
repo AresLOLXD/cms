@@ -6,7 +6,7 @@ import logging
 import os
 from importlib.resources import files
 
-from cmsranking.Entity import InvalidData
+from cmsranking.Entity import InvalidData, InvalidKey
 from cmsranking.mx_states import MX_STATES
 from cmsranking.Store import Store
 from cmsranking.Team import Team
@@ -46,7 +46,7 @@ def _register_teams_from_flags(flags_dir: str, team_store: Store) -> None:
         try:
             team_store.create(stem, {"name": name})
             logger.info("Registered team '%s' (%s) from flag image.", stem, name)
-        except (InvalidData, OSError):
+        except (InvalidKey, InvalidData, OSError):
             logger.warning("Could not register team '%s'.", stem, exc_info=True)
 
 
