@@ -22,6 +22,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from cms import FEEDBACK_LEVEL_RESTRICTED, FEEDBACK_LEVEL_FULL
+from cms.grading.scoretypes.GroupMin import GroupMin
+from cms.grading.steps.evaluation import EVALUATION_MESSAGES
 from cms.server.contest.handlers.api import (
     ApiSubmitHandler,
     ApiSubmissionDetailsHandler,
@@ -42,6 +44,7 @@ class BaseApiHandlerTest(unittest.TestCase):
         self.task.feedback_level = FEEDBACK_LEVEL_RESTRICTED
 
         self.score_type = MagicMock()
+        self.score_type.hide_dependency_messages.side_effect = lambda d: d
         self.dataset = MagicMock()
         self.dataset.score_type_object = self.score_type
         self.task.active_dataset = self.dataset
@@ -142,6 +145,43 @@ class TestApiSubmissionDetailsHandler(BaseApiHandlerTest):
         self.score_type.get_json_details.assert_called_once_with(
             self.submission_result.score_details, FEEDBACK_LEVEL_FULL
         )
+
+    def test_tokened_details_hide_the_dependency_messages(self):
+        # Subtask 1 depends on subtask 0, which failed, and asks to hide it.
+        skipped_text = [EVALUATION_MESSAGES.get("skipped_dependency").message]
+        score_type = GroupMin(
+            [{"max_score": 10, "testcases": 1},
+             {"max_score": 10, "testcases": 1, "depends_on": [0],
+              "hide_dependency": True}],
+            {"0": True, "1": True}, 2)
+        self.dataset.score_type_object = score_type
+        row = {"outcome": "Not correct", "text": ["Output isn't correct"],
+               "show_in_restricted_feedback": True,
+               "show_in_oi_restricted_feedback": True}
+        self.submission_result.score_details = [
+            {"idx": 0, "score_fraction": 0.0, "score": 0.0,
+             "max_score": 10.0, "testcases": [dict(row, idx="0")]},
+            {"idx": 1, "score_fraction": 0.0, "score": 0.0,
+             "max_score": 10.0, "zeroed_by_dependency": 0,
+             "testcases": [dict(row, idx="1", text=skipped_text,
+                                skipped=True)]}]
+        self.submission.tokened.return_value = True
+
+        handler = self.create_handler(ApiSubmissionDetailsHandler, phase=0)
+        handler.get("my_task", "1")
+        hidden = handler.json_data["details"][1]
+        self.assertNotIn("zeroed_by_dependency", hidden)
+        self.assertEqual(hidden["testcases"], [{"idx": "1"}])
+        self.assertEqual(handler.json_data["details"][0]["testcases"][0]
+                         ["outcome"], "Not correct")
+
+        handler = self.create_handler(
+            ApiSubmissionFullDetailsHandler, impersonated=True)
+        handler.get("my_task", "1")
+        full = handler.json_data["details"][1]
+        self.assertEqual(full["zeroed_by_dependency"], 0)
+        self.assertEqual(full["testcases"][0]["text"], skipped_text)
+        self.assertIs(full["testcases"][0]["skipped"], True)
 
 
 class TestApiSubmissionFullDetailsHandler(BaseApiHandlerTest):

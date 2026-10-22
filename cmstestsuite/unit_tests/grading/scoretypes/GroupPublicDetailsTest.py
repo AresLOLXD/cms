@@ -194,7 +194,7 @@ class PublicDetailsTests:
     def test_json_details_keep_skipped_only_when_true(self):
         details = self.get_public_details()
         details[0]["testcases"][0]["skipped"] = True
-        for level in (FEEDBACK_LEVEL_FULL, FEEDBACK_LEVEL_RESTRICTED):
+        for level in FEEDBACK_LEVELS:
             with self.subTest(level=level):
                 filtered = self.score_type.get_json_details(details, level)
                 self.assertIs(filtered[0]["testcases"][0]["skipped"], True)

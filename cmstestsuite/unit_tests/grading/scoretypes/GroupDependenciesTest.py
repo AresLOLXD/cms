@@ -19,9 +19,11 @@
 
 import unittest
 
+from cms import FEEDBACK_LEVEL_FULL
 from cms.grading.scoretypes.GroupMin import GroupMin
 from cms.grading.scoretypes.GroupMul import GroupMul
 from cms.grading.scoretypes.GroupThreshold import GroupThreshold
+from cms.grading.scoretypes.Sum import Sum
 from cms.grading.steps.evaluation import EVALUATION_MESSAGES
 from cmstestsuite.unit_tests.grading.scoretypes.scoretypetestutils import \
     ScoreTypeTestMixin
@@ -361,6 +363,73 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
         _, details, _, public_details, _ = st.compute_score(sr)
         self.assertEqual(public_details[1], details[1])
         self.assertEqual(public_details[1]["zeroed_by_dependency"], 0)
+
+
+    def _hidden_transitive_dataset(self):
+        """Subtask 1 depends on 0 and subtask 2 (hidden) depends on 1."""
+        public = {"0": True, "1": True, "2": True, "3": True}
+        self.parameters = params(
+            (20, 1, {}),
+            (30, 1, {"depends_on": [0]}),
+            (50, 2, {"depends_on": [1], "hide_dependency": True}))
+        return GroupMin(self.parameters, public, 2), public
+
+    def test_hide_dependency_messages_filters_the_full_details(self):
+        public = {"0": True, "1": True, "2": True, "3": True}
+        self.parameters = params(
+            (20, 1, {}),
+            (30, 2, {"depends_on": [0], "hide_dependency": True}),
+            (50, 1, {"depends_on": [0]}))
+        st = GroupMin(self.parameters, public, 2)
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2", "3")
+        _, details, _, _, _ = st.compute_score(sr)
+        # Not a deepcopy: the Mock time limits would not compare equal.
+        snapshot = [
+            dict(st, testcases=[dict(tc) for tc in st["testcases"]])
+            for st in details]
+
+        shown = st.hide_dependency_messages(details)
+
+        self.assertEqual(details, snapshot)
+        self.assertNotIn("zeroed_by_dependency", shown[1])
+        self.assertEqual(shown[1]["testcases"], [{"idx": "1"}, {"idx": "2"}])
+        # The subtask that is not hidden keeps its note and its rows.
+        self.assertIs(shown[0], details[0])
+        self.assertIs(shown[2], details[2])
+        self.assertEqual(shown[2]["zeroed_by_dependency"], 0)
+        self.assertIs(shown[2]["testcases"][0]["skipped"], True)
+        html = st.get_html_details(shown, FEEDBACK_LEVEL_FULL)
+        self.assertEqual(html.count("Worth 0 because"), 1)
+
+    def test_hide_dependency_messages_with_a_transitive_dependency(self):
+        st, public = self._hidden_transitive_dataset()
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2", "3")
+        _, details, _, _, _ = st.compute_score(sr)
+        self.assertEqual(details[2]["zeroed_by_dependency"], 1)
+
+        shown = st.hide_dependency_messages(details)
+
+        self.assertNotIn("zeroed_by_dependency", shown[2])
+        self.assertEqual(shown[2]["testcases"], [{"idx": "2"}, {"idx": "3"}])
+        self.assertEqual(shown[1]["zeroed_by_dependency"], 0)
+
+    def test_hide_dependency_messages_is_identity_for_other_shapes(self):
+        st, public = self._hidden_transitive_dataset()
+        for details in (None, {"score": 1}, "text"):
+            self.assertIs(st.hide_dependency_messages(details), details)
+        details = [{"idx": 0, "zeroed_by_dependency": 0, "testcases": []}]
+        self.assertIs(Sum(10, {"0": True}, 2).hide_dependency_messages(
+            details), details)
+        # An idx that the parameters do not have is not hidden.
+        stale = [{"idx": 7, "zeroed_by_dependency": 0,
+                  "testcases": [{"idx": "x", "skipped": True}]}]
+        self.assertEqual(st.hide_dependency_messages(stale), stale)
+        self.assertEqual(st.hide_dependency_messages([{"idx": 2}]),
+                         [{"idx": 2}])
 
 
 if __name__ == "__main__":

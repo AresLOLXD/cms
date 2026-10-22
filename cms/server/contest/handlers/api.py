@@ -271,7 +271,8 @@ class ApiSubmissionDetailsHandler(ApiContestHandler):
         if sr is not None and sr.scored():
             is_analysis_mode = self.r_params["actual_phase"] == 3
             if submission.tokened() or is_analysis_mode:
-                raw_details = sr.score_details
+                raw_details = score_type.hide_dependency_messages(
+                    sr.score_details)
             else:
                 raw_details = sr.public_score_details
 

@@ -55,6 +55,28 @@ def N_(message: str):
     return message
 
 
+def without_dependency_messages(subtask: dict) -> dict:
+    """Return a copy of a subtask's details without its dependency messages.
+
+    The copy has no "zeroed_by_dependency" note and each skipped testcase
+    is replaced by a bare {"idx": ...} row. The argument is not modified
+    (it may be the very object of the full details shown by AWS).
+
+    subtask: the details of one subtask, as built by
+        ScoreTypeGroup.compute_score.
+
+    return: the copy.
+
+    """
+    hidden = {
+        key: value for key, value in subtask.items()
+        if key != "zeroed_by_dependency"}
+    hidden["testcases"] = [
+        {"idx": tc["idx"]} if tc.get("skipped") else tc
+        for tc in subtask["testcases"]]
+    return hidden
+
+
 class ScoreType(metaclass=ABCMeta):
     """Base class for all score types, that must implement all methods
     defined here.
@@ -136,6 +158,22 @@ class ScoreType(metaclass=ABCMeta):
         feedback_level: the level of details to show to users.
 
         return: JSON-serializable filtered score details.
+
+        """
+        return score_details
+
+    def hide_dependency_messages(self, score_details: object) -> object:
+        """Remove from the full score details what the task hides.
+
+        Contestants who are shown the full details (tokened submissions,
+        analysis mode) must not see the messages about subtask dependencies
+        that the task asks to hide. Score types without such messages
+        return the details unchanged.
+
+        score_details: the full data saved by the score type.
+
+        return: the details to show to a contestant; the argument is never
+            modified.
 
         """
         return score_details
@@ -464,6 +502,20 @@ class ScoreTypeGroup(ScoreTypeAlone):
 
         return filtered_subtasks
 
+    def hide_dependency_messages(self, score_details: object) -> object:
+        """See ScoreType.hide_dependency_messages."""
+        if not isinstance(score_details, list):
+            return score_details
+        # The stored details may predate a change of the parameters, so an
+        # idx that is out of range counts as not hidden.
+        return [
+            without_dependency_messages(st)
+            if "zeroed_by_dependency" in st
+            and 0 <= st.get("idx", -1) < len(self.hide_dependency)
+            and self.hide_dependency[st["idx"]]
+            else st
+            for st in score_details]
+
     def get_max_score(self, group_parameter: ScoreTypeGroupParameters) -> float:
         if isinstance(group_parameter, tuple) or isinstance(group_parameter, list):
             score = group_parameter[0]
@@ -691,14 +743,7 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 ):
                     public_subtask["zeroed_by_dependency"] = zeroed[st_idx]
             if self.hide_dependency[st_idx] and zeroed[st_idx] is not None:
-                # Copy: public_subtask may be the very object of the full
-                # details, which keep the note and the skipped rows.
-                public_subtask = {
-                    key: value for key, value in public_subtask.items()
-                    if key != "zeroed_by_dependency"}
-                public_subtask["testcases"] = [
-                    {"idx": tc["idx"]} if tc.get("skipped") else tc
-                    for tc in public_subtask["testcases"]]
+                public_subtask = without_dependency_messages(public_subtask)
             public_subtasks.append(public_subtask)
             ranking_details.append("%g" % rounded_score)
 
