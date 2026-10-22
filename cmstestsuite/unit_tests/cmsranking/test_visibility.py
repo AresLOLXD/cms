@@ -60,7 +60,7 @@ STAFF_HASH = build_password("s3cret", "plaintext")
 DATA_PATHS = ["contests/", "contests/c1", "tasks/", "teams/", "users/",
               "submissions/", "subchanges/", "sublist/u1", "scores",
               "history", "events", "config", "logo", "faces/u1",
-              "flags/t1", "Ranking.html", "Ranking.js", "img/favicon.ico"]
+              "flags/t1", "Ranking.js", "img/favicon.ico"]
 
 
 class VisibilityTestCase(unittest.TestCase):
@@ -187,6 +187,22 @@ class TestHiddenGroup(VisibilityTestCase):
         self.assertIn("Este ranking está oculto por ahora.", text)
         self.assertIn("<title>Ranking oculto</title>", text)
         self.assertIn('action="staff-login"', text)
+
+    def test_ranking_html_shows_the_notice(self):
+        for method in ("GET", "HEAD"):
+            with self.subTest(method=method):
+                response = self.client.open("/olim/Ranking.html",
+                                            method=method)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.mimetype, "text/html")
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "no-store")
+                text = response.get_data(as_text=True)
+                if method == "HEAD":
+                    self.assertEqual(text, "")
+                else:
+                    self.assertIn("<title>Ranking oculto</title>", text)
+                    self.assertIn('action="staff-login"', text)
 
     def test_notice_comes_back_by_itself(self):
         text = self.client.get("/olim/").get_data(as_text=True)
@@ -410,6 +426,12 @@ class TestStaffLogin(VisibilityTestCase):
             {"c1": CONTEST})
         page = self.client.get("/olim/", headers=headers)
         self.assertEqual(page.status_code, 200)
+        self.assertIn("Vista staff: este ranking está oculto al público",
+                      page.get_data(as_text=True))
+
+    def test_staff_get_the_banner_at_ranking_html(self):
+        headers = self.with_cookie(self.cookie_from(self.login("s3cret")))
+        page = self.client.get("/olim/Ranking.html", headers=headers)
         self.assertIn("Vista staff: este ranking está oculto al público",
                       page.get_data(as_text=True))
 
@@ -1988,10 +2010,13 @@ class TestFrozenPublicView(VisibilityTestCase):
 
     def test_staff_get_the_frozen_banner(self):
         with self.at(350):
-            page = self.client.get(
-                "/olim/", headers=self.staff_headers()).get_data(as_text=True)
-        self.assertIn("Vista staff: ranking congelado", page)
-        self.assertNotIn("Ranking congelado desde las", page)
+            for path in ("", "Ranking.html"):
+                with self.subTest(path=path):
+                    page = self.client.get(
+                        "/olim/" + path, headers=self.staff_headers()
+                    ).get_data(as_text=True)
+                    self.assertIn("Vista staff: ranking congelado", page)
+                    self.assertNotIn("Ranking congelado desde las", page)
 
     def test_staff_pages_of_a_frozen_group_are_private(self):
         # A shared cache that ignores cookies must not keep the live view,

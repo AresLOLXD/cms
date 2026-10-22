@@ -763,7 +763,7 @@ class VisibilityGuard:
                 # even the page that gets a banner.
                 start_response = _cache_control(
                     start_response, PRIVATE_NO_STORE)
-                if path == "/" and request.method == "GET":
+                if path in INDEX_PATHS and request.method == "GET":
                     return self._with_banner(
                         environ, start_response,
                         STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
@@ -787,7 +787,7 @@ class VisibilityGuard:
             return self.app(environ, start_response)
         if frozen:
             return self._frozen(request, environ, start_response)
-        if path == "/" and request.method in ("GET", "HEAD"):
+        if path in INDEX_PATHS and request.method in ("GET", "HEAD"):
             return self._notice(poll=True)(environ, start_response)
         if path == "/staff-login" and request.method == "POST":
             return self._login(request, start_response)(
