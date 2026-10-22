@@ -179,9 +179,10 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
     now: the current time, naive UTC.
 
     return: the fields (name, label, UTC value, local value), whether it
-        is hidden or frozen now, a one-line summary and the next change.
-        Frozen follows the freeze window alone, also while the group is
-        hidden, unlike RankingGroup.is_frozen_at.
+        is hidden or frozen now, a one-line summary and the next change,
+        the first future time that changes the hidden or frozen state
+        (or ""). Frozen follows the freeze window alone, also while the
+        group is hidden, unlike RankingGroup.is_frozen_at.
 
     """
     def local(value: datetime | None) -> str:
@@ -194,8 +195,12 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
                "utc": format_utc(getattr(group, name)),
                "local": local(getattr(group, name))}
               for name, label in WINDOW_FIELDS]
-    hidden = group.is_hidden_at(now)
-    frozen = window_is_open(group.freeze_at, group.unfreeze_at, now)
+
+    def state_at(when: datetime) -> tuple[bool, bool]:
+        return (group.is_hidden_at(when),
+                window_is_open(group.freeze_at, group.unfreeze_at, when))
+
+    hidden, frozen = state_at(now)
     if hidden:
         summary = "oculto (congelado)" if frozen else "oculto"
     else:
@@ -203,7 +208,8 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
     upcoming = sorted((getattr(group, name), label)
                       for name, label in WINDOW_FIELDS
                       if getattr(group, name) is not None
-                      and getattr(group, name) > now)
+                      and getattr(group, name) > now
+                      and state_at(getattr(group, name)) != (hidden, frozen))
     next_change = "" if not upcoming else "%s: %s UTC (%s)" % (
         upcoming[0][1], format_utc(upcoming[0][0]), local(upcoming[0][0]))
     return {"fields": fields, "hidden_now": hidden, "frozen_now": frozen,
@@ -303,6 +309,9 @@ class RankingGroupHandler(BaseHandler):
         fallback_page = self.url("ranking_group", group_id)
 
         group = self.safe_get_item(RankingGroup, group_id)
+        # SELECT ... FOR UPDATE: a second request waits for this one to
+        # commit, then checks its action against the new state.
+        self.sql_session.refresh(group, with_for_update=True)
 
         try:
             attrs = group.get_attrs()
