@@ -743,6 +743,7 @@ class TestLoginQueueLimit(VisibilityTestCase):
             with patch.object(visibility_module, "validate_password",
                               blocked):
                 waiting = [gevent.spawn(self.login, "x") for _ in range(2)]
+                self.addCleanup(gevent.killall, waiting)
                 with gevent.Timeout(5):
                     while len(calls) < 2:
                         gevent.sleep(0.01)
@@ -760,6 +761,7 @@ class TestLoginQueueLimit(VisibilityTestCase):
                 self.assertEqual(len(calls), 2)
                 release.set()
                 gevent.joinall(waiting, timeout=5, raise_error=True)
+                self.assertEqual(len(calls), 2)
             # Both slots came back: with a count that stayed at 2 this
             # would be refused too.
             self.assertEqual(self.login("s3cret").status_code, 303)
@@ -954,7 +956,7 @@ class TestOpenConnections(unittest.TestCase):
         response = self.get_write_stream()
         self.assertEqual(response.get_data(), b"event 1\n")
 
-    def test_write_stream_of_staff_is_cut_when_hidden(self):
+    def test_write_stream_of_staff_is_cut_when_the_view_changes(self):
         class StaffGuard(VisibilityGuard):
             def _is_staff(self, request):
                 return True
@@ -1039,9 +1041,14 @@ class TestRealEventStream(VisibilityTestCase):
         stream.sendall(request)
         return stream
 
-    def open_stream(self, cookie: str | None = None) -> socket.socket:
-        cookie_line = b"" if cookie is None else \
+    @staticmethod
+    def cookie_line(cookie: str | None) -> bytes:
+        """Return the header line of a staff cookie, if there is one."""
+        return b"" if cookie is None else \
             b"Cookie: %s=%s\r\n" % (STAFF_COOKIE.encode(), cookie.encode())
+
+    def open_stream(self, cookie: str | None = None) -> socket.socket:
+        cookie_line = self.cookie_line(cookie)
         stream = self.connect(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
                               b"Accept: text/event-stream\r\n" + cookie_line
                               + b"\r\n")
@@ -1109,7 +1116,7 @@ class TestRealEventStream(VisibilityTestCase):
 
 
 class TestStreamsAcrossTransitions(TestRealEventStream):
-    """Public event streams across freezes, changes and restarts."""
+    """Event streams across freezes, changes and restarts."""
 
     # A reload event and a ping, as the chunks of an event stream.
     RELOAD = b"14\r\nevent:reload\ndata:\n\n\r\n"
@@ -1155,11 +1162,13 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def get_events(self, path: str, last_event_id: str) -> bytes:
+    def get_events(self, path: str, last_event_id: str,
+                   cookie: str | None = None) -> bytes:
         """Reconnect to an event stream and return what it sends at once.
 
         path: the path of the event stream.
         last_event_id: the ID of the last event the client got.
+        cookie: the staff cookie to send, if any.
 
         return: the response, headers included, as read until the
             stream is idle for half a second.
@@ -1167,8 +1176,9 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         """
         stream = self.connect(
             b"GET %s HTTP/1.1\r\nHost: rws\r\nAccept: text/event-stream\r\n"
-            b"Last-Event-ID: %s\r\n\r\n"
-            % (path.encode(), last_event_id.encode()))
+            b"Last-Event-ID: %s\r\n%s\r\n"
+            % (path.encode(), last_event_id.encode(),
+               self.cookie_line(cookie)))
         stream.settimeout(0.5)
         received = self.drain(stream)[0]
         # What is asserted absent must not be absent for lack of time.
@@ -1201,9 +1211,15 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
             pass
         return received, False
 
-    def assert_reloaded_at_once(self, stream: socket.socket):
-        """Check that a stream got one reload before any ping, and ended."""
-        received, closed = self.drain_for(stream, 3)
+    def assert_reloaded_at_once(self, stream: socket.socket,
+                                seconds: float = 3):
+        """Check that a stream got one reload before any ping, and ended.
+
+        stream: the connection to read from.
+        seconds: how long the reload may take.
+
+        """
+        received, closed = self.drain_for(stream, seconds)
         self.assertEqual(received.count(b"event:reload"), 1)
         self.assertTrue(closed)
 
@@ -1227,13 +1243,34 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         self.put_freeze(1, unfreeze_at=2)
         self.assert_reloaded_at_once(stream)
 
+    def test_public_stream_reloads_when_a_rounded_up_unfreeze_comes(self):
+        # ProxyService rounds unfreeze_at up to the next whole second, so
+        # for a click the update comes before the time that it carries.
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_freeze(1, unfreeze_at=int(time.time()) + 1)
+        self.assert_reloaded_at_once(stream, 4)
+
+    def test_staff_stream_reloads_when_a_rounded_up_show_comes(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": 0, "show_at": int(time.time()) + 1,
+            "freeze_at": None, "unfreeze_at": None,
+            "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+        self.assert_reloaded_at_once(stream, 4)
+
     def test_a_password_change_alone_sends_no_reload(self):
         self.put_contest("/olim")
         stream = self.open_stream()
         self.put_visibility("olim", False,
                             staff_password=build_password("new", "plaintext"))
         self.put_second_contest()
-        received, _ = self.drain_for(stream, 3)
+        # A reload would come before c2.
+        received = stream.recv(65536)
         self.assertIn(b"data:create c2", received)
         self.assertNotIn(b"event:reload", received)
 
@@ -1324,6 +1361,20 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         response = self.client.get("/olim/events",
                                    headers={"Last-Event-ID": old_id})
         self.assertIn(b"event:reload\ndata:\n\n", response.get_data())
+
+    def test_staff_reconnect_to_a_frozen_group_is_told_to_reload(self):
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_freeze(1)
+        data = self.get_events("/olim/events", old_id, self.staff_cookie())
+        self.assertIn(b"event:reload\ndata:\n\n", data)
+
+    def test_staff_reconnect_to_a_hidden_group_is_told_to_reload(self):
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_visibility("olim", True)
+        data = self.get_events("/olim/events", old_id, self.staff_cookie())
+        self.assertIn(b"event:reload\ndata:\n\n", data)
 
     def test_a_first_connection_older_than_a_change_is_told_to_reload(self):
         # The page's first connection sends the ID in the query, and only

@@ -787,6 +787,12 @@ class VisibilityGuard:
             # the notice once the group is hidden. (What the staff see of
             # a hidden or frozen group is private, whatever this says.)
             start_response = _cache_control(start_response, REVALIDATE)
+        if path == "/events" and request.method == "GET" \
+                and (staff or not hidden) \
+                and self._missed_a_change(request, now):
+            return Response(RELOAD_EVENT, status=200,
+                            mimetype="text/event-stream",
+                            headers=NO_STORE)(environ, start_response)
         if staff:
             if hidden or frozen:
                 # A cache shared with the public must not keep this, not
@@ -798,11 +804,6 @@ class VisibilityGuard:
                         environ, start_response,
                         STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
             return self.app(environ, start_response)
-        if path == "/events" and request.method == "GET" and not hidden \
-                and self._missed_a_change(request, now):
-            return Response(RELOAD_EVENT, status=200,
-                            mimetype="text/event-stream",
-                            headers=NO_STORE)(environ, start_response)
         if not hidden and not frozen:
             return _CutWhenHidden(self.app(environ, start_response),
                                   self.state, start_response)
@@ -915,17 +916,23 @@ class VisibilityGuard:
         except (ValueError, TypeError) as error:
             logger.warning("Bad visibility update: %s.", error)
             return Response(str(error), status=400, mimetype="text/plain")
-        # ProxyService sends the settings again at each sweep: only a
-        # change is worth an INFO line.
         before = self.state.settings.public_view(time.time())
         changed = self.state.update_settings(settings)
         source = getattr(self.app, "event_source", None)
-        if source is not None \
-                and self.state.settings.public_view(time.time()) != before:
+        if source is not None:
             # A stream only writes when an event or the ping comes: wake
             # them all so that the write guard cuts them now. The guard
             # sends the client its own reload event instead of this one.
-            source.send("reload", "")
+            now = time.time()
+            if settings.public_view(now) != before:
+                source.send("reload", "")
+            elif settings.public_view(now + 1) != before:
+                # ProxyService rounds show_at and unfreeze_at up to the
+                # next second, so a button's time is still ahead when the
+                # update comes: wake them when it has passed.
+                gevent.spawn_later(1, source.send, "reload", "")
+        # ProxyService sends the settings again at each sweep: only a
+        # change is worth an INFO line.
         logger.log(logging.INFO if changed else logging.DEBUG,
                    "Ranking group %s visibility is now %s.", self.group,
                    json.dumps({k: v for k, v in settings.to_json().items()
