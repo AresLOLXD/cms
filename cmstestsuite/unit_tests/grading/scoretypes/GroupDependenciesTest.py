@@ -460,5 +460,20 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
                          [{"idx": 2}])
 
 
+    def test_hide_dependency_messages_recognizes_rows_stored_unmarked(self):
+        # Details stored before the "skipped" mark existed.
+        st, _ = self._hidden_transitive_dataset()
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        row = {"outcome": "Not correct"}
+        stored = [{"idx": 2, "zeroed_by_dependency": 1, "testcases": [
+            dict(row, idx="2", text=[message, "0"]),
+            dict(row, idx="3", text=["Output isn't correct"]),
+            dict(row, idx="4", text=None)]}]
+        shown = st.hide_dependency_messages(stored)
+        self.assertEqual(shown[0]["testcases"],
+                         [{"idx": "2"}, stored[0]["testcases"][1],
+                          stored[0]["testcases"][2]])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,6 +55,10 @@ def N_(message: str):
     return message
 
 
+SKIPPED_DEPENDENCY_MESSAGE = \
+    EVALUATION_MESSAGES.get("skipped_dependency").message
+
+
 def without_dependency_messages(subtask: dict) -> dict:
     """Return a copy of a subtask's details without its dependency messages.
 
@@ -71,8 +75,13 @@ def without_dependency_messages(subtask: dict) -> dict:
     hidden = {
         key: value for key, value in subtask.items()
         if key != "zeroed_by_dependency"}
+    # Details stored before the "skipped" mark existed are recognized by
+    # the text of the evaluation.
     hidden["testcases"] = [
-        {"idx": tc["idx"]} if tc.get("skipped") else tc
+        {"idx": tc["idx"]}
+        if tc.get("skipped")
+        or (tc.get("text") or [None])[0] == SKIPPED_DEPENDENCY_MESSAGE
+        else tc
         for tc in subtask["testcases"]]
     return hidden
 
@@ -269,6 +278,7 @@ class ScoreTypeGroupParametersDict(TypedDict):
     threshold: NotRequired[float]
     always_show_testcases: NotRequired[bool]
     depends_on: NotRequired[list[int]]
+    hide_dependency: NotRequired[bool]
 
 
 # the format of parameters is impossible to type-hint correctly, it seems...
@@ -686,10 +696,9 @@ class ScoreTypeGroup(ScoreTypeAlone):
                         "show_in_oi_restricted_feedback": self.public_testcases[tc_idx],
                     }
                 )
-                skipped_message = EVALUATION_MESSAGES.get(
-                    "skipped_dependency").message
                 if evaluations[tc_idx].text \
-                        and evaluations[tc_idx].text[0] == skipped_message:
+                        and evaluations[tc_idx].text[0] \
+                        == SKIPPED_DEPENDENCY_MESSAGE:
                     testcases[-1]["skipped"] = True
 
                 if self.public_testcases[tc_idx]:

@@ -52,6 +52,13 @@ class TestValidateScoreType(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "form a cycle"):
             dataset.validate_score_type()
 
+    def test_a_non_boolean_hide_dependency_is_refused(self):
+        dataset = make_dataset([
+            {"max_score": 100, "testcases": 1, "hide_dependency": "yes"}])
+        with self.assertRaisesRegex(
+                ValueError, "hide_dependency must be true or false"):
+            dataset.validate_score_type()
+
     def test_regexes_that_match_testcases_pass(self):
         dataset = make_dataset(
             [{"max_score": 30, "testcases": "^s1-"},
