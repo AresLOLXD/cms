@@ -10,6 +10,8 @@ from cms.db.session import custom_psycopg2_connection
 from cmscontrib.updaters.fork_multi_contest import FORK_MULTI_CONTEST_SQL
 from cmscontrib.updaters.fork_activity_intervals import \
     FORK_ACTIVITY_INTERVALS_SQL
+from cmscontrib.updaters.fork_submission_limits import \
+    FORK_SUBMISSION_LIMITS_SQL
 
 """
 Compare the DB schema obtained from upgrading an older version's database using
@@ -136,7 +138,9 @@ def run_pg_dump() -> str:
     )
     return result.stdout
 
-def get_updated_schema(schema_file: str, updater_file: str) -> str:
+def get_updated_schema(
+    schema_file: str, updater_file: str, drop_submission_limits: bool = False
+) -> str:
     drop_db()
     schema_sql = open(schema_file).read()
     # The schema sets the owner of every object explicitly. We actually want
@@ -150,11 +154,17 @@ def get_updated_schema(schema_file: str, updater_file: str) -> str:
     updater_sql = open(updater_file).read()
     # We need to do this in two separate connections, since the schema_sql sets
     # some connection properties which we don't want.
+    steps = [schema_sql, updater_sql]
+    if drop_submission_limits:
+        # Take off the columns upstream's updater added, so that the
+        # fork's own update has to add them.
+        steps.append("ALTER TABLE submissions DROP COLUMN "
+                     "override_time_limit, DROP COLUMN override_mem_limit;")
     # The fork's updates run twice: cmsSetupDB applies them at every
     # start, so they must be idempotent.
-    for sql in [schema_sql, updater_sql,
-                FORK_MULTI_CONTEST_SQL, FORK_ACTIVITY_INTERVALS_SQL,
-                FORK_MULTI_CONTEST_SQL, FORK_ACTIVITY_INTERVALS_SQL]:
+    fork_sql = [FORK_MULTI_CONTEST_SQL, FORK_ACTIVITY_INTERVALS_SQL,
+                FORK_SUBMISSION_LIMITS_SQL]
+    for sql in [*steps, *fork_sql, *fork_sql]:
         conn = custom_psycopg2_connection()
         cursor = conn.cursor()
         cursor.execute(sql)
@@ -169,12 +179,21 @@ def get_fresh_schema():
     return run_pg_dump()
 
 class TestSchemaDiff(unittest.TestCase):
-    def test_schema_diff(self):
+    def check_schema_diff(self, **kwargs):
         dirname = os.path.dirname(__file__)
         schema_file = os.path.join(dirname, "schema_v1.5.sql")
         updater_file = os.path.join(dirname, "../../cmscontrib/updaters/update_from_1.5.sql")
-        updated_schema = split_schema(get_updated_schema(schema_file, updater_file))
+        updated_schema = split_schema(
+            get_updated_schema(schema_file, updater_file, **kwargs))
         fresh_schema = split_schema(get_fresh_schema())
         errors = compare_schemas(updated_schema, fresh_schema)
         self.longMessage = False
         self.assertTrue(errors == "", errors)
+
+    def test_schema_diff(self):
+        self.check_schema_diff()
+
+    def test_schema_diff_fork_adds_submission_limits(self):
+        # The fork does not run upstream's updater on its own database:
+        # its update has to add the submission limit columns itself.
+        self.check_schema_diff(drop_submission_limits=True)

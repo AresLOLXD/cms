@@ -34,6 +34,8 @@ from cms.db import Admin, Contest, custom_psycopg2_connection
 from cmscommon.crypto import validate_password
 from cmscontrib.SetupDB import ensure_first_admin
 from cmscontrib.updaters.fork_ddl import SchemaLockTimeout, apply_fork_sql
+from cmscontrib.updaters.fork_submission_limits import \
+    apply_fork_submission_limits_update
 
 
 # The source tree, for scripts/cmsSetupDB; the tests run from it, in the
@@ -326,6 +328,93 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
         self.holder.rollback()
         completed, _ = self._run_setup_db()
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+
+class TestForkSubmissionLimits(DatabaseMixin, unittest.TestCase):
+    """The fork adds the submission limit columns, and without a lock."""
+
+    DROP_CONSTRAINTS = (
+        "ALTER TABLE submissions "
+        "DROP CONSTRAINT submissions_override_time_limit_check, "
+        "DROP CONSTRAINT submissions_override_mem_limit_check, "
+        "DROP CONSTRAINT submissions_override_mem_limit_check1")
+    DROP_COLUMNS = (
+        "ALTER TABLE submissions DROP COLUMN override_time_limit, "
+        "DROP COLUMN override_mem_limit")
+
+    def setUp(self):
+        super().setUp()
+        # What the other tests of this class break, put back at the end.
+        self.addCleanup(apply_fork_submission_limits_update)
+
+    @staticmethod
+    def _run(statement: str) -> None:
+        conn = custom_psycopg2_connection()
+        try:
+            conn.cursor().execute(statement)
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _limits_schema() -> tuple[list, list]:
+        """Return the two columns and the CHECKs of the limits, as stored."""
+        conn = custom_psycopg2_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT attname, format_type(atttypid, atttypmod), "
+                "attnotnull FROM pg_attribute "
+                "WHERE attrelid = 'public.submissions'::regclass "
+                "AND attname LIKE 'override\\_%' AND NOT attisdropped "
+                "ORDER BY attname")
+            columns = cursor.fetchall()
+            cursor.execute(
+                "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = 'public.submissions'::regclass "
+                "AND conname LIKE 'submissions\\_override\\_%' "
+                "ORDER BY conname")
+            return columns, cursor.fetchall()
+        finally:
+            conn.close()
+
+    def test_adds_what_init_db_creates_and_a_second_run_changes_nothing(self):
+        expected = self._limits_schema()
+        # Pins the shape that cmsInitDB gives them, so that the comparison
+        # below cannot pass on two empty results.
+        self.assertEqual(
+            [column[:2] for column in expected[0]],
+            [("override_mem_limit", "bigint"),
+             ("override_time_limit", "double precision")])
+        self.assertEqual(
+            [name for name, _ in expected[1]],
+            ["submissions_override_mem_limit_check",
+             "submissions_override_mem_limit_check1",
+             "submissions_override_time_limit_check"])
+
+        for broken in (self.DROP_COLUMNS, self.DROP_CONSTRAINTS):
+            with self.subTest(broken=broken):
+                self._run(broken)
+                self.assertNotEqual(self._limits_schema(), expected)
+                apply_fork_submission_limits_update()
+                self.assertEqual(self._limits_schema(), expected)
+                apply_fork_submission_limits_update()
+                self.assertEqual(self._limits_schema(), expected)
+
+    def test_takes_no_lock_on_submissions_when_nothing_is_missing(self):
+        holder = custom_psycopg2_connection()
+        self.addCleanup(holder.close)
+        # Any ALTER TABLE, even one that changes nothing, would wait for
+        # this session and give up with SchemaLockTimeout after 5 s.
+        holder.cursor().execute("LOCK TABLE submissions IN ACCESS SHARE MODE")
+        apply_fork_submission_limits_update()
+
+    def test_setup_db_adds_the_columns(self):
+        expected = self._limits_schema()
+        self._run(self.DROP_COLUMNS)
+        completed, _ = TestSchemaLockTimeout._run_setup_db()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self._limits_schema(), expected)
 
 
 if __name__ == "__main__":
