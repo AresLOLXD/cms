@@ -76,7 +76,8 @@ class DatasetFormsTestCase(unittest.TestCase):
                 r"^%s \{(.*?)\}" % re.escape(selector), css, re.M | re.S)
             self.assertIsNotNone(match, selector)
             self.assertIn("font-size: 0.9em", match.group(1), selector)
-            self.assertRegex(match.group(1), r"color: #[0-9A-F]+;", selector)
+            # A lighter gray would be below the WCAG AA contrast on white.
+            self.assertIn("color: #666666;", match.group(1), selector)
 
 
 if __name__ == "__main__":

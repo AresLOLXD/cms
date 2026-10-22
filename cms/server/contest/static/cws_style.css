@@ -708,7 +708,7 @@ td.token_rules p:last-child {
 }
 
 #submission_detail .subtask-dependency {
-    color: #999999;
+    color: #666666;
     font-size: 0.9em;
     font-style: italic;
     margin-bottom: 8px;

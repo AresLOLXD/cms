@@ -763,13 +763,13 @@ span.info::after {
 }
 
 .hint {
-    color: #AAAAAA;
+    color: #666666;
     font-size: 0.9em;
     margin-left: 8px;
 }
 
 .subtask-dependency {
-    color: #AAAAAA;
+    color: #666666;
     font-size: 0.9em;
     font-style: italic;
     margin-bottom: 8px;
