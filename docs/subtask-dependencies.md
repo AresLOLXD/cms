@@ -256,13 +256,15 @@ A subtask can hide why it is worth 0. Add `"hide_dependency": true` to the
 - A hidden subtask that is worth 0 because of a dependency shows the 0 without
   the note "Worth 0 because it depends on subtask N, ...".
 - Its testcases that the dependency skipped show as the rows of a private
-  testcase: grey, `N/A`, no text. The number of rows does not change.
+  testcase: grey, `N/A`, no text. The number of rows does not change, except
+  at the OI-restricted feedback level, where private rows are not shown at all.
 - A hidden subtask that graded its testcases although it is zeroed keeps its
   real rows and loses only the note.
 - `hide_dependency` must be `true` or `false`; anything else is refused like a
   wrong `depends_on` (see "Errors when saving"). On a subtask without
   `depends_on` it is accepted and does nothing.
-- AWS shows everything, to admins.
+- The full "Evaluation" section of AWS shows everything, to admins; the box
+  "Evaluation (as seen by the user)" shows what the contestant sees.
 
 **Hiding the messages does not hide the zeros.** The subtask still shows 0, the
 public score still drops, and the ranking and the scores are the same, so a
@@ -274,7 +276,8 @@ a change of the flag applies to submissions scored afterwards: press **S** to
 apply it to old ones (see "Changing the dependencies after there are
 submissions"). The full details that a contestant sees for a submission with a
 token and in analysis mode are filtered when they are shown, so they follow the
-flag at once, without rescoring.
+flag at once, without rescoring. This also holds for submissions scored before
+this version: their skipped rows are recognized by their text.
 
 ### Public and private testcases
 
@@ -394,7 +397,9 @@ that depend on it.
 - **`hide_dependency` added or removed:** the public details are written when a
   submission is scored, so the flag applies to submissions scored afterwards.
   Press **S** to apply it to old ones; **E** is not needed. The full details of
-  a submission with a token and in analysis mode follow the flag at once.
+  a submission with a token and in analysis mode follow the flag at once, also
+  for submissions scored before this version (their skipped rows are
+  recognized by their text).
 - **Dependencies added or tightened:** **S** (Score) is enough. The rule applies
   to testcases that were already graded, so the scores follow the new rule.
 - **Dependencies removed or loosened:** press **E** (Evaluation). The testcases
