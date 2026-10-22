@@ -52,6 +52,9 @@ msgstr "Subtarea %(index)s"
 msgid "Worth 0 because it depends on subtask %(index)s, which scored no points."
 msgstr "Vale 0 porque depende de la subtarea %(index)s, que no obtuvo puntos."
 
+msgid "Not tested"
+msgstr "No se probó"
+
 msgid "Compilation succeeded"
 msgstr "Compilación correcta"
 

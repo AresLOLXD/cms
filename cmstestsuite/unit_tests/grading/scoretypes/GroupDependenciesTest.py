@@ -284,6 +284,34 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
             self.assertNotIn("skipped", view[0]["testcases"][0])
             self.assertNotIn("skipped", view[2]["testcases"][0])
 
+    def test_skipped_row_is_neutral_in_the_html(self):
+        st = GroupMin(self.parameters, self.public, 2)
+        sr = self.get_submission_result(self.public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1")
+        _, details, _, _, _ = st.compute_score(sr)
+
+        html = st.get_html_details(details)
+
+        self.assertEqual(html.count('<tr class="skipped">'), 1)
+        skipped_row = html.split('<tr class="skipped">')[1].split("</tr>")[0]
+        self.assertRegex(skipped_row, r'<td class="outcome">\s*Not tested\s*')
+        self.assertNotIn("Not correct", skipped_row)
+        self.assertIn("Not tested: this subtask depends on subtask 0",
+                      skipped_row)
+        # The graded failed testcase keeps its own class and outcome.
+        self.assertEqual(html.count('<tr class="notcorrect">'), 1)
+
+    def test_details_without_the_skipped_key_render_as_before(self):
+        st = GroupMin(self.parameters, self.public, 2)
+        details = [{"idx": 1, "testcases": [
+            {"idx": "0", "outcome": "Not correct", "text": ["Failed"]}]}]
+        html = st.get_html_details(details, FEEDBACK_LEVEL_FULL)
+        self.assertIn('<tr class="notcorrect">', html)
+        self.assertIn("Not correct", html)
+        self.assertNotIn("skipped", html)
+        self.assertNotIn("Not tested", html)
+
     def _hidden_dataset(self, all_public):
         """Return a score type whose subtask 1 (depends on 0, hidden) has
         the testcases "1", "2" and "3", and its public testcases.

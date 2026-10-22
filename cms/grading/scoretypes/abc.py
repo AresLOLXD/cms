@@ -322,6 +322,7 @@ class ScoreTypeGroup(ScoreTypeAlone):
     # Mark strings for localization.
     N_("Subtask %(index)s")
     N_("Worth 0 because it depends on subtask %(index)s, which scored no points.")
+    N_("Not tested")
     N_("#")
     N_("Outcome")
     N_("Details")
@@ -389,7 +390,9 @@ class ScoreTypeGroup(ScoreTypeAlone):
             <tbody>
     {% for tc in st["testcases"] %}
         {% if "outcome" in tc %}
-            {% if tc["outcome"] == "Correct" %}
+            {% if tc.get("skipped") %}
+                <tr class="skipped">
+            {% elif tc["outcome"] == "Correct" %}
                 <tr class="correct">
             {% elif tc["outcome"] == "Not correct" %}
                 <tr class="notcorrect">
@@ -397,7 +400,13 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 <tr class="partiallycorrect">
             {% endif %}
                     <td class="idx">{{ loop.index }}</td>
-                    <td class="outcome">{{ _(tc["outcome"]) }}</td>
+                    <td class="outcome">
+                {% if tc.get("skipped") %}
+                        {% trans %}Not tested{% endtrans %}
+                {% else %}
+                        {{ _(tc["outcome"]) }}
+                {% endif %}
+                    </td>
                     <td class="details">
                       {{ tc["text"]|format_status_text }}
                     </td>
