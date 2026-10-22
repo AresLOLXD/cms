@@ -35,6 +35,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 DEPENDS_ON = "depends_on"
+HIDE_DEPENDENCY = "hide_dependency"
 
 
 def declares_dependencies(parameters: object) -> bool:
@@ -98,6 +99,29 @@ def parse_dependencies(parameters: list) -> list[list[int]]:
         dependencies.append(sorted(raw))
     topological_order(dependencies)
     return dependencies
+
+
+def parse_hide_dependency(parameters: list) -> list[bool]:
+    """Read and validate, for every subtask, whether it hides its cause.
+
+    parameters: the score type parameters, one element per subtask; a
+        list element, or a dict without "hide_dependency", is False.
+
+    return: for each subtask, whether "hide_dependency" is true.
+
+    raise (ValueError): if a "hide_dependency" is not a boolean (an
+        integer is not).
+
+    """
+    hide: list[bool] = []
+    for index, parameter in enumerate(parameters):
+        value = (parameter.get(HIDE_DEPENDENCY, False)
+                 if isinstance(parameter, dict) else False)
+        if not isinstance(value, bool):
+            raise ValueError(
+                "Subtask %d: hide_dependency must be true or false." % index)
+        hide.append(value)
+    return hide
 
 
 def topological_order(dependencies: list[list[int]]) -> list[int]:

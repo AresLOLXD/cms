@@ -64,6 +64,21 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
         self.assertEqual(GroupMin([[20, 1], [80, 2]], PUBLIC, 2).dependencies,
                          [[], []])
 
+    def test_hide_dependency_attribute(self):
+        self.parameters[1]["hide_dependency"] = True
+        st = GroupMin(self.parameters, self.public, 2)
+        self.assertEqual(st.hide_dependency, [False, True, False])
+
+    def test_non_boolean_hide_dependency_raises_like_depends_on(self):
+        self.parameters[1]["hide_dependency"] = "yes"
+        with self.assertRaises(ValueError):
+            GroupMin(self.parameters, self.public, 2)
+
+    def test_hide_dependency_without_depends_on_is_accepted(self):
+        self.parameters[2]["hide_dependency"] = True
+        st = GroupMin(self.parameters, self.public, 2)
+        self.assertEqual(st.hide_dependency, [False, False, True])
+
     def test_failed_dependency_zeroes_the_dependent(self):
         st = GroupMin(self.parameters, self.public, 2)
         sr = self.get_submission_result(self.public)

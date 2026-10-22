@@ -270,14 +270,16 @@ class ScoreTypeGroup(ScoreTypeAlone):
     ):
         """Initializer; see ScoreType.
 
-        raise (ValueError): also if a subtask's "depends_on" is invalid
-            (see cms.grading.subtaskdag), so that AWS reports it like any
-            other invalid parameter.
+        raise (ValueError): also if a subtask's "depends_on" or
+            "hide_dependency" is invalid (see cms.grading.subtaskdag), so
+            that AWS reports it like any other invalid parameter.
 
         """
         super().__init__(parameters, public_testcases, score_precision)
         self.dependencies: list[list[int]] = \
             subtaskdag.parse_dependencies(self.parameters)
+        self.hide_dependency: list[bool] = \
+            subtaskdag.parse_hide_dependency(self.parameters)
 
     # Mark strings for localization.
     N_("Subtask %(index)s")
