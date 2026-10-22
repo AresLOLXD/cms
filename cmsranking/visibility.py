@@ -689,7 +689,7 @@ class VisibilityGuard:
         The public view a request gets is decided when it comes (while
         frozen, the event stream leaves the score events out from the
         start): any change of that view cuts the stream at its next
-        write.
+        write, a staff client's too, which reloads into the new view.
 
         request: the request being served.
         start_response: the WSGI start_response callable.
@@ -701,9 +701,10 @@ class VisibilityGuard:
             change the public view).
 
         return: a start_response whose write() callables refuse to send
-            data to a public client once the group is hidden or its view
-            changed since the request came, or once a staff client lost
-            its access to a frozen group.
+            data to a client once the public view changed since the
+            request came, to a public client also while the group is
+            hidden, and to a staff client that lost its access to a
+            frozen group.
 
         """
         handler = getattr(start_response, "__self__", None)
@@ -716,19 +717,20 @@ class VisibilityGuard:
                 for key, value in headers)
 
             def guarded_write(data):
+                now = time.time()
+                cut = self.state.last_change(now) > opened_at
                 if not self._is_staff(request):
-                    now = time.time()
                     settings = self.state.settings
-                    if settings.hidden(now) \
-                            or (served_as_staff and settings.frozen(now)) \
-                            or self.state.last_change(now) > opened_at:
-                        _close_connection(start_response)
-                        if event_stream:
-                            # Instead of the data, which the client may
-                            # no longer get.
-                            write(RELOAD_EVENT)
-                        raise ConnectionAbortedError(
-                            "The ranking changed its visibility.")
+                    cut = cut or settings.hidden(now) \
+                        or (served_as_staff and settings.frozen(now))
+                if cut:
+                    _close_connection(start_response)
+                    if event_stream:
+                        # Instead of the data, which the client may no
+                        # longer get.
+                        write(RELOAD_EVENT)
+                    raise ConnectionAbortedError(
+                        "The ranking changed its visibility.")
                 return write(data)
 
             return guarded_write
@@ -894,7 +896,15 @@ class VisibilityGuard:
             return Response(str(error), status=400, mimetype="text/plain")
         # ProxyService sends the settings again at each sweep: only a
         # change is worth an INFO line.
+        before = self.state.settings.public_view(time.time())
         changed = self.state.update_settings(settings)
+        source = getattr(self.app, "event_source", None)
+        if source is not None \
+                and self.state.settings.public_view(time.time()) != before:
+            # A stream only writes when an event or the ping comes: wake
+            # them all so that the write guard cuts them now. The guard
+            # sends the client its own reload event instead of this one.
+            source.send("reload", "")
         logger.log(logging.INFO if changed else logging.DEBUG,
                    "Ranking group %s visibility is now %s.", self.group,
                    json.dumps({k: v for k, v in settings.to_json().items()

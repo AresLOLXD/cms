@@ -873,13 +873,13 @@ class TestOpenConnections(unittest.TestCase):
         response = self.get_write_stream()
         self.assertEqual(response.get_data(), b"event 1\n")
 
-    def test_write_stream_of_staff_is_not_cut(self):
+    def test_write_stream_of_staff_is_cut_when_hidden(self):
         class StaffGuard(VisibilityGuard):
             def _is_staff(self, request):
                 return True
 
         response = self.get_write_stream(StaffGuard)
-        self.assertEqual(response.get_data(), b"event 1\nevent 2\n")
+        self.assertEqual(response.get_data(), b"event 1\n")
 
     def test_staff_of_a_hidden_group_get_private_no_store(self):
         # The header is set on the way out, so the /events handler must
@@ -1015,14 +1015,6 @@ class TestRealEventStream(VisibilityTestCase):
         self.put_second_contest()
         self.assertIn(b"data:create c2", stream.recv(65536))
 
-    def test_staff_stream_survives_hiding(self):
-        self.put_contest("/olim")
-        self.put_visibility("olim", False)
-        stream = self.open_stream(cookie=self.staff_cookie())
-        self.put_visibility("olim", True)
-        self.put_second_contest()
-        self.assertIn(b"data:create c2", stream.recv(65536))
-
     def test_staff_stream_is_closed_when_the_password_changes(self):
         self.put_contest("/olim")
         self.put_visibility("olim", True)
@@ -1127,6 +1119,42 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         except socket.timeout:
             pass
         return received, False
+
+    def assert_reloaded_at_once(self, stream: socket.socket):
+        """Check that a stream got one reload before any ping, and ended."""
+        received, closed = self.drain_for(stream, 3)
+        self.assertEqual(received.count(b"event:reload"), 1)
+        self.assertTrue(closed)
+
+    def test_staff_stream_is_told_to_reload_when_the_group_gets_hidden(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_visibility("olim", True)
+        self.assert_reloaded_at_once(stream)
+
+    def test_public_stream_reloads_at_once_when_the_group_gets_hidden(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.assert_reloaded_at_once(stream)
+
+    def test_public_stream_reloads_at_once_when_the_group_is_unfrozen(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_freeze(1, unfreeze_at=2)
+        self.assert_reloaded_at_once(stream)
+
+    def test_a_password_change_alone_sends_no_reload(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", False,
+                            staff_password=build_password("new", "plaintext"))
+        self.put_second_contest()
+        received, _ = self.drain_for(stream, 3)
+        self.assertIn(b"data:create c2", received)
+        self.assertNotIn(b"event:reload", received)
 
     def test_frozen_stream_drops_score_events(self):
         self.put_contest("/olim")
