@@ -165,8 +165,8 @@ yet: after adding them, open the task page and press **Update**.
 refusing the dump would block restoring a database that already holds an older
 invalid dataset.
 
-A wrong `depends_on` is rejected like any other invalid score type parameter: a
-notification titled **"Invalid score type parameters"** shows one of the
+A wrong `depends_on` or `hide_dependency` is rejected like any other invalid
+score type parameter: a notification titled **"Invalid score type parameters"** shows one of the
 messages below. Nothing you changed on the task page is saved, not only the
 dataset.
 
@@ -186,10 +186,12 @@ and reads `ValueError('Score type parameters are invalid JSON.')`.
 | "Subtask 1: a subtask cannot depend on itself." | Remove its own number from the list. |
 | "Subtask 2: depends_on repeats a subtask." | Write each number once. |
 | "The subtask dependencies form a cycle; subtasks in it or depending on it: 1, 2, 3." | Break the cycle. The subtasks named are the ones in the cycle and the ones that depend on it. |
+| "Subtask 2: hide_dependency must be true or false." | Write `hide_dependency` as `true` or `false`, without quotes. Not a number, not text, not `null`. |
 
 The numbers and the score type name in the table are only examples: the
-messages show those of your own parameters. The cycle check runs last, so fix
-the other errors first.
+messages show those of your own parameters. The cycle check runs after the other
+`depends_on` checks, and the `hide_dependency` check after it, so fix the other
+errors first.
 
 When AWS rejects a save, the page puts back the text you typed in **Score
 Parameters**, once, with the line "Restored your unsaved text." under the field.
@@ -206,7 +208,9 @@ Spanish texts below only when their CWS language is Spanish. AWS shows status
 texts untranslated, so an admin sees the English text, for example "Not tested:
 this subtask depends on subtask 0, which scored no points."
 
-**Testcases that were not graded** show this text in their details:
+**Testcases that were not graded** are a grey row, not a red one: the outcome
+cell says "Not tested" (in Spanish, "No se probó") and the details show this
+text:
 
 - English: "Not tested: this subtask depends on subtask %s, which scored no
   points."
@@ -217,9 +221,14 @@ The `%s` is replaced by the number of the dependency, counted from 0. When
 several dependencies had failed, the text names the lowest-numbered one that had
 failed when the row was written.
 
+In CWS the row is the grey pill. In AWS only the label changes, because the AWS
+table has no colors. Details stored before this change keep the old red "Not
+correct" row ("Incorrecto" in Spanish) until the submission is scored again.
+
 **Every subtask worth 0 by the rule** also shows a note in the subtask, whether
-its testcases were "Not tested" or were graded. A subtask whose testcases were
-graded shows its real testcase results next to the note.
+its testcases were "Not tested" or were graded, unless the subtask hides it (see
+"Hiding the dependency messages"). A subtask whose testcases were graded shows
+its real testcase results next to the note.
 
 - English: "Worth 0 because it depends on subtask %(index)s, which scored no
   points."
@@ -232,6 +241,43 @@ failed when the submission was scored. It can differ from the number in the
 written.
 
 The ranking receives the subtask scores with the rule applied.
+
+### Hiding the dependency messages
+
+A subtask can hide why it is worth 0. Add `"hide_dependency": true` to the
+**dependent** subtask, next to `depends_on`:
+
+```json
+[{"max_score": 20, "testcases": "^s1-"},
+ {"max_score": 30, "testcases": "^s2-"},
+ {"max_score": 50, "testcases": "^s3-", "depends_on": [0, 1], "hide_dependency": true}]
+```
+
+- A hidden subtask that is worth 0 because of a dependency shows the 0 without
+  the note "Worth 0 because it depends on subtask N, ...".
+- Its testcases that the dependency skipped show as the rows of a private
+  testcase: grey, `N/A`, no text. The number of rows does not change, except
+  at the OI-restricted feedback level, where private rows are not shown at all.
+- A hidden subtask that graded its testcases although it is zeroed keeps its
+  real rows and loses only the note.
+- `hide_dependency` must be `true` or `false`; anything else is refused like a
+  wrong `depends_on` (see "Errors when saving"). On a subtask without
+  `depends_on` it is accepted and does nothing.
+- The full "Evaluation" section of AWS shows everything, to admins; the box
+  "Evaluation (as seen by the user)" shows what the contestant sees.
+
+**Hiding the messages does not hide the zeros.** The subtask still shows 0, the
+public score still drops, and the ranking and the scores are the same, so a
+contestant can still see that something it depends on failed (see "Public and
+private testcases").
+
+The public details a contestant sees are written when a submission is scored, so
+a change of the flag applies to submissions scored afterwards: press **S** to
+apply it to old ones (see "Changing the dependencies after there are
+submissions"). The full details that a contestant sees for a submission with a
+token and in analysis mode are filtered when they are shown, so they follow the
+flag at once, without rescoring. This also holds for submissions scored before
+this version: their skipped rows are recognized by their text.
 
 ### Public and private testcases
 
@@ -348,6 +394,12 @@ that depend on it.
   new submissions get the new rule, until you press **S** or **E** (below).
 - Testcases already marked "Not tested: …" (shown as "No se probó…" to
   Spanish-language contestants) stay that way until they are graded again.
+- **`hide_dependency` added or removed:** the public details are written when a
+  submission is scored, so the flag applies to submissions scored afterwards.
+  Press **S** to apply it to old ones; **E** is not needed. The full details of
+  a submission with a token and in analysis mode follow the flag at once, also
+  for submissions scored before this version (their skipped rows are
+  recognized by their text).
 - **Dependencies added or tightened:** **S** (Score) is enough. The rule applies
   to testcases that were already graded, so the scores follow the new rule.
 - **Dependencies removed or loosened:** press **E** (Evaluation). The testcases

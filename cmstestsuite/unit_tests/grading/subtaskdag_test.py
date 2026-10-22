@@ -108,6 +108,34 @@ class TestParseDependencies(unittest.TestCase):
             ])
 
 
+class TestParseHideDependency(unittest.TestCase):
+
+    def test_defaults_to_false(self):
+        self.assertEqual(
+            subtaskdag.parse_hide_dependency([
+                [20, 3],
+                {"max_score": 30, "testcases": 3},
+                {"max_score": 50, "testcases": 3, "depends_on": [0]}]),
+            [False, False, False])
+
+    def test_reads_the_flag(self):
+        self.assertEqual(
+            subtaskdag.parse_hide_dependency([
+                {"max_score": 30, "hide_dependency": False},
+                {"max_score": 50, "hide_dependency": True}]),
+            [False, True])
+
+    def test_not_a_boolean(self):
+        for bad in [1, "true", "yes", None]:
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(
+                        ValueError,
+                        "Subtask 1: hide_dependency must be true or false"):
+                    subtaskdag.parse_hide_dependency([
+                        {"max_score": 30},
+                        {"max_score": 50, "hide_dependency": bad}])
+
+
 class TestTopologicalOrder(unittest.TestCase):
 
     def test_dependencies_come_first_lowest_number_first(self):

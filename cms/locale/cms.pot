@@ -55,6 +55,9 @@ msgstr ""
 msgid "Worth 0 because it depends on subtask %(index)s, which scored no points."
 msgstr ""
 
+msgid "Not tested"
+msgstr ""
+
 msgid "Compilation succeeded"
 msgstr ""
 

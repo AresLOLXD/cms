@@ -19,9 +19,12 @@
 
 import unittest
 
+from cms import FEEDBACK_LEVEL_FULL
 from cms.grading.scoretypes.GroupMin import GroupMin
 from cms.grading.scoretypes.GroupMul import GroupMul
 from cms.grading.scoretypes.GroupThreshold import GroupThreshold
+from cms.grading.scoretypes.Sum import Sum
+from cms.grading.steps.evaluation import EVALUATION_MESSAGES
 from cmstestsuite.unit_tests.grading.scoretypes.scoretypetestutils import \
     ScoreTypeTestMixin
 
@@ -63,6 +66,21 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
         self.assertEqual(st.dependencies, [[], [0], []])
         self.assertEqual(GroupMin([[20, 1], [80, 2]], PUBLIC, 2).dependencies,
                          [[], []])
+
+    def test_hide_dependency_attribute(self):
+        self.parameters[1]["hide_dependency"] = True
+        st = GroupMin(self.parameters, self.public, 2)
+        self.assertEqual(st.hide_dependency, [False, True, False])
+
+    def test_non_boolean_hide_dependency_raises_like_depends_on(self):
+        self.parameters[1]["hide_dependency"] = "yes"
+        with self.assertRaises(ValueError):
+            GroupMin(self.parameters, self.public, 2)
+
+    def test_hide_dependency_without_depends_on_is_accepted(self):
+        self.parameters[2]["hide_dependency"] = True
+        st = GroupMin(self.parameters, self.public, 2)
+        self.assertEqual(st.hide_dependency, [False, False, True])
 
     def test_failed_dependency_zeroes_the_dependent(self):
         st = GroupMin(self.parameters, self.public, 2)
@@ -245,6 +263,216 @@ class TestGroupDependencies(ScoreTypeTestMixin, unittest.TestCase):
                 html = st.get_html_details(public_details)
                 self.assertNotIn("temporarily unavailable", html)
                 self.assertNotIn("Worth 0 because it depends on subtask", html)
+
+    @staticmethod
+    def skip(sr, *codenames):
+        """Make the evaluations look skipped by the failed dependency 0."""
+        for evaluation in sr.evaluations:
+            if evaluation.codename in codenames:
+                evaluation.text = [
+                    EVALUATION_MESSAGES.get("skipped_dependency").message,
+                    "0"]
+
+    def test_skipped_testcase_is_marked(self):
+        st = GroupMin(self.parameters, self.public, 2)
+        sr = self.get_submission_result(self.public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1")
+        _, details, _, public_details, _ = st.compute_score(sr)
+        for view in (details, public_details):
+            self.assertIs(view[1]["testcases"][0]["skipped"], True)
+            self.assertNotIn("skipped", view[0]["testcases"][0])
+            self.assertNotIn("skipped", view[2]["testcases"][0])
+
+    def test_skipped_row_is_neutral_in_the_html(self):
+        st = GroupMin(self.parameters, self.public, 2)
+        sr = self.get_submission_result(self.public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1")
+        _, details, _, _, _ = st.compute_score(sr)
+
+        html = st.get_html_details(details)
+
+        self.assertEqual(html.count('<tr class="skipped">'), 1)
+        skipped_row = html.split('<tr class="skipped">')[1].split("</tr>")[0]
+        self.assertRegex(skipped_row, r'<td class="outcome">\s*Not tested\s*')
+        self.assertNotIn("Not correct", skipped_row)
+        self.assertIn("Not tested: this subtask depends on subtask 0",
+                      skipped_row)
+        # The graded failed testcase keeps its own class and outcome.
+        self.assertEqual(html.count('<tr class="notcorrect">'), 1)
+
+    def test_details_without_the_skipped_key_render_as_before(self):
+        st = GroupMin(self.parameters, self.public, 2)
+        details = [{"idx": 1, "testcases": [
+            {"idx": "0", "outcome": "Not correct", "text": ["Failed"]}]}]
+        html = st.get_html_details(details, FEEDBACK_LEVEL_FULL)
+        self.assertIn('<tr class="notcorrect">', html)
+        self.assertIn("Not correct", html)
+        self.assertNotIn("skipped", html)
+        self.assertNotIn("Not tested", html)
+
+    def _hidden_dataset(self, all_public):
+        """Return a score type whose subtask 1 (depends on 0, hidden) has
+        the testcases "1", "2" and "3", and its public testcases.
+
+        """
+        public = {"0": True, "1": True, "2": all_public, "3": True}
+        self.parameters = params(
+            (20, 1, {}),
+            (30, 3, {"depends_on": [0], "hide_dependency": True}))
+        return GroupMin(self.parameters, public, 2), public
+
+    def test_hidden_subtask_public_details_have_no_note_and_na_rows(self):
+        st, public = self._hidden_dataset(all_public=False)
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2", "3")
+        _, _, _, public_details, _ = st.compute_score(sr)
+        self.assertNotIn("zeroed_by_dependency", public_details[1])
+        self.assertEqual(public_details[1]["testcases"],
+                         [{"idx": "1"}, {"idx": "2"}, {"idx": "3"}])
+        html = st.get_html_details(public_details)
+        self.assertNotIn("Worth 0 because", html)
+
+    def test_hiding_does_not_touch_the_full_details(self):
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        for all_public in (False, True):
+            with self.subTest(all_public=all_public):
+                st, public = self._hidden_dataset(all_public)
+                sr = self.get_submission_result(public)
+                self.set_outcome(sr, "0", 0.0)
+                self.skip(sr, "1", "2", "3")
+                _, details, _, public_details, _ = st.compute_score(sr)
+                self.assertEqual(details[1]["zeroed_by_dependency"], 0)
+                for tc in details[1]["testcases"]:
+                    self.assertEqual(tc["text"], [message, "0"])
+                    self.assertIs(tc["skipped"], True)
+                self.assertIsNot(public_details[1], details[1])
+                self.assertNotIn("zeroed_by_dependency", public_details[1])
+                self.assertEqual(
+                    [tc["idx"] for tc in public_details[1]["testcases"]],
+                    ["1", "2", "3"])
+                for tc in public_details[1]["testcases"]:
+                    self.assertEqual(set(tc), {"idx"})
+
+    def test_hidden_subtask_that_graded_its_testcases_keeps_the_rows(self):
+        for all_public in (False, True):
+            with self.subTest(all_public=all_public):
+                st, public = self._hidden_dataset(all_public)
+                sr = self.get_submission_result(public)
+                self.set_outcome(sr, "0", 0.0)
+                _, details, _, public_details, _ = st.compute_score(sr)
+                self.assertEqual(details[1]["zeroed_by_dependency"], 0)
+                self.assertNotIn("zeroed_by_dependency", public_details[1])
+                rows = public_details[1]["testcases"]
+                self.assertEqual([tc["idx"] for tc in rows],
+                                 ["1", "2", "3"])
+                self.assertEqual(rows[0]["outcome"], "Correct")
+                self.assertEqual("outcome" in rows[1], all_public)
+
+    def test_not_hidden_public_details_are_unchanged(self):
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        st, public = self._partially_private_dataset()
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2")
+        _, details, _, public_details, _ = st.compute_score(sr)
+        self.assertEqual(public_details[1]["zeroed_by_dependency"], 0)
+        self.assertEqual(public_details[1]["testcases"][0]["text"],
+                         [message, "0"])
+        self.assertIs(public_details[1]["testcases"][0]["skipped"], True)
+        self.assertEqual(public_details[1]["testcases"][1], {"idx": "2"})
+        # A fully public subtask is still the same object as the full one.
+        st = GroupMin(self.parameters, self.public, 2)
+        sr = self.get_submission_result(self.public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1")
+        _, details, _, public_details, _ = st.compute_score(sr)
+        self.assertEqual(public_details[1], details[1])
+        self.assertEqual(public_details[1]["zeroed_by_dependency"], 0)
+
+
+    def _hidden_transitive_dataset(self):
+        """Subtask 1 depends on 0 and subtask 2 (hidden) depends on 1."""
+        public = {"0": True, "1": True, "2": True, "3": True}
+        self.parameters = params(
+            (20, 1, {}),
+            (30, 1, {"depends_on": [0]}),
+            (50, 2, {"depends_on": [1], "hide_dependency": True}))
+        return GroupMin(self.parameters, public, 2), public
+
+    def test_hide_dependency_messages_filters_the_full_details(self):
+        public = {"0": True, "1": True, "2": True, "3": True}
+        self.parameters = params(
+            (20, 1, {}),
+            (30, 2, {"depends_on": [0], "hide_dependency": True}),
+            (50, 1, {"depends_on": [0]}))
+        st = GroupMin(self.parameters, public, 2)
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2", "3")
+        _, details, _, _, _ = st.compute_score(sr)
+        # Not a deepcopy: the Mock time limits would not compare equal.
+        snapshot = [
+            dict(st, testcases=[dict(tc) for tc in st["testcases"]])
+            for st in details]
+
+        shown = st.hide_dependency_messages(details)
+
+        self.assertEqual(details, snapshot)
+        self.assertNotIn("zeroed_by_dependency", shown[1])
+        self.assertEqual(shown[1]["testcases"], [{"idx": "1"}, {"idx": "2"}])
+        # The subtask that is not hidden keeps its note and its rows.
+        self.assertIs(shown[0], details[0])
+        self.assertIs(shown[2], details[2])
+        self.assertEqual(shown[2]["zeroed_by_dependency"], 0)
+        self.assertIs(shown[2]["testcases"][0]["skipped"], True)
+        html = st.get_html_details(shown, FEEDBACK_LEVEL_FULL)
+        self.assertEqual(html.count("Worth 0 because"), 1)
+
+    def test_hide_dependency_messages_with_a_transitive_dependency(self):
+        st, public = self._hidden_transitive_dataset()
+        sr = self.get_submission_result(public)
+        self.set_outcome(sr, "0", 0.0)
+        self.skip(sr, "1", "2", "3")
+        _, details, _, _, _ = st.compute_score(sr)
+        self.assertEqual(details[2]["zeroed_by_dependency"], 1)
+
+        shown = st.hide_dependency_messages(details)
+
+        self.assertNotIn("zeroed_by_dependency", shown[2])
+        self.assertEqual(shown[2]["testcases"], [{"idx": "2"}, {"idx": "3"}])
+        self.assertEqual(shown[1]["zeroed_by_dependency"], 0)
+
+    def test_hide_dependency_messages_is_identity_for_other_shapes(self):
+        st, public = self._hidden_transitive_dataset()
+        for details in (None, {"score": 1}, "text"):
+            self.assertIs(st.hide_dependency_messages(details), details)
+        details = [{"idx": 0, "zeroed_by_dependency": 0, "testcases": []}]
+        self.assertIs(Sum(10, {"0": True}, 2).hide_dependency_messages(
+            details), details)
+        # An idx that the parameters do not have is not hidden.
+        stale = [{"idx": 7, "zeroed_by_dependency": 0,
+                  "testcases": [{"idx": "x", "skipped": True}]}]
+        self.assertEqual(st.hide_dependency_messages(stale), stale)
+        self.assertEqual(st.hide_dependency_messages([{"idx": 2}]),
+                         [{"idx": 2}])
+
+
+    def test_hide_dependency_messages_recognizes_rows_stored_unmarked(self):
+        # Details stored before the "skipped" mark existed.
+        st, _ = self._hidden_transitive_dataset()
+        message = EVALUATION_MESSAGES.get("skipped_dependency").message
+        row = {"outcome": "Not correct"}
+        stored = [{"idx": 2, "zeroed_by_dependency": 1, "testcases": [
+            dict(row, idx="2", text=[message, "0"]),
+            dict(row, idx="3", text=["Output isn't correct"]),
+            dict(row, idx="4", text=None)]}]
+        shown = st.hide_dependency_messages(stored)
+        self.assertEqual(shown[0]["testcases"],
+                         [{"idx": "2"}, stored[0]["testcases"][1],
+                          stored[0]["testcases"][2]])
 
 
 if __name__ == "__main__":

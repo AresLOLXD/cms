@@ -760,6 +760,10 @@ td.token_rules p:last-child {
     background-color: #edd400;
 }
 
+#submission_detail table.testcase-list tbody tr.skipped td.outcome .outcome {
+    background-color: #707070;
+}
+
 
 /*** per-user time box */
 

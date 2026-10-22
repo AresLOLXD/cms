@@ -55,6 +55,37 @@ def N_(message: str):
     return message
 
 
+SKIPPED_DEPENDENCY_MESSAGE = \
+    EVALUATION_MESSAGES.get("skipped_dependency").message
+
+
+def without_dependency_messages(subtask: dict) -> dict:
+    """Return a copy of a subtask's details without its dependency messages.
+
+    The copy has no "zeroed_by_dependency" note and each skipped testcase
+    is replaced by a bare {"idx": ...} row. The argument is not modified
+    (it may be the very object of the full details shown by AWS).
+
+    subtask: the details of one subtask, as built by
+        ScoreTypeGroup.compute_score.
+
+    return: the copy.
+
+    """
+    hidden = {
+        key: value for key, value in subtask.items()
+        if key != "zeroed_by_dependency"}
+    # Details stored before the "skipped" mark existed are recognized by
+    # the text of the evaluation.
+    hidden["testcases"] = [
+        {"idx": tc["idx"]}
+        if tc.get("skipped")
+        or (tc.get("text") or [None])[0] == SKIPPED_DEPENDENCY_MESSAGE
+        else tc
+        for tc in subtask["testcases"]]
+    return hidden
+
+
 class ScoreType(metaclass=ABCMeta):
     """Base class for all score types, that must implement all methods
     defined here.
@@ -136,6 +167,22 @@ class ScoreType(metaclass=ABCMeta):
         feedback_level: the level of details to show to users.
 
         return: JSON-serializable filtered score details.
+
+        """
+        return score_details
+
+    def hide_dependency_messages(self, score_details: object) -> object:
+        """Remove from the full score details what the task hides.
+
+        Contestants who are shown the full details (tokened submissions,
+        analysis mode) must not see the messages about subtask dependencies
+        that the task asks to hide. Score types without such messages
+        return the details unchanged.
+
+        score_details: the full data saved by the score type.
+
+        return: the details to show to a contestant; the argument is never
+            modified.
 
         """
         return score_details
@@ -231,6 +278,7 @@ class ScoreTypeGroupParametersDict(TypedDict):
     threshold: NotRequired[float]
     always_show_testcases: NotRequired[bool]
     depends_on: NotRequired[list[int]]
+    hide_dependency: NotRequired[bool]
 
 
 # the format of parameters is impossible to type-hint correctly, it seems...
@@ -270,18 +318,21 @@ class ScoreTypeGroup(ScoreTypeAlone):
     ):
         """Initializer; see ScoreType.
 
-        raise (ValueError): also if a subtask's "depends_on" is invalid
-            (see cms.grading.subtaskdag), so that AWS reports it like any
-            other invalid parameter.
+        raise (ValueError): also if a subtask's "depends_on" or
+            "hide_dependency" is invalid (see cms.grading.subtaskdag), so
+            that AWS reports it like any other invalid parameter.
 
         """
         super().__init__(parameters, public_testcases, score_precision)
         self.dependencies: list[list[int]] = \
             subtaskdag.parse_dependencies(self.parameters)
+        self.hide_dependency: list[bool] = \
+            subtaskdag.parse_hide_dependency(self.parameters)
 
     # Mark strings for localization.
     N_("Subtask %(index)s")
     N_("Worth 0 because it depends on subtask %(index)s, which scored no points.")
+    N_("Not tested")
     N_("#")
     N_("Outcome")
     N_("Details")
@@ -349,7 +400,9 @@ class ScoreTypeGroup(ScoreTypeAlone):
             <tbody>
     {% for tc in st["testcases"] %}
         {% if "outcome" in tc %}
-            {% if tc["outcome"] == "Correct" %}
+            {% if tc.get("skipped") %}
+                <tr class="skipped">
+            {% elif tc["outcome"] == "Correct" %}
                 <tr class="correct">
             {% elif tc["outcome"] == "Not correct" %}
                 <tr class="notcorrect">
@@ -357,7 +410,13 @@ class ScoreTypeGroup(ScoreTypeAlone):
                 <tr class="partiallycorrect">
             {% endif %}
                     <td class="idx">{{ loop.index }}</td>
-                    <td class="outcome">{{ _(tc["outcome"]) }}</td>
+                    <td class="outcome">
+                {% if tc.get("skipped") %}
+                        {% trans %}Not tested{% endtrans %}
+                {% else %}
+                        {{ _(tc["outcome"]) }}
+                {% endif %}
+                    </td>
                     <td class="details">
                       {{ tc["text"]|format_status_text }}
                     </td>
@@ -439,6 +498,8 @@ class ScoreTypeGroup(ScoreTypeAlone):
                         "outcome": tc["outcome"],
                         "text": tc.get("text"),
                     }
+                    if tc.get("skipped"):
+                        filtered_tc["skipped"] = True
                     if feedback_level == FEEDBACK_LEVEL_FULL:
                         if "time" in tc:
                             filtered_tc["time"] = tc["time"]
@@ -459,6 +520,20 @@ class ScoreTypeGroup(ScoreTypeAlone):
             filtered_subtasks.append(filtered_st)
 
         return filtered_subtasks
+
+    def hide_dependency_messages(self, score_details: object) -> object:
+        """See ScoreType.hide_dependency_messages."""
+        if not isinstance(score_details, list):
+            return score_details
+        # The stored details may predate a change of the parameters, so an
+        # idx that is out of range counts as not hidden.
+        return [
+            without_dependency_messages(st)
+            if "zeroed_by_dependency" in st
+            and 0 <= st.get("idx", -1) < len(self.hide_dependency)
+            and self.hide_dependency[st["idx"]]
+            else st
+            for st in score_details]
 
     def get_max_score(self, group_parameter: ScoreTypeGroupParameters) -> float:
         if isinstance(group_parameter, tuple) or isinstance(group_parameter, list):
@@ -621,6 +696,10 @@ class ScoreTypeGroup(ScoreTypeAlone):
                         "show_in_oi_restricted_feedback": self.public_testcases[tc_idx],
                     }
                 )
+                if evaluations[tc_idx].text \
+                        and evaluations[tc_idx].text[0] \
+                        == SKIPPED_DEPENDENCY_MESSAGE:
+                    testcases[-1]["skipped"] = True
 
                 if self.public_testcases[tc_idx]:
                     public_testcases.append(testcases[-1])
@@ -671,7 +750,7 @@ class ScoreTypeGroup(ScoreTypeAlone):
             subtasks.append(subtask)
             if all(self.public_testcases[tc_idx] for tc_idx in target):
                 public_score += rounded_score
-                public_subtasks.append(subtasks[-1])
+                public_subtask = subtask
             else:
                 # The score of this subtask must not be revealed. Its
                 # dependency skip is already visible in the text of its
@@ -681,7 +760,9 @@ class ScoreTypeGroup(ScoreTypeAlone):
                     self.public_testcases[tc_idx] for tc_idx in target
                 ):
                     public_subtask["zeroed_by_dependency"] = zeroed[st_idx]
-                public_subtasks.append(public_subtask)
+            if self.hide_dependency[st_idx] and zeroed[st_idx] is not None:
+                public_subtask = without_dependency_messages(public_subtask)
+            public_subtasks.append(public_subtask)
             ranking_details.append("%g" % rounded_score)
 
         # The following line should be unnecessary since subtask scores

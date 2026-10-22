@@ -79,6 +79,14 @@ class DatasetFormsTestCase(unittest.TestCase):
             # A lighter gray would be below the WCAG AA contrast on white.
             self.assertIn("color: #666666;", match.group(1), selector)
 
+    def test_skipped_row_pill_is_styled_in_cws_only(self):
+        cws = CONTEST_DIR.joinpath(
+            "static", "cws_style.css").read_text(encoding="utf-8")
+        self.assertRegex(cws, r"tr\.skipped td\.outcome \.outcome \{[^}]*"
+                         r"background-color: #707070;")
+        # AWS draws no row colors for the testcase table.
+        self.assertNotIn("tr.skipped", read_admin("static", "aws_style.css"))
+
 
 if __name__ == "__main__":
     unittest.main()
