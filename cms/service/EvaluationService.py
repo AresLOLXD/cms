@@ -508,14 +508,29 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                     # otherwise some testcase is always released or
                     # skipped. Release the held ones without the gates,
                     # so that the submission is not stuck.
+                    # Name the testcases that no subtask selects: they are
+                    # not an alignment problem. Only a note, so a score
+                    # type without subtasks (Sum) or with parameters that
+                    # cannot be read must not stop the release.
+                    orphans = []
+                    try:
+                        targets = (dataset.score_type_object
+                                   .retrieve_target_testcases())
+                        orphans = [
+                            codename for codename in missing
+                            if not any(codename in t for t in targets)]
+                    except Exception:
+                        pass
                     logger.warning(
                         "Submission %d, dataset %d: no operations left but "
-                        "no evaluation for testcase(s) %s. The subtask "
+                        "no evaluation for testcase(s) %s%s. The subtask "
                         "dependency and two-phase screening gates are "
                         "holding each other (see the alignment rule in "
                         "docs/subtask-dependencies.md); releasing these "
                         "testcases without the gates.",
-                        submission.id, dataset.id, ", ".join(missing))
+                        submission.id, dataset.id, ", ".join(missing),
+                        (" (in no subtask: %s)" % ", ".join(orphans)
+                         if orphans else ""))
                     # As submission_get_operations() does.
                     if not dataset.active:
                         priority = PriorityQueue.PRIORITY_EXTRA_LOW
