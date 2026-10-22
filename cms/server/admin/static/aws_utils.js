@@ -105,10 +105,21 @@ CMS.AWSUtils.draft_key = function(field) {
     return "aws_draft:" + location.pathname + ":" + field.name;
 };
 
-// The server shows JSON compactly, so formatting alone is not a difference.
+// The server renders JSON compactly and with sorted keys, so formatting and
+// key order alone are not a difference.
 CMS.AWSUtils.normalize_json_text = function(text) {
     try {
-        return JSON.stringify(JSON.parse(text));
+        return JSON.stringify(JSON.parse(text), function(key, value) {
+            if (value === null || typeof value !== "object" ||
+                    Array.isArray(value)) {
+                return value;
+            }
+            const sorted = {};
+            for (const name of Object.keys(value).sort()) {
+                sorted[name] = value[name];
+            }
+            return sorted;
+        });
     } catch (error) {
         return text;
     }
