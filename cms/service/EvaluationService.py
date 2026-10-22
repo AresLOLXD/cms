@@ -520,7 +520,8 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                             codename for codename in missing
                             if not any(codename in t for t in targets)]
                     except Exception:
-                        pass
+                        logger.debug("Cannot tell which testcases are in "
+                                     "no subtask.", exc_info=True)
                     logger.warning(
                         "Submission %d, dataset %d: no operations left but "
                         "no evaluation for testcase(s) %s%s. The subtask "
