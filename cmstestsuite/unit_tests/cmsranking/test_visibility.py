@@ -512,6 +512,18 @@ class TestStaffLogin(VisibilityTestCase):
                 self.assertRegex(rules, r"%s[^{}]*\{[^}]*\bbottom:\s*%s\s*[;}]"
                                  % (selector, re.escape(room)))
 
+    def test_banner_lifts_the_search_overlay(self):
+        # The team search dims the page with an overlay anchored to its
+        # bottom, and its panel stops 48px above that: on a narrow screen
+        # the banner is taller than that, and covers the panel's edge.
+        public = public_frozen_banner(1_700_000_000).decode("utf-8")
+        for who, banner in [("staff", self.banner_parts()[0]),
+                            ("public", public)]:
+            with self.subTest(banner=who):
+                self.assertRegex(
+                    banner, r"#TeamSearch_bg[^{}]*\{[^}]*\bbottom:\s*"
+                    r"var\(--rws-banner\)\s*[;}]")
+
     def test_banner_height_fits_its_text(self):
         # One line and its padding, or two lines on a narrow screen.
         rules, style = self.banner_parts()
