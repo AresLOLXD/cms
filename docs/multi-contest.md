@@ -380,7 +380,10 @@ The staff:
   visible group `/<group>/staff-login` is not served. The staff cookie
   persists afterwards: a login made while the group is hidden or frozen is
   still valid the next time it is hidden or frozen, until the staff press
-  "Salir", the browser session ends or the staff password changes.
+  "Salir", the browser session ends or the staff password changes. If too many
+  password checks are already waiting (16), the Ranking Web Server answers 503
+  "Demasiados intentos de acceso. Intenta de nuevo en un momento." with
+  `Retry-After: 1` instead of queuing the login: wait a moment and try again.
 - See everything live. The page carries the bar "Vista staff: ranking
   congelado para el público" (on a hidden group, "Vista staff: este ranking
   está oculto al público"), with a "Salir" link to log out. A group that is
@@ -390,12 +393,16 @@ The staff:
   password" below).
 
 When the public view of a group changes (it is hidden, shown, frozen or
-unfrozen, by hand or at a scheduled time), an open scoreboard page reloads by
-itself within about 15 seconds (the ping interval). On a hide, it then shows
-the notice. Changing a window that is still ahead changes nothing on the page
-until its time comes. A page that is showing the hidden notice checks every 15
-seconds, and comes back by itself when the group is shown again (or only
-frozen). A page reloads itself at most once every 10 seconds.
+unfrozen), the open scoreboard pages reload by themselves, those of the staff
+too, so the staff bar always matches the view. After a change made by hand (a
+button in AWS, which ProxyService sends to the Ranking Web Server) they reload
+within seconds; after a scheduled one, within about 15 seconds (the ping
+interval). On a hide, the page then shows the notice. Changing a window that is
+still ahead changes nothing on the page until its time comes. A page that is
+showing the hidden notice asks every 15 seconds for `/<group>/visibility`, a
+small public answer that says `hidden`, `frozen` or `live`, and comes back by
+itself when the group is shown again (or only frozen). A page reloads itself at
+most once every 10 seconds.
 
 When the Ranking Web Server restarts, the open pages of a group that is
 frozen at that moment reload once. The open pages of a visible group (even one
@@ -443,7 +450,8 @@ Do it again after every save, and again once a scheduled time has passed.
 - **Check after every save:** open the public URL in a private browser window
   and confirm it shows the expected state (the notice if hidden, the ranking
   with its freeze bar if frozen, the ranking if visible). While hidden, the
-  scoreboard's data URLs (for example `/<group>/contests/`) answer 403.
+  scoreboard's data URLs (for example `/<group>/contests/`) answer 403, except
+  `/<group>/visibility`, which answers `hidden`.
 
 ### Hidden groups without a staff password
 
