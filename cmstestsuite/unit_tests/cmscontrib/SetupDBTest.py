@@ -404,9 +404,11 @@ class TestForkSubmissionLimits(DatabaseMixin, unittest.TestCase):
     def test_takes_no_lock_on_submissions_when_nothing_is_missing(self):
         holder = custom_psycopg2_connection()
         self.addCleanup(holder.close)
-        # Any ALTER TABLE, even one that changes nothing, would wait for
-        # this session and give up with SchemaLockTimeout after 5 s.
-        holder.cursor().execute("LOCK TABLE submissions IN ACCESS SHARE MODE")
+        # The strongest lock: any statement on submissions would wait for
+        # this session, an ALTER TABLE that changes nothing included, and
+        # give up with SchemaLockTimeout after 5 s.
+        holder.cursor().execute(
+            "LOCK TABLE submissions IN ACCESS EXCLUSIVE MODE")
         apply_fork_submission_limits_update()
 
     def test_setup_db_adds_the_columns(self):
