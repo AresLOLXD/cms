@@ -397,6 +397,37 @@ class TestVisibilityView(unittest.TestCase):
         self.assertEqual(
             self.view(hide_at=NOW - self.HOUR)["next_change"], "")
 
+    def test_next_change_skips_an_end_without_a_start(self):
+        # Nothing is frozen or hidden by an end alone.
+        self.assertEqual(
+            self.view(unfreeze_at=NOW + self.HOUR)["next_change"], "")
+        self.assertEqual(
+            self.view(show_at=NOW + self.HOUR)["next_change"], "")
+
+    def test_next_change_skips_a_time_that_changes_nothing_shown(self):
+        view = self.view(unfreeze_at=NOW + self.HOUR,
+                         hide_at=NOW + 2 * self.HOUR)
+        self.assertTrue(view["next_change"].startswith(
+            "Hide from: 2026-10-10 20:00:00 UTC"))
+        # Hidden now: the freeze window counts, also while hidden.
+        view = self.view(
+            hide_at=NOW - self.HOUR, show_at=NOW + 3 * self.HOUR,
+            freeze_at=NOW + self.HOUR, unfreeze_at=NOW + 2 * self.HOUR)
+        self.assertTrue(view["next_change"].startswith(
+            "Freeze at: 2026-10-10 19:00:00 UTC"))
+        # A freeze that is over leaves nothing to name.
+        view = self.view(hide_at=NOW - self.HOUR,
+                         freeze_at=NOW - 2 * self.HOUR,
+                         unfreeze_at=NOW - self.HOUR)
+        self.assertEqual(view["next_change"], "")
+
+    def test_next_change_with_two_times_at_the_same_instant(self):
+        view = self.view(hide_at=NOW - self.HOUR, freeze_at=NOW + self.HOUR,
+                         show_at=NOW + self.HOUR)
+        label, _, rest = view["next_change"].partition(": ")
+        self.assertIn(label, ("Freeze at", "Show again at"))
+        self.assertTrue(rest.startswith("2026-10-10 19:00:00 UTC"))
+
 
 class TestRankingGroupHandlersUseTheView(unittest.TestCase):
 
@@ -464,6 +495,7 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
                              hidden=False, staff_password=None)
         handler = RankingGroupHandler.__new__(RankingGroupHandler)
         handler.application = MagicMock()
+        handler.sql_session = MagicMock()
         handler.safe_get_item = MagicMock(return_value=group)
         form = {"name": "olim", "description": "OLIM",
                 "visibility_action": "hide_now", "staff_password": "pw"}
@@ -481,6 +513,9 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
 
         handler._post_sync("1")
 
+        # The row is locked, so that a second request waits for this one.
+        handler.sql_session.refresh.assert_called_once_with(
+            group, with_for_update=True)
         self.assertEqual(group.hide_at, NOW)
         self.assertIs(group.hidden, True)
         self.assertTrue(validate_password(group.staff_password, "pw"))

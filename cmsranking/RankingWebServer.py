@@ -731,6 +731,8 @@ def build_ranking_app(config: Config, lib_dir: str, web_dir: str):
             '/sublist': SubListHandler(stores),
         }), {'/': web_dir})
 
+    # The visibility guard wakes the event streams through it.
+    wsgi_app.event_source = toplevel_handler.event_handler
     return wsgi_app
 
 

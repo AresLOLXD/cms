@@ -40,6 +40,7 @@ from werkzeug.test import Client, create_environ
 
 from cmscommon.crypto import build_password, hash_password
 from cmscommon.eventsource import EventSource, Publisher, Subscriber
+from cmsranking import visibility as visibility_module
 from cmsranking.Config import Config
 from cmsranking.RankingWebServer import NamespaceDispatcher, \
     build_ranking_app
@@ -60,7 +61,7 @@ STAFF_HASH = build_password("s3cret", "plaintext")
 DATA_PATHS = ["contests/", "contests/c1", "tasks/", "teams/", "users/",
               "submissions/", "subchanges/", "sublist/u1", "scores",
               "history", "events", "config", "logo", "faces/u1",
-              "flags/t1", "Ranking.html", "Ranking.js", "img/favicon.ico"]
+              "flags/t1", "Ranking.js", "img/favicon.ico"]
 
 
 class VisibilityTestCase(unittest.TestCase):
@@ -188,14 +189,27 @@ class TestHiddenGroup(VisibilityTestCase):
         self.assertIn("<title>Ranking oculto</title>", text)
         self.assertIn('action="staff-login"', text)
 
+    def test_ranking_html_shows_the_notice(self):
+        for method in ("GET", "HEAD"):
+            with self.subTest(method=method):
+                response = self.client.open("/olim/Ranking.html",
+                                            method=method)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.mimetype, "text/html")
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "no-store")
+                text = response.get_data(as_text=True)
+                if method == "HEAD":
+                    self.assertEqual(text, "")
+                else:
+                    self.assertIn("<title>Ranking oculto</title>", text)
+                    self.assertIn('action="staff-login"', text)
+
     def test_notice_comes_back_by_itself(self):
         text = self.client.get("/olim/").get_data(as_text=True)
-        self.assertIn('fetch("config", {cache: "no-store"})', text)
+        self.assertIn('fetch("visibility", {cache: "no-store"})', text)
         self.assertIn("location.reload()", text)
-        # What it polls answers 403 while hidden, and 200 once shown.
-        self.assertEqual(self.client.get("/olim/config").status_code, 403)
-        self.put_visibility("olim", False)
-        self.assertEqual(self.client.get("/olim/config").status_code, 200)
+        self.assertNotIn('fetch("config"', text)
 
     def test_failed_login_page_does_not_poll(self):
         # Reloading the answer to a POST would send the form again.
@@ -266,18 +280,36 @@ class TestHiddenGroup(VisibilityTestCase):
             response = self.client.get("/olim/" + path, headers=AUTH)
             self.assertEqual(response.status_code, 403, msg=path)
 
-    def test_visibility_is_only_special_for_put(self):
-        response = self.client.get("/olim/visibility")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
+    def test_visibility_is_only_special_for_get_and_put(self):
+        self.assertEqual(self.client.get("/olim/visibility").status_code,
+                         200)
         self.assertEqual(self.client.post("/olim/visibility").status_code,
                          403)
         self.assertEqual(self.client.delete("/olim/visibility").status_code,
                          401)
-        # Once visible, the app answers as for any unknown path.
-        self.put_visibility("olim", False)
-        self.assertEqual(self.client.get("/olim/visibility").status_code,
-                         404)
+
+    def test_visibility_answers_the_public_view(self):
+        secret = self.client.application.apps["olim"].state.secret
+        staff = {"Cookie": "%s=%s" % (
+            STAFF_COOKIE, staff_cookie_value(secret, "olim", STAFF_HASH))}
+        for word in ("hidden", "live", "frozen"):
+            if word == "live":
+                self.put_visibility("olim", False)
+            elif word == "frozen":
+                self.client.put("/olim/visibility", data=json.dumps({
+                    "hide_at": None, "show_at": None, "freeze_at": 1,
+                    "unfreeze_at": None, "staff_password": STAFF_HASH}),
+                    content_type="application/json", headers=AUTH)
+            # Staff get the public view too, not the live one.
+            for headers in ({}, staff):
+                with self.subTest(word=word, staff=bool(headers)):
+                    response = self.client.get("/olim/visibility",
+                                               headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.mimetype, "text/plain")
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-store")
+                    self.assertEqual(response.get_data(as_text=True), word)
 
     def test_odd_methods_and_paths_stay_closed(self):
         paths = ["/events", "//events", "/events/", "/events?x=1",
@@ -413,6 +445,12 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertIn("Vista staff: este ranking está oculto al público",
                       page.get_data(as_text=True))
 
+    def test_staff_get_the_banner_at_ranking_html(self):
+        headers = self.with_cookie(self.cookie_from(self.login("s3cret")))
+        page = self.client.get("/olim/Ranking.html", headers=headers)
+        self.assertIn("Vista staff: este ranking está oculto al público",
+                      page.get_data(as_text=True))
+
     def staff_page(self):
         """Get / as staff, and cut the banner out of it.
 
@@ -473,6 +511,18 @@ class TestStaffLogin(VisibilityTestCase):
                     "calc(%s + var(%s))" % (bottom, variable)
                 self.assertRegex(rules, r"%s[^{}]*\{[^}]*\bbottom:\s*%s\s*[;}]"
                                  % (selector, re.escape(room)))
+
+    def test_banner_lifts_the_search_overlay(self):
+        # The team search dims the page with an overlay anchored to its
+        # bottom, and its panel stops 48px above that: on a narrow screen
+        # the banner is taller than that, and covers the panel's edge.
+        public = public_frozen_banner(1_700_000_000).decode("utf-8")
+        for who, banner in [("staff", self.banner_parts()[0]),
+                            ("public", public)]:
+            with self.subTest(banner=who):
+                self.assertRegex(
+                    banner, r"#TeamSearch_bg[^{}]*\{[^}]*\bbottom:\s*"
+                    r"var\(--rws-banner\)\s*[;}]")
 
     def test_banner_height_fits_its_text(self):
         # One line and its padding, or two lines on a narrow screen.
@@ -659,6 +709,76 @@ class TestStaffLogin(VisibilityTestCase):
         self.assertNotIn("Vista staff", page.get_data(as_text=True))
 
 
+class TestLoginQueueLimit(VisibilityTestCase):
+    """Only so many password checks may wait for the login threads."""
+
+    def setUp(self):
+        super().setUp()
+        # Not left to the code under test: a failing test must not leak
+        # a count into the next one.
+        patcher = patch.object(visibility_module, "_pending_logins", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+
+    def login(self, password: str):
+        return self.client.post(
+            "/olim/staff-login", data={"password": password})
+
+    def test_logins_past_the_limit_get_a_503(self):
+        # validate_password runs in a real thread of the pool, which only
+        # a primitive that gevent has not patched can block.
+        release = get_original("threading", "Event")()
+        # A thread left blocked would hang the login of the next tests.
+        self.addCleanup(release.set)
+        calls = []
+
+        def blocked(stored, password):
+            calls.append(password)
+            release.wait(5)
+            return True
+
+        with patch.object(visibility_module, "LOGIN_MAX_PENDING", 2):
+            with patch.object(visibility_module, "validate_password",
+                              blocked):
+                waiting = [gevent.spawn(self.login, "x") for _ in range(2)]
+                self.addCleanup(gevent.killall, waiting)
+                with gevent.Timeout(5):
+                    while len(calls) < 2:
+                        gevent.sleep(0.01)
+                with gevent.Timeout(1):
+                    response = self.login("x")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.headers["Retry-After"], "1")
+                self.assertEqual(response.headers["Cache-Control"],
+                                 "no-store")
+                self.assertEqual(response.mimetype, "text/plain")
+                self.assertEqual(
+                    response.get_data(as_text=True),
+                    "Demasiados intentos de acceso. "
+                    "Intenta de nuevo en un momento.")
+                self.assertEqual(len(calls), 2)
+                release.set()
+                gevent.joinall(waiting, timeout=5, raise_error=True)
+                self.assertEqual(len(calls), 2)
+            # Both slots came back: with a count that stayed at 2 this
+            # would be refused too.
+            self.assertEqual(self.login("s3cret").status_code, 303)
+
+    def test_a_failing_check_gives_its_slot_back(self):
+        def unknown_method(stored, password):
+            raise ValueError("unknown authentication method")
+
+        with patch.object(visibility_module, "validate_password",
+                          unknown_method), \
+                patch("cmsranking.visibility.gevent.sleep"):
+            statuses = [
+                self.login("x").status_code
+                for _ in range(visibility_module.LOGIN_MAX_PENDING + 2)]
+        self.assertEqual(statuses, [401] * len(statuses))
+
+
 class TestIndexPage(VisibilityTestCase):
     """A browser must ask again for the index page of a group.
 
@@ -836,13 +956,13 @@ class TestOpenConnections(unittest.TestCase):
         response = self.get_write_stream()
         self.assertEqual(response.get_data(), b"event 1\n")
 
-    def test_write_stream_of_staff_is_not_cut(self):
+    def test_write_stream_of_staff_is_cut_when_the_view_changes(self):
         class StaffGuard(VisibilityGuard):
             def _is_staff(self, request):
                 return True
 
         response = self.get_write_stream(StaffGuard)
-        self.assertEqual(response.get_data(), b"event 1\nevent 2\n")
+        self.assertEqual(response.get_data(), b"event 1\n")
 
     def test_staff_of_a_hidden_group_get_private_no_store(self):
         # The header is set on the way out, so the /events handler must
@@ -921,9 +1041,14 @@ class TestRealEventStream(VisibilityTestCase):
         stream.sendall(request)
         return stream
 
-    def open_stream(self, cookie: str | None = None) -> socket.socket:
-        cookie_line = b"" if cookie is None else \
+    @staticmethod
+    def cookie_line(cookie: str | None) -> bytes:
+        """Return the header line of a staff cookie, if there is one."""
+        return b"" if cookie is None else \
             b"Cookie: %s=%s\r\n" % (STAFF_COOKIE.encode(), cookie.encode())
+
+    def open_stream(self, cookie: str | None = None) -> socket.socket:
+        cookie_line = self.cookie_line(cookie)
         stream = self.connect(b"GET /olim/events HTTP/1.1\r\nHost: rws\r\n"
                               b"Accept: text/event-stream\r\n" + cookie_line
                               + b"\r\n")
@@ -978,14 +1103,6 @@ class TestRealEventStream(VisibilityTestCase):
         self.put_second_contest()
         self.assertIn(b"data:create c2", stream.recv(65536))
 
-    def test_staff_stream_survives_hiding(self):
-        self.put_contest("/olim")
-        self.put_visibility("olim", False)
-        stream = self.open_stream(cookie=self.staff_cookie())
-        self.put_visibility("olim", True)
-        self.put_second_contest()
-        self.assertIn(b"data:create c2", stream.recv(65536))
-
     def test_staff_stream_is_closed_when_the_password_changes(self):
         self.put_contest("/olim")
         self.put_visibility("olim", True)
@@ -999,7 +1116,7 @@ class TestRealEventStream(VisibilityTestCase):
 
 
 class TestStreamsAcrossTransitions(TestRealEventStream):
-    """Public event streams across freezes, changes and restarts."""
+    """Event streams across freezes, changes and restarts."""
 
     # A reload event and a ping, as the chunks of an event stream.
     RELOAD = b"14\r\nevent:reload\ndata:\n\n\r\n"
@@ -1045,11 +1162,13 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def get_events(self, path: str, last_event_id: str) -> bytes:
+    def get_events(self, path: str, last_event_id: str,
+                   cookie: str | None = None) -> bytes:
         """Reconnect to an event stream and return what it sends at once.
 
         path: the path of the event stream.
         last_event_id: the ID of the last event the client got.
+        cookie: the staff cookie to send, if any.
 
         return: the response, headers included, as read until the
             stream is idle for half a second.
@@ -1057,8 +1176,9 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         """
         stream = self.connect(
             b"GET %s HTTP/1.1\r\nHost: rws\r\nAccept: text/event-stream\r\n"
-            b"Last-Event-ID: %s\r\n\r\n"
-            % (path.encode(), last_event_id.encode()))
+            b"Last-Event-ID: %s\r\n%s\r\n"
+            % (path.encode(), last_event_id.encode(),
+               self.cookie_line(cookie)))
         stream.settimeout(0.5)
         received = self.drain(stream)[0]
         # What is asserted absent must not be absent for lack of time.
@@ -1090,6 +1210,69 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         except socket.timeout:
             pass
         return received, False
+
+    def assert_reloaded_at_once(self, stream: socket.socket,
+                                seconds: float = 3):
+        """Check that a stream got one reload before any ping, and ended.
+
+        stream: the connection to read from.
+        seconds: how long the reload may take.
+
+        """
+        received, closed = self.drain_for(stream, seconds)
+        self.assertEqual(received.count(b"event:reload"), 1)
+        self.assertTrue(closed)
+
+    def test_staff_stream_is_told_to_reload_when_the_group_gets_hidden(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", False)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.put_visibility("olim", True)
+        self.assert_reloaded_at_once(stream)
+
+    def test_public_stream_reloads_at_once_when_the_group_gets_hidden(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", True)
+        self.assert_reloaded_at_once(stream)
+
+    def test_public_stream_reloads_at_once_when_the_group_is_unfrozen(self):
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_freeze(1, unfreeze_at=2)
+        self.assert_reloaded_at_once(stream)
+
+    def test_public_stream_reloads_when_a_rounded_up_unfreeze_comes(self):
+        # ProxyService rounds unfreeze_at up to the next whole second, so
+        # for a click the update comes before the time that it carries.
+        self.put_contest("/olim")
+        self.put_freeze(1)
+        stream = self.open_stream()
+        self.put_freeze(1, unfreeze_at=int(time.time()) + 1)
+        self.assert_reloaded_at_once(stream, 4)
+
+    def test_staff_stream_reloads_when_a_rounded_up_show_comes(self):
+        self.put_contest("/olim")
+        self.put_visibility("olim", True)
+        stream = self.open_stream(cookie=self.staff_cookie())
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": 0, "show_at": int(time.time()) + 1,
+            "freeze_at": None, "unfreeze_at": None,
+            "staff_password": STAFF_HASH}),
+            content_type="application/json", headers=AUTH)
+        self.assert_reloaded_at_once(stream, 4)
+
+    def test_a_password_change_alone_sends_no_reload(self):
+        self.put_contest("/olim")
+        stream = self.open_stream()
+        self.put_visibility("olim", False,
+                            staff_password=build_password("new", "plaintext"))
+        self.put_second_contest()
+        # A reload would come before c2.
+        received = stream.recv(65536)
+        self.assertIn(b"data:create c2", received)
+        self.assertNotIn(b"event:reload", received)
 
     def test_frozen_stream_drops_score_events(self):
         self.put_contest("/olim")
@@ -1178,6 +1361,20 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         response = self.client.get("/olim/events",
                                    headers={"Last-Event-ID": old_id})
         self.assertIn(b"event:reload\ndata:\n\n", response.get_data())
+
+    def test_staff_reconnect_to_a_frozen_group_is_told_to_reload(self):
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_freeze(1)
+        data = self.get_events("/olim/events", old_id, self.staff_cookie())
+        self.assertIn(b"event:reload\ndata:\n\n", data)
+
+    def test_staff_reconnect_to_a_hidden_group_is_told_to_reload(self):
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        self.put_visibility("olim", True)
+        data = self.get_events("/olim/events", old_id, self.staff_cookie())
+        self.assertIn(b"event:reload\ndata:\n\n", data)
 
     def test_a_first_connection_older_than_a_change_is_told_to_reload(self):
         # The page's first connection sends the ID in the query, and only
@@ -1891,7 +2088,7 @@ class TestFrozenPublicView(VisibilityTestCase):
     def test_unknown_paths_are_forbidden(self):
         # The filter is an allow-list: what is not classified is refused.
         with self.at(350):
-            for method, path in [("GET", "visibility"), ("GET", "whatever"),
+            for method, path in [("GET", "whatever"),
                                  ("GET", "whatever/deeper"),
                                  ("HEAD", "whatever"), ("POST", "whatever"),
                                  ("GET", "ranking.html"),
@@ -1969,7 +2166,7 @@ class TestFrozenPublicView(VisibilityTestCase):
                                   page.get_data(as_text=True))
 
     def test_staff_login_page_does_not_poll(self):
-        # config answers 200 while frozen: a poll would reload the page
+        # visibility answers "frozen" then: a poll would reload the page
         # every 15 s, and wipe the password being typed.
         with self.at(350):
             page = self.client.get("/olim/staff-login")
@@ -1988,10 +2185,13 @@ class TestFrozenPublicView(VisibilityTestCase):
 
     def test_staff_get_the_frozen_banner(self):
         with self.at(350):
-            page = self.client.get(
-                "/olim/", headers=self.staff_headers()).get_data(as_text=True)
-        self.assertIn("Vista staff: ranking congelado", page)
-        self.assertNotIn("Ranking congelado desde las", page)
+            for path in ("", "Ranking.html"):
+                with self.subTest(path=path):
+                    page = self.client.get(
+                        "/olim/" + path, headers=self.staff_headers()
+                    ).get_data(as_text=True)
+                    self.assertIn("Vista staff: ranking congelado", page)
+                    self.assertNotIn("Ranking congelado desde las", page)
 
     def test_staff_pages_of_a_frozen_group_are_private(self):
         # A shared cache that ignores cookies must not keep the live view,

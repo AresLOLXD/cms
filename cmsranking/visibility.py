@@ -61,6 +61,16 @@ MAX_LOGIN_BODY = 4096
 # Threads that check staff passwords, apart from the pool that the hub
 # shares with everything else.
 LOGIN_THREADS = 2
+# Password checks that may wait for those threads, or run in them, at once.
+# A check takes about 250 ms, so this is a wait of about two seconds; the
+# next one is refused instead of queued without end.
+# shortcut: the cap is one for the whole process, not per client, so one
+# client can use it all; limit per IP if flooding becomes real.
+LOGIN_MAX_PENDING = 16
+# How many are waiting or running now. Gevent switches greenlets only when
+# one blocks, so the check and the increment need no lock if nothing
+# blocks between them.
+_pending_logins = 0
 
 # The environ key through which the guard tells the handlers to serve a
 # frozen group's data as it was at this Unix time.
@@ -125,16 +135,18 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 </html>
 """
 
-# Brings the hidden notice back by itself: config answers 403 while the
-# group is hidden, and 200 once it is shown again or frozen. Only on the
-# notice served to a GET: reloading the answer to a failed login would
-# post the form again, and on the frozen group's login page config always
-# answers 200, so the page would reload every 15 s under a password being
-# typed.
+# Brings the hidden notice back by itself: visibility answers "hidden"
+# while the group is hidden, and "live" or "frozen" once it is not (a failed
+# or non-OK fetch counts as still hidden). Only on the notice served to a
+# GET: reloading the answer to a failed login would post the form again,
+# and on the frozen group's login page the answer is always "frozen", so
+# the page would reload every 15 s under a password being typed.
 NOTICE_POLL = """<script>
 setInterval(function () {
-    fetch("config", {cache: "no-store"}).then(function (r) {
-        if (r.ok) {
+    fetch("visibility", {cache: "no-store"}).then(function (r) {
+        return r.ok ? r.text() : "hidden";
+    }).then(function (view) {
+        if (view !== "hidden") {
             location.reload();
         }
     }).catch(function () {});
@@ -157,7 +169,8 @@ def _banner(text_html: str) -> bytes:
         '<style>'
         ':root{--rws-banner:2.25rem}'
         '@media(max-width:30em){:root{--rws-banner:3.5rem}}'
-        '#InnerFrame,#UserDetail_bg{bottom:var(--rws-banner)}'
+        '#InnerFrame,#UserDetail_bg,#TeamSearch_bg{'
+        'bottom:var(--rws-banner)}'
         '#SidePanel{bottom:calc(30px + var(--rws-banner))}'
         '</style>'
         '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
@@ -575,9 +588,10 @@ class VisibilityGuard:
 
         return: a redirect that sets the staff cookie, or the notice with
             an error after a failed attempt (or a 413 if the body is too
-            big to be a login form).
+            big to be a login form, a 503 if too many checks are waiting).
 
         """
+        global _pending_logins
         # The gevent server hands the app a chunked body as a stream that
         # has no end but the client's. With a limit, werkzeug stops
         # reading at that many bytes and raises for a declared length or
@@ -599,6 +613,13 @@ class VisibilityGuard:
         stored = self.state.staff_password
         valid = False
         if stored is not None and password != "":
+            if _pending_logins >= LOGIN_MAX_PENDING:
+                return Response(
+                    "Demasiados intentos de acceso. "
+                    "Intenta de nuevo en un momento.", status=503,
+                    mimetype="text/plain",
+                    headers={**NO_STORE, "Retry-After": "1"})
+            _pending_logins += 1
             try:
                 # bcrypt takes about 250 ms of CPU. On the hub it would
                 # stop every public scoreboard during a burst of attempts,
@@ -608,6 +629,8 @@ class VisibilityGuard:
             except ValueError:
                 # An authentication method that is not known.
                 valid = False
+            finally:
+                _pending_logins -= 1
         if not valid:
             gevent.sleep(self.FAILED_LOGIN_DELAY)
             return self._notice(error=True, status=401, message=message,
@@ -687,7 +710,7 @@ class VisibilityGuard:
         The public view a request gets is decided when it comes (while
         frozen, the event stream leaves the score events out from the
         start): any change of that view cuts the stream at its next
-        write.
+        write, a staff client's too, which reloads into the new view.
 
         request: the request being served.
         start_response: the WSGI start_response callable.
@@ -699,9 +722,10 @@ class VisibilityGuard:
             change the public view).
 
         return: a start_response whose write() callables refuse to send
-            data to a public client once the group is hidden or its view
-            changed since the request came, or once a staff client lost
-            its access to a frozen group.
+            data to a client once the public view changed since the
+            request came, to a public client also while the group is
+            hidden, and to a staff client that lost its access to a
+            frozen group.
 
         """
         handler = getattr(start_response, "__self__", None)
@@ -714,19 +738,20 @@ class VisibilityGuard:
                 for key, value in headers)
 
             def guarded_write(data):
+                now = time.time()
+                cut = self.state.last_change(now) > opened_at
                 if not self._is_staff(request):
-                    now = time.time()
                     settings = self.state.settings
-                    if settings.hidden(now) \
-                            or (served_as_staff and settings.frozen(now)) \
-                            or self.state.last_change(now) > opened_at:
-                        _close_connection(start_response)
-                        if event_stream:
-                            # Instead of the data, which the client may
-                            # no longer get.
-                            write(RELOAD_EVENT)
-                        raise ConnectionAbortedError(
-                            "The ranking changed its visibility.")
+                    cut = cut or settings.hidden(now) \
+                        or (served_as_staff and settings.frozen(now))
+                if cut:
+                    _close_connection(start_response)
+                    if event_stream:
+                        # Instead of the data, which the client may no
+                        # longer get.
+                        write(RELOAD_EVENT)
+                    raise ConnectionAbortedError(
+                        "The ranking changed its visibility.")
                 return write(data)
 
             return guarded_write
@@ -747,6 +772,11 @@ class VisibilityGuard:
                                             staff)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
+        if path == "/visibility" and request.method == "GET":
+            # What the hidden notice polls: the same for everybody.
+            return Response(self.state.settings.public_view(now)[0],
+                            mimetype="text/plain",
+                            headers=NO_STORE)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
         if not hidden and not (staff and frozen) and \
@@ -757,22 +787,23 @@ class VisibilityGuard:
             # the notice once the group is hidden. (What the staff see of
             # a hidden or frozen group is private, whatever this says.)
             start_response = _cache_control(start_response, REVALIDATE)
+        if path == "/events" and request.method == "GET" \
+                and (staff or not hidden) \
+                and self._missed_a_change(request, now):
+            return Response(RELOAD_EVENT, status=200,
+                            mimetype="text/event-stream",
+                            headers=NO_STORE)(environ, start_response)
         if staff:
             if hidden or frozen:
                 # A cache shared with the public must not keep this, not
                 # even the page that gets a banner.
                 start_response = _cache_control(
                     start_response, PRIVATE_NO_STORE)
-                if path == "/" and request.method == "GET":
+                if path in INDEX_PATHS and request.method == "GET":
                     return self._with_banner(
                         environ, start_response,
                         STAFF_BANNER if hidden else STAFF_FROZEN_BANNER)
             return self.app(environ, start_response)
-        if path == "/events" and request.method == "GET" and not hidden \
-                and self._missed_a_change(request, now):
-            return Response(RELOAD_EVENT, status=200,
-                            mimetype="text/event-stream",
-                            headers=NO_STORE)(environ, start_response)
         if not hidden and not frozen:
             return _CutWhenHidden(self.app(environ, start_response),
                                   self.state, start_response)
@@ -787,7 +818,7 @@ class VisibilityGuard:
             return self.app(environ, start_response)
         if frozen:
             return self._frozen(request, environ, start_response)
-        if path == "/" and request.method in ("GET", "HEAD"):
+        if path in INDEX_PATHS and request.method in ("GET", "HEAD"):
             return self._notice(poll=True)(environ, start_response)
         if path == "/staff-login" and request.method == "POST":
             return self._login(request, start_response)(
@@ -885,9 +916,23 @@ class VisibilityGuard:
         except (ValueError, TypeError) as error:
             logger.warning("Bad visibility update: %s.", error)
             return Response(str(error), status=400, mimetype="text/plain")
+        before = self.state.settings.public_view(time.time())
+        changed = self.state.update_settings(settings)
+        source = getattr(self.app, "event_source", None)
+        if source is not None:
+            # A stream only writes when an event or the ping comes: wake
+            # them all so that the write guard cuts them now. The guard
+            # sends the client its own reload event instead of this one.
+            now = time.time()
+            if settings.public_view(now) != before:
+                source.send("reload", "")
+            elif settings.public_view(now + 1) != before:
+                # ProxyService rounds show_at and unfreeze_at up to the
+                # next second, so a button's time is still ahead when the
+                # update comes: wake them when it has passed.
+                gevent.spawn_later(1, source.send, "reload", "")
         # ProxyService sends the settings again at each sweep: only a
         # change is worth an INFO line.
-        changed = self.state.update_settings(settings)
         logger.log(logging.INFO if changed else logging.DEBUG,
                    "Ranking group %s visibility is now %s.", self.group,
                    json.dumps({k: v for k, v in settings.to_json().items()
