@@ -20,7 +20,7 @@
 
 import unittest
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.testidgenerator import unique_digest
@@ -110,17 +110,21 @@ class TestImportDataset(DatabaseMixin, unittest.TestCase):
         self.assertTrue(ret)
         self.assertDatasetInDb(self.task_id, desc, task_type)
 
-    def test_an_invalid_dataset_is_refused_and_nothing_is_written(self):
-        # The dataset has a cyclic depends_on.
-        task = self.get_task(name=self.task_name)
-        new_dataset = self.get_dataset(
+    def get_cyclic_dataset(self, task):
+        """Create a loader-style GroupMin dataset with a cyclic depends_on"""
+        dataset = self.get_dataset(
             task=task, score_type="GroupMin",
             score_type_parameters=[
                 {"max_score": 50, "testcases": 1, "depends_on": [1]},
                 {"max_score": 50, "testcases": 1, "depends_on": [0]}])
         for codename in ("a", "b"):
-            Testcase(dataset=new_dataset, codename=codename, public=True,
+            Testcase(dataset=dataset, codename=codename, public=True,
                      input=unique_digest(), output=unique_digest())
+        return dataset
+
+    def test_an_invalid_dataset_is_refused_and_nothing_is_written(self):
+        task = self.get_task(name=self.task_name)
+        new_dataset = self.get_cyclic_dataset(task)
         ret = self.do_import(task, new_dataset, "new_desc")
 
         self.assertFalse(ret)
@@ -130,6 +134,26 @@ class TestImportDataset(DatabaseMixin, unittest.TestCase):
                     select(Dataset).filter(Dataset.task_id == self.task_id)
                 ).scalars()],
                 [self.dataset_desc])
+
+    def test_an_invalid_dataset_that_is_not_stored_is_ignored(self):
+        # Loaders such as polygon build one dataset per testset but only the
+        # active one is stored, so the others are not looked at.
+        task_type = "new_task_type"
+        task = self.get_task(name=self.task_name)
+        new_dataset = self.get_dataset(
+            task=task, description="ignored", task_type=task_type,
+            score_type="Sum", score_type_parameters=100)
+        self.get_cyclic_dataset(task)
+        ret = self.do_import(task, new_dataset, "new_desc")
+
+        self.assertTrue(ret)
+        self.assertDatasetInDb(self.task_id, "new_desc", task_type)
+        with SessionGen() as session:
+            self.assertEqual(
+                session.execute(
+                    select(func.count()).select_from(Dataset)
+                    .filter(Dataset.task_id == self.task_id)
+                ).scalar_one(), 2)
 
     def test_dataset_exists(self):
         # Dataset already present, should not update.

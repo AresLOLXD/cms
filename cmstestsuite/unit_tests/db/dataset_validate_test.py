@@ -57,6 +57,13 @@ class TestValidateScoreType(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No testcase matches"):
             dataset.validate_score_type()
 
+    def test_an_unknown_score_type_is_refused(self):
+        dataset = make_dataset([{"max_score": 100, "testcases": 2}])
+        dataset.score_type = "NoSuchType"
+        with self.assertRaisesRegex(
+                ValueError, r'^Unknown score type "NoSuchType"\.$'):
+            dataset.validate_score_type()
+
     def test_assertion_errors_become_value_errors(self):
         dataset = make_dataset([{"max_score": 100, "testcases": 2}])
         with patch.object(

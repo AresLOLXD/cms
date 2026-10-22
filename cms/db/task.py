@@ -517,9 +517,14 @@ class Dataset(Base):
         It needs the testcases of the dataset already in place, because
         the parameters may name them.
 
-        raise (ValueError): if they do not; the message says why.
+        raise (ValueError): if they do not, or if the score type is
+            unknown; the message says why.
 
         """
+        # Import late to avoid a circular dependency.
+        from cms.grading.scoretypes import SCORE_TYPES
+        if self.score_type not in SCORE_TYPES:
+            raise ValueError("Unknown score type \"%s\"." % self.score_type)
         try:
             self.score_type_object
         except (AssertionError, ValueError) as error:
