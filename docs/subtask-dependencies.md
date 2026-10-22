@@ -194,8 +194,8 @@ the other errors first.
 When AWS rejects a save, the page puts back the text you typed in **Score
 Parameters**, once, with the line "Restored your unsaved text." under the field.
 The text is kept only in that browser tab, and it comes back only if the page
-loads again within 30 seconds and the text differs from the stored one; spaces
-and line breaks alone do not count.
+loads again within 30 seconds and the text differs from the stored one; spaces,
+line breaks and the order of the keys alone do not count.
 
 ## What the contestant sees
 
@@ -281,8 +281,9 @@ expression:
 ```
 
 The `italy_yaml` loader names the testcases `000`, `001`, …, so an import with
-these regular expressions is refused: "No testcase matches against the regexp
-...". Import with the count form (`"testcases": 3`), rename the testcases to the
+these regular expressions or with lists of codenames is refused (for a regular
+expression: "No testcase matches against the regexp ..."). Import with the
+count form (`"testcases": 3`), rename the testcases to the
 `sN-nn-…` codenames (see "Getting these codenames" in
 [Two-phase grading](two-phase-grading.md)), then write the regular expressions
 in **Score Parameters** and press **Update**.
@@ -415,7 +416,9 @@ For every task that uses `depends_on`:
 1. Import it: the import checks the score type parameters of its datasets. For
    a dataset you created by hand, or restored from a dump, open the task page
    and press **Update** once its testcases are there (see "Errors when
-   saving").
+   saving"). Press **Update** once on it in any case: that also covers a task
+   that a reimport left alone and testcases that were added or deleted after
+   the import.
 2. Check that its datasets follow the alignment rule (see "Two-phase
    screening").
 3. With `CMS_TWO_PHASE_EVALUATION` set as it will be during the contest,
