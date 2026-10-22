@@ -206,12 +206,9 @@ class TestHiddenGroup(VisibilityTestCase):
 
     def test_notice_comes_back_by_itself(self):
         text = self.client.get("/olim/").get_data(as_text=True)
-        self.assertIn('fetch("config", {cache: "no-store"})', text)
+        self.assertIn('fetch("visibility", {cache: "no-store"})', text)
         self.assertIn("location.reload()", text)
-        # What it polls answers 403 while hidden, and 200 once shown.
-        self.assertEqual(self.client.get("/olim/config").status_code, 403)
-        self.put_visibility("olim", False)
-        self.assertEqual(self.client.get("/olim/config").status_code, 200)
+        self.assertNotIn('fetch("config"', text)
 
     def test_failed_login_page_does_not_poll(self):
         # Reloading the answer to a POST would send the form again.
@@ -282,18 +279,36 @@ class TestHiddenGroup(VisibilityTestCase):
             response = self.client.get("/olim/" + path, headers=AUTH)
             self.assertEqual(response.status_code, 403, msg=path)
 
-    def test_visibility_is_only_special_for_put(self):
-        response = self.client.get("/olim/visibility")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
+    def test_visibility_is_only_special_for_get_and_put(self):
+        self.assertEqual(self.client.get("/olim/visibility").status_code,
+                         200)
         self.assertEqual(self.client.post("/olim/visibility").status_code,
                          403)
         self.assertEqual(self.client.delete("/olim/visibility").status_code,
                          401)
-        # Once visible, the app answers as for any unknown path.
-        self.put_visibility("olim", False)
-        self.assertEqual(self.client.get("/olim/visibility").status_code,
-                         404)
+
+    def test_visibility_answers_the_public_view(self):
+        secret = self.client.application.apps["olim"].state.secret
+        staff = {"Cookie": "%s=%s" % (
+            STAFF_COOKIE, staff_cookie_value(secret, "olim", STAFF_HASH))}
+        for word in ("hidden", "live", "frozen"):
+            if word == "live":
+                self.put_visibility("olim", False)
+            elif word == "frozen":
+                self.client.put("/olim/visibility", data=json.dumps({
+                    "hide_at": None, "show_at": None, "freeze_at": 1,
+                    "unfreeze_at": None, "staff_password": STAFF_HASH}),
+                    content_type="application/json", headers=AUTH)
+            # Staff get the public view too, not the live one.
+            for headers in ({}, staff):
+                with self.subTest(word=word, staff=bool(headers)):
+                    response = self.client.get("/olim/visibility",
+                                               headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.mimetype, "text/plain")
+                    self.assertEqual(response.headers["Cache-Control"],
+                                     "no-store")
+                    self.assertEqual(response.get_data(as_text=True), word)
 
     def test_odd_methods_and_paths_stay_closed(self):
         paths = ["/events", "//events", "/events/", "/events?x=1",
@@ -1913,7 +1928,7 @@ class TestFrozenPublicView(VisibilityTestCase):
     def test_unknown_paths_are_forbidden(self):
         # The filter is an allow-list: what is not classified is refused.
         with self.at(350):
-            for method, path in [("GET", "visibility"), ("GET", "whatever"),
+            for method, path in [("GET", "whatever"),
                                  ("GET", "whatever/deeper"),
                                  ("HEAD", "whatever"), ("POST", "whatever"),
                                  ("GET", "ranking.html"),
@@ -1991,7 +2006,7 @@ class TestFrozenPublicView(VisibilityTestCase):
                                   page.get_data(as_text=True))
 
     def test_staff_login_page_does_not_poll(self):
-        # config answers 200 while frozen: a poll would reload the page
+        # visibility answers "frozen" then: a poll would reload the page
         # every 15 s, and wipe the password being typed.
         with self.at(350):
             page = self.client.get("/olim/staff-login")

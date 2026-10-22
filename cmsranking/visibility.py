@@ -125,16 +125,18 @@ main {{ background: #fff; padding: 2em; border-radius: 8px;
 </html>
 """
 
-# Brings the hidden notice back by itself: config answers 403 while the
-# group is hidden, and 200 once it is shown again or frozen. Only on the
-# notice served to a GET: reloading the answer to a failed login would
-# post the form again, and on the frozen group's login page config always
-# answers 200, so the page would reload every 15 s under a password being
-# typed.
+# Brings the hidden notice back by itself: visibility answers "hidden"
+# while the group is hidden, and "live" or "frozen" once it is not (a failed
+# or non-OK fetch counts as still hidden). Only on the notice served to a
+# GET: reloading the answer to a failed login would post the form again,
+# and on the frozen group's login page the answer is always "frozen", so
+# the page would reload every 15 s under a password being typed.
 NOTICE_POLL = """<script>
 setInterval(function () {
-    fetch("config", {cache: "no-store"}).then(function (r) {
-        if (r.ok) {
+    fetch("visibility", {cache: "no-store"}).then(function (r) {
+        return r.ok ? r.text() : "hidden";
+    }).then(function (view) {
+        if (view !== "hidden") {
             location.reload();
         }
     }).catch(function () {});
@@ -747,6 +749,11 @@ class VisibilityGuard:
                                             staff)
         if path == "/visibility" and request.method == "PUT":
             return self._update(request)(environ, start_response)
+        if path == "/visibility" and request.method == "GET":
+            # What the hidden notice polls: the same for everybody.
+            return Response(self.state.settings.public_view(now)[0],
+                            mimetype="text/plain",
+                            headers=NO_STORE)(environ, start_response)
         if path == "/staff-logout" and request.method == "GET":
             return self._logout()(environ, start_response)
         if not hidden and not (staff and frozen) and \
