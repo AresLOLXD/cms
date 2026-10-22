@@ -91,6 +91,63 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// The server rejects a bad save by redirecting back to the page, which shows
+// the stored value again. Keep the text of the score parameters fields in
+// sessionStorage across that round trip.
+CMS.AWSUtils.SCORE_PARAMETERS_SELECTOR =
+    "textarea[name^=score_type_parameters]";
+
+CMS.AWSUtils.draft_key = function(field) {
+    return "aws_draft:" + location.pathname + ":" + field.name;
+};
+
+CMS.AWSUtils.save_score_parameter_drafts = function(form) {
+    const selector = CMS.AWSUtils.SCORE_PARAMETERS_SELECTOR;
+    try {
+        for (const field of form.querySelectorAll(selector)) {
+            sessionStorage.setItem(CMS.AWSUtils.draft_key(field), field.value);
+        }
+    } catch (error) {
+        // No storage (e.g. a private window): the draft is just not kept.
+    }
+};
+
+CMS.AWSUtils.restore_score_parameter_drafts = function(root) {
+    const selector = CMS.AWSUtils.SCORE_PARAMETERS_SELECTOR;
+    for (const field of (root || document).querySelectorAll(selector)) {
+        try {
+            const key = CMS.AWSUtils.draft_key(field);
+            const saved = sessionStorage.getItem(key);
+            if (saved === null) {
+                continue;
+            }
+            if (saved === field.value) {
+                // The save went through: the page shows what was typed.
+                sessionStorage.removeItem(key);
+                continue;
+            }
+            field.value = saved;
+            const note = document.createElement("div");
+            note.className = "hint";
+            note.textContent = "Restored your unsaved text.";
+            field.after(note);
+        } catch (error) {
+            // No storage: keep the value the page came with.
+        }
+    }
+};
+
+window.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll("form").forEach(function(form) {
+        if (form.querySelector(CMS.AWSUtils.SCORE_PARAMETERS_SELECTOR)) {
+            form.addEventListener("submit", function() {
+                CMS.AWSUtils.save_score_parameter_drafts(form);
+            });
+        }
+    });
+    CMS.AWSUtils.restore_score_parameter_drafts();
+});
+
 document.addEventListener('keydown', function(event) {
     if (event.key === "Escape") {
         document.getElementById('subpage_popup').close();
