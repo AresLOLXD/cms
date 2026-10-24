@@ -29,7 +29,8 @@ from cms.db.user import Question
 from cms.grading.languagemanager import LANGUAGES
 from cms.grading.scoretypes import SCORE_TYPES
 from cms.grading.tasktypes import TASK_TYPES
-from cms.server.admin.formatting import format_dataset_attrs
+from cms.server.admin.formatting import clock_zones, format_dataset_attrs, \
+    format_utc_time
 from cms.server.jinja2_toolbox import GLOBAL_ENVIRONMENT
 from cmscommon.crypto import get_hex_random_key, parse_authentication
 
@@ -49,10 +50,12 @@ def instrument_cms_toolbox(env: Environment):
     env.globals["get_hex_random_key"] = get_hex_random_key
     env.globals["parse_authentication"] = safe_parse_authentication
     env.globals["question_quick_answers"] = Question.QUICK_ANSWERS
+    env.globals["clock_zones"] = clock_zones
 
 
 def instrument_formatting_toolbox(env: Environment):
     env.filters["format_dataset_attrs"] = format_dataset_attrs
+    env.filters["format_utc_time"] = format_utc_time
 
 
 AWS_ENVIRONMENT = GLOBAL_ENVIRONMENT.overlay(
