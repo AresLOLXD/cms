@@ -425,7 +425,9 @@ deployment follows the two steps in
 
 Set `CMS_CWS_COUNT=2` in your `.env`. CMS will start two contest web servers
 on consecutive ports (8888 and 8889 with the default `CMS_CWS_HTTP_PORT=8888`).
-The Admin and Ranking Web Server ports must not fall in that range: set
+The Admin and Ranking Web Server ports must not fall in that range: the
+containers refuse to start otherwise, and the ERROR line is in the `db-init`
+logs (`./up.sh` only reports "db-init didn't complete successfully"). Set
 `CMS_AWS_HTTP_PORT` and `CMS_RWS_HTTP_PORT` to `CMS_CWS_HTTP_PORT + CMS_CWS_COUNT`
 or higher (for example 8890 and 8891). Point your load balancer (e.g. nginx) at
 the contest web server ports with `ip_hash`, as shown in "Scaling Contest Web
