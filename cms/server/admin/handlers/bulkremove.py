@@ -130,6 +130,9 @@ class _BulkRemoveHandler(BaseHandler):
             else:
                 count = remove_participations(
                     self.sql_session, self.contest.id, plan.user_ids)
+            # Inside the try, so that a failed commit is told like a
+            # failed DELETE; try_commit would add its own notification.
+            self.sql_session.commit()
         except Exception as error:
             self.sql_session.rollback()
             # A failed DELETE repr() holds the SQL with one placeholder
@@ -139,21 +142,20 @@ class _BulkRemoveHandler(BaseHandler):
             self._notify("No se borró nada", text[:MAX_ERROR_LENGTH])
             self.redirect(self._back_url)
             return
-        if self.try_commit():
-            self.schedule_rpc(self.service.proxy_service.reinitialize)
-            if self.contest is None:
-                scope = "the platform"
-                subject = "Se borró 1 usuario" if count == 1 \
-                    else "Se borraron %d usuarios" % count
-            else:
-                scope = "contest %s (id %s)" % (self.contest.name,
-                                                self.contest.id)
-                subject = "Se quitó 1 participación" if count == 1 \
-                    else "Se quitaron %d participaciones" % count
-            logger.info("Admin %s removed %d user(s) from %s: %s.",
-                        self.current_user.name, count, scope,
-                        ", ".join(entry.username for entry in plan.users))
-            self._notify(subject, "")
+        self.schedule_rpc(self.service.proxy_service.reinitialize)
+        if self.contest is None:
+            scope = "the platform"
+            subject = "Se borró 1 usuario" if count == 1 \
+                else "Se borraron %d usuarios" % count
+        else:
+            scope = "contest %s (id %s)" % (self.contest.name,
+                                            self.contest.id)
+            subject = "Se quitó 1 participación" if count == 1 \
+                else "Se quitaron %d participaciones" % count
+        logger.info("Admin %s removed %d user(s) from %s: %s.",
+                    self.current_user.name, count, scope,
+                    ", ".join(entry.username for entry in plan.users))
+        self._notify(subject, "")
         self.redirect(self._back_url)
 
     def _render_plan(self, plan: RemovalPlan, error: str | None) -> None:

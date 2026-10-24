@@ -97,7 +97,6 @@ def make_handler(handler_class=BulkRemoveUsersHandler, *, form=None,
     handler.redirect = mock.MagicMock()
     handler.url = mock.MagicMock(side_effect=fake_url)
     handler.schedule_rpc = mock.MagicMock()
-    handler.try_commit = mock.MagicMock(return_value=True)
     return handler
 
 
@@ -237,10 +236,12 @@ class TestConfirm(unittest.TestCase):
 
         users.assert_called_once_with(handler.sql_session, [7, 9])
         participations.assert_not_called()
-        handler.try_commit.assert_called_once_with()
+        handler.sql_session.commit.assert_called_once_with()
         handler.schedule_rpc.assert_called_once_with(
             handler.service.proxy_service.reinitialize)
-        self.assertIn(("Se borraron 2 usuarios", ""), notifications(handler))
+        # Only ours: try_commit would add an "Operation successful."
+        self.assertEqual(notifications(handler),
+                         [("Se borraron 2 usuarios", "")])
         handler.redirect.assert_called_once_with("/users")
 
     def test_contest_removal(self):
@@ -335,25 +336,25 @@ class TestConfirm(unittest.TestCase):
             self.assertEqual(params["error"], PLAN_CHANGED)
             self.assertIs(params["plan"], current)
 
-    def test_a_failed_commit_schedules_no_rpc(self):
+    def failed_commit(self):
+        """Confirm a removal whose commit fails; return the handler."""
         plan = make_plan(entry(7, "ana"))
         handler = make_handler(form=confirm_form(plan), user_ids=["7"])
-        handler.try_commit.return_value = False
-        with mock.patch(MODULE + ".plan_removal", return_value=plan), \
-                mock.patch(MODULE + ".remove_users", return_value=1):
-            handler._post_sync()
-
-        handler.schedule_rpc.assert_not_called()
-        handler.redirect.assert_called_once_with("/users")
-
-    def test_a_failed_commit_logs_nothing(self):
-        plan = make_plan(entry(7, "ana"))
-        handler = make_handler(form=confirm_form(plan), user_ids=["7"])
-        handler.try_commit.return_value = False
+        handler.sql_session.commit.side_effect = RuntimeError("deadlock")
         with mock.patch(MODULE + ".plan_removal", return_value=plan), \
                 mock.patch(MODULE + ".remove_users", return_value=1), \
                 self.assertNoLogs(MODULE, level="INFO"):
             handler._post_sync()
+        return handler
+
+    def test_a_failed_commit_removes_nothing_and_says_so_once(self):
+        handler = self.failed_commit()
+
+        handler.sql_session.rollback.assert_called_once_with()
+        handler.schedule_rpc.assert_not_called()
+        handler.redirect.assert_called_once_with("/users")
+        self.assertEqual(notifications(handler), [
+            ("No se borró nada", repr(RuntimeError("deadlock")))])
 
     def test_a_failed_removal_rolls_back(self):
         plan = make_plan(entry(7, "ana"))
@@ -364,7 +365,7 @@ class TestConfirm(unittest.TestCase):
             handler._post_sync()
 
         handler.sql_session.rollback.assert_called_once_with()
-        handler.try_commit.assert_not_called()
+        handler.sql_session.commit.assert_not_called()
         handler.schedule_rpc.assert_not_called()
         self.assertEqual(notifications(handler), [
             ("No se borró nada", repr(RuntimeError("boom")))])
