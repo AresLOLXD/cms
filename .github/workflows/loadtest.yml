@@ -196,7 +196,8 @@ jobs:
                 sed -n '3,4p' "$dir/summary.md"
                 grep -e '^Login failures' -e '^Submissions sent' \
                     -e '^Never scored' -e '^Rows not identified' \
-                    -e '^Score mismatches' -e '^Final RWS' "$dir/summary.md"
+                    -e '^Score mismatches' -e '^Final RWS' \
+                    -e '^Runtime spread' "$dir/summary.md"
                 (cd "$dir" &&
                   grep -s -H SHORT processes_start.txt processes_end.txt)
               } | sed 's/^/- /' || true
