@@ -627,10 +627,40 @@ overwrite: if others are editing groups (for example during contest setup),
 at that moment plus any field you edited on that page, not on the schedule
 the page showed, so it can be refused with the messages above.
 
+## Telegram bot
+
+With `CMS_CONTEST_ID=ALL`, if `CMS_TELEGRAM_BOT_TOKEN` and
+`CMS_TELEGRAM_CHAT_ID` are set, the generated `supervisord.conf` starts the
+Telegram bot (`cmsTelegramBot 0 -c ALL`), the same as for a single contest.
+It serves every contest in the one chat:
+
+- Each question is posted with a line `Contest: <name>` and the hashtag
+  `#<name>` (a `-` in the name becomes `_`, because hashtags do not allow
+  it), next to `#todo` while nobody has answered it. Use the hashtag to find
+  or filter the questions of one contest.
+- To make an announcement, send `/announcement contest_name Subject` and
+  write the body on the next lines. The contest must have a group running at
+  that moment. With any other name the bot replies with the names of the
+  running contests; once the announcement is saved it replies
+  `Announcement sent to #contest_name`. The announcements created in the
+  Admin Web Server are not posted in the chat.
+- The first time the bot starts it saves the current time in `telegram/cutoff`
+  (in the `cms-data` volume) and posts only the questions asked after that
+  moment, so it does not fill the chat with the questions of past contests.
+  If you delete the `telegram/` directory, the bot starts again from the
+  moment it restarts: it does not re-send past questions, but it no longer
+  edits the messages it had already posted for them.
+- If Telegram refuses a message, the bot logs the error and goes on with the
+  next one. When Telegram limits the rate of the group (about 20 messages per
+  minute, which the end of a contest can reach), the bot waits the time
+  Telegram asks for and then posts the same message.
+- Never run a bot for one contest (`-c <id>`) next to the one for `ALL` in the
+  same chat: each keeps its own state, so both would post every question.
+
 ## Limitations
 
-- The Telegram bot serves a single contest and is not started with
-  `CMS_CONTEST_ID=ALL`.
+- The Telegram bot posts all the contests in one chat; there is no chat for
+  each contest.
 - All contests share one Admin Web Server; there are no per-contest admin
   permissions.
 - The times of a schedule are absolute. There are no times relative to the
