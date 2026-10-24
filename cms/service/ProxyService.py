@@ -44,10 +44,13 @@ from urllib.parse import urljoin, urlsplit
 import requests
 import requests.exceptions
 from sqlalchemy import not_, select
+from sqlalchemy.exc import DBAPIError, PendingRollbackError, \
+    TimeoutError as PoolTimeoutError
 
 from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
     RankingGroup, Submission, get_submissions
+from cms.db.connect_options import describe_error
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.health import BusyTracker
@@ -269,6 +272,21 @@ def safe_delete_data(ranking: str, resource: str, operation: str):
         logger.warning(msg)
         raise CannotSendError(msg)
     _check_status(res.status_code, operation)
+
+
+def _is_database_error(error: BaseException) -> bool:
+    """Return whether error comes from the database, not from the data.
+
+    A DBAPIError covers a lock or statement timeout, a deadlock, a
+    failed connection and a lost one; a PendingRollbackError means an
+    earlier one left the session unusable, and the pool's TimeoutError
+    (not a DBAPIError) that no connection was free.
+
+    error: any exception.
+
+    """
+    return isinstance(
+        error, (DBAPIError, PendingRollbackError, PoolTimeoutError))
 
 
 def safe_url(url: str) -> str:
@@ -1314,8 +1332,18 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         with SessionGen() as session:
             self._enqueue_visibility(session)
-            for contest in self._contests_to_send(session):
-                self._enqueue_contest_data(contest)
+            contests = self._contests_to_send(session)
+            contest_ids = [contest.id for contest in contests]
+            for index, contest in enumerate(contests):
+                try:
+                    self._enqueue_contest_data(contest)
+                except Exception as error:
+                    # The ones not read yet are held back too: they
+                    # have no data in the queue, and the sweeper sends
+                    # it with all their scores once the database is up.
+                    if _is_database_error(error):
+                        self._broken_contests.update(contest_ids[index:])
+                    raise
 
     def _enqueue_visibility(self, session: Session,
                             group: str | None = None) -> None:
@@ -1350,12 +1378,28 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         traceback is only logged when the contest breaks: the sweeper
         tries it again every time, and it would fill the logs.
 
+        A database error is not the contest's fault: the contest is
+        held back the same way, but the error is raised after a one-line
+        warning, as the session cannot be used any more (a transaction
+        left in error fails every contest after it).
+
         return: the number of operations enqueued.
+
+        raise (sqlalchemy.exc.SQLAlchemyError): on a database error (see
+            _is_database_error).
 
         """
         try:
             operations = self._operations_for_contest(contest)
         except Exception as error:
+            if _is_database_error(error):
+                self._broken_contests.add(contest.id)
+                logger.warning(
+                    "Database error while reading contest %d (%s): %s. Its "
+                    "scores are held back and it is retried at the next "
+                    "sweep.", contest.id, contest.name,
+                    describe_error(error))
+                raise
             if contest.id in self._broken_contests:
                 logger.warning("Contest %d (%s) still cannot be sent to "
                                "the rankings: %s: %s", contest.id,

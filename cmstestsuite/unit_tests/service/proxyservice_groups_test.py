@@ -10,6 +10,8 @@ from urllib.parse import urljoin
 
 import requests.exceptions
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError, \
+    PendingRollbackError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import object_session
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -22,7 +24,7 @@ from cms import config
 from cms.conf import Address
 from cms.db import Dataset, RankingGroup
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
-    ProxyService, RefusedEntity, encode_id
+    ProxyService, RefusedEntity, _is_database_error, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
 from cmscommon.datetime import make_timestamp
 
@@ -44,6 +46,20 @@ VISIBILITY = ["PUT visibility"]
 CONTEST_DATA = {"PUT contests/", "PUT users/", "PUT tasks/"}
 # What sending the scores of some submissions takes:
 SCORES = {"PUT submissions/", "PUT subchanges/"}
+
+
+class TestIsDatabaseError(unittest.TestCase):
+
+    def test_database_errors_are_told_from_data_errors(self):
+        for error, expected in (
+            (OperationalError("SELECT 1", {}, Exception("timeout")), True),
+            (PendingRollbackError("Can't reconnect"), True),
+            (PoolTimeoutError("QueuePool limit reached"), True),
+            (ValueError("No testcase matches"), False),
+            (AttributeError("no score type"), False),
+        ):
+            with self.subTest(error=type(error).__name__):
+                self.assertIs(_is_database_error(error), expected)
 
 
 class TestProxyServiceGroups(
@@ -683,32 +699,68 @@ class TestProxyServiceGroups(
         self.assertEqual([u for u in self.put_urls() if "olim/" in u],
                          [url("olim/visibility")])
 
-    async def test_contests_broken_by_a_database_error_all_heal(self):
-        # A failed statement aborts the PostgreSQL transaction, so the
-        # contests that follow in the same initialize() fail as well.
+    def fail_the_database_at(self, contest) -> list[bool]:
+        """Make reading the data of contest abort its transaction.
+
+        A failed statement aborts the PostgreSQL transaction, so a
+        session that went on would fail for every contest after it.
+
+        return: a one-item list, the switch: set it to False to heal.
+
+        """
         database_is_failing = [True]
         real_operations = ProxyService._operations_for_contest
 
-        def operations_for_contest(service, contest):
-            if database_is_failing[0] and contest.id == self.contest_a.id:
-                object_session(contest).execute(text("SELECT 1 / 0"))
-            return real_operations(service, contest)
+        def operations_for_contest(service, other):
+            if database_is_failing[0] and other.id == contest.id:
+                object_session(other).execute(text("SELECT 1 / 0"))
+            return real_operations(service, other)
 
-        with patch.object(ProxyService, "_operations_for_contest",
-                          operations_for_contest):
-            service = await self.start()
-            self.assertEqual(
-                service._broken_contests,
-                {self.contest_a.id, self.contest_b.id})
-            # Only the visibility settings of the groups got there (at
-            # startup, and again with the sweep).
-            self.assertEqual(
-                set(self.put_urls()),
-                {url("olim/visibility"), url("omips/visibility")})
+        patcher = patch.object(ProxyService, "_operations_for_contest",
+                               operations_for_contest)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return database_is_failing
 
-            database_is_failing[0] = False
-            await service._missing_operations()
-            await self._settle(service)
+    async def test_contests_broken_by_a_database_error_all_heal(self):
+        service = await self.start()
+        self.clear_requests()
+        database_is_failing = self.fail_the_database_at(self.contest_a)
+
+        # The reinitialize stops at the first contest: going on would
+        # fail for the others, on the aborted transaction. The contests
+        # not read yet are held, as the first one.
+        with self.assertLogs("cms.service.ProxyService", "INFO") as logs:
+            with self.assertRaises(DBAPIError):
+                await service.reinitialize()
+        await self._settle(service)
+        self.assertEqual(service._broken_contests,
+                         {self.contest_a.id, self.contest_b.id})
+        # Only the visibility settings of the groups got there.
+        self.assertEqual(
+            set(self.put_urls()),
+            {url("olim/visibility"), url("omips/visibility")})
+        warnings = [r for r in logs.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIsNone(warnings[0].exc_info)
+        self.assertIn("Database error", warnings[0].getMessage())
+        self.assertIn(self.contest_a.name, warnings[0].getMessage())
+        self.assertIn("division by zero", warnings[0].getMessage())
+        self.assertFalse(any("Cannot build" in r.getMessage()
+                             for r in logs.records))
+
+        # The sweep fails the same way while it lasts, and it keeps
+        # them held.
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            with self.assertRaises(DBAPIError):
+                await service._missing_operations()
+        self.assertEqual(service._broken_contests,
+                         {self.contest_a.id, self.contest_b.id})
+
+        database_is_failing[0] = False
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
 
         self.assertEqual(service._broken_contests, set())
         for group, contest, submission in (
@@ -720,6 +772,13 @@ class TestProxyServiceGroups(
             self.assertEqual(
                 set(self.put_payload(url("%s/submissions/" % group))),
                 {"%d" % submission.id})
+
+    async def test_a_database_error_at_startup_stops_the_service(self):
+        # Like the unguarded SessionGen before it: supervisord starts
+        # the service again, and a restart starts clean.
+        self.fail_the_database_at(self.contest_b)
+        with self.assertRaises(DBAPIError):
+            await self.start()
 
     async def test_healed_contest_gets_all_its_scores_again(self):
         service = await self.start()
