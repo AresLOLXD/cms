@@ -466,6 +466,10 @@ class ImportPageHandler(BaseHandler):
 
     def _upload(self) -> None:
         """Validate the file sent, and start its import if asked to."""
+        # shortcut: Tornado reads up to 100 MiB of body before this runs and
+        # read_rows only then refuses 2 MB; a per-handler cap needs
+        # @stream_request_body, so docs/importing-users.md asks the proxy
+        # for the cap. Upgrade if the proxy cannot do it.
         mapping = {field: self.get_argument("map_" + field, "")
                    for field in self.fields}
         files = self.request.files.get("file")

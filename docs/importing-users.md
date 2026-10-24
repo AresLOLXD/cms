@@ -36,6 +36,23 @@ see them and cannot open the pages.
   contestants, use several files.
 - One file per contest, imported from that contest's page.
 
+The 2 MB limit is checked after AWS has received the whole request: AWS
+accepts a body of up to 100 MiB, and only then answers "el archivo pasa de 2
+MB". A reverse proxy can refuse a large body earlier. With Caddy, in the site
+that forwards to AWS, cap the import paths only (a 5000-row file is about 0.5
+MB, so 4 MB leaves room; if `/admin/` has a larger cap of its own, the smaller
+one applies to these paths):
+
+```
+@import_csv path /admin/users/import /admin/contest/*/users/import
+request_body @import_csv {
+    max_size 4MB
+}
+```
+
+This is the only protection that runs before AWS checks who sent the file. See
+"Request body limits" in [Docker deployment](docker-deployment.md).
+
 | Field | Required | What it holds | Headers recognised automatically |
 |-------|----------|---------------|----------------------------------|
 | `username` | yes | The login. It is unique in the whole of CMS. Only letters A-Z a-z, digits, `_` and `-` (no spaces, dots, accents or `@`). Capitals matter: `Ana01` and `ana01` are different users. | `username`, `usuario`, `user` |
@@ -111,10 +128,15 @@ replace the participation passwords.
    every selector has the right column.
 2. Press **"Solo validar"**. It reads the whole file and writes nothing. If the
    file is fine, the page says "El archivo es válido. Al importarlo:" and
-   counts the new and updated users and the new and updated participations.
-   Check that the numbers are what you expect. On a fresh contest, "Usuarios
-   actualizados" above 0 means those usernames already exist in CMS, and their
-   first and last names will be overwritten.
+   counts the users and participations: "Usuarios nuevos" and
+   "Participaciones nuevas" will be created, and "Usuarios ya existentes (se
+   sobrescriben)" and "Participaciones ya existentes (se sobrescriben)"
+   already exist and will be overwritten with the values of the file. The
+   page does not count the ones that would really change: an existing user
+   whose row is identical to what is stored counts too. Check that the numbers
+   are what you expect. On a fresh contest, "Usuarios ya existentes (se
+   sobrescriben)" above 0 means those usernames already exist in CMS, and
+   their first and last names will be overwritten.
 
    If the import would also clear teams or change groups, a highlighted
    warning follows the counts, one line for each thing that would happen:
@@ -127,6 +149,14 @@ replace the participation passwords.
    main one, whose row has an empty `group` cell or "(sin asignar)". See the
    warning about empty cells below. If it is not what you want, fix the file
    before importing.
+
+   Below the counts, the page shows the first row of the file as the import
+   will read it, after "Primer renglón del archivo; comprueba que las columnas
+   son las correctas:". It lists "Usuario (username)", "Nombre (first_name)"
+   and "Apellidos (last_name)", plus "Equipo (team)" and "Grupo (group)" on a
+   contest import, and never the password. An empty team or group shows as
+   "(vacío)". If a value is in the wrong place, a selector has the wrong
+   column: fix it before importing.
 3. **Choose the file again.** The browser cannot keep the file between the two
    steps, so the page asks: "Vuelve a elegir el archivo para importarlo. Se
    conservan las columnas asignadas, salvo la de la contraseña: revísala." Your
@@ -136,8 +166,9 @@ replace the participation passwords.
 4. Press **"Importar"**. A progress bar shows "Procesando X de N". Both buttons
    are disabled after the first click, so a double click does not send the
    file twice.
-5. It ends with **"Listo."**, in bold, and the counts: "Usuarios nuevos: …,
-   actualizados: …. Participaciones nuevas: …, actualizadas: ….". If the import
+5. It ends with **"Listo."**, in bold, and the counts: "Usuarios nuevos: …, ya
+   existentes (se sobrescribieron): …. Participaciones nuevas: …, ya
+   existentes (se sobrescribieron): ….". If the import
    cleared teams or moved participations to the main group, the same lines as
    in the validation follow, in the past tense: "N participaciones perdieron su
    equipo" and "N participaciones pasaron al grupo principal" (with one
