@@ -643,19 +643,28 @@ It serves every contest in the one chat:
   that moment. With any other name the bot replies with the names of the
   running contests; once the announcement is saved it replies
   `Announcement sent to #contest_name`. The announcements created in the
-  Admin Web Server are not posted in the chat.
+  Admin Web Server are not posted in the chat. `/announcement` only reaches
+  running contests: for a notice before a contest starts, or for participants
+  who still have extra time after the stop, use the Admin Web Server.
 - The first time the bot starts it saves the current time in `telegram/cutoff`
   (in the `cms-data` volume) and posts only the questions asked after that
   moment, so it does not fill the chat with the questions of past contests.
-  If you delete the `telegram/` directory, the bot starts again from the
-  moment it restarts: it does not re-send past questions, but it no longer
-  edits the messages it had already posted for them.
-- If Telegram refuses a message, the bot logs the error and goes on with the
-  next one. When Telegram limits the rate of the group (about 20 messages per
-  minute, which the end of a contest can reach), the bot waits the time
-  Telegram asks for and then posts the same message.
-- Never run a bot for one contest (`-c <id>`) next to the one for `ALL` in the
-  same chat: each keeps its own state, so both would post every question.
+  At every poll the bot reads all the questions since that moment, so
+  between seasons (when the contests of the last one are over) delete the
+  `telegram/` directory of the volume and restart the bot: it starts again
+  from the moment it restarts, it does not re-send past questions, and it no
+  longer edits the messages it had already posted for them.
+- If Telegram refuses a message, the bot logs the error, goes on with the
+  next one and tries that message again at every poll (every second). When
+  Telegram limits the rate of the group (about 20 messages per minute, which
+  the end of a contest can reach), the bot waits the time Telegram asks for
+  and then posts the same message.
+- Never run two Telegram bots at once, for example one for a single contest
+  (`-c <id>`) and one for `ALL`: they share the `telegram/` directory and
+  overwrite each other's files.
+- The bot only checks the chat id: anyone in the chat can answer questions
+  and announce to any running contest. The chat must be private to the
+  staff.
 
 ## Limitations
 

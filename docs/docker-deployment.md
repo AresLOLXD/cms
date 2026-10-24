@@ -484,11 +484,9 @@ with an old image, which is also what `1) No` does (the default in `./up.sh`,
 `./restart.sh` and `./contest.sh`): the old
 image does not know the new `data_dir`, so submission and user-test copies go to
 the container's own filesystem and are lost the next time it is recreated, and
-the Telegram bot loses its state and starts again from that moment (it does
-not re-send past questions, but it stops editing the messages it had posted
-for them, and a bot for one contest re-sends the announcements of that
-contest). Once rebuilt, the `cms` container runs the code of the image for
-real, possibly newer than what was running until now.
+the Telegram bot re-sends every question and announcement. Once rebuilt, the
+`cms` container runs the code of the image for real, possibly newer than what
+was running until now.
 
 The old copy of the code left in the volume, the `python3.12` directory, is
 inert. To free the space, find the volume name with
