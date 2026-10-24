@@ -27,6 +27,7 @@ import tempfile
 import threading
 import unittest
 
+from sqlalchemy.dialects.postgresql.psycopg2 import PGDialect_psycopg2
 from sqlalchemy.engine import make_url
 
 from cms import config
@@ -168,6 +169,72 @@ class TestEnvironment(unittest.TestCase):
                      if name in ("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD",
                                  "PGDATABASE", "PGSSLMODE")},
                     expected)
+
+    def test_the_ssl_parameters_reach_libpq(self):
+        cases = (
+            ("sslmode=verify-full", "PGSSLMODE", "verify-full"),
+            ("sslrootcert=/etc/ssl%2Fca%20dir/root.crt", "PGSSLROOTCERT",
+             "/etc/ssl/ca dir/root.crt"),
+            ("sslcert=/c/client.crt", "PGSSLCERT", "/c/client.crt"),
+            ("sslkey=/c/client.key", "PGSSLKEY", "/c/client.key"),
+            ("sslcrl=/c/crl.pem", "PGSSLCRL", "/c/crl.pem"),
+            ("sslcrldir=/c/crls", "PGSSLCRLDIR", "/c/crls"),
+            ("sslcertmode=require", "PGSSLCERTMODE", "require"),
+            ("sslsni=0", "PGSSLSNI", "0"),
+            ("sslnegotiation=direct", "PGSSLNEGOTIATION", "direct"),
+            ("ssl_min_protocol_version=TLSv1.3",
+             "PGSSLMINPROTOCOLVERSION", "TLSv1.3"),
+            ("ssl_max_protocol_version=TLSv1.3",
+             "PGSSLMAXPROTOCOLVERSION", "TLSv1.3"),
+            ("target_session_attrs=read-write", "PGTARGETSESSIONATTRS",
+             "read-write"),
+            # CMS would fail on a repeated key; the gate takes the last.
+            ("sslmode=disable&sslmode=require", "PGSSLMODE", "require"),
+        )
+        for query, name, value in cases:
+            with self.subTest(query=query):
+                self.assertEqual(
+                    environment("postgresql://u:pw@db/x?" + query)[name],
+                    value)
+
+    def test_the_url_does_not_override_the_gates_own_settings(self):
+        env = environment("postgresql://u:pw@db/x?application_name=mine"
+                          "&options=-c%20statement_timeout%3D0"
+                          "&connect_timeout=99&sslmode=require")
+        self.assertEqual(env["PGAPPNAME"], "cmsWatchdog")
+        self.assertEqual(env["PGOPTIONS"], "-c statement_timeout=3000")
+        self.assertEqual(env["PGCONNECT_TIMEOUT"], "3")
+
+    def test_an_ssl_password_is_not_forwarded(self):
+        # libpq has no environment variable for it, and argv is forbidden.
+        env = environment("postgresql://u:pw@db/x?sslmode=require"
+                          "&sslkey=/c/k&sslpassword=s3cret")
+        self.assertFalse([value for value in env.values()
+                          if "s3cret" in value])
+
+    def test_several_hosts_are_read_as_sqlalchemy_reads_them(self):
+        urls = (
+            "postgresql://u:pw@/x?host=a:5432&host=b",
+            "postgresql://u:pw@/x?host=a:5432&host=b:5433",
+            "postgresql://u:pw@/x?host=a,b&port=5432,5433",
+            "postgresql://u:pw@/x?host=a,b&port=5432&port=5433",
+            "postgresql://u:pw@/x?host=a,b&port=,5433",
+            "postgresql://u:pw@db:5433/x?host=a,b",
+            "postgresql://u:pw@/x?host=db:5433",
+            "postgresql://u:pw@db:5433/x?host=other",
+            "postgresql://u:pw@db:5433/x?host=/var/run/postgresql",
+            "postgresql://u:pw@db:5433/x?port=5434",
+            "postgresql://u:pw@db:5433/x?sslmode=require",
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                options = PGDialect_psycopg2().create_connect_args(
+                    make_url(url))[1]
+                env = environment(url)
+                self.assertEqual(env.get("PGHOST"), options.get("host"))
+                self.assertEqual(
+                    env.get("PGPORT"),
+                    str(options["port"]) if "port" in options else None)
 
 
 class TestGate(unittest.IsolatedAsyncioTestCase):

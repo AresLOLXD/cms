@@ -53,6 +53,7 @@ from cms.watchdog import control, policy, probes
 
 
 LEDGER_NAME = "watchdog-ledger.json"
+STARTS_NAME = "watchdog-starts.json"
 STATUS_NAME = "watchdog.json"
 EVIDENCE_DIR = "watchdog"
 JOURNAL_NAME = "actions.jsonl"
@@ -131,6 +132,7 @@ class Files:
 
         """
         self.ledger = os.path.join(run_dir, LEDGER_NAME)
+        self.starts = os.path.join(run_dir, STARTS_NAME)
         self.status = os.path.join(run_dir, STATUS_NAME)
         self.evidence_dir = os.path.join(log_dir, EVIDENCE_DIR)
         self.journal = os.path.join(self.evidence_dir, JOURNAL_NAME)
@@ -178,6 +180,37 @@ class Files:
         for incident in ledger.incidents.values():
             incident["opened"] = min(incident["opened"], wall)
         return ledger, ""
+
+    def record_start(self, wall: float) -> int:
+        """Record a start of the watchdog and count the recent ones (#68).
+
+        The starts are in the run directory, like the ledger, and apart
+        from it: a ledger that does not parse exhausts every budget.
+        What cannot be read counts as no history, and what cannot be
+        written is not an error: this is a diagnostic, not a decision.
+
+        wall: now (epoch seconds).
+
+        return: the starts in the last START_LOOP_WINDOW_S, this one
+            included (at most 50).
+
+        """
+        try:
+            with open(self.starts, encoding="utf-8") as f:
+                history = json.load(f)
+        except (OSError, ValueError):
+            history = []
+        if not isinstance(history, list):
+            history = []
+        # Times ahead of now (a clock that went back) are dropped too.
+        starts = [start for start in history
+                  if isinstance(start, (int, float))
+                  and not isinstance(start, bool)
+                  and wall - policy.START_LOOP_WINDOW_S <= start <= wall]
+        starts = (starts + [wall])[-50:]
+        with contextlib.suppress(OSError):
+            write_atomic(self.starts, json.dumps(starts))
+        return len(starts)
 
     def save_ledger(self, ledger: policy.Ledger) -> None:
         """Write the ledger.
@@ -1275,6 +1308,21 @@ async def serve(mode: str, restart_classes: frozenset[str],
     ledger, problem = files.load_ledger(wall)
     if problem:
         alerter.emit("ERROR", problem, wall)
+    # Exactly at the crossing: no state to keep. A steady loop of 10 to
+    # 12 minutes a run always holds 6 starts in the hour, and says it at
+    # each one.
+    if files.record_start(wall) == policy.START_LOOP_LIMIT + 1:
+        alerter.emit(
+            "ERROR", "Watchdog: it has started %d times in the last hour, "
+            "so it is crash-looping (each run ends in an error or at its "
+            "self-guard). Read the error: ./logs.sh cms | grep -E -B3 -A30 "
+            r"'cycle failed unexpectedly|^Timeout \('. To stop the loop, "
+            "stop cmswatchdog (see 'Turning it off') or set CMS_WATCHDOG=off "
+            "and run ./up.sh. Keep the traceback for the developers." % (
+                policy.START_LOOP_LIMIT + 1), wall)
+        # Not at the end of the first cycle: a self-guard exit or an OOM
+        # kill in it would lose the line, and they are this loop.
+        await alerter.flush()
     source = (control.SupervisorSource() if process_source == "supervisor"
               else control.ProcSource())
     dry_run = control.DryRunActuator(source, usr1_wait_s=policy.USR1_WAIT_S)

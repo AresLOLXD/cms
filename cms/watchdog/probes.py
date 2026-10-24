@@ -402,6 +402,21 @@ DATABASE_URL = re.compile(
         (?:\?(?P<query>.*))?
     """, re.X)
 
+# A single "host" of the query that holds its port, as SQLAlchemy 2.0
+# reads it (dialects/postgresql/base.py, _split_multihost_from_url).
+HOST_WITH_PORT = re.compile(r"^([a-zA-Z0-9\-\.]*)(?:\:(\d*))?$")
+
+# The parameters of the URL's query that reach libpq, each through the
+# environment variable "PG" + its name without "_", in capitals. Not all
+# of them: options, application_name and connect_timeout would override
+# the gate's own settings. Not sslpassword either: libpq has no variable
+# for it and argv is forbidden, so a key that needs one keeps the gate
+# red, with libpq's text.
+LIBPQ_QUERY_KEYS = (
+    "sslmode", "sslrootcert", "sslcert", "sslkey", "sslcrl", "sslcrldir",
+    "sslcertmode", "sslsni", "sslnegotiation", "ssl_min_protocol_version",
+    "ssl_max_protocol_version", "target_session_attrs")
+
 
 def psql_environment(url: str, path: str, connect_timeout_s: int,
                      statement_timeout_ms: int) -> dict[str, str]:
@@ -410,8 +425,9 @@ def psql_environment(url: str, path: str, connect_timeout_s: int,
     The password goes in the environment, never in argv. The URL is read
     as SQLAlchemy reads it (DATABASE_URL): the user and the password are
     percent-decoded, the host and the database are not. Of the URL's
-    query only sslmode and host (a socket directory) are read: the gate
-    sets its own timeouts. LC_ALL=C makes psql's and libpq's own
+    query only host and port (also several, as libpq and SQLAlchemy read
+    them) and LIBPQ_QUERY_KEYS are read: the gate sets its own timeouts.
+    LC_ALL=C makes psql's and libpq's own
     messages English, which classify() reads; the server's messages
     (too many clients, authentication) follow its lc_messages.
 
@@ -447,10 +463,31 @@ def psql_environment(url: str, path: str, connect_timeout_s: int,
     if parts["database"]:
         env["PGDATABASE"] = parts["database"]
     query = parse_qs(parts["query"] or "")
-    if "sslmode" in query:
-        env["PGSSLMODE"] = query["sslmode"][-1]
+    for key in LIBPQ_QUERY_KEYS:
+        if key in query:
+            env["PG" + key.replace("_", "").upper()] = query[key][-1]
+    hosts: list[str] | None = None
+    ports: list[str] | None = None
     if "host" in query:
-        env["PGHOST"] = ",".join(query["host"])
+        if len(query["host"]) > 1:
+            # host=a:5432&host=b:5433
+            hosts, ports = (list(column) for column in zip(
+                *(token.partition(":")[::2] for token in query["host"])))
+        else:
+            hosts = query["host"][0].split(",")
+            host_port = HOST_WITH_PORT.match(hosts[0])
+            if "port" not in query and len(hosts) == 1 and ":" in hosts[0] \
+                    and host_port:
+                hosts, ports = [host_port[1]], [host_port[2] or ""]
+    if "port" in query:
+        ports = ",".join(query["port"]).split(",")
+    if hosts:
+        env["PGHOST"] = ",".join(hosts)
+    # As SQLAlchemy writes them: an empty entry is the default port, and
+    # with several hosts and no port it is ",", over the URL's own port.
+    comma_ports = ",".join(ports or [""] * len(hosts or ()))
+    if comma_ports:
+        env["PGPORT"] = comma_ports
     return env
 
 
