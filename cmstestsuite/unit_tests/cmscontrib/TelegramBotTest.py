@@ -16,21 +16,43 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Tests for the database reads of the Telegram bot.
+"""Tests for the Telegram bot.
 
-Only the synchronous read is exercised: the bot's Application and its
-event loop are never started here (this directory runs in the gevent
-pytest group, where an asyncio loop can hang).
+The bot's Application and an event loop are never started here (this
+directory runs in the gevent pytest group, where an asyncio loop can
+hang): the DB read is synchronous, and the coroutines are driven by hand
+with run(), which only works for coroutines that never wait.
 
 """
 
+import os
+import tempfile
 import unittest
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 from sqlalchemy import event
 
 from cms.db import engine
-from cmscontrib.TelegramBot import TelegramBot
+from cmscommon.datetime import EPOCH, make_datetime
+from cmscontrib.TelegramBot import TelegramBot, load_cutoff
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+
+
+def run(coroutine):
+    """Run a coroutine that never waits for anything, without a loop.
+
+    coroutine (coroutine): the coroutine to run.
+
+    return (object): what the coroutine returned.
+
+    """
+    try:
+        coroutine.send(None)
+    except StopIteration as stop:
+        return stop.value
+    raise AssertionError("the coroutine waited for something")
 
 
 class TestReadQuestionsAndAnnouncements(DatabaseMixin, unittest.TestCase):
@@ -44,19 +66,22 @@ class TestReadQuestionsAndAnnouncements(DatabaseMixin, unittest.TestCase):
         super().tearDown()
 
     @staticmethod
-    def make_bot(contest_id):
+    def make_bot(contest_id, cutoff=EPOCH):
         """Return a bot that can only read the DB.
 
         TelegramBot.__init__ builds the telegram Application, which has
         nothing to do with these tests, so it is skipped.
 
         contest_id (int|None): the contest the bot serves, None for all.
+        cutoff (datetime): the bot ignores the questions asked before it.
 
-        return (TelegramBot): a bot with just its contest_id set.
+        return (TelegramBot): a bot with just its contest_id and its
+            cutoff set.
 
         """
         bot = TelegramBot.__new__(TelegramBot)
         bot.contest_id = contest_id
+        bot.cutoff = cutoff
         return bot
 
     def add_askers(self, contest, count, questions_each=2):
@@ -243,6 +268,130 @@ class TestReadQuestionsAndAnnouncements(DatabaseMixin, unittest.TestCase):
             [q["id"] for q in questions],
             [q.id for q in questions_here + questions_there])
         self.assertEqual(announcements, [])
+
+    def test_all_contests_mode_adds_the_contest_name(self):
+        other = self.add_contest()
+        here = self.add_askers(self.contest, 1, questions_each=1)
+        there = self.add_askers(other, 1, questions_each=1)
+        self.session.commit()
+
+        questions, _ = self.make_bot(None)._read_questions_and_announcements()
+
+        self.assertEqual(
+            {q["id"]: q["contest_name"] for q in questions},
+            {here[0].id: self.contest.name, there[0].id: other.name})
+
+    def test_select_count_in_all_contests_mode_does_not_depend_on_contests(
+            self):
+        # The contest name of each question has to come with the question,
+        # not from a lazy load for each contest.
+        self.add_askers(self.add_contest(), 1)
+        self.session.commit()
+        selects_few, (questions_few, _) = self.read_counting_selects(
+            self.make_bot(None))
+
+        for _ in range(5):
+            self.add_askers(self.add_contest(), 1)
+        self.session.commit()
+        selects_more, (questions_more, _) = self.read_counting_selects(
+            self.make_bot(None))
+
+        self.assertEqual(len(questions_few), 2)
+        self.assertEqual(len(questions_more), 12)
+        self.assertEqual(selects_few, selects_more)
+
+    def test_questions_before_the_cutoff_are_not_read(self):
+        participation = self.add_participation(contest=self.contest)
+        asked_at = {
+            day: self.add_question(
+                participation=participation,
+                question_timestamp=datetime(2026, 1, day))
+            for day in (1, 2, 3)}
+        self.session.commit()
+
+        for contest_id in (self.contest.id, None):
+            with self.subTest(contest_id=contest_id):
+                read, _ = self.make_bot(
+                    contest_id, datetime(2026, 1, 2)
+                )._read_questions_and_announcements()
+                # The question asked exactly at the cutoff is still read.
+                self.assertEqual(
+                    [q["id"] for q in read],
+                    [asked_at[2].id, asked_at[3].id])
+
+
+class TestLoadCutoff(unittest.TestCase):
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.path = os.path.join(directory.name, "cutoff")
+
+    def test_first_start_writes_now(self):
+        before = make_datetime()
+        cutoff = load_cutoff(self.path, has_sent_questions=False)
+
+        self.assertGreaterEqual(cutoff, before)
+        # A second start reads the same moment back.
+        self.assertEqual(load_cutoff(self.path, False), cutoff)
+
+    def test_old_install_without_the_file_keeps_posting_everything(self):
+        self.assertEqual(load_cutoff(self.path, has_sent_questions=True), EPOCH)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_the_file_wins_over_the_state(self):
+        with open(self.path, "w") as f:
+            f.write("2026-10-10T12:00:00")
+
+        self.assertEqual(
+            load_cutoff(self.path, has_sent_questions=True),
+            datetime(2026, 10, 10, 12))
+
+
+class TestQuestionText(unittest.TestCase):
+
+    @staticmethod
+    def post(**question):
+        """Post a question and return the text that was sent.
+
+        question: the columns of the question that differ from a pending
+            question of alice, with no contest name.
+
+        return (str): the text of the Telegram message.
+
+        """
+        bot = TelegramBot.__new__(TelegramBot)
+        bot.chat_id = 1
+        bot.msg_id_to_qid = {}
+        bot.application = MagicMock()
+        bot.application.bot.send_message = AsyncMock(
+            return_value=SimpleNamespace(message_id=7))
+        new = dict(
+            id=3, username="alice", subject="Sub", text="Body",
+            ignored=False, reply_text=None, reply_subject=None)
+        new.update(question)
+        run(bot.question_callback({}, new))
+        return bot.application.bot.send_message.call_args.kwargs["text"]
+
+    def test_single_contest_text_has_no_contest(self):
+        self.assertEqual(
+            self.post(),
+            "#todo\n<b>New question from alice</b>\nSubject: <i>Sub</i>"
+            "\n\nBody\n\nReply with <code>/answer your_reply_here</code> "
+            "for a custom reply")
+
+    def test_pending_question_has_todo_and_the_contest_hashtag(self):
+        text = self.post(contest_name="omi-2026-day1")
+
+        self.assertTrue(text.startswith("#todo #omi_2026_day1\n"))
+        self.assertIn("Contest: <b>omi-2026-day1</b>\n", text)
+
+    def test_answered_question_keeps_the_hashtag_but_not_todo(self):
+        text = self.post(
+            contest_name="omi-2026-day1", reply_text="", reply_subject="Yes")
+
+        self.assertTrue(text.startswith("#omi_2026_day1\n"))
+        self.assertNotIn("#todo", text)
 
 
 if __name__ == "__main__":

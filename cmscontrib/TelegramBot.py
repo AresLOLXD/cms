@@ -38,6 +38,7 @@ import asyncio
 import html
 import logging
 import os
+import re
 
 # We use yaml instead of json or similar because
 import yaml
@@ -47,6 +48,7 @@ from cms.conf import ConfigError
 from cms.db import ask_for_contest, Announcement, Question, Participation
 from cms.db.session import SessionGen
 from cms.util import contest_id_from_args
+from cmscommon.datetime import EPOCH, make_datetime
 
 from telegram.ext import (
     ApplicationBuilder,
@@ -101,6 +103,45 @@ def sqlalchemy_to_dict(obj: Base) -> dict:
     d = obj.get_attrs()
     d["id"] = obj.id
     return d
+
+
+def contest_hashtag(contest_name: str) -> str:
+    """Return the hashtag that marks the messages of a contest.
+
+    Hashtags do not allow "-", which a contest name may have.
+
+    contest_name: the name of the contest.
+
+    return: the hashtag, with its "#".
+
+    """
+    return "#" + re.sub(r"\W", "_", contest_name)
+
+
+def load_cutoff(path: str, has_sent_questions: bool) -> datetime.datetime:
+    """Return the moment before which no question is posted.
+
+    The first start of the bot writes the current time in path, so that a
+    bot that serves a contest with a history does not post all of it.
+
+    path: the file that keeps the cutoff.
+    has_sent_questions: whether the bot has already posted questions; an
+        install that did so before the cutoff existed keeps posting
+        everything, as it always did, and writes no file.
+
+    return: the cutoff, as a naive UTC datetime.
+
+    """
+    try:
+        with open(path) as f:
+            return datetime.datetime.fromisoformat(f.read().strip())
+    except FileNotFoundError:
+        if has_sent_questions:
+            return EPOCH
+    cutoff = make_datetime()
+    with open(path, "w") as f:
+        f.write(cutoff.isoformat())
+    return cutoff
 
 
 class TelegramBot:
@@ -161,6 +202,10 @@ class TelegramBot:
 
         self.question_status = load_status(self.question_storage_dir)
         self.announcement_status = load_status(self.announcement_storage_dir)
+        self.cutoff = load_cutoff(
+            os.path.join(config.global_.data_dir, "telegram", "cutoff"),
+            bool(self.question_status),
+        )
 
         for (qid, q) in self.question_status.items():
             self.msg_id_to_qid[q["msg_id"]] = qid
@@ -333,7 +378,13 @@ class TelegramBot:
         subject = html.escape(new["subject"])
         text = html.escape(new["text"])
         qid = new["id"]
-        msg = f"<b>New question from {new['username']}</b>\nSubject: <i>{subject}</i>\n\n{text}"
+        # Only when the bot serves all the contests (see the read below).
+        contest_name = new.get("contest_name")
+        tags = [] if contest_name is None else [contest_hashtag(contest_name)]
+        msg = f"<b>New question from {new['username']}</b>\n"
+        if contest_name is not None:
+            msg += f"Contest: <b>{html.escape(contest_name)}</b>\n"
+        msg += f"Subject: <i>{subject}</i>\n\n{text}"
 
         if new["ignored"]:
             msg += f"\n\n<i>Ignored</i>"
@@ -342,7 +393,10 @@ class TelegramBot:
             ans_text = html.escape(new["reply_text"])
             msg += f"\n\n<b>Answer: </b><i>{ans_subject}</i>\n\n<i>{ans_text}</i>"
         else:
-            msg = f"#todo\n{msg}\n\nReply with <code>/answer your_reply_here</code> for a custom reply"
+            tags.insert(0, "#todo")
+            msg += "\n\nReply with <code>/answer your_reply_here</code> for a custom reply"
+        if tags:
+            msg = " ".join(tags) + "\n" + msg
 
         reply_markup = InlineKeyboardMarkup(
             [
@@ -423,10 +477,12 @@ class TelegramBot:
         same query as the question, so the number of queries does not
         depend on how many participants asked something. The dicts are
         built before the session is closed, so they can be used by the
-        caller afterwards.
+        caller afterwards. Only the questions asked since the cutoff are
+        read, so the work of each poll does not grow with the history.
 
         return: the questions, in the order they were asked (each with the
-            "username" of the participant who asked it), and the
+            "username" of the participant who asked it, and, when the bot
+            serves all the contests, the "contest_name"), and the
             announcements (none when the bot serves all the contests).
 
         """
@@ -437,15 +493,24 @@ class TelegramBot:
                 .options(
                     joinedload(Question.participation)
                     .joinedload(Participation.user))
+                .filter(Question.question_timestamp >= self.cutoff)
                 .order_by(Question.id)
             )
             if self.contest_id is not None:
                 query = query.filter(
                     Participation.contest_id == self.contest_id)
+            else:
+                # The key is left out of the single contest dicts: a new
+                # key would look like a change of every stored question.
+                query = query.options(
+                    joinedload(Question.participation)
+                    .joinedload(Participation.contest))
 
             def q_to_dict(q) -> dict:
                 d = sqlalchemy_to_dict(q)
                 d["username"] = q.participation.user.username
+                if self.contest_id is None:
+                    d["contest_name"] = q.participation.contest.name
                 return d
 
             qs = [q_to_dict(x) for x in session.execute(query).scalars().all()]
