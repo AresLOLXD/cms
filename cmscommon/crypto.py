@@ -24,7 +24,7 @@
 
 import binascii
 import hmac
-import random
+import secrets
 from string import ascii_lowercase
 
 import bcrypt
@@ -152,10 +152,11 @@ def decrypt_number(enc: str, key_hex: str) -> int:
 def generate_random_password() -> str:
     """Utility method to generate a random password.
 
-    return: a random string.
+    return: a random string of 12 lowercase letters (about 56 bits), drawn
+        from the system CSPRNG.
 
     """
-    return "".join((random.choice(ascii_lowercase) for _ in range(6)))
+    return "".join(secrets.choice(ascii_lowercase) for _ in range(12))
 
 
 def parse_authentication(authentication: str) -> tuple[str, str]:
