@@ -190,7 +190,8 @@ fi
 # ── _do_up: GIT_SHA build arg ─────────────────────────────────────────────────
 # The image revision label comes from the repo's HEAD, or "unknown" outside git.
 
-run_do_up n 1
+# GIT_CEILING_DIRECTORIES: a TMPDIR inside a git work tree must not leak its HEAD.
+GIT_CEILING_DIRECTORIES="$(dirname "$TMP_ROOT")" run_do_up n 1
 if [[ "$(tail -n1 "$TMP_ROOT/calls.sha")" == "unknown" ]]; then
   check "_do_up exports GIT_SHA=unknown outside a git repo" "ok"
 else
