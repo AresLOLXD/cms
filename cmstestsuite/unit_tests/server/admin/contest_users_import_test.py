@@ -26,6 +26,7 @@ their "core" block only, as the rest of base.html needs a whole request.
 
 import asyncio
 import json
+import logging
 import re
 import secrets
 import unittest
@@ -34,6 +35,7 @@ from unittest import mock
 
 import tornado.web
 
+from cms.io.web_service import log_request
 from cms.server.admin.bulkimport import FIELDS, MAX_BYTES, REQUIRED, \
     USER_FIELDS, USER_REQUIRED, ImportPlan, UserImportPlan, read_rows
 from cms.server.admin.handlers.contestuser import \
@@ -704,6 +706,21 @@ class TestRoutes(unittest.TestCase):
             match = re.fullmatch(pattern, url)
             self.assertIsNotNone(match, msg=url)
             self.assertEqual(match.groups(), ("12", job_id))
+
+    def test_the_polls_of_the_status_handlers_are_logged_at_debug(self):
+        # The page asks every 500 ms; an error is still told as such.
+        for handler_class in (ImportJobStatusHandler,
+                              GlobalImportJobStatusHandler):
+            for status, level in ((200, logging.DEBUG),
+                                  (404, logging.WARNING)):
+                handler = make_handler(handler_class)
+                handler.get_status = lambda: status
+                handler.request = SimpleNamespace(
+                    method="GET", path="/status", request_time=lambda: 0.0)
+                handler._request_summary = lambda: "GET /status"
+                with self.assertLogs("tornado.access", level="DEBUG") as logs:
+                    log_request(handler)
+                self.assertEqual(logs.records[0].levelno, level)
 
 
 class TestPermissions(unittest.TestCase):

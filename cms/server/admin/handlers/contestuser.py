@@ -546,6 +546,9 @@ def _write_job_status(handler: BaseHandler, job: ImportJob) -> None:
 class ImportJobStatusHandler(BaseHandler):
     """The progress of a contest import job, as JSON, for its owner only."""
 
+    # The page asks every 500 ms: not worth an INFO line each.
+    quiet_access_log = True
+
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def get(self, contest_id: str, job_id: str) -> None:
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
@@ -595,6 +598,8 @@ class ImportGlobalUsersHandler(ImportPageHandler):
 
 class GlobalImportJobStatusHandler(BaseHandler):
     """The progress of a global users import job, as JSON, for its owner."""
+
+    quiet_access_log = True
 
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def get(self, job_id: str) -> None:

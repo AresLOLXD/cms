@@ -82,9 +82,11 @@ def log_request(handler: tornado.web.RequestHandler) -> None:
     """Log a finished request like Tornado does, but probes at DEBUG.
 
     A successful GET of PROBE_PATH is logged at DEBUG, so that health
-    checks do not flood the logs. Every other request is logged exactly
-    as Tornado's Application.log_request does: the same logger, levels
-    and format, which the load-test analysis parses.
+    checks do not flood the logs; so is a successful request to a handler
+    with quiet_access_log set, such as a page polling its progress. Every
+    other request is logged exactly as Tornado's Application.log_request
+    does: the same logger, levels and format, which the load-test
+    analysis parses.
 
     handler: the handler that served the request.
 
@@ -92,7 +94,8 @@ def log_request(handler: tornado.web.RequestHandler) -> None:
     status = handler.get_status()
     request = handler.request
     if status < 400:
-        if request.method == "GET" and request.path == PROBE_PATH:
+        if getattr(handler, "quiet_access_log", False) or (
+                request.method == "GET" and request.path == PROBE_PATH):
             log_method = access_log.debug
         else:
             log_method = access_log.info
