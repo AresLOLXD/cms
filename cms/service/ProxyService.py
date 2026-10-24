@@ -1165,6 +1165,26 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             self._loop.call_soon_threadsafe(
                 self.enqueue, operation, priority, timestamp)
 
+    def _threadsafe_enqueue_all(
+        self, operations: list[ProxyOperation]
+    ) -> None:
+        """Enqueue operations in order, in one callback of the event loop.
+
+        Nothing that other threads enqueue can come between them. See
+        _threadsafe_enqueue for the rest.
+
+        operations: the operations to enqueue.
+
+        """
+        def enqueue_all():
+            for operation in operations:
+                self.enqueue(operation)
+
+        if self._loop is None:
+            enqueue_all()
+        else:
+            self._loop.call_soon_threadsafe(enqueue_all)
+
     def _is_sent(self, contest: Contest | None) -> bool:
         """Return whether the data of contest goes to a ranking.
 
@@ -1217,15 +1237,20 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         return mapping
 
     def _enqueue_submissions(
-        self, session: Session, contest: Contest, only_missing: bool
+        self, session: Session, contest: Contest, only_missing: bool,
+        enqueue: Callable[[ProxyOperation], None] | None = None,
     ) -> int:
         """Enqueue the scores and tokens of the submissions of contest.
 
         only_missing: if True, skip what was already sent.
+        enqueue: what to do with each operation, or None to enqueue it
+            (see _threadsafe_enqueue).
 
         return: the number of operations enqueued.
 
         """
+        if enqueue is None:
+            enqueue = self._threadsafe_enqueue
         counter = 0
         submissions = session.execute(
             get_submissions(session, contest_id=contest.id)
@@ -1244,14 +1269,14 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                     only_missing and
                     submission.id in self.scores_sent_to_rankings):
                 for operation in self.operations_for_score(submission):
-                    self._threadsafe_enqueue(operation)
+                    enqueue(operation)
                     counter += 1
 
             if submission.tokened() and not (
                     only_missing and
                     submission.id in self.tokens_sent_to_rankings):
                 for operation in self.operations_for_token(submission):
-                    self._threadsafe_enqueue(operation)
+                    enqueue(operation)
                     counter += 1
 
         return counter
@@ -1345,23 +1370,29 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                         self._broken_contests.update(contest_ids[index:])
                     raise
 
-    def _enqueue_visibility(self, session: Session,
-                            group: str | None = None) -> None:
+    def _enqueue_visibility(
+        self, session: Session, group: str | None = None,
+        enqueue: Callable[[ProxyOperation], None] | None = None,
+    ) -> None:
         """Enqueue the visibility settings of the ranking groups.
 
         Only in group mode: legacy mode has no groups.
 
         session: the session to read the groups with.
         group: only this group, or None for every group.
+        enqueue: what to do with each operation, or None to enqueue it
+            (see _threadsafe_enqueue).
 
         """
         if self.contest_id is not None:
             return
+        if enqueue is None:
+            enqueue = self._threadsafe_enqueue
         query = select(RankingGroup)
         if group is not None:
             query = query.filter(RankingGroup.name == group)
         for ranking_group in session.execute(query).scalars().all():
-            self._threadsafe_enqueue(ProxyOperation(
+            enqueue(ProxyOperation(
                 ProxyExecutor.VISIBILITY_TYPE,
                 {"hide_at": _unix_start(ranking_group.hide_at),
                  "show_at": _unix_end(ranking_group.show_at),
@@ -1370,7 +1401,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                  "staff_password": ranking_group.staff_password},
                 ranking_group.name))
 
-    def _enqueue_contest_data(self, contest: Contest) -> int:
+    def _enqueue_contest_data(
+        self, contest: Contest,
+        enqueue: Callable[[ProxyOperation], None] | None = None,
+    ) -> int:
         """Enqueue the contest, its users, teams and tasks.
 
         If the data cannot be built, log the error and enqueue nothing
@@ -1383,12 +1417,17 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         warning, as the session cannot be used any more (a transaction
         left in error fails every contest after it).
 
+        enqueue: what to do with each operation, or None to enqueue it
+            (see _threadsafe_enqueue).
+
         return: the number of operations enqueued.
 
         raise (sqlalchemy.exc.SQLAlchemyError): on a database error (see
             _is_database_error).
 
         """
+        if enqueue is None:
+            enqueue = self._threadsafe_enqueue
         try:
             operations = self._operations_for_contest(contest)
         except Exception as error:
@@ -1412,7 +1451,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                 self._broken_contests.add(contest.id)
             return 0
         for operation in operations:
-            self._threadsafe_enqueue(operation)
+            enqueue(operation)
         # Only now the scores of the contest may be sent: another thread
         # could otherwise queue them before the contest and its tasks,
         # and rankings refuse submissions of tasks they do not know.
@@ -1652,19 +1691,64 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         Runs inside loop.run_in_executor. group has already been
         validated by the caller.
 
+        The reset is only enqueued, with the data, once the data has
+        been read: if the database fails, the ranking keeps what it
+        had instead of staying empty. A database error undoes what the
+        build did to the sets of what was sent, and to the broken
+        contests.
+
+        raise (sqlalchemy.exc.SQLAlchemyError): on a database error (see
+            _is_database_error).
+
         """
-        logger.info("Regenerating ranking %s.",
-                    group if group is not None else "(root)")
-        self._threadsafe_enqueue(
-            ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group))
-        with SessionGen() as session:
-            if group is not None:
-                self._enqueue_visibility(session, group)
-            for contest in self._contests_to_send(session):
-                if self._group_of(contest) == group:
-                    self._enqueue_contest_data(contest)
-                    self._enqueue_submissions(
-                        session, contest, only_missing=False)
+        name = group if group is not None else "(root)"
+        logger.info("Regenerating ranking %s.", name)
+        broken_before = set(self._broken_contests)
+        sent_before = (self.scores_sent_to_rankings.copy(),
+                       self.tokens_sent_to_rankings.copy())
+        operations = [ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group)]
+        try:
+            with SessionGen() as session:
+                if group is not None:
+                    self._enqueue_visibility(
+                        session, group, enqueue=operations.append)
+                for contest in self._contests_to_send(session):
+                    if self._group_of(contest) == group:
+                        self._enqueue_contest_data(
+                            contest, enqueue=operations.append)
+                        self._enqueue_submissions(
+                            session, contest, only_missing=False,
+                            enqueue=operations.append)
+            self._threadsafe_enqueue_all(operations)
+        except BaseException as error:
+            # Nothing was enqueued: the build marked scores as sent
+            # that never went, and held back contests the ranking
+            # still has.
+            self._broken_contests = broken_before
+            self._forget_sent_since(sent_before)
+            logger.error(
+                "Regenerate of ranking %s failed (%s): the scoreboard was "
+                "left as it was and may be stale (what was removed since "
+                "may still show on it). Press Regenerate again once the "
+                "database answers.", name, describe_error(error),
+                exc_info=not _is_database_error(error))
+            raise
+
+    def _forget_sent_since(self, before: tuple[set[int], set[int]]) -> None:
+        """Take out of the sets of what was sent what was added since.
+
+        Other threads add to the sets meanwhile, so iterate over
+        copies.
+
+        before: copies of the sets of scores and tokens sent, taken
+            earlier.
+
+        """
+        # shortcut: relies on CPython's atomic set.copy() under the GIL;
+        # revisit under free-threaded Python.
+        for sent, was in zip((self.scores_sent_to_rankings,
+                              self.tokens_sent_to_rankings), before):
+            sent.difference_update(sent.copy() - was)
 
     @rpc_method
     async def submission_scored(self, submission_id: int):

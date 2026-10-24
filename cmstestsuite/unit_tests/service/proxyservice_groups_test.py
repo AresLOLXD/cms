@@ -415,6 +415,75 @@ class TestProxyServiceGroups(
         self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
                          {"%d" % self.sub_a.id})
 
+    async def test_regenerate_enqueues_the_reset_with_the_data_in_one_go(self):
+        service = await self.start()
+        singles = list()
+        batches = list()
+        real_enqueue_all = service._threadsafe_enqueue_all
+
+        def spy_all(operations, *args, **kwargs):
+            batches.append(list(operations))
+            real_enqueue_all(operations, *args, **kwargs)
+
+        service._threadsafe_enqueue = \
+            lambda *args, **kwargs: singles.append(args)
+        service._threadsafe_enqueue_all = spy_all
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+
+        # One callback of the loop: nothing queued by another thread
+        # can come between the reset and the data it was built for.
+        self.assertEqual(singles, [])
+        self.assertEqual(len(batches), 1)
+        types = [operation.type_ for operation in batches[0]]
+        self.assertEqual(types[:2], [ProxyExecutor.RESET_TYPE,
+                                     ProxyExecutor.VISIBILITY_TYPE])
+        self.assertIn(ProxyExecutor.CONTEST_TYPE, types)
+        self.assertEqual(types[-2:], [ProxyExecutor.SUBMISSION_TYPE,
+                                      ProxyExecutor.SUBCHANGE_TYPE])
+        self.assertEqual({operation.group for operation in batches[0]},
+                         {"olim"})
+
+    async def test_regenerate_failing_to_read_leaves_the_ranking_alone(self):
+        contest_a2, _ = self.add_contest_with_submission(self.olim)
+        contest_a3, _ = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        # The build would mark this score as sent, and hold back the
+        # second contest, before the third one hits the database error.
+        service.scores_sent_to_rankings.discard(self.sub_a.id)
+        scores = set(service.scores_sent_to_rankings)
+        tokens = set(service.tokens_sent_to_rankings)
+        self.break_contest(contest_a2)
+        self.fail_the_database_at(contest_a3)
+        self.clear_requests()
+
+        with self.assertLogs("cms.service.ProxyService", "ERROR") as logs:
+            with self.assertRaises(DBAPIError):
+                await service.regenerate_ranking("olim")
+        await self._settle(service)
+
+        # The scoreboard is as it was, not empty.
+        self.assertEqual(self.delete_urls(), [])
+        self.assertEqual(self.put_urls(), [])
+        self.assertEqual(service._broken_contests, set())
+        self.assertEqual(service.scores_sent_to_rankings, scores)
+        self.assertEqual(service.tokens_sent_to_rankings, tokens)
+        # Besides the traceback of the contest that broke by itself.
+        failure = [r for r in logs.records
+                   if r.getMessage().startswith("Regenerate")]
+        self.assertEqual(len(failure), 1)
+        self.assertFalse(failure[0].exc_info)
+        self.assertIn("olim", failure[0].getMessage())
+        self.assertIn("division by zero", failure[0].getMessage())
+
+        # Once the database answers, the score the build had marked is
+        # sent by the sweep.
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertIn("%d" % self.sub_a.id,
+                      self.put_payload(url("olim/submissions/")))
+
     async def test_regenerate_rejects_invalid_group(self):
         service = await self.start()
         self.clear_requests()
@@ -1160,6 +1229,13 @@ class TestProxyServiceGroups(
             real_enqueue(operation, *args, **kwargs)
 
         service._threadsafe_enqueue = spy
+        real_enqueue_all = service._threadsafe_enqueue_all
+
+        def spy_all(operations, *args, **kwargs):
+            enqueued.extend(operations)
+            real_enqueue_all(operations, *args, **kwargs)
+
+        service._threadsafe_enqueue_all = spy_all
         names = {ProxyExecutor.RESET_TYPE: "reset",
                  ProxyExecutor.VISIBILITY_TYPE: "visibility"}
 
