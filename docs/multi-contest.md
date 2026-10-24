@@ -71,8 +71,9 @@ that matter most with several contests at once:
   to the page you have open. A page of a contest shows the questions of that
   contest and of the contests sent to the same ranking group; a page without
   a contest (the contest list, a ranking group) shows all of them. A contest
-  whose page, or whose group's page, nobody has open does not notify: keep
-  one such page open for each group, or one page without a contest.
+  notifies only while someone has open its page, the page of another contest
+  in its ranking group, or a page without a contest: keep one contest page
+  open per group (and per ungrouped contest), or one page without a contest.
 
 ## After the exam
 

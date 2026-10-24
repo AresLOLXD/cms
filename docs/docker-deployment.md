@@ -266,7 +266,7 @@ The Overview page of the Admin Web Server asks `/admin/rpc/...` for the
 queues, the workers and the logs every 5 seconds. When the admin session
 expires (the computer slept for hours, the admin logged out in another tab, the
 admin account was disabled), every one of those requests answers 403 instead of
-redirecting to the login page. The Overview now sends one request first and
+redirecting to the login page. The Overview sends one request first and
 sends the others only if that one is not a 403, and it stops asking after a 403.
 A tab with an expired session therefore causes one 403, always for the same
 path. CrowdSec's `http-admin-interface-probing` scenario counts the distinct

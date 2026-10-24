@@ -229,6 +229,10 @@ function update_statuses()
     }, stop_updating_statuses);
 }
 
+// shortcut: if the session ends between the probe and these requests (logout
+// in another tab, admin disabled), they can still answer 403 together, three
+// distinct paths (about 1-2% per logout); chain them one after another if
+// bans show up again. The proxy whitelist is the backstop.
 function poll_other_statuses()
 {
     {% if contest is not none %}
