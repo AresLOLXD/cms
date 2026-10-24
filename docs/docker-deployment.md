@@ -305,12 +305,20 @@ server in English (`C`): the database check tells why the database did not
 answer from the English text of the error, and with another language it
 reports those errors as `other`.
 
-A fourth thing is the options in the URL: the database check gives `psql` only
-`sslmode` and `host` (and nothing of its own environment, so `PGSSL…`
-variables do not reach it): if the database needs another one (`sslrootcert`,
-`sslcert`, `sslkey`), or the URL names several hosts with their ports
-(`?host=a:5432&host=b:5432`), the check fails for good and every restart stays
-held (H2), with an error alert open, until the URL is simplified.
+A fourth thing is the options in the URL. Of them, the database check gives
+`psql` `host` and `port` (also several hosts, as SQLAlchemy reads them:
+`?host=a:5432&host=b:5432` or `?host=a,b&port=5432,5433`), `sslmode`,
+`sslrootcert`, `sslcert`, `sslkey`, `sslcrl`, `sslcrldir`, `sslcertmode`,
+`sslsni`, `sslnegotiation` (PostgreSQL 17 or later; an older `psql` ignores
+it), `ssl_min_protocol_version`, `ssl_max_protocol_version` and
+`target_session_attrs`. The files they name are read inside the `cms`
+container. It reads no other option (`options`, `application_name` and
+`connect_timeout` would override its own settings), and nothing of its own
+environment, so `PGSSL…` variables do not reach it. `sslpassword` cannot be
+passed, because `psql` has no environment variable for it and a password does
+not go in the command line: with a password-protected `sslkey`, the check
+fails for good and every restart stays held (H2), with an error alert open,
+until the key has no password.
 
 ### With an external PostgreSQL
 
