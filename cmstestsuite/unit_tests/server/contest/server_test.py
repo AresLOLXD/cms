@@ -29,7 +29,8 @@ from tornado.httputil import ParseBodyConfig, set_parse_body_config
 
 from cms import config
 from cms.io import WebService
-from cms.server.contest.server import ContestWebServer
+from cms.server.contest.server import (
+    BODY_TIMEOUT, MAX_BODY_SIZE, ContestWebServer)
 
 
 class TestConstruction(unittest.TestCase):
@@ -52,6 +53,13 @@ class TestConstruction(unittest.TestCase):
     def test_constructs_without_raising(self):
         server = ContestWebServer(0)
         self.assertIsNone(server.contest_id)
+
+    def test_bounds_the_body_of_a_request(self):
+        http_server = ContestWebServer(0)._http_server
+        self.assertEqual(
+            http_server.conn_params.max_body_size, MAX_BODY_SIZE)
+        self.assertEqual(http_server.max_buffer_size, MAX_BODY_SIZE)
+        self.assertEqual(http_server.conn_params.body_timeout, BODY_TIMEOUT)
 
 
 class TestActivityFlush(unittest.IsolatedAsyncioTestCase):

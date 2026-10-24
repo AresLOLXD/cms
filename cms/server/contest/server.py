@@ -82,6 +82,17 @@ MAX_MULTIPART_PARTS = 1000
 # server for long, now that a body may have so many parts.
 MAX_PART_HEADER_SIZE = 2048
 
+# The most bytes of a request body, and the most seconds to read it.
+# Tornado reads a whole body into memory before any handler runs, and
+# without a limit it takes 100 MiB, on every connection at once. The
+# largest legitimate body is a user test (up to 5 MB of input, plus
+# the sources). This is a backstop, a body over it gets a bare 400: the
+# precise limit is the reverse proxy's (Caddy's max_size), which must
+# be lower than this one. A body that is not read in time closes the
+# connection, with no response.
+MAX_BODY_SIZE = 32 * 1024 * 1024
+BODY_TIMEOUT = 300
+
 
 class ContestWebServer(WebService):
     """Service that runs the web server serving the contestants.
@@ -94,6 +105,9 @@ class ContestWebServer(WebService):
             "cookie_secret": hex_to_bin(config.web_server.secret_key),
             "debug": config.web_server.tornado_debug,
             "is_proxy_used": None,
+            "max_body_size": MAX_BODY_SIZE,
+            "max_buffer_size": MAX_BODY_SIZE,
+            "body_timeout": BODY_TIMEOUT,
             "num_proxies_used": config.contest_web_server.num_proxies_used,
             "xsrf_cookies": True,
         }

@@ -74,6 +74,16 @@ MAX_FORM_FIELDS = 10_000
 # server for long.
 MAX_PART_HEADER_SIZE = 2048
 
+# The most bytes of a request body, and the most seconds to read it.
+# Tornado reads a whole body into memory before any handler runs. The
+# size is Tornado's own default, written down: the largest upload is a
+# zip of testcases, and nobody knows how large one gets. 100 MiB in
+# 600 s needs about 1.4 Mbit/s from the admin to the server. A body
+# over the size gets a bare 400, and one that is not read in time
+# closes the connection, with no response.
+MAX_BODY_SIZE = 100 * 1024 * 1024
+BODY_TIMEOUT = 600
+
 # Serializes the queries of AdminWebServer.submissions_status: the
 # Overview page asks for them from every open tab, and a query that
 # takes too long is not cancelled when the browser gives up on it, so
@@ -107,6 +117,9 @@ class AdminWebServer(WebService):
                              ("cms.server.admin", "static")],
             "cookie_secret": hex_to_bin(config.web_server.secret_key),
             "debug": config.web_server.tornado_debug,
+            "max_body_size": MAX_BODY_SIZE,
+            "max_buffer_size": MAX_BODY_SIZE,
+            "body_timeout": BODY_TIMEOUT,
             "num_proxies_used": config.admin_web_server.num_proxies_used,
             "rpc_enabled": True,
             "rpc_auth": self.is_rpc_authorized,

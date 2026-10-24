@@ -195,6 +195,11 @@ class WebService(AsyncService):
         else:
             self.auth_handler = None
         num_proxies_used = parameters.pop('num_proxies_used', None) or 0
+        # Options of Tornado's HTTPServer, left at its defaults if absent.
+        http_server_options = {
+            key: parameters.pop(key)
+            for key in ('max_body_size', 'max_buffer_size', 'body_timeout')
+            if key in parameters}
 
         infra_handlers = []
         if static_files:
@@ -237,7 +242,8 @@ class WebService(AsyncService):
         # the result to self.request.remote_ip, before any handler
         # body or the auth hook runs.)
         self.num_proxies_used = num_proxies_used
-        self._http_server = tornado.httpserver.HTTPServer(self.application)
+        self._http_server = tornado.httpserver.HTTPServer(
+            self.application, **http_server_options)
         self._http_server_sockets: list = []
 
     def run(self) -> bool:

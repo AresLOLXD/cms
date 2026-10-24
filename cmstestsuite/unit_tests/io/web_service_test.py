@@ -314,5 +314,68 @@ class WebServiceParametersWireInfraRoutesTest(
         self.assertIn(b"404", response.split(b"\r\n", 1)[0])
 
 
+class WebServiceBodyLimitsTest(
+        ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase):
+    """The body limits in `parameters` reach Tornado's HTTP server."""
+
+    @patch("cms.io.async_service.get_service_address")
+    async def asyncSetUp(self, mock_get_address):
+        mock_get_address.return_value = Address("127.0.0.1", 0)
+        self.handler_runs = 0
+        test = self
+
+        class PostHandler(tornado.web.RequestHandler):
+            def post(self):
+                test.handler_runs += 1
+                self.write("ran")
+
+        self.service = WebService(
+            listen_port=0, handlers=[(r"/", PostHandler)],
+            parameters={"max_body_size": 100, "max_buffer_size": 200,
+                        "body_timeout": 0.3},
+            shard=0, listen_address="127.0.0.1")
+        self.run_task = asyncio.create_task(self.service._async_run())
+        await asyncio.sleep(0.05)
+        self.addAsyncCleanup(self._stop_service)
+
+    async def _stop_service(self):
+        self.service.exit()
+        await asyncio.wait_for(self.run_task, timeout=5)
+
+    async def _send(self, request: bytes) -> bytes:
+        port = self.service._http_server_sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(request)
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+
+    async def test_body_at_the_limit_reaches_the_handler(self):
+        response = await self._send(
+            b"POST / HTTP/1.1\r\nHost: localhost\r\n"
+            b"Content-Length: 100\r\n\r\n" + b"a" * 100)
+        self.assertIn(b"200 OK", response)
+        self.assertEqual(self.handler_runs, 1)
+
+    async def test_body_over_the_limit_is_rejected_without_the_handler(self):
+        # Tornado checks the declared length: the body is never read.
+        response = await self._send(
+            b"POST / HTTP/1.1\r\nHost: localhost\r\n"
+            b"Content-Length: 101\r\n\r\n")
+        self.assertTrue(response.startswith(b"HTTP/1.1 400"))
+        self.assertEqual(self.handler_runs, 0)
+
+    async def test_a_body_that_never_arrives_closes_the_connection(self):
+        # The headers promise a body, then silence: after body_timeout
+        # the connection is closed, with no response (EOF).
+        response = await self._send(
+            b"POST / HTTP/1.1\r\nHost: localhost\r\n"
+            b"Content-Length: 50\r\n\r\n")
+        self.assertEqual(response, b"")
+        self.assertEqual(self.handler_runs, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
