@@ -616,6 +616,27 @@ CMS.AWSUtils.prototype.update_remaining_time = function() {
 
 
 /**
+ * Update the clock in the sidebar, one row per zone. The time is the
+ * server time at page load plus the time elapsed since, so a wrong clock
+ * of the browser does not matter. The offsets stay as they were at page
+ * load, so a DST change while the page is open is ignored.
+ *
+ * zones (array): objects with the label of a zone and its offset_seconds
+ *     from UTC.
+ */
+CMS.AWSUtils.prototype.update_clock = function(zones) {
+    var now_timestamp = this.timestamp + (new Date() - this.first_date) / 1000;
+    var clock = $("#clock").empty();
+    zones.forEach(function(zone) {
+        // The label is typed by an admin (contest timezone): use text().
+        var time = new Date((now_timestamp + zone.offset_seconds) * 1000)
+            .toISOString().slice(11, 19);
+        clock.append($("<div>").text(zone.label + " " + time));
+    });
+};
+
+
+/**
  * Check the status returned by an RPC call and display the error if
  * necessary, otherwise redirect to another page.
  *
@@ -754,17 +775,17 @@ CMS.AWSUtils.prototype.repr_time_ago_short = function(time) {
 
 
 /**
- * Return timestamp formatted as HH:MM:SS.
+ * Return timestamp formatted as HH:MM:SS UTC.
  *
  * timestamp (int): unix time.
  * return (string): timestamp formatted as above.
  */
 CMS.AWSUtils.prototype.format_time = function(timestamp) {
     var date = new Date(timestamp * 1000);
-    var hours = this.two_digits(date.getHours());
-    var minutes = this.two_digits(date.getMinutes());
-    var seconds = this.two_digits(date.getSeconds());
-    return hours + ":" + minutes + ":" + seconds;
+    var hours = this.two_digits(date.getUTCHours());
+    var minutes = this.two_digits(date.getUTCMinutes());
+    var seconds = this.two_digits(date.getUTCSeconds());
+    return hours + ":" + minutes + ":" + seconds + " UTC";
 };
 
 
@@ -788,7 +809,7 @@ CMS.AWSUtils.prototype.format_countdown = function(countdown) {
 
 
 /**
- * Return timestamp formatted as HH:MM:SS, dd/mm/yyyy.
+ * Return timestamp formatted as HH:MM:SS UTC, dd/mm/yyyy.
  *
  * timestamp (int): unix time.
  * return (string): timestamp formatted as above.
@@ -796,24 +817,25 @@ CMS.AWSUtils.prototype.format_countdown = function(countdown) {
 CMS.AWSUtils.prototype.format_datetime = function(timestamp) {
     var time = this.format_time(timestamp);
     var date = new Date(timestamp * 1000);
-    var days = this.two_digits(date.getDate());
-    var months = this.two_digits(date.getMonth() + 1); // months are 0-11
-    var years = date.getFullYear();
+    var days = this.two_digits(date.getUTCDate());
+    var months = this.two_digits(date.getUTCMonth() + 1); // months are 0-11
+    var years = date.getUTCFullYear();
     return time + ", " + days + "/" + months + "/" + years;
 };
 
 
 /**
- * Return timestamp formatted as HH:MM:SS if the date is the same date
- * as today, as a complete date + time if the date is different.
+ * Return timestamp formatted as HH:MM:SS UTC if the date is the same
+ * date as today (in UTC), as a complete date + time if the date is
+ * different.
  *
  * timestamp (int): unix time.
  * return (string): timestamp formatted as above.
  */
 CMS.AWSUtils.prototype.format_time_or_date = function(timestamp) {
-    var today = (new Date()).toDateString();
+    var today = (new Date()).toISOString().slice(0, 10);
     var date = new Date(timestamp * 1000);
-    if (today == date.toDateString()) {
+    if (today == date.toISOString().slice(0, 10)) {
         return this.format_time(timestamp);
     } else {
         return this.format_datetime(timestamp);

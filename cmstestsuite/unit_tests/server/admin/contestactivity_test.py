@@ -311,13 +311,15 @@ class TestContestActivityPage(PageTestBase):
         self.assertIn("A missing device is not evidence of an API script",
                       page)
 
-    def test_page_names_the_contest_timezone(self):
+    def test_page_has_the_clock_and_names_the_contest_timezone(self):
         handler = self.make_handler()
 
         handler._get_sync(str(self.contest.id))
 
-        self.assertIn("Times are in the contest's timezone (",
-                      "".join(handler.chunks))
+        page = "".join(handler.chunks)
+        self.assertIn('id="clock"', page)
+        self.assertIn('"label": "UTC"', page)
+        self.assertIn("Times are in the contest's timezone (", page)
 
     def test_unknown_contest_is_a_404(self):
         with self.assertRaises(tornado.web.HTTPError) as error:

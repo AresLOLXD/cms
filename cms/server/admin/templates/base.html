@@ -38,6 +38,10 @@ function init()
     utils.update_remaining_time();
     setInterval(function() { utils.update_remaining_time(); }, 1000);
     {% endif %}
+    var clock_zones = {{ clock_zones(timestamp, contest)|tojson }};
+    utils.update_clock(clock_zones);
+    setInterval(function() { utils.update_clock(clock_zones); }, 1000);
+
     utils.update_notifications();
     setInterval(function() { utils.update_notifications(); }, 15000);
 
@@ -63,6 +67,7 @@ $(document).ready(init);
   <body class="admin">
     <div id="global">
       <div id="sidebar">
+        <div id="clock"></div>
 {% if admin is undefined %}
         <div id="sidebar_header">
           <h1 class="parent">Administration</h1>
