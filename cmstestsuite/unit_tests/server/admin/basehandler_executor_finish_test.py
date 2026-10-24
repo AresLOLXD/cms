@@ -88,9 +88,10 @@ class TestBaseHandlerExecutorFinish(unittest.IsolatedAsyncioTestCase):
             (r"/noerrorparams", _NoErrorParamsHandler),
         ])
         # As WebService sets it: the handlers need it when created, for
-        # the static file hasher. The error page is rendered from a
-        # stub template; building its params needs no database.
-        app.service = MagicMock()
+        # the static file hasher and the client IP. The error page is
+        # rendered from a stub template; building its params needs no
+        # database.
+        app.service = MagicMock(num_proxies_used=0)
         app.service.jinja2_environment.get_template.return_value \
             .generate.return_value = ["the error page"]
         sockets = bind_sockets(0, "127.0.0.1")

@@ -411,10 +411,10 @@ class AuthExtensionPointTest(unittest.IsolatedAsyncioTestCase):
                 return True
 
         # num_proxies_used=0 mirrors a real WebService instance (which
-        # always sets it to an int): CommonRequestHandler.prepare()
-        # now resolves self.request.remote_ip via resolve_remote_ip()
-        # before running the auth hook below, and that function
-        # requires an int, not a bare MagicMock attribute.
+        # always sets it to an int): CommonRequestHandler.__init__()
+        # resolves self.request.remote_ip via resolve_remote_ip()
+        # before the auth hook below runs, and that function requires
+        # an int, not a bare MagicMock attribute.
         self.rejecting_service = MagicMock(
             auth_handler=RejectingAuth(), num_proxies_used=0)
         self.accepting_service = MagicMock(
@@ -470,7 +470,7 @@ class AuthExtensionPointTest(unittest.IsolatedAsyncioTestCase):
 
 
 class PrepareResolvesRemoteIpTest(unittest.IsolatedAsyncioTestCase):
-    """CommonRequestHandler.prepare() must resolve self.request.remote_ip
+    """CommonRequestHandler.__init__() must resolve self.request.remote_ip
     through resolve_remote_ip() (using the service's num_proxies_used)
     before anything else runs, so a downstream auth handler (or the
     handler body itself) sees the real client address rather than the
@@ -532,7 +532,7 @@ class PrepareResolvesRemoteIpTest(unittest.IsolatedAsyncioTestCase):
 class AuthHandlerObservesResolvedIpTest(unittest.IsolatedAsyncioTestCase):
     """Task 3's carried-forward obligation: the auth extension point
     must observe the already-resolved self.request.remote_ip (set by
-    CommonRequestHandler.prepare() via resolve_remote_ip() before the
+    CommonRequestHandler.__init__() via resolve_remote_ip() before the
     auth hook runs), not the raw connecting socket's address.
 
     """
@@ -588,6 +588,59 @@ class AuthHandlerObservesResolvedIpTest(unittest.IsolatedAsyncioTestCase):
             b"X-Forwarded-For: 203.0.113.7, 10.0.0.1\r\n")
         self.assertIn(b"200 OK", response)
         self.assertEqual(self.observed_ips, ["10.0.0.1"])
+
+
+class EarlyFailureLogsResolvedIpTest(unittest.IsolatedAsyncioTestCase):
+    """A request that fails before prepare() (here, on its XSRF token)
+    must be logged with the resolved client IP too, by Tornado's
+    warning and by the access log, not with the proxy's address.
+
+    """
+
+    async def asyncSetUp(self):
+        from unittest.mock import MagicMock
+        from cms.server.util import CommonRequestHandler
+        import tornado.httpserver
+        import tornado.netutil
+        import tornado.web
+
+        class OkHandler(CommonRequestHandler):
+            def post(self):
+                self.write("ok")
+
+        application = tornado.web.Application(
+            [(r"/", OkHandler)], xsrf_cookies=True)
+        application.service = MagicMock(
+            auth_handler=None, num_proxies_used=1)
+        self.server = tornado.httpserver.HTTPServer(application)
+        sockets = tornado.netutil.bind_sockets(0, address="127.0.0.1")
+        self.server.add_sockets(sockets)
+        self.port = sockets[0].getsockname()[1]
+        self.addAsyncCleanup(self._stop)
+
+    async def _stop(self):
+        self.server.stop()
+        await self.server.close_all_connections()
+
+    async def test_xsrf_failure_is_logged_with_the_resolved_ip(self):
+        import asyncio
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        try:
+            with self.assertLogs("tornado", level="WARNING") as logs:
+                writer.write(
+                    b"POST / HTTP/1.1\r\nHost: localhost\r\n"
+                    b"X-Forwarded-For: 203.0.113.7, 10.0.0.1\r\n"
+                    b"Content-Length: 0\r\n\r\n")
+                await writer.drain()
+                response = await asyncio.wait_for(
+                    reader.read(4096), timeout=5)
+        finally:
+            writer.close()
+        self.assertIn(b"403", response)
+        # The warning of the failure and the access log line.
+        self.assertEqual(len(logs.records), 2)
+        for record in logs.records:
+            self.assertIn("(10.0.0.1)", record.getMessage())
 
 
 if __name__ == "__main__":
