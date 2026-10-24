@@ -611,17 +611,17 @@ class BaseHandler(CommonRequestHandler):
                 "Uncaught exception (%r) while processing a request: %s",
                 exc_info[1], ''.join(traceback.format_exception(*exc_info)))
 
-        # Most of the handlers raise a 404 HTTP error before r_params
-        # is defined. If r_params is not defined we try to define it
-        # here, without querying the database, and if it fails we
+        # Never reuse r_params: the handler may have loaded it before a
+        # failed commit, and reading its objects would query again, in
+        # the event loop, maybe for as long as the pool timeout. Define
+        # it here, without querying the database, and if it fails we
         # simply return a basic textual error notice.
-        if self.r_params is None:
-            try:
-                self.r_params = self.error_render_params()
-            except:
-                self.write("A critical error has occurred :-(")
-                self.finish()
-                return
+        try:
+            self.r_params = self.error_render_params()
+        except:
+            self.write("A critical error has occurred :-(")
+            self.finish()
+            return
         self.render("error.html", status_code=status_code, **self.r_params)
 
     get_string = argument_reader(lambda a: a, empty="")

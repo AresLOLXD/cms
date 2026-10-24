@@ -49,7 +49,7 @@ from unittest import mock
 from urllib.parse import urlencode
 
 import tornado.web
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, \
     HTTPResponse
@@ -131,6 +131,18 @@ class _CommittedHandler(BaseHandler):
         raise tornado.web.HTTPError(404)
 
 
+class _RenderedThenCommittedHandler(BaseHandler):
+    """Load the sidebar lists, commit, which expires them, and fail."""
+
+    @require_permission(BaseHandler.AUTHENTICATED)
+    async def get(self):
+        self.r_params = self.render_params()
+        self.sql_session.commit()
+        # Marks where the error page starts, for the test.
+        self.sql_session.execute(text("SELECT 'error page'"))
+        raise tornado.web.HTTPError(500)
+
+
 async def longest_loop_stall(stop: asyncio.Event) -> float:
     """Measure the longest time the event loop went without running.
 
@@ -163,6 +175,7 @@ class _AwsServerMixin(DatabaseMixin):
             (r"/test/probe", _ProbeHandler),
             (r"/test/boom", _BoomHandler),
             (r"/test/committed", _CommittedHandler),
+            (r"/test/rendered", _RenderedThenCommittedHandler),
         ])
 
     async def asyncSetUp(self):
@@ -341,6 +354,21 @@ class ErrorPageTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
         body = response.body.decode()
         self.assertIn("Error 404", body)
         self.assertNotIn("Hello", body)
+
+    async def test_error_page_ignores_the_params_a_handler_rendered(self):
+        self.add_contest()
+        self.session.commit()
+
+        with self.recorded_statements() as statements:
+            response = await self.get("/test/rendered")
+
+        self.assertEqual(response.code, 500)
+        marker = next(i for i, s in enumerate(statements)
+                      if "'error page'" in s)
+        self.assertFalse(
+            any(re.search(r"FROM contests\b", s)
+                for s in statements[marker + 1:]),
+            "the error page reloaded the contests of the old params")
 
 
 class LoginPageTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
