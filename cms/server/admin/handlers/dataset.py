@@ -277,14 +277,16 @@ class DeleteDatasetHandler(BaseHandler):
 
     def _post_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
-        task = dataset.task
+        # Read before the commit: after it, even the id of the task
+        # needs a query, which fails if the database is gone.
+        task_id = dataset.task.id
 
         self.sql_session.delete(dataset)
 
         if self.try_commit():
             # self.service.scoring_service.reinitialize()
             pass
-        self.redirect(self.url("task", task.id))
+        self.redirect(self.url("task", task_id))
 
 
 class ActivateDatasetHandler(BaseHandler):
@@ -329,12 +331,15 @@ class ActivateDatasetHandler(BaseHandler):
     def _post_sync(self, dataset_id):
         dataset = self.safe_get_item(Dataset, dataset_id)
         task = dataset.task
+        # Read before the commit: after it, even the id of the task
+        # needs a query, which fails if the database is gone.
+        task_id = task.id
 
         task.active_dataset = dataset
 
         if self.try_commit():
             self.schedule_rpc(self.service.proxy_service.dataset_updated,
-                              task_id=task.id)
+                              task_id=task_id)
 
             # This kicks off judging of any submissions which were previously
             # unloved, but are now part of an autojudged taskset.
@@ -365,7 +370,7 @@ class ActivateDatasetHandler(BaseHandler):
                 make_datetime(),
                 "Messages sent to %d users." % count, "")
 
-        self.redirect(self.url("task", task.id))
+        self.redirect(self.url("task", task_id))
 
 
 class ToggleAutojudgeDatasetHandler(BaseHandler):
