@@ -82,14 +82,17 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
         self.server.stop()
         await self.server.close_all_connections()
 
-    async def post(self, content_type: str, body: str) -> HTTPResponse:
+    async def post(
+        self, content_type: str, body: str,
+        headers: dict[str, str] | None = None,
+    ) -> HTTPResponse:
         # The contest list takes a POST, and checks the XSRF token
         # before it does anything else with it.
         return await self.client.fetch(
             "http://127.0.0.1:%d/" % self.port,
             method="POST", body=body,
             headers={"Content-Type": content_type,
-                     "Accept-Language": "en"},
+                     "Accept-Language": "en", **(headers or {})},
             raise_error=False)
 
     async def test_multipart_form_at_the_limit_is_parsed(self):
@@ -123,6 +126,34 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
         response = await self.post(
             URLENCODED_CONTENT_TYPE, urlencoded_body(1001))
         self.assertEqual(response.code, 400)
+
+    async def test_rejected_body_gets_its_own_message(self):
+        response = await self.post(
+            MULTIPART_CONTENT_TYPE, multipart_body(1000))
+        self.assertEqual(response.code, 400)
+        page = response.body.decode()
+        self.assertIn("could not read the data of your request", page)
+        # Not a suspect of tampering: nobody forged a URL.
+        self.assertNotIn("tamper", page)
+
+    async def test_xsrf_failure_keeps_the_generic_message(self):
+        response = await self.post(
+            MULTIPART_CONTENT_TYPE, multipart_body(1))
+        self.assertEqual(response.code, 403)
+        page = response.body.decode()
+        self.assertIn("tamper", page)
+        self.assertNotIn("could not read the data of your request", page)
+
+    async def test_rejected_body_is_logged_with_the_client_ip(self):
+        # Behind one proxy: the client is the rightmost address of the
+        # header, not the connecting socket.
+        self.cws.num_proxies_used = 1
+        with self.assertLogs("tornado.general", "WARNING") as logs:
+            await self.post(
+                MULTIPART_CONTENT_TYPE, multipart_body(1000),
+                headers={"X-Forwarded-For": "203.0.113.7, 10.0.0.1"})
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("(10.0.0.1)", logs.records[0].getMessage())
 
 
 if __name__ == "__main__":
