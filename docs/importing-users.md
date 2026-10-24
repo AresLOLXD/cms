@@ -407,8 +407,9 @@ removed:
 
 - "Se borrarán N usuarios, S envíos y T user tests." or "Se quitarán N
   participaciones de este concurso, con S envíos y T user tests.", followed by
-  "Esta operación no se puede deshacer." On a contest, only the submissions and
-  user tests of that contest are counted.
+  "Esta operación no se puede deshacer." For one user it says "Se borrará 1
+  usuario, …" or "Se quitará 1 participación de este concurso, …". On a
+  contest, only the submissions and user tests of that contest are counted.
 - A table with **Username**, **Nombre**, **Apellido**, **Envíos** and **User
   tests**. On the Users list it also has **Concursos**, the contests each user
   takes part in.
@@ -455,7 +456,8 @@ The page comes back, with nothing removed, when:
 - Teams and groups stay.
 - On success, AWS goes back to the list with the notification "Se borraron N
   usuarios" ("Se borró 1 usuario") or "Se quitaron N participaciones" ("Se
-  quitó 1 participación"). The AWS log records who removed which usernames.
+  quitó 1 participación"). The AWS log records who removed which usernames
+  (the first 200, then "and N more").
 
 After the removal AWS regenerates the ranking of each group that the
 confirmation page listed, as **Regenerate** does in **Ranking groups** (see

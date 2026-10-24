@@ -291,6 +291,19 @@ class TestConfirm(unittest.TestCase):
         for part in ("root", "2", "platform", "ana", "beto"):
             self.assertIn(part, message)
 
+    def test_a_long_list_of_usernames_is_cut_in_the_log(self):
+        plan = make_plan(*(entry(i, "user%d" % i) for i in range(250)))
+        with self.assertLogs(MODULE, level="INFO") as logged:
+            self.confirm(BulkRemoveUsersHandler, plan,
+                         user_ids=[str(i) for i in range(250)],
+                         expected_count="250")
+
+        (record,) = logged.records
+        message = record.getMessage()
+        self.assertIn("user199", message)
+        self.assertNotIn("user200", message)
+        self.assertTrue(message.endswith("and 50 more."), message[-30:])
+
     def test_a_contest_removal_is_logged_with_the_contest(self):
         plan = make_plan(entry(7, "ana"))
         with self.assertLogs(MODULE, level="INFO") as logged:
@@ -485,9 +498,21 @@ class TestConfirmationPage(unittest.TestCase):
         html = self.render(make_plan(entry(7, "ana"), running=True),
                            contest=contest)
 
-        self.assertIn("Se quitarán 1 participaciones de este concurso", html)
+        self.assertIn("Se quitará 1 participación de este concurso, con", html)
         self.assertIn("bulk_remove_running", html)
         self.assertNotIn("Rankings que se vaciarán", html)
+
+    def test_one_user_is_told_in_the_singular(self):
+        html = self.render(make_plan(entry(7, "ana")))
+
+        self.assertIn("Se borrará 1 usuario, 0 envíos", html)
+
+    def test_several_participations_are_told_in_the_plural(self):
+        contest = SimpleNamespace(id=CONTEST_ID, name="dia1")
+        html = self.render(make_plan(entry(7, "ana"), entry(9, "beto")),
+                           contest=contest)
+
+        self.assertIn("Se quitarán 2 participaciones de este concurso", html)
 
     def test_error_line(self):
         html = self.render(make_plan(entry(7, "ana")), error=WRONG_COUNT)

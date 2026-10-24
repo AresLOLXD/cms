@@ -39,6 +39,8 @@ PLAN_TOO_LARGE = "La selección es demasiado grande"
 PLAN_TOO_LARGE_TEXT = ("Son %d usuarios y el máximo por vez es %d. "
                        "Divídela en listas más pequeñas.")
 MAX_ERROR_LENGTH = 300
+# The most usernames that the audit log line names; it counts the rest.
+MAX_LOGGED_USERNAMES = 200
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +158,12 @@ class _BulkRemoveHandler(BaseHandler):
                                             self.contest.id)
             subject = "Se quitó 1 participación" if count == 1 \
                 else "Se quitaron %d participaciones" % count
+        usernames = [entry.username for entry in plan.users]
+        logged = ", ".join(usernames[:MAX_LOGGED_USERNAMES])
+        if len(usernames) > MAX_LOGGED_USERNAMES:
+            logged += " and %d more" % (len(usernames) - MAX_LOGGED_USERNAMES)
         logger.info("Admin %s removed %d user(s) from %s: %s.",
-                    self.current_user.name, count, scope,
-                    ", ".join(entry.username for entry in plan.users))
+                    self.current_user.name, count, scope, logged)
         self._notify(subject, "")
         self.redirect(self._back_url)
 

@@ -112,6 +112,19 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
         self.assertEqual(plan.user_ids, [ana.id])
         self.assertEqual(plan.ignored, [])
 
+    def test_a_user_chosen_by_id_and_by_name_is_listed_once(self):
+        ana, _ = self.add_participant("ana")
+        self.add_participant("beto")
+        self.session.commit()
+
+        plan = plan_removal(self.session, contest_id=None,
+                            user_ids=[ana.id], usernames=["beto", "ana"],
+                            now=NOW)
+
+        self.assertEqual([entry.username for entry in plan.users],
+                         ["ana", "beto"])
+        self.assertEqual(plan.ignored, [])
+
     def test_usernames_match_exactly(self):
         self.add_participant("ana")
         self.session.commit()
@@ -135,6 +148,19 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
         self.assertEqual(plan.users[0].contests, ["dia1"])
         self.assertEqual(plan.ignored, [("beto", NOT_IN_CONTEST),
                                         ("nadie", NOT_FOUND)])
+
+    def test_contest_scope_ignores_a_checked_user_who_does_not_participate(
+            self):
+        beto, _ = self.add_participant("beto", self.other_contest)
+        self.session.commit()
+
+        plan = plan_removal(self.session, contest_id=self.contest.id,
+                            user_ids=[beto.id], now=NOW)
+
+        self.assertEqual(plan.users, [])
+        self.assertEqual(plan.ignored, [("beto", NOT_IN_CONTEST)])
+        self.assertEqual(remove_participations(
+            self.session, self.contest.id, plan.user_ids), 0)
 
     def test_contest_scope_counts_that_contest_only(self):
         ana, ana_p = self.add_participant("ana")
