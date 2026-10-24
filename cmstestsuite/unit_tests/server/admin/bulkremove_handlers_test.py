@@ -51,9 +51,9 @@ def entry(user_id, username, submissions=0, contests=("dia1",)):
                         contests=list(contests))
 
 
-def make_plan(*entries, ignored=(), running=False):
+def make_plan(*entries, ignored=(), running=False, groups=()):
     return RemovalPlan(users=list(entries), ignored=list(ignored),
-                       running=running)
+                       running=running, groups=list(groups))
 
 
 def confirm_form(plan):
@@ -229,7 +229,8 @@ class TestConfirm(unittest.TestCase):
         return handler, users, participations
 
     def test_platform_removal(self):
-        plan = make_plan(entry(7, "ana"), entry(9, "beto"))
+        plan = make_plan(entry(7, "ana"), entry(9, "beto"),
+                         groups=[None, "omi"])
         handler, users, participations = self.confirm(
             BulkRemoveUsersHandler, plan, user_ids=["9", "7"],
             expected_count="2")
@@ -237,15 +238,19 @@ class TestConfirm(unittest.TestCase):
         users.assert_called_once_with(handler.sql_session, [7, 9])
         participations.assert_not_called()
         handler.sql_session.commit.assert_called_once_with()
-        handler.schedule_rpc.assert_called_once_with(
-            handler.service.proxy_service.reinitialize)
+        # Each group that lost users is emptied and sent again (a
+        # reinitialize would not drop the removed users from RWS).
+        regenerate = handler.service.proxy_service.regenerate_ranking
+        self.assertEqual(handler.schedule_rpc.call_args_list, [
+            mock.call(regenerate, group=None),
+            mock.call(regenerate, group="omi")])
         # Only ours: try_commit would add an "Operation successful."
         self.assertEqual(notifications(handler),
                          [("Se borraron 2 usuarios", "")])
         handler.redirect.assert_called_once_with("/users")
 
     def test_contest_removal(self):
-        plan = make_plan(entry(7, "ana"))
+        plan = make_plan(entry(7, "ana"), groups=["omi"])
         handler, users, participations = self.confirm(
             BulkRemoveParticipationsHandler, plan, user_ids=["7"],
             expected_count="1", contest_id=CONTEST_ID)
@@ -253,7 +258,8 @@ class TestConfirm(unittest.TestCase):
         participations.assert_called_once_with(
             handler.sql_session, CONTEST_ID, [7])
         users.assert_not_called()
-        handler.schedule_rpc.assert_called_once()
+        handler.schedule_rpc.assert_called_once_with(
+            handler.service.proxy_service.regenerate_ranking, group="omi")
         self.assertIn(("Se quitó 1 participación", ""),
                       notifications(handler))
         handler.redirect.assert_called_once_with("/contest/4/users")
@@ -453,13 +459,16 @@ class TestConfirmationPage(unittest.TestCase):
         plan = make_plan(entry(7, "ana", submissions=3,
                                contests=("dia1", "dia2")),
                          entry(9, "beto"),
-                         ignored=[("nadie", NOT_FOUND)])
+                         ignored=[("nadie", NOT_FOUND)],
+                         groups=[None, "omi"])
         html = self.render(plan)
 
         self.assertIn("ana", html)
         self.assertIn("dia1, dia2", html)
         self.assertIn("Se borrarán 2 usuarios, 3 envíos y 0 user tests.",
                       html)
+        self.assertIn("Rankings que se vaciarán y se enviarán otra vez: "
+                      "raíz (/), omi.", html)
         self.assertIn("nadie", html)
         self.assertIn(NOT_FOUND, html)
         self.assertIn('name="user_id" value="7"', html)
@@ -478,6 +487,7 @@ class TestConfirmationPage(unittest.TestCase):
 
         self.assertIn("Se quitarán 1 participaciones de este concurso", html)
         self.assertIn("bulk_remove_running", html)
+        self.assertNotIn("Rankings que se vaciarán", html)
 
     def test_error_line(self):
         html = self.render(make_plan(entry(7, "ana")), error=WRONG_COUNT)

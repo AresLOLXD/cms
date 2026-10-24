@@ -142,7 +142,11 @@ class _BulkRemoveHandler(BaseHandler):
             self._notify("No se borró nada", text[:MAX_ERROR_LENGTH])
             self.redirect(self._back_url)
             return
-        self.schedule_rpc(self.service.proxy_service.reinitialize)
+        # reinitialize only resets the groups that lost contests, and RWS
+        # only merges what it receives: the removed users would stay.
+        for group in plan.groups:
+            self.schedule_rpc(self.service.proxy_service.regenerate_ranking,
+                              group=group)
         if self.contest is None:
             scope = "the platform"
             subject = "Se borró 1 usuario" if count == 1 \

@@ -16,7 +16,8 @@
 {% if plan.running %}
 <p class="bulk_remove_running" style="color: red;"><strong>
   Atención: hay un concurso en curso entre los afectados. Se perderán
-  envíos hechos durante el concurso y el ranking se recalculará.
+  envíos hechos durante el concurso, y vaciar y volver a enviar un ranking
+  en pleno concurso es pesado.
 </strong></p>
 {% endif %}
 
@@ -29,6 +30,9 @@
 {% endif %}
   Esta operación no se puede deshacer.
 </p>
+{% if plan.groups %}
+<p>Rankings que se vaciarán y se enviarán otra vez: {% for group in plan.groups %}{{ "raíz (/)" if group is none else group }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+{% endif %}
 <table class="bordered">
   <thead>
     <tr>

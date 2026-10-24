@@ -32,7 +32,7 @@ from datetime import datetime
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
-from cms.db import Participation, Submission, User, UserTest
+from cms.db import Contest, Participation, Submission, User, UserTest
 from cmscommon.datetime import make_datetime
 
 MAX_LIST_BYTES = 1024 * 1024
@@ -111,6 +111,9 @@ class RemovalPlan:
     users: list[RemovalEntry]
     ignored: list[tuple[str, str]]
     running: bool
+    # The ranking groups of the contests concerned (None is the root),
+    # which the public scoreboards still show the users in.
+    groups: list[str | None]
 
     @property
     def user_ids(self) -> list[int]:
@@ -195,7 +198,8 @@ def plan_removal(session: Session, *, contest_id: int | None,
     if found:
         query = select(Participation) \
             .where(Participation.user_id.in_(list(found))) \
-            .options(joinedload(Participation.contest),
+            .options(joinedload(Participation.contest)
+                     .joinedload(Contest.ranking_group),
                      joinedload(Participation.group))
         if contest_id is not None:
             query = query.where(Participation.contest_id == contest_id)
@@ -238,7 +242,15 @@ def plan_removal(session: Session, *, contest_id: int | None,
         p.group.start + p.delay_time <= now
         <= p.group.stop + p.delay_time + p.extra_time
         for p in participations)
-    return RemovalPlan(users=users, ignored=ignored, running=running)
+    # shortcut: assumes ranking groups; a ProxyService serving a single
+    # contest (CMS_CONTEST_ID=<id>) sends it to the root whatever its
+    # group. Upgrade if that mode is used with groups.
+    groups = sorted(
+        {None if p.contest.ranking_group is None
+         else p.contest.ranking_group.name for p in participations},
+        key=lambda name: name or "")
+    return RemovalPlan(users=users, ignored=ignored, running=running,
+                       groups=groups)
 
 
 def remove_users(session: Session, user_ids: Sequence[int]) -> int:

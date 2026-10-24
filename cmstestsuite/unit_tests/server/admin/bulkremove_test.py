@@ -96,7 +96,7 @@ class TestFingerprint(unittest.TestCase):
                               contests=["dia1"])
                  for user_id in user_ids]
         return RemovalPlan(users=users, ignored=list(ignored),
-                           running=running)
+                           running=running, groups=[])
 
     def test_it_ignores_the_order_and_what_is_ignored(self):
         self.assertEqual(

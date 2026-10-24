@@ -25,8 +25,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 
 from cms.db import Evaluation, Executable, File, Message, Participation, \
-    Question, Submission, SubmissionResult, User, UserTest, UserTestFile, \
-    UserTestResult
+    Question, RankingGroup, Submission, SubmissionResult, User, UserTest, \
+    UserTestFile, UserTestResult
 from cms.server.admin.bulkremove import NOT_FOUND, NOT_IN_CONTEST, \
     plan_removal, remove_participations, remove_users
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -191,11 +191,28 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
                                     user_ids=[user.id], now=now)
                 self.assertEqual(plan.running, running, (user.username, now))
 
+    def test_groups_are_the_ranking_groups_of_the_counted_contests(self):
+        # dia1 is in no ranking group (the root), dia2 is in "omi".
+        self.other_contest.ranking_group = RankingGroup(
+            name="omi", description="OMI")
+        ana, _ = self.add_participant("ana")
+        self.add_participation(user=ana, contest=self.other_contest)
+        self.session.commit()
+
+        platform = plan_removal(self.session, contest_id=None,
+                                user_ids=[ana.id], now=NOW)
+        this_contest = plan_removal(self.session,
+                                    contest_id=self.other_contest.id,
+                                    user_ids=[ana.id], now=NOW)
+
+        self.assertEqual(platform.groups, [None, "omi"])
+        self.assertEqual(this_contest.groups, ["omi"])
+
     def test_nothing_chosen(self):
         plan = plan_removal(self.session, contest_id=None, now=NOW)
 
-        self.assertEqual((plan.users, plan.ignored, plan.running),
-                         ([], [], False))
+        self.assertEqual((plan.users, plan.ignored, plan.running, plan.groups),
+                         ([], [], False, []))
 
 
 class TestRemove(BulkRemoveDatabaseTestCase):

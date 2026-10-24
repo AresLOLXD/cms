@@ -343,7 +343,8 @@ page, these pages are in Spanish, and their texts are quoted as they appear.
   participation deletes its activity log, and an `./export.sh` backup does
   not include it (see [Participant activity](participant-activity.md)).
 - Do not remove anything while a contest is running: the submissions made
-  during the contest are lost with it.
+  during the contest are lost with it, and the scoreboard of the contest is
+  emptied and sent again, which is heavy during a contest.
 
 Only admins with full permission can remove. For the others, the buttons are
 disabled.
@@ -414,9 +415,16 @@ removed:
 - **"Ignorados:"**, what is left out, each with its reason: "no existe" (no
   user has that username) or, on a contest, "no participa en el concurso" (the
   user exists but is not in this contest). They do not stop the rest.
+- "Rankings que se vaciarán y se enviarán otra vez:", the ranking groups
+  whose scoreboard AWS regenerates after the removal. "raíz (/)" is the root
+  ranking.
 - In red, when any participation concerned belongs to a contest that is
   running now: "Atención: hay un concurso en curso entre los afectados. Se
-  perderán envíos hechos durante el concurso y el ranking se recalculará."
+  perderán envíos hechos durante el concurso, y vaciar y volver a enviar un
+  ranking en pleno concurso es pesado." A contest is running from its start
+  to its stop, both included, moved by the delay of the participation and
+  extended by its extra time. The warning ignores the time per user of
+  USACO-like contests, so it can appear when nobody's own time has started.
 - "No hay nada que borrar." when nobody is left to remove. The page then has
   no button.
 
@@ -429,15 +437,17 @@ The page comes back, with nothing removed, when:
 - the number typed is wrong: "El número escrito no coincide con el número de
   usuarios. No se borró nada.";
 - the selection changed since the page was opened, for example because
-  another admin removed one of those users: "La selección cambió desde la
-  vista previa: revisa la lista y confirma otra vez. No se borró nada." It
-  then shows the selection as it is now.
+  another admin removed one of those users, or a contestant made a
+  submission: "La selección cambió desde la vista previa (los usuarios, sus
+  concursos o envíos, o si hay un concurso en curso): revisa la lista y
+  confirma otra vez. No se borró nada." It then shows the selection as it is
+  now.
 
 ### What is removed
 
 - **All or nothing.** Everything is removed in one database transaction. If
   it fails, nothing is removed and a notification says so ("No se borró
-  nada" or "Operation failed.").
+  nada", with the message of the database).
 - With each participation go its submissions (with their files, results,
   evaluations and tokens), its user tests (with their files and results), its
   questions and messages, and its activity log. On the Users list, that is
@@ -447,10 +457,10 @@ The page comes back, with nothing removed, when:
   usuarios" ("Se borró 1 usuario") or "Se quitaron N participaciones" ("Se
   quitó 1 participación"). The AWS log records who removed which usernames.
 
-**Then press Regenerate on the ranking group of each contest concerned**, or
-on the **Root ranking** row when a single contest is served (see "When a
-scoreboard is wrong: Regenerate" in
-[Running several contests at once](multi-contest.md)). After a removal AWS
-asks ProxyService to send the rankings again, but a scoreboard only adds and
-updates what it receives: the removed contestants stay on it, with their
-scores, until the group is regenerated.
+After the removal AWS regenerates the ranking of each group that the
+confirmation page listed, as **Regenerate** does in **Ranking groups** (see
+"When a scoreboard is wrong: Regenerate" in
+[Running several contests at once](multi-contest.md)): the scoreboard is
+emptied and sent again, within seconds. A scoreboard only adds and updates
+what it receives, so without this the removed contestants would stay on it,
+with their scores. You do not need to press **Regenerate** yourself.
