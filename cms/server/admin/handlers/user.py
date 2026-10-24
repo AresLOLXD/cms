@@ -108,29 +108,10 @@ class UserHandler(BaseHandler):
 
 
 class UserListHandler(SimpleHandler("users.html")):
-    """Get returns the list of all users, post perform operations on
-    a specific user (removing them from CMS).
+    """Get returns the list of all users. Removing them is done by
+    BulkRemoveUsersHandler.
 
     """
-
-    REMOVE = "Remove"
-
-    @require_permission(BaseHandler.AUTHENTICATED)
-    async def post(self):
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._post_sync)
-
-    def _post_sync(self):
-        user_id: str = self.get_argument("user_id")
-        operation: str = self.get_argument("operation")
-
-        if operation == self.REMOVE:
-            asking_page = self.url("users", user_id, "remove")
-            self.redirect(asking_page)
-        else:
-            self.service.add_notification(
-                make_datetime(), "Invalid operation %s" % operation, "")
-            self.redirect(self.url("contests"))
 
 
 class TeamListHandler(SimpleHandler("teams.html")):
