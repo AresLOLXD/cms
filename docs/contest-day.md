@@ -170,8 +170,11 @@ Common problems:
 
 - **A scoreboard does not match the database:** press **Regenerate** on its
   ranking group (see "When a scoreboard is wrong" in
-  [multi-contest.md](multi-contest.md)). Not while database errors
-  continue: a failed regenerate can leave the scoreboard empty.
+  [multi-contest.md](multi-contest.md)). AWS says "Ranking regeneration
+  requested" even if the regeneration then fails: check `./logs.sh cms` for
+  "Regenerate of ranking … failed". A regenerate that cannot read the
+  database leaves the scoreboard as it was; press it again once PostgreSQL
+  answers.
 - **A worker shows Connected: No:** its job goes back to the queue by itself
   within seconds. Restart that worker, numbered from 0 as in the **Shard**
   column:
@@ -241,8 +244,10 @@ text that follows it.
    `Client` (it waits for a client that is gone). After a network cut,
    PostgreSQL can keep such a transaction, and its locks, for about 2
    hours.
-6. Do not press **Regenerate** while database errors continue: a failed
-   regenerate can leave a scoreboard empty until it is pressed again.
+6. Do not press **Regenerate** while database errors continue: it fails
+   and leaves the scoreboard as it was, and AWS says "requested" anyway.
+   Once PostgreSQL answers, press it again; `./logs.sh cms` says
+   "Regenerate of ranking … failed" when it did not work.
 
 ### PostgreSQL is stalled
 
@@ -540,7 +545,7 @@ right after switching `enforce` on.
 
 | Symptom | What to do | Details |
 |---------|------------|---------|
-| A scoreboard is missing scores or shows a contest it should not | **Regenerate** on its ranking group, unless database errors continue | [multi-contest.md](multi-contest.md) |
+| A scoreboard is missing scores or shows a contest it should not | **Regenerate** on its ranking group, unless database errors continue. AWS says "requested" even if it fails: check `./logs.sh cms` for "Regenerate of ranking … failed" | [multi-contest.md](multi-contest.md) |
 | A scoreboard stopped updating and ProxyService logs "rejected the visibility" | Follow "Failure mode" | [multi-contest.md](multi-contest.md) |
 | A page does not load | `./status.sh`, then `./logs.sh` | [docker-scripts.md](docker-scripts.md) |
 | A contestant gets an "Error 400" page when submitting, and the Contest Web Server log has a WARNING for a 400 on a `…/submit` path with `Invalid body` in it | For an OutputOnly task, ask them to use the zip form; also check the `max_size` of the reverse proxy. The page is generic, with a paragraph about tampering: tell the proctors it does not mean disqualification | "OutputOnly" in {doc}`Task types`; "Request body limits" in [docker-deployment.md](docker-deployment.md) |
@@ -555,6 +560,8 @@ right after switching `enforce` on.
 | ProxyService logs "rejected … It will not be sent again" | The "Status … while …" line before it shows a code other than 400: fix the cause (usually the ranking URL or credentials of ProxyService), then **Regenerate** on the group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "cannot be encoded for ranking" | Fix the data, then **Regenerate** on the group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "Contest … still cannot be sent to the rankings" | Fix what the error names; the contest is sent again within about 6 minutes | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "Database error while reading contest" | Nothing: the contest and its scores are held back, and sent within about 6 minutes of PostgreSQL answering, or at once after restarting `cmsproxyservice` as in "A worker shows Connected: No". Fix PostgreSQL first ("When the database misbehaves") | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
+| ProxyService logs "Regenerate of ranking … failed" | The scoreboard was left as it was. Fix PostgreSQL first, then press **Regenerate** on the group again | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "Reinitializing the rankings failed." | Fix the cause, then **Regenerate** on the groups it lists, or on those of what you changed | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | ProxyService logs "accepted the visibility of group" | **Regenerate** on that group | "ProxyService warnings that need an operator" in [Running several contests at once](multi-contest.md) |
 | The logs say "EvaluationService cannot notify ScoringService,0 (…); nothing is lost, its sweeper will score these submissions." (then "still cannot notify", at most once a minute) | Run `./status.sh` and restart `cmsscoringservice` if it is not `RUNNING`, as in "A worker shows Connected: No". The Scoring Service's sweeper scores the submissions when it starts, otherwise within about 6 minutes (347 s). Do not press **Regenerate**: it scores nothing. Before publishing the final ranking, wait until **Submissions status** has no **Scoring...** row left | "During the contest" and "At the end" (above) |
