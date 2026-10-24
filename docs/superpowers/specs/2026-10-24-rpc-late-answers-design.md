@@ -33,8 +33,12 @@ a summary WARNING, clearing the structure in `finalize()` (the cap bounds it).
    answer to %s, the caller gave up"); otherwise keep the WARNING (ids never
    sent, or a duplicate answer).
 4. `AsyncFakeRemoteServiceClient` needs nothing.
-Risk to note: a late ERROR answer is no longer logged above DEBUG (the peer
-logs its own error).
+Risk to note: a late ERROR answer is no longer logged above DEBUG, and the
+peer does not log it either (`process_incoming_request` only puts the
+traceback in the response); its first line is appended to the DEBUG line.
+A call is recorded only once its request was written (`sent`): the ones that
+fail before that ("Not connected.", "Message too long.") would otherwise fill
+the cap during an outage.
 
 ## Tests (`cmstestsuite/unit_tests/io/async_rpc_test.py`, next to
 `test_cancelled_call_leaves_no_pending_entries` in `TestExecuteRpcCleanup`)
