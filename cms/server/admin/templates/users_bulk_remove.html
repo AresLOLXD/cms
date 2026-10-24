@@ -74,6 +74,7 @@
 <form action="{{ action_url }}" method="POST">
   {{ xsrf_form_html|safe }}
   <input type="hidden" name="action" value="confirm"/>
+  <input type="hidden" name="fingerprint" value="{{ plan.fingerprint }}"/>
 {% for user_id in plan.user_ids %}
   <input type="hidden" name="user_id" value="{{ user_id }}"/>
 {% endfor %}

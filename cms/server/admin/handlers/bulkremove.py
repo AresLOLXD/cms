@@ -32,8 +32,9 @@ from .base import BaseHandler, require_permission
 NOTHING_CHOSEN = "No elegiste ningún usuario."
 WRONG_COUNT = ("El número escrito no coincide con el número de usuarios. "
                "No se borró nada.")
-PLAN_CHANGED = ("La selección cambió desde la vista previa: revisa la "
-                "lista y confirma otra vez. No se borró nada.")
+PLAN_CHANGED = ("La selección cambió desde la vista previa (los usuarios, "
+                "sus concursos o envíos, o si hay un concurso en curso): "
+                "revisa la lista y confirma otra vez. No se borró nada.")
 PLAN_TOO_LARGE = "La selección es demasiado grande"
 PLAN_TOO_LARGE_TEXT = ("Son %d usuarios y el máximo por vez es %d. "
                        "Divídela en listas más pequeñas.")
@@ -48,8 +49,8 @@ class _BulkRemoveHandler(BaseHandler):
     POST with action=preview (the default) shows what would be removed:
     the checked user_id values and the usernames of the "usernames"
     textarea and of the "file" upload. POST with action=confirm removes
-    the posted user_id values, if they still resolve to the same users
-    and expected_count is their number.
+    the posted user_id values, if the plan is still the one the preview
+    showed (its fingerprint) and expected_count is the number of users.
 
     """
 
@@ -117,7 +118,7 @@ class _BulkRemoveHandler(BaseHandler):
             return
         plan = plan_removal(self.sql_session, contest_id=self._scope_id(),
                             user_ids=user_ids)
-        if len(plan.users) != len(set(user_ids)):
+        if self.get_argument("fingerprint", "") != plan.fingerprint:
             self._render_plan(plan, PLAN_CHANGED)
             return
         if self.get_argument("expected_count", "") != str(len(plan.users)):

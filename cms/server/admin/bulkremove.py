@@ -24,6 +24,7 @@ The messages are meant to be shown as they are in the page.
 """
 
 import dataclasses
+import hashlib
 import re
 from collections.abc import Sequence
 from datetime import datetime
@@ -36,10 +37,11 @@ from cmscommon.datetime import make_datetime
 
 MAX_LIST_BYTES = 1024 * 1024
 # The most users that one removal takes. The confirmation page posts one
-# user_id per planned user and 3 fields of its own (the XSRF token, the
-# action and the typed count), and AWS parses at most 10,000 arguments
-# of a form (MAX_FORM_FIELDS in cms/server/admin/server.py); this stays
-# 100 under that, so that the form is always parsed.
+# user_id per planned user and 4 fields of its own (the XSRF token, the
+# action, the fingerprint and the typed count), and AWS parses at most
+# 10,000 arguments of a form (MAX_FORM_FIELDS in
+# cms/server/admin/server.py); this stays 100 under that, so that the form
+# is always parsed.
 MAX_PLAN_USERS = 9_900
 # Why a value of the selection is not removed.
 NOT_FOUND = "no existe"
@@ -121,6 +123,21 @@ class RemovalPlan:
     @property
     def user_tests(self) -> int:
         return sum(entry.user_tests for entry in self.users)
+
+    @property
+    def fingerprint(self) -> str:
+        """A digest of what the admin is shown, to notice a stale plan.
+
+        It covers the users with their counts and contests, and the
+        running state; not what is ignored, which a confirmation, that
+        names the users by id, does not see.
+
+        """
+        shown = [(entry.user_id, entry.submissions, entry.user_tests,
+                  entry.contests)
+                 for entry in sorted(self.users, key=lambda e: e.user_id)]
+        return hashlib.sha256(
+            repr((shown, self.running)).encode("utf-8")).hexdigest()
 
 
 def _count_by_user(session: Session, model, participation_ids: list[int]
