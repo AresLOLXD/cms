@@ -160,6 +160,13 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
         self.assertIn(self.finished.name, body)
         self.assertIn("(en curso o en modo de análisis)", body)
 
+    async def test_only_full_admins_see_the_menu_entry(self):
+        entry = '<a class="menu_link" href="./export">Export</a>'
+        for cookie, shown in ((None, True), (self.plain, False)):
+            response = await self.fetch("/contests", cookie)
+            self.assertEqual(response.code, 200)
+            self.assertEqual(entry in response.body.decode(), shown)
+
     async def test_the_form_needs_the_xsrf_token(self):
         response = await self.fetch(
             "/export", form=[("contest_id", str(self.finished_id))],

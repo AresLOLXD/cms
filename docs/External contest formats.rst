@@ -24,6 +24,22 @@ At the moment, CMS comes with two loaders pre-installed:
 The first one is not particularly suited for general use (see below for more details), so, if you don't want to migrate to one of the aforementioned formats then we encourage you to **write a loader** for your favorite format and then get in touch with CMS authors to have it accepted in CMS. See the file :gh_blob:`cmscontrib/loaders/base_loader.py` for some hints.
 
 
+Downloading a dump from AWS
+===========================
+
+Admins with all the permissions can also get a dump from the Admin Web Server, without a shell on the server. The **Export** entry of the main menu opens the page "Exportar concursos": choose one or more contests, the content and the same switches as :file:`cmsDumpExporter` (``-F``, ``-f``, ``-G``, ``-S``, ``-U``, ``-X``), and press "Exportar". The export runs in the background, in a separate process, so the page can be closed and opened again from the list "Tus exportaciones". When it ends, the page offers a ``.zip`` named ``dump_<contest ids>_<date>.zip``, which :file:`cmsDumpImporter` imports as it is.
+
+- The dump holds the passwords of the users and all the submissions. Only admins with all the permissions can export, and only the admin who started an export can see and download it. Keep the file as confidential information.
+
+- As with ``cmsDumpExporter -c``, the dump can be wider than the contests chosen: it also holds the users of those contests and every contest they take part in. It does not hold the ranking groups or the participant activity log.
+
+- Only one export runs at a time in the whole Admin Web Server, and it starts only if the disk has at least 5 GB free in the ``aws-exports`` directory inside the ``data_dir`` of ``cms.toml``. The file is deleted one hour after the export ends; what a failed export wrote, and what a previous AWS process left, is deleted too.
+
+- The export reads the database without freezing it and loads it for minutes, in the same database the contest uses. A contest that is running, or in its analysis mode, is refused unless the admin ticks the confirmation on the page, because the dump may be inconsistent and the load can affect the contest. Leave ``-G`` ticked, as it is by default, to keep the dump small and quick.
+
+- There is no export of the whole database. For that, make a full backup with ``backup.sh`` (``pg_dump``; see :doc:`helper scripts <docker-scripts>`).
+
+
 Italian import format
 =====================
 
