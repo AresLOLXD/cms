@@ -50,13 +50,17 @@ except:
 
 import tornado.web
 from sqlalchemy import select, func, inspect, Select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
+# The builtin TimeoutError is used elsewhere in this module.
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import selectinload
 
 from cms import __version__, config
 from cms.db import Admin, Contest, Participation, Question, RankingGroup, \
     Submission, SubmissionResult, Task, Team, User, UserTest, Group
 import cms.db
+from cms.db.connect_options import describe_error, is_disconnect, \
+    log_rollback_error
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
 from cms.server import CommonRequestHandler, FileHandlerMixin
@@ -345,10 +349,26 @@ class BaseHandler(CommonRequestHandler):
         """
         try:
             self.sql_session.commit()
-        except IntegrityError as error:
+        except (DBAPIError, PoolTimeoutError) as error:
+            if isinstance(error, IntegrityError):
+                text = "%s" % error
+            elif isinstance(error, (OperationalError, PoolTimeoutError)) \
+                    or is_disconnect(error):
+                # Not str(error): it carries the SQL and its parameters.
+                logger.error("Commit of %s %s failed: %s",
+                             self.request.method, self.request.path,
+                             describe_error(error))
+                text = "The database did not answer, try again."
+            else:
+                # Anything else is a bug: keep the 500.
+                raise
+            # The session is unusable until it is rolled back.
+            try:
+                self.sql_session.rollback()
+            except Exception as rollback_error:
+                log_rollback_error(rollback_error, True)
             self.service.add_notification(
-                make_datetime(),
-                "Operation failed.", "%s" % error)
+                make_datetime(), "Operation failed.", text)
             return False
         else:
             self.service.add_notification(
@@ -591,17 +611,17 @@ class BaseHandler(CommonRequestHandler):
                 "Uncaught exception (%r) while processing a request: %s",
                 exc_info[1], ''.join(traceback.format_exception(*exc_info)))
 
-        # Most of the handlers raise a 404 HTTP error before r_params
-        # is defined. If r_params is not defined we try to define it
-        # here, without querying the database, and if it fails we
+        # Never reuse r_params: the handler may have loaded it before a
+        # failed commit, and reading its objects would query again, in
+        # the event loop, maybe for as long as the pool timeout. Define
+        # it here, without querying the database, and if it fails we
         # simply return a basic textual error notice.
-        if self.r_params is None:
-            try:
-                self.r_params = self.error_render_params()
-            except:
-                self.write("A critical error has occurred :-(")
-                self.finish()
-                return
+        try:
+            self.r_params = self.error_render_params()
+        except:
+            self.write("A critical error has occurred :-(")
+            self.finish()
+            return
         self.render("error.html", status_code=status_code, **self.r_params)
 
     get_string = argument_reader(lambda a: a, empty="")

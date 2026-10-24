@@ -555,9 +555,11 @@ class AddGroupHandler(BaseHandler):
             self.redirect(fallback_page)
             return
 
-        self.try_commit()
-        self.redirect(self.url("contest", contest_id,
-                               "group", group.id, "edit"))
+        if self.try_commit():
+            self.redirect(self.url("contest", contest_id,
+                                   "group", group.id, "edit"))
+        else:
+            self.redirect(fallback_page)
 
 
 class GroupHandler(BaseHandler):
