@@ -34,6 +34,8 @@ import time
 import traceback
 from collections.abc import Callable
 
+from sqlalchemy import text
+
 from cms.db import SessionGen
 from cms.server.admin.bulkimport import ImportRow, apply_import, \
     apply_user_import, hash_account_passwords, hash_passwords, \
@@ -43,6 +45,14 @@ logger = logging.getLogger(__name__)
 
 JOB_TTL = 3600.0
 APPLY_FAILED = "no se pudo aplicar la importación; no se guardó nada"
+# How long a job waits for the lock below, and how long the database lets
+# the writing wait for a row lock or run one statement, so that a stuck
+# commit ends the job as an error instead of stalling every contest.
+# shortcut: these values are guesses (an import of 5000 rows writes in
+# seconds), tune them if a slow database makes honest imports time out.
+APPLY_LOCK_TIMEOUT = 60.0
+DB_LOCK_TIMEOUT_MS = 30000
+STATEMENT_TIMEOUT_MS = 180000
 
 # Held around the writing and the commit of every job, whatever its
 # contest: the files of two contests may share new users, and the second
@@ -116,10 +126,16 @@ class ImportJobStore:
         self._lock = threading.Lock()
 
     def _evict(self) -> None:
-        """Forget the jobs older than JOB_TTL; the caller holds the lock."""
+        """Forget the jobs older than JOB_TTL that are not running; the
+        caller holds the lock.
+
+        A running job stays, or start() would let a second import of its
+        contest in while it still writes.
+
+        """
         cutoff = self._clock() - JOB_TTL
         for job_id in [i for i, j in self._jobs.items()
-                       if j.created_at < cutoff]:
+                       if j.created_at < cutoff and j.status != "running"]:
             del self._jobs[job_id]
 
     def _find_running(self, contest_id: int | None) -> ImportJob | None:
@@ -150,6 +166,8 @@ class ImportJobStore:
 
         raise (ValueError): if a job is already running for the contest
             (or, for None, a global users import).
+        raise (RuntimeError): if the thread cannot start (the job is
+            forgotten, as nobody could ask for its progress).
 
         """
         with self._lock:
@@ -163,9 +181,15 @@ class ImportJobStore:
                             contest_id=contest_id, total=len(rows),
                             created_at=self._clock())
             self._jobs[job.id] = job
-        threading.Thread(target=self._run, args=(job, rows, on_done),
-                         name="aws-import-%s" % job.id[:8],
-                         daemon=True).start()
+        thread = threading.Thread(target=self._run, args=(job, rows, on_done),
+                                  name="aws-import-%s" % job.id[:8],
+                                  daemon=True)
+        try:
+            thread.start()
+        except BaseException:
+            with self._lock:
+                self._jobs.pop(job.id, None)
+            raise
         return job
 
     def _run(self, job: ImportJob, rows: list[ImportRow],
@@ -209,13 +233,22 @@ class ImportJobStore:
                 else:
                     hashes = hash_passwords(rows, set(plan.new_users),
                                             plan.stored_passwords, progress)
-                with _APPLY_LOCK:
+                if not _APPLY_LOCK.acquire(timeout=APPLY_LOCK_TIMEOUT):
+                    raise TimeoutError("another import held the lock")
+                try:
+                    # Ends with the transaction, at the commit.
+                    session.execute(text(
+                        "SET LOCAL lock_timeout = %d; "
+                        "SET LOCAL statement_timeout = %d"
+                        % (DB_LOCK_TIMEOUT_MS, STATEMENT_TIMEOUT_MS)))
                     if global_import:
                         apply_user_import(session, rows, hashes)
                     else:
                         apply_import(session, job.contest_id, rows, plan,
                                      hashes)
                     session.commit()
+                finally:
+                    _APPLY_LOCK.release()
             job.summary = plan.summary()
             job.status = "done"
             logger.info("Bulk import %s by admin %d: %s.",
@@ -227,6 +260,12 @@ class ImportJobStore:
             job.error = APPLY_FAILED
             job.status = "error"
             return
+        finally:
+            # Whatever ended the thread, a job left running would block its
+            # contest for good.
+            if job.status == "running":
+                job.error = APPLY_FAILED
+                job.status = "error"
         # The import is saved: if the notification fails, the job stays
         # done, since telling the admin that nothing was saved would be
         # false.
