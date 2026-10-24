@@ -37,7 +37,7 @@ import math
 import string
 import threading
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Set
 from time import monotonic
 from urllib.parse import urljoin, urlsplit
 
@@ -1063,8 +1063,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         # sending it twice. The run_in_executor threads add to them and
         # test them, and the event loop discards from them
         # (_on_refused): only single add, discard and "in", which the
-        # GIL keeps atomic. Iterating over them or copying them would
-        # need a lock.
+        # GIL keeps atomic. Iterating over them would need a lock; only
+        # regenerate copies them (see _forget_sent_since).
         self.scores_sent_to_rankings: set[int] = set()
         self.tokens_sent_to_rankings: set[int] = set()
 
@@ -1775,7 +1775,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
     def _forget_sent_since(
         self, before: tuple[set[int], set[int]],
-        keep: tuple[set[int], set[int]] = (frozenset(), frozenset()),
+        keep: tuple[Set[int], Set[int]] = (frozenset(), frozenset()),
     ) -> None:
         """Take out of the sets of what was sent what was added since.
 
