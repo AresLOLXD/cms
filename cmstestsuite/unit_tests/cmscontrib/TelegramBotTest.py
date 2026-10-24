@@ -30,9 +30,10 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import event
+from telegram.error import BadRequest, RetryAfter
 
 from cms.db import Announcement, engine
 from cmscommon.datetime import EPOCH, make_datetime
@@ -495,6 +496,93 @@ class TestAnnouncements(DatabaseMixin, unittest.TestCase):
         self.assertEqual(
             self.announcements(), [("past", "Hello there", "A body")])
         self.assertIsNone(reply)
+
+
+class StopLoop(Exception):
+    """Raised by the patched sleep to end db_loop."""
+
+
+class TestStoreRobustness(unittest.TestCase):
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.bot = TelegramBot.__new__(TelegramBot)
+        self.bot.chat_id = 1
+        self.bot.question_status = {}
+        self.bot.question_storage_dir = directory.name
+        self.bot.msg_id_to_qid = {}
+        self.bot.application = MagicMock()
+        self.send = self.bot.application.bot.send_message = AsyncMock(
+            return_value=SimpleNamespace(message_id=5))
+        self.edit = self.bot.application.bot.edit_message_text = AsyncMock()
+        self.sleep = AsyncMock()
+        patcher = patch("cmscontrib.TelegramBot.asyncio.sleep", self.sleep)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def question(qid, **columns):
+        question = dict(
+            id=qid, username="alice", subject="Sub", text="Body",
+            ignored=False, reply_text=None, reply_subject=None,
+            reply_timestamp=None)
+        question.update(columns)
+        return question
+
+    def test_not_modified_edit_is_success(self):
+        # Answering twice with the same button changes reply_timestamp
+        # and not the text, so Telegram refuses the edit. If that failed
+        # the stored question would stay different from the DB, and the
+        # edit would be tried again at every poll and every restart.
+        old = self.question(
+            3, msg_id=10, reply_text="", reply_subject="Yes",
+            reply_timestamp=datetime(2026, 1, 1))
+        new = self.question(
+            3, reply_text="", reply_subject="Yes",
+            reply_timestamp=datetime(2026, 1, 2))
+        self.bot.question_status[3] = old
+        self.edit.side_effect = BadRequest(
+            "Message is not modified: specified new message content and "
+            "reply markup are exactly the same as a current content and "
+            "reply markup of the message")
+
+        run(self.bot.store_question(new, self.bot.question_callback))
+
+        self.assertEqual(self.bot.question_status[3]["msg_id"], 10)
+        self.assertEqual(
+            self.bot.question_status[3]["reply_timestamp"],
+            datetime(2026, 1, 2))
+        self.assertTrue(os.path.exists(
+            os.path.join(self.bot.question_storage_dir, "3.yaml")))
+
+    def test_loop_goes_on_after_a_failed_question(self):
+        self.send.side_effect = [
+            RuntimeError("Telegram is down"),
+            SimpleNamespace(message_id=6)]
+        self.bot._read_questions_and_announcements = MagicMock(
+            return_value=([self.question(1), self.question(2)], []))
+        self.sleep.side_effect = StopLoop
+
+        with self.assertLogs("cmscontrib.TelegramBot", "ERROR"):
+            with self.assertRaises(StopLoop):
+                run(self.bot.db_loop())
+
+        # The second question was posted; the first is tried again at the
+        # next poll.
+        self.assertEqual(list(self.bot.question_status), [2])
+        self.assertEqual(self.bot.question_status[2]["msg_id"], 6)
+
+    def test_flood_control_waits_and_retries_the_same_question(self):
+        self.send.side_effect = [
+            RetryAfter(3), SimpleNamespace(message_id=6)]
+
+        run(self.bot.store_question(
+            self.question(1), self.bot.question_callback))
+
+        self.sleep.assert_awaited_once_with(3)
+        self.assertEqual(self.send.await_count, 2)
+        self.assertEqual(self.bot.question_status[1]["msg_id"], 6)
 
 
 if __name__ == "__main__":

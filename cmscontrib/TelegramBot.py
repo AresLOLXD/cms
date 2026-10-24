@@ -23,6 +23,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
+from telegram.error import BadRequest, RetryAfter
 
 from cms.db.base import Base
 
@@ -425,7 +426,23 @@ class TelegramBot:
 
         if has_changed:
             obj_id = obj["id"]
-            obj = await callback(existing, obj)
+            while True:
+                try:
+                    obj = await callback(existing, obj)
+                    break
+                except RetryAfter as flood:
+                    # Telegram lets a group get about 20 messages a minute,
+                    # and the end of a contest sends more. The same item is
+                    # retried, not skipped: the order of the questions matters.
+                    logger.warning("Telegram flood control, waiting %s s",
+                                   flood.retry_after)
+                    await asyncio.sleep(flood.retry_after)
+                except Exception:
+                    # shortcut: an item that always fails is tried and logged
+                    # again at every poll (1 s), upgrade to a per-item
+                    # backoff if a bad message ever floods the log.
+                    logger.exception("Could not post %s %s", directory, obj_id)
+                    return
             store[obj_id] = obj
             with open(os.path.join(directory, self.file_name(obj_id)), "w") as f:
                 f.write(yaml.safe_dump(obj))
@@ -448,6 +465,28 @@ class TelegramBot:
             self.announcement_storage_dir,
             changed_callback,
         )
+
+    async def _edit_message(
+        self, text: str, msg_id: int, reply_markup: InlineKeyboardMarkup | None = None
+    ):
+        """Edit a message that was posted, unless it is already as wanted.
+
+        An answer from AWS, or a second click on the same button, changes
+        a stored column but not the text, and Telegram refuses an edit that
+        changes nothing. The message is as wanted, so that is not a failure.
+
+        """
+        try:
+            await self.application.bot.edit_message_text(
+                text,
+                message_id=msg_id,
+                chat_id=self.chat_id,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+        except BadRequest as error:
+            if "message is not modified" not in error.message.lower():
+                raise
 
     async def question_callback(self, old: dict, new: dict) -> dict:
         subject = html.escape(new["subject"])
@@ -514,13 +553,7 @@ class TelegramBot:
             ).message_id
         else:
             msg_id = old["msg_id"]
-            await self.application.bot.edit_message_text(
-                msg,
-                message_id=msg_id,
-                chat_id=self.chat_id,
-                parse_mode="HTML",
-                reply_markup=reply_markup,
-            )
+            await self._edit_message(msg, msg_id, reply_markup)
         new["msg_id"] = msg_id
         self.msg_id_to_qid[msg_id] = qid
         return new
@@ -537,9 +570,7 @@ class TelegramBot:
             ).message_id
         else:
             msg_id = old["msg_id"]
-            await self.application.bot.edit_message_text(
-                text, message_id=msg_id, chat_id=self.chat_id, parse_mode="HTML"
-            )
+            await self._edit_message(text, msg_id)
         new["msg_id"] = msg_id
         return new
 
