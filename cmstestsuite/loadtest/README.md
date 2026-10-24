@@ -212,7 +212,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
 | `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
 | `--poll-cap` | (none) | longest delay in seconds between two status polls of a submission; the driver applies it after each multiplication of the backoff, like the fork's `task_submissions.html`, which caps it at 10 s (`PAGE_POLL_CAP_S` in `driver.py`; a test keeps it equal to the page's). Each submission caps at the value times (0.9 + hash * 0.2), the hash that staggers its backoff, so the capped polls of a burst of submissions do not line up in waves. Without the option the backoff has no limit, like upstream's page. The driver emulates the browser, so it applies to both targets. Must be a finite number greater than 0. `run.sh` records it in `users.json` |
-| `--cpus` | every CPU of the host | limits the `cms` container (every service and sandbox in it) to this many CPUs, which may be fractional, to emulate a smaller host on a bigger one; a number greater than 0 and not above the host's CPUs. See "Limiting the CPUs" |
+| `--cpus` | (no limit) | limits the `cms` container (every service and sandbox in it) to this many CPUs, which may be fractional, to emulate a smaller host on a bigger one; a number greater than 0 and not above the host's CPUs. See "Limiting the CPUs" |
 | `--watchdog` | off | also runs `cmsWatchdog` in observe mode with the `/proc` source in the `cms` container, and `watchdogstats.py` at the end (fork target only; see "Watchdog runs") |
 
 The defaults are the `full1` values of the 2026-09-30 run. `run.sh`
@@ -280,8 +280,9 @@ python3 analyze.py out/NAME --project-prefix cmsload-<target>
 into `cpus:` for the `cms` container: a CFS quota of N CPUs on everything in
 it, services and sandboxes. It emulates a smaller production host on a
 bigger machine (`--cpus 6` on the 16-thread workstation for a 6-vCPU VM).
-The default is every CPU of the host, which limits nothing. It is not
-needed on the 4-vCPU hosted runner. The PostgreSQL, ranking and driver
+Without it `run.sh` writes `cpus: 0`, which is no limit at all, so the
+other options and profiles run as before. It is not needed on the 4-vCPU
+hosted runner. The PostgreSQL, ranking and driver
 containers are not limited. Two limits to know:
 
 - **A quota is not a cpuset.** It limits CPU time, not which hardware

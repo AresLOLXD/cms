@@ -10,7 +10,7 @@ TARGET=${1:?target: fork or upstream}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # "down" finds the stack by its project name; compose only needs these
 # variables to read the file.
-export LOAD_TARGET=$TARGET LOAD_DB_PASSWORD=unused LOAD_WORKER_COUNT=1 LOAD_CWS_COUNT=1 LOAD_CMS_CPUS=1
+export LOAD_TARGET=$TARGET LOAD_DB_PASSWORD=unused LOAD_WORKER_COUNT=1 LOAD_CWS_COUNT=1 LOAD_CMS_CPUS=0
 dc() { sg docker -c "$(printf '%q ' docker --context default "$@")"; }
 dc compose -p "cmsload-$TARGET" -f "$HERE/compose.yml" down -v --remove-orphans
 if [[ ${2:-} == --images ]]; then

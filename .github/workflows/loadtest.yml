@@ -64,7 +64,7 @@ env:
   # page).
   LOAD_POLL_CAP: ""
   # CPUs the cms container may use, to emulate a smaller host (the README's
-  # "Limiting the CPUs"); empty leaves it at every CPU of the runner.
+  # "Limiting the CPUs"); empty leaves it unlimited.
   LOAD_CPUS: ""
   # portable, full or omi; full and omi have no upstream counterpart.
   LOAD_PROFILE: portable

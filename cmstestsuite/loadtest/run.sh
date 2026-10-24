@@ -21,8 +21,8 @@
 # the backoff has no limit, like upstream's page.
 # --cpus N limits the cms container (every service and sandbox in it) to N
 # CPUs, to emulate a smaller production host on a bigger one; it may be
-# fractional, default: every CPU of the host (see "Limiting the CPUs" in the
-# README for what it does to the sandboxes).
+# fractional, default: no limit (see "Limiting the CPUs" in the README for
+# what it does to the sandboxes).
 # --faults (fork target only, --contest 2100 or more) also runs
 # faults.py, which injects the database faults of #39 at fixed times of
 # the contest, and then faultstats.py, which writes out/<name>/faults.md
@@ -88,9 +88,9 @@ done
   { echo "--poll-cap must be a number of seconds greater than 0" >&2; exit 2; }
 [[ -z $CPUS || ($CPUS =~ ^[0-9]+(\.[0-9]+)?$ && $CPUS =~ [1-9]) ]] ||
   { echo "--cpus must be a number of CPUs greater than 0" >&2; exit 2; }
-CPUS=${CPUS:-$(nproc)}
 # Docker refuses a limit above the host's CPUs, but only once it starts.
-awk -v cpus="$CPUS" -v host="$(nproc)" 'BEGIN { exit !(cpus <= host) }' ||
+[[ -z $CPUS ]] ||
+  awk -v cpus="$CPUS" -v host="$(nproc)" 'BEGIN { exit !(cpus <= host) }' ||
   { echo "--cpus $CPUS is more than the $(nproc) CPUs of this host" >&2; exit 2; }
 if [[ $PROFILE != portable && $TARGET == upstream ]]; then
   echo "The $PROFILE profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
@@ -159,7 +159,7 @@ LOAD_RWS_PASSWORD=$RWS_PASSWORD
 LOAD_SECRET_KEY=$SECRET_KEY
 LOAD_WORKER_COUNT=$WORKERS
 LOAD_CWS_COUNT=$CWS
-LOAD_CMS_CPUS=$CPUS
+LOAD_CMS_CPUS=${CPUS:-0}
 EOF
 )
 chmod 600 "$HERE/.env.load"
