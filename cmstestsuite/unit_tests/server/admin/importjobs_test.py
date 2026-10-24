@@ -30,6 +30,8 @@ import time
 import unittest
 from unittest import mock
 
+import pytest
+
 from cms.server.admin.bulkimport import ImportPlan, ImportRow, \
     UserImportPlan
 from cms.server.admin import importjobs
@@ -241,20 +243,25 @@ class TestJobRuns(ImportJobsTestCase):
     def test_the_writing_runs_under_database_timeouts(self):
         # A write stuck on a database lock must end as an error, not wait
         # for ever with the lock of every import.
+        # They are local to the transaction that writes, so they must come
+        # after the rollback that ends the one of the plan.
         events = []
+        self.session.rollback.side_effect = lambda: events.append("rollback")
         self.session.execute.side_effect = lambda stmt: events.append(
             str(stmt))
         self.apply_import.side_effect = lambda *a: events.append("apply")
+        self.session.commit.side_effect = lambda: events.append("commit")
         store = ImportJobStore()
 
         job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
         self.wait_for_job(job)
 
         self.assertEqual(job.status, "done")
-        self.assertEqual(len(events), 2)
-        self.assertIn("SET LOCAL lock_timeout", events[0])
-        self.assertIn("SET LOCAL statement_timeout", events[0])
-        self.assertEqual(events[1], "apply")
+        self.assertEqual(len(events), 4)
+        self.assertEqual([events[0], events[2], events[3]],
+                         ["rollback", "apply", "commit"])
+        self.assertIn("SET LOCAL lock_timeout", events[1])
+        self.assertIn("SET LOCAL statement_timeout", events[1])
 
     def test_a_job_that_cannot_get_the_lock_ends_as_an_error(self):
         # Another import holds the lock longer than this one may wait.
@@ -276,17 +283,25 @@ class TestJobRuns(ImportJobsTestCase):
         # The lock is still the other import's, not released by this one.
         self.assertTrue(importjobs._APPLY_LOCK.locked())
 
+    # Pytest reports the exception that ends the thread, which is the point.
+    @pytest.mark.filterwarnings(
+        "ignore::pytest.PytestUnhandledThreadExceptionWarning")
     def test_a_thread_that_dies_leaves_an_error_not_a_running_job(self):
         # SystemExit is not an Exception: nothing else would end the job,
         # and its contest would stay blocked.
         self.apply_import.side_effect = SystemExit
         store = ImportJobStore()
 
-        job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
-        self.wait_for_job(job)
+        with self.assertLogs(MODULE, level="ERROR") as logs:
+            job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+            self.wait_for_job(job)
 
         self.assertEqual((job.status, job.error), ("error", APPLY_FAILED))
         self.assertIsNone(store.running_job(CONTEST_ID))
+        # It is told in the log, as no other line would.
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn(str(CONTEST_ID), logs.output[0])
+        self.assertIn("ended without finishing", logs.output[0])
 
     def test_plan_errors_at_run_time(self):
         # The database changed since the file was validated.

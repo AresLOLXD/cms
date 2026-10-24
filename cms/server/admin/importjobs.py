@@ -264,6 +264,8 @@ class ImportJobStore:
             # Whatever ended the thread, a job left running would block its
             # contest for good.
             if job.status == "running":
+                logger.error("Bulk import %s ended without finishing.",
+                             _describe(job))
                 job.error = APPLY_FAILED
                 job.status = "error"
         # The import is saved: if the notification fails, the job stays
