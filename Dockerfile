@@ -32,32 +32,7 @@ RUN mkdir -p /build && \
     ldd bin/karel 2>&1 | grep -q "not a dynamic executable" || \
         { echo "ERROR: karel binary is not statically linked"; exit 1; }
 
-# ─── Stage 2: Build CMS-Loader (Node.js/TypeScript) ──────────────────────────
-FROM ${BASE_IMAGE} AS loader-builder
-
-ARG CMS_LOADER_VERSION=main
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
-#!/bin/bash -ex
-    export DEBIAN_FRONTEND=noninteractive
-    rm -f /etc/apt/apt.conf.d/docker-clean
-    apt-get update
-    apt-get install -y curl ca-certificates git
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
-    npm install -g pnpm
-EOF
-
-ARG CMS_LOADER_BASE_PATH=/
-RUN git clone --branch "${CMS_LOADER_VERSION}" --depth 1 \
-        https://github.com/AresLOLXD/CMS-Loader.git /build && \
-    cd /build && \
-    pnpm install && \
-    VITE_BASE_PATH="${CMS_LOADER_BASE_PATH}" pnpm run build && \
-    pnpm prune --prod --ignore-scripts
-
-# ─── Stage 3: CMS runtime ─────────────────────────────────────────────────────
+# ─── Stage 2: CMS runtime ─────────────────────────────────────────────────────
 FROM ${BASE_IMAGE}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -129,20 +104,6 @@ EOF
 COPY --from=rekarel-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/@rekarel/cli/dist/commands.cjs /usr/local/bin/rekarel
 COPY --from=rekarel-builder /build/bin/karel /usr/local/bin/karel
-
-# Copy CMS-Loader build artifacts from the loader-builder stage.
-# CMS-Loader runs TypeScript directly via tsx (no tsc compilation step).
-# Copy: server source, pre-built frontend, prod node_modules (tsx stays as a dep).
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/src           /home/cmsuser/cms-loader/src
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/client/dist   /home/cmsuser/cms-loader/client/dist
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/node_modules  /home/cmsuser/cms-loader/node_modules
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/package.json  /home/cmsuser/cms-loader/package.json
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/tsconfig.json /home/cmsuser/cms-loader/tsconfig.json
 
 USER cmsuser
 ENV LANG=C.UTF-8

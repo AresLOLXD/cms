@@ -167,6 +167,25 @@ else
   check "_do_up without the local database adds no profile and persists false" "calls: $(tr '\n' '|' < "$TMP_ROOT/calls"); .env: $(tr '\n' '|' < "$TMP_ROOT/.env")"
 fi
 
+# ── _do_up: leftover CMS_LOADER_* variables ───────────────────────────────────
+# A leftover CMS_LOADER_SESSION_SECRET in .env warns but never stops the deploy.
+
+printf 'CMS_LOADER_SESSION_SECRET=leftover\n' > "$TMP_ROOT/.env"
+run_do_up n 1
+if [[ "$DO_UP_OUT" == *"CMS-Loader was removed"* ]] && grep -qE ' up ' "$TMP_ROOT/calls"; then
+  check "_do_up warns about a leftover CMS_LOADER_SESSION_SECRET and still deploys" "ok"
+else
+  check "_do_up warns about a leftover CMS_LOADER_SESSION_SECRET and still deploys" "out: $DO_UP_OUT"
+fi
+
+rm -f "$TMP_ROOT/.env"
+run_do_up n 1
+if [[ "$DO_UP_OUT" != *"CMS-Loader"* ]]; then
+  check "_do_up does not warn without CMS_LOADER_SESSION_SECRET" "ok"
+else
+  check "_do_up does not warn without CMS_LOADER_SESSION_SECRET" "out: $DO_UP_OUT"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

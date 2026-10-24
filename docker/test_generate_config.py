@@ -398,66 +398,6 @@ def test_supervisord_evaluation_and_proxy_no_flag_when_all(monkeypatch):
     assert "cmsProxyService 0" in conf
 
 
-def test_supervisord_no_cmsloader_by_default(monkeypatch):
-    # CMS-Loader must NOT appear when credentials are absent.
-    _set(monkeypatch)
-    conf = gc.generate_supervisord_conf()
-    assert "cmsloader" not in conf
-    assert "cms-loader" not in conf
-
-
-def test_supervisord_cmsloader_all_vars_set(monkeypatch):
-    # CMS-Loader appears when all three credentials are provided.
-    _set(monkeypatch, {
-        "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
-        "CMS_LOADER_ADMIN_USER": "admin",
-        "CMS_LOADER_ADMIN_PASSWORD": "hunter2",
-    })
-    conf = gc.generate_supervisord_conf()
-    assert "[program:cmsloader]" in conf
-    assert "/home/cmsuser/cms-loader/node_modules/.bin/tsx src/index.ts" in conf
-    assert "SESSION_SECRET=" in conf
-    assert "ADMIN_USER=" in conf
-    assert "ADMIN_PASSWORD=" in conf
-    assert 'NODE_ENV="production"' in conf
-    assert "directory=/home/cmsuser/cms-loader" in conf
-    assert 'PORT="9995"' in conf
-
-
-def test_supervisord_cmsloader_partial_vars_skipped(monkeypatch):
-    # Missing password → CMS-Loader must not appear.
-    _set(monkeypatch, {
-        "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
-        "CMS_LOADER_ADMIN_USER": "admin",
-        # CMS_LOADER_ADMIN_PASSWORD intentionally omitted
-    })
-    conf = gc.generate_supervisord_conf()
-    assert "cmsloader" not in conf
-
-
-def test_supervisord_cmsloader_partial_no_secret(monkeypatch):
-    # Missing session secret → CMS-Loader must not appear.
-    _set(monkeypatch, {
-        "CMS_LOADER_ADMIN_USER": "admin",
-        "CMS_LOADER_ADMIN_PASSWORD": "hunter2",
-        # CMS_LOADER_SESSION_SECRET intentionally omitted
-    })
-    conf = gc.generate_supervisord_conf()
-    assert "cmsloader" not in conf
-
-
-def test_supervisord_cmsloader_custom_port(monkeypatch):
-    # Custom port is reflected in the environment string.
-    _set(monkeypatch, {
-        "CMS_LOADER_SESSION_SECRET": "supersecret32charslongenoughXXXX",
-        "CMS_LOADER_ADMIN_USER": "admin",
-        "CMS_LOADER_ADMIN_PASSWORD": "hunter2",
-        "CMS_LOADER_PORT": "9000",
-    })
-    conf = gc.generate_supervisord_conf()
-    assert 'PORT="9000"' in conf
-
-
 def test_cms_toml_proxy_uses_default_localhost_rws_host(monkeypatch):
     _set(monkeypatch)
     toml = gc.generate_cms_toml()
@@ -546,11 +486,9 @@ def test_supervisord_every_program_stops_as_a_group_and_retries(
     # down) goes FATAL after about 8 minutes, not 7 seconds (#38).
     _set(monkeypatch, {
         "CMS_CWS_COUNT": "2", "CMS_WORKER_COUNT": "2",
-        "CMS_TELEGRAM_BOT_TOKEN": "t", "CMS_TELEGRAM_CHAT_ID": "c",
-        "CMS_LOADER_SESSION_SECRET": "s", "CMS_LOADER_ADMIN_USER": "u",
-        "CMS_LOADER_ADMIN_PASSWORD": "p"})
+        "CMS_TELEGRAM_BOT_TOKEN": "t", "CMS_TELEGRAM_CHAT_ID": "c"})
     programs = _supervisord_programs(gc.generate_supervisord_conf())
-    assert {"cmstelegrambot", "cmsloader", "cmsworker1",
+    assert {"cmstelegrambot", "cmsworker1",
             "cmscontestwebserver1"} <= set(programs)
     for name, program in programs.items():
         assert program["stopasgroup"] == "true", name

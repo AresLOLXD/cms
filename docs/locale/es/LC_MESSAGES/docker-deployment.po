@@ -273,6 +273,20 @@ msgstr ""
 "y reemplaza lo que hubiera antes, incluido `ALL`; para atender todas las "
 "competencias activas, escribe `CMS_CONTEST_ID=ALL` en `.env` a mano."
 
+msgid "Importing users"
+msgstr "Importar usuarios"
+
+msgid ""
+"To load the contestants from a CSV file, use the import pages of the "
+"Admin Web Server; see [Importing users and participations](importing-"
+"users.md). CMS-Loader, the separate tool that used to do this on port "
+"9995, was removed."
+msgstr ""
+"Para cargar los concursantes desde un archivo CSV, usa las páginas de "
+"importación del Admin Web Server; consulta [Importar usuarios y "
+"participaciones](importing-users.md). CMS-Loader, la herramienta aparte "
+"que hacía esto en el puerto 9995, fue eliminado."
+
 msgid "Ports"
 msgstr "Puertos"
 
@@ -313,18 +327,6 @@ msgstr "`8890`"
 
 msgid "Ranking Web Server (public scoreboard)"
 msgstr "Ranking Web Server (ranking público)"
-
-msgid "`9995`"
-msgstr "`9995`"
-
-msgid ""
-"CMS-Loader (bulk user import; runs only when `CMS_LOADER_SESSION_SECRET`,"
-" `CMS_LOADER_ADMIN_USER` and `CMS_LOADER_ADMIN_PASSWORD` are set, see "
-"[CMS-Loader](cms-loader.md))"
-msgstr ""
-"CMS-Loader (importación masiva de usuarios; solo se ejecuta cuando están "
-"definidas `CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER` y "
-"`CMS_LOADER_ADMIN_PASSWORD`, consulta [CMS-Loader](cms-loader.md))"
 
 msgid "Submissions at the contest stop"
 msgstr "Envíos al final de la competencia"

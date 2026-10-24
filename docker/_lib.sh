@@ -74,6 +74,12 @@ _do_up() {
     exit 1
   fi
 
+  if [[ -n "$(_env_var CMS_LOADER_SESSION_SECRET "")" ]]; then
+    echo "WARNING: CMS-Loader was removed; the CMS_LOADER_* variables in .env are ignored." >&2
+    echo "         Import users from AWS instead (see docs/importing-users.md)." >&2
+    echo "         You can delete the CMS_LOADER_* lines from .env." >&2
+  fi
+
   local up_cmd=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
 
   local current_localdb

@@ -79,6 +79,12 @@ This lists all contests in the database, prompts you to pick one, updates
 It accepts only a numeric ID and replaces whatever was set before, including
 `ALL`; to serve every active contest, set `CMS_CONTEST_ID=ALL` in `.env` by hand.
 
+## Importing users
+
+To load the contestants from a CSV file, use the import pages of the Admin
+Web Server; see [Importing users and participations](importing-users.md).
+CMS-Loader, the separate tool that used to do this on port 9995, was removed.
+
 ## Ports
 
 By default the following ports are bound to `127.0.0.1` (loopback only). A
@@ -92,7 +98,6 @@ plain HTTP. You can change all port numbers in `.env`.
 | `8888` | Contest Web Server (contestants log in here) |
 | `8889` | Admin Web Server (contest administration) |
 | `8890` | Ranking Web Server (public scoreboard) |
-| `9995` | CMS-Loader (bulk user import; runs only when `CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER` and `CMS_LOADER_ADMIN_PASSWORD` are set, see [CMS-Loader](cms-loader.md)) |
 
 ## Submissions at the contest stop
 
