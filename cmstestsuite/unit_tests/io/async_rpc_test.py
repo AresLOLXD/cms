@@ -652,6 +652,60 @@ class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):
 
         self.assert_nothing_pending()
 
+    async def abandon_call(self) -> str:
+        """Start a call, let it reach the peer and cancel it.
+
+        return: the id of its request.
+
+        """
+        call = asyncio.create_task(
+            self.client.execute_rpc("echo", {"string": "x"}))
+        await self.peer.wait_for_requests(len(self.peer.requests) + 1)
+        call.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await call
+        return self.peer.requests[-1]["__id"]
+
+    @staticmethod
+    def answer(id_: str) -> dict:
+        return {"__id": id_, "__data": None, "__error": None}
+
+    def logged(self, logs) -> list[tuple[str, str]]:
+        return [(record.levelname, record.getMessage())
+                for record in logs.records]
+
+    async def test_late_answer_to_a_cancelled_call_is_only_debug(self):
+        id_ = await self.abandon_call()
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            # The peer answers late, over the wire.
+            self.peer.release()
+            async with asyncio.timeout(2):
+                while self.client._abandoned:
+                    await asyncio.sleep(0.005)
+            # An answer to the same call again, and to a call never sent.
+            self.client.process_incoming_response(self.answer(id_))
+            self.client.process_incoming_response(self.answer("never-sent"))
+
+        self.assertEqual(self.logged(logs), [
+            ("DEBUG", "Late answer to echo, the caller gave up."),
+            ("WARNING", "No pending request with id %s found." % id_),
+            ("WARNING", "No pending request with id never-sent found.")])
+
+    async def test_only_the_last_abandoned_calls_are_remembered(self):
+        with patch.object(self.client, "MAX_ABANDONED", 2):
+            first = await self.abandon_call()
+            await self.abandon_call()
+            third = await self.abandon_call()
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            self.client.process_incoming_response(self.answer(first))
+            self.client.process_incoming_response(self.answer(third))
+
+        self.assertEqual(self.logged(logs), [
+            ("WARNING", "No pending request with id %s found." % first),
+            ("DEBUG", "Late answer to echo, the caller gave up.")])
+
     async def test_connection_lost_while_waiting_raises_rpc_error(self):
         call = asyncio.create_task(
             self.client.execute_rpc("echo", {"string": "x"}))
