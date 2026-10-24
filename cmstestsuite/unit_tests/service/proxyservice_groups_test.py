@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 import unittest
 from datetime import datetime
@@ -176,6 +177,23 @@ class TestProxyServiceGroups(
         result.public_score_details = dict()
         result.ranking_score_details = ["100"]
         return contest, submission
+
+    def add_scored_submission(self, contest):
+        """Add and commit a scored submission to the task of contest."""
+        task = contest.tasks[0]
+        submission = self.add_submission(
+            task=task, participation=contest.participations[0])
+        result = self.add_submission_result(
+            submission=submission, dataset=task.active_dataset)
+        result.compilation_outcome = "ok"
+        result.evaluation_outcome = "ok"
+        result.score = 100
+        result.score_details = dict()
+        result.public_score = 50
+        result.public_score_details = dict()
+        result.ranking_score_details = ["100"]
+        self.session.commit()
+        return submission
 
     async def start(self, contest_id: int | None = None) -> ProxyService:
         """Build a ProxyService and let its startup data reach the rankings.
@@ -483,6 +501,92 @@ class TestProxyServiceGroups(
         await self._settle(service)
         self.assertIn("%d" % self.sub_a.id,
                       self.put_payload(url("olim/submissions/")))
+
+    async def test_regenerate_resends_a_score_its_reset_could_wipe(self):
+        contest_a2, sub_a2 = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        # The build itself marks this score as sent: it must stay so.
+        service.scores_sent_to_rankings.discard(sub_a2.id)
+        scored = list()
+        real_operations = ProxyService._operations_for_contest
+
+        def operations_for_contest(service_, contest):
+            # While regenerate reads its second contest, another thread
+            # scores a submission of the first one, which it has read
+            # already: the score goes out before the reset, and is not
+            # in what the reset is followed by.
+            if contest.id == contest_a2.id and not scored:
+                scored.append(self.add_scored_submission(self.contest_a))
+                service_._submission_scored_sync(scored[0].id)
+            return real_operations(service_, contest)
+
+        self.clear_requests()
+        with patch.object(ProxyService, "_operations_for_contest",
+                          operations_for_contest):
+            await service.regenerate_ranking("olim")
+        await self._settle(service)
+        new_id = scored[0].id
+        self.assertEqual(self.delete_urls(),
+                         [url("olim/contests/"), url("olim/users/")])
+        self.assertIn(sub_a2.id, service.scores_sent_to_rankings)
+        self.assertNotIn(new_id, service.scores_sent_to_rankings)
+
+        # The sweep sends it again, as the ranking lost it.
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
+                         {"%d" % new_id})
+
+    async def test_regenerate_copies_the_sent_sets_after_scheduling_reset(
+        self,
+    ):
+        service = await self.start()
+        scored = list()
+        real_enqueue_all = service._threadsafe_enqueue_all
+
+        def enqueue_all(operations):
+            # Another thread scores a submission after the build read
+            # its contest, right before the reset is scheduled: the
+            # score is queued ahead of it.
+            scored.append(self.add_scored_submission(self.contest_a))
+            service._submission_scored_sync(scored[0].id)
+            real_enqueue_all(operations)
+
+        service._threadsafe_enqueue_all = enqueue_all
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertNotIn(scored[0].id, service.scores_sent_to_rankings)
+
+    async def test_regenerates_of_two_groups_run_one_at_a_time(self):
+        service = await self.start()
+        guard = threading.Lock()
+        inside = [0, 0]
+        real_operations = ProxyService._operations_for_contest
+
+        def slow_operations(service_, contest):
+            with guard:
+                inside[0] += 1
+                inside[1] = max(inside)
+            time.sleep(0.2)
+            try:
+                return real_operations(service_, contest)
+            finally:
+                with guard:
+                    inside[0] -= 1
+
+        self.clear_requests()
+        with patch.object(ProxyService, "_operations_for_contest",
+                          slow_operations):
+            await asyncio.gather(service.regenerate_ranking("olim"),
+                                 service.regenerate_ranking("omips"))
+        await self._settle(service)
+        self.assertEqual(inside[1], 1)
+        self.assertCountEqual(
+            self.delete_urls(),
+            [url("olim/contests/"), url("olim/users/"),
+             url("omips/contests/"), url("omips/users/")])
 
     async def test_regenerate_rejects_invalid_group(self):
         service = await self.start()

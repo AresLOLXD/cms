@@ -1081,6 +1081,11 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         # know their tasks.
         self._broken_contests: set[int] = set()
 
+        # Regenerates run one at a time: each one takes the difference
+        # in the sets above to fix up what it raced with, and must not
+        # take what another one built.
+        self._regenerate_lock = threading.Lock()
+
         # Last known mapping from ranking group name to the IDs of its
         # contests (always empty in legacy mode), used by reinitialize
         # to find groups that lost contests and must be reset.
@@ -1697,44 +1702,81 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         build did to the sets of what was sent, and to the broken
         contests.
 
+        The read takes seconds, and a score that another thread queues
+        or sends meanwhile may be wiped by the reset while not being in
+        what was read. Such scores leave the sets of what was sent, so
+        that the sweeper sends them again.
+
         raise (sqlalchemy.exc.SQLAlchemyError): on a database error (see
             _is_database_error).
 
         """
         name = group if group is not None else "(root)"
-        logger.info("Regenerating ranking %s.", name)
-        broken_before = set(self._broken_contests)
-        sent_before = (self.scores_sent_to_rankings.copy(),
-                       self.tokens_sent_to_rankings.copy())
-        operations = [ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group)]
-        try:
-            with SessionGen() as session:
-                if group is not None:
-                    self._enqueue_visibility(
-                        session, group, enqueue=operations.append)
-                for contest in self._contests_to_send(session):
-                    if self._group_of(contest) == group:
-                        self._enqueue_contest_data(
-                            contest, enqueue=operations.append)
-                        self._enqueue_submissions(
-                            session, contest, only_missing=False,
-                            enqueue=operations.append)
-            self._threadsafe_enqueue_all(operations)
-        except BaseException as error:
-            # Nothing was enqueued: the build marked scores as sent
-            # that never went, and held back contests the ranking
-            # still has.
-            self._broken_contests = broken_before
-            self._forget_sent_since(sent_before)
-            logger.error(
-                "Regenerate of ranking %s failed (%s): the scoreboard was "
-                "left as it was and may be stale (what was removed since "
-                "may still show on it). Press Regenerate again once the "
-                "database answers.", name, describe_error(error),
-                exc_info=not _is_database_error(error))
-            raise
+        with self._regenerate_lock:
+            logger.info("Regenerating ranking %s.", name)
+            broken_before = self._broken_contests.copy()
+            sent_before = (self.scores_sent_to_rankings.copy(),
+                           self.tokens_sent_to_rankings.copy())
+            operations = [ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group)]
+            try:
+                with SessionGen() as session:
+                    if group is not None:
+                        self._enqueue_visibility(
+                            session, group, enqueue=operations.append)
+                    for contest in self._contests_to_send(session):
+                        if self._group_of(contest) == group:
+                            self._enqueue_contest_data(
+                                contest, enqueue=operations.append)
+                            self._enqueue_submissions(
+                                session, contest, only_missing=False,
+                                enqueue=operations.append)
+                self._threadsafe_enqueue_all(operations)
+            except BaseException as error:
+                # Nothing was enqueued: the build marked scores as sent
+                # that never went, and held back contests the ranking
+                # still has.
+                self._broken_contests = broken_before
+                self._forget_sent_since(sent_before)
+                logger.error(
+                    "Regenerate of ranking %s failed (%s): the scoreboard "
+                    "was left as it was and may be stale (what was removed "
+                    "since may still show on it). Press Regenerate again "
+                    "once the database answers.", name,
+                    describe_error(error),
+                    exc_info=not _is_database_error(error))
+                raise
+            # Only after the reset is scheduled: whatever the sets got
+            # up to now came before it in the queue (or never goes).
+            # What the build added itself is in the operations.
+            self._forget_sent_since(
+                sent_before, self._sent_ids_of(operations))
 
-    def _forget_sent_since(self, before: tuple[set[int], set[int]]) -> None:
+    @staticmethod
+    def _sent_ids_of(
+        operations: list[ProxyOperation]
+    ) -> tuple[set[int], set[int]]:
+        """Return the submissions whose scores and tokens operations send.
+
+        operations: any operations.
+
+        return: the IDs of the submissions with a score, and of those
+            with a token.
+
+        """
+        scores: set[int] = set()
+        tokens: set[int] = set()
+        for operation in operations:
+            if operation.type_ == ProxyExecutor.SUBCHANGE_TYPE:
+                for key, data in operation.data.items():
+                    # See operations_for_score and operations_for_token.
+                    (tokens if key.endswith("t") else scores).add(
+                        int(data["submission"]))
+        return scores, tokens
+
+    def _forget_sent_since(
+        self, before: tuple[set[int], set[int]],
+        keep: tuple[set[int], set[int]] = (frozenset(), frozenset()),
+    ) -> None:
         """Take out of the sets of what was sent what was added since.
 
         Other threads add to the sets meanwhile, so iterate over
@@ -1742,13 +1784,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         before: copies of the sets of scores and tokens sent, taken
             earlier.
+        keep: scores and tokens to leave in the sets, if they were
+            added.
 
         """
         # shortcut: relies on CPython's atomic set.copy() under the GIL;
         # revisit under free-threaded Python.
-        for sent, was in zip((self.scores_sent_to_rankings,
-                              self.tokens_sent_to_rankings), before):
-            sent.difference_update(sent.copy() - was)
+        for sent, was, kept in zip((self.scores_sent_to_rankings,
+                                    self.tokens_sent_to_rankings),
+                                   before, keep):
+            sent.difference_update(sent.copy() - was - kept)
 
     @rpc_method
     async def submission_scored(self, submission_id: int):
