@@ -48,6 +48,7 @@ participación no tiene contraseña propia.</p>
 {% endif %}
 {% set import_url = url("contest", contest.id, "users", "import") if contest else url("users", "import") %}
 {% set users_url = url("contest", contest.id, "users") if contest else url("users") %}
+{% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)" if contest else "Contraseña (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
 
 {% if errors %}
 <div class="import-box import-error">
@@ -72,10 +73,10 @@ participación no tiene contraseña propia.</p>
   <p>El archivo es válido. Al importarlo:</p>
   <ul>
     <li>Usuarios nuevos: {{ summary.usuarios_nuevos }}</li>
-    <li>Usuarios actualizados: {{ summary.usuarios_actualizados }}</li>
+    <li>Usuarios ya existentes (se sobrescriben): {{ summary.usuarios_actualizados }}</li>
     {% if summary.participaciones_nuevas is defined %}
     <li>Participaciones nuevas: {{ summary.participaciones_nuevas }}</li>
-    <li>Participaciones actualizadas: {{ summary.participaciones_actualizadas }}</li>
+    <li>Participaciones ya existentes (se sobrescriben): {{ summary.participaciones_actualizadas }}</li>
     {% endif %}
   </ul>
 </div>
@@ -85,6 +86,17 @@ participación no tiene contraseña propia.</p>
   {% if summary.movidas_al_grupo_principal %}<p>{{ count_of(summary.movidas_al_grupo_principal, "participación pasará al grupo principal", "participaciones pasarán al grupo principal") }}</p>{% endif %}
 </div>
 {% endif %}
+{% endif %}
+
+{% if preview %}
+<div class="import-box import-preview">
+  <p>Primera fila del archivo; comprueba que las columnas son las correctas:</p>
+  <ul>
+    {% for field, value in preview.items() %}
+    <li>{{ labels[field] }}: {{ value or "(vacío)" }}</li>
+    {% endfor %}
+  </ul>
+</div>
 {% endif %}
 
 {% if job %}
@@ -109,7 +121,6 @@ participación no tiene contraseña propia.</p>
      a header row it would be a contestant's password. Only a flag is: on the
      contest page, a password left unassigned stays so (the global page needs
      it, so it is guessed again there). #}
-  {% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)" if contest else "Contraseña (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
   <table{% if mapping %} data-has-mapping="1"{% endif %}>
     {% for field in fields %}
     <tr>
@@ -268,11 +279,11 @@ participación no tiene contraseña propia.</p>
                     strong.textContent = "Listo.";
                     lead.appendChild(strong);
                     var counts = " Usuarios nuevos: " + s.summary.usuarios_nuevos +
-                        ", actualizados: " + s.summary.usuarios_actualizados + ".";
+                        ", ya existentes (se sobrescribieron): " + s.summary.usuarios_actualizados + ".";
                     // The global import of users has no participations.
                     if (s.summary.participaciones_nuevas !== undefined) {
                         counts += " Participaciones nuevas: " + s.summary.participaciones_nuevas +
-                            ", actualizadas: " + s.summary.participaciones_actualizadas + ".";
+                            ", ya existentes (se sobrescribieron): " + s.summary.participaciones_actualizadas + ".";
                     }
                     lead.appendChild(document.createTextNode(counts));
                     out.appendChild(lead);

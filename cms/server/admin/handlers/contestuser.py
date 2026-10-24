@@ -373,7 +373,8 @@ class ImportPageHandler(BaseHandler):
                      errors: list[str] | None = None,
                      summary: dict[str, int] | None = None,
                      job: ImportJob | None = None,
-                     notice: str | None = None) -> None:
+                     notice: str | None = None,
+                     preview: dict[str, str | None] | None = None) -> None:
         """Render the page.
 
         The template gets every one of these parameters, as AWS renders
@@ -386,6 +387,9 @@ class ImportPageHandler(BaseHandler):
         job: the import job whose progress to show, instead of the form.
         notice: something to tell the admin that is not an error, as
             errors say that nothing was applied.
+        preview: field -> value of the first row of the file, after
+            "validate", so that the admin sees a wrong mapping. Never the
+            password.
 
         """
         self.r_params = self.render_params()
@@ -397,6 +401,7 @@ class ImportPageHandler(BaseHandler):
         self.r_params["summary"] = summary
         self.r_params["job"] = job
         self.r_params["notice"] = notice
+        self.r_params["preview"] = preview
         self.render("contest_users_import.html", **self.r_params)
 
     def _job_url(self, job: ImportJob) -> str:
@@ -430,6 +435,10 @@ class ImportPageHandler(BaseHandler):
 
     def _upload(self) -> None:
         """Validate the file sent, and start its import if asked to."""
+        # shortcut: Tornado reads up to 100 MiB of body before this runs and
+        # read_rows only then refuses 2 MB; a per-handler cap needs
+        # @stream_request_body, so docs/importing-users.md asks the proxy
+        # for the cap. Upgrade if the proxy cannot do it.
         mapping = {field: self.get_argument("map_" + field, "")
                    for field in self.fields}
         files = self.request.files.get("file")
@@ -445,7 +454,10 @@ class ImportPageHandler(BaseHandler):
             self._render_page(mapping, errors=errors)
             return
         if self.get_argument("action", "validate") != "import":
-            self._render_page(mapping, summary=plan.summary())
+            first = rows[0]
+            self._render_page(mapping, summary=plan.summary(), preview={
+                field: getattr(first, field)
+                for field in self.fields if field != "password"})
             return
         service = self.service
 
@@ -515,6 +527,9 @@ def _write_job_status(handler: BaseHandler, job: ImportJob) -> None:
 class ImportJobStatusHandler(BaseHandler):
     """The progress of a contest import job, as JSON, for its owner only."""
 
+    # The page asks every 500 ms: not worth an INFO line each.
+    quiet_access_log = True
+
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def get(self, contest_id: str, job_id: str) -> None:
         job = IMPORT_JOBS.get(job_id, self.current_user.id)
@@ -564,6 +579,8 @@ class ImportGlobalUsersHandler(ImportPageHandler):
 
 class GlobalImportJobStatusHandler(BaseHandler):
     """The progress of a global users import job, as JSON, for its owner."""
+
+    quiet_access_log = True
 
     @require_permission(BaseHandler.PERMISSION_ALL)
     async def get(self, job_id: str) -> None:

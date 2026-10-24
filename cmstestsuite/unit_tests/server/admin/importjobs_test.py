@@ -30,8 +30,11 @@ import time
 import unittest
 from unittest import mock
 
+import pytest
+
 from cms.server.admin.bulkimport import ImportPlan, ImportRow, \
     UserImportPlan
+from cms.server.admin import importjobs
 from cms.server.admin.importjobs import APPLY_FAILED, JOB_TTL, \
     ImportJobStore
 
@@ -234,6 +237,71 @@ class TestJobRuns(ImportJobsTestCase):
             self.assertNotIn(LEAK_PASSWORD, line)
         # Another handler must not be able to format the exception either.
         self.assertIsNone(logs.records[0].exc_info)
+        # The next import must not wait for the one that failed.
+        self.assertFalse(importjobs._APPLY_LOCK.locked())
+
+    def test_the_writing_runs_under_database_timeouts(self):
+        # A write stuck on a database lock must end as an error, not wait
+        # for ever with the lock of every import.
+        # They are local to the transaction that writes, so they must come
+        # after the rollback that ends the one of the plan.
+        events = []
+        self.session.rollback.side_effect = lambda: events.append("rollback")
+        self.session.execute.side_effect = lambda stmt: events.append(
+            str(stmt))
+        self.apply_import.side_effect = lambda *a: events.append("apply")
+        self.session.commit.side_effect = lambda: events.append("commit")
+        store = ImportJobStore()
+
+        job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+        self.wait_for_job(job)
+
+        self.assertEqual(job.status, "done")
+        self.assertEqual(len(events), 4)
+        self.assertEqual([events[0], events[2], events[3]],
+                         ["rollback", "apply", "commit"])
+        self.assertIn("SET LOCAL lock_timeout", events[1])
+        self.assertIn("SET LOCAL statement_timeout", events[1])
+
+    def test_a_job_that_cannot_get_the_lock_ends_as_an_error(self):
+        # Another import holds the lock longer than this one may wait.
+        self.assertTrue(importjobs._APPLY_LOCK.acquire(timeout=5))
+        self.addCleanup(lambda: importjobs._APPLY_LOCK.locked()
+                        and importjobs._APPLY_LOCK.release())
+        store = ImportJobStore()
+
+        with mock.patch.object(importjobs, "APPLY_LOCK_TIMEOUT", 0.05), \
+                self.assertLogs(MODULE, level="ERROR") as logs:
+            job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+            self.wait_for_job(job)
+
+        self.assertEqual((job.status, job.error), ("error", APPLY_FAILED))
+        self.assertIn("TimeoutError", "\n".join(logs.output))
+        self.apply_import.assert_not_called()
+        self.session.commit.assert_not_called()
+        self.on_done.assert_not_called()
+        # The lock is still the other import's, not released by this one.
+        self.assertTrue(importjobs._APPLY_LOCK.locked())
+
+    # Pytest reports the exception that ends the thread, which is the point.
+    @pytest.mark.filterwarnings(
+        "ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_a_thread_that_dies_leaves_an_error_not_a_running_job(self):
+        # SystemExit is not an Exception: nothing else would end the job,
+        # and its contest would stay blocked.
+        self.apply_import.side_effect = SystemExit
+        store = ImportJobStore()
+
+        with self.assertLogs(MODULE, level="ERROR") as logs:
+            job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+            self.wait_for_job(job)
+
+        self.assertEqual((job.status, job.error), ("error", APPLY_FAILED))
+        self.assertIsNone(store.running_job(CONTEST_ID))
+        # It is told in the log, as no other line would.
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn(str(CONTEST_ID), logs.output[0])
+        self.assertIn("ended without finishing", logs.output[0])
 
     def test_plan_errors_at_run_time(self):
         # The database changed since the file was validated.
@@ -414,7 +482,7 @@ class TestStore(ImportJobsTestCase):
         self.assertEqual(job.status, "done")
         self.assertIsNone(store.running_job(CONTEST_ID))
 
-    def test_running_job_forgets_an_expired_job(self):
+    def test_a_running_job_is_not_forgotten_when_it_is_old(self):
         now = [1000.0]
         store = ImportJobStore(clock=lambda: now[0])
         # A job that never ends: its thread is not run.
@@ -422,10 +490,32 @@ class TestStore(ImportJobsTestCase):
             job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
         self.assertIs(store.running_job(CONTEST_ID), job)
 
-        # start() would let a new job in at this point, so it is not
-        # running any more.
+        # Forgetting it would let start() run a second import of the
+        # contest while the first one still writes.
         now[0] += JOB_TTL + 1
+        self.assertIs(store.running_job(CONTEST_ID), job)
+        with self.assertRaises(ValueError):
+            store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+
+        # Once it is over, it expires like any other.
+        job.status = "done"
         self.assertIsNone(store.running_job(CONTEST_ID))
+        self.assertNotIn(job.id, store._jobs)
+
+    def test_a_thread_that_cannot_start_frees_the_contest(self):
+        store = ImportJobStore()
+
+        with mock.patch.object(threading.Thread, "start",
+                               side_effect=RuntimeError("can't start")):
+            with self.assertRaises(RuntimeError):
+                store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+
+        # Nobody has the id of that job, so it must not block the contest.
+        self.assertIsNone(store.running_job(CONTEST_ID))
+        self.assertEqual(store._jobs, {})
+        job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done)
+        self.wait_for_job(job)
+        self.assertEqual(job.status, "done")
 
     def test_owner_check(self):
         store = ImportJobStore()

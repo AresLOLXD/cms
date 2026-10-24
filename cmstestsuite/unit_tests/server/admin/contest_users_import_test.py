@@ -26,6 +26,7 @@ their "core" block only, as the rest of base.html needs a whole request.
 
 import asyncio
 import json
+import logging
 import re
 import secrets
 import unittest
@@ -34,6 +35,7 @@ from unittest import mock
 
 import tornado.web
 
+from cms.io.web_service import log_request
 from cms.server.admin.bulkimport import FIELDS, MAX_BYTES, REQUIRED, \
     USER_FIELDS, USER_REQUIRED, ImportPlan, UserImportPlan, read_rows
 from cms.server.admin.handlers.contestuser import \
@@ -164,6 +166,16 @@ class TestImportUsersPost(unittest.TestCase):
             handler.sql_session, CONTEST_ID, read_rows(CSV, MAPPING)[0])
         jobs.start.assert_not_called()
         handler.redirect.assert_not_called()
+
+    def test_validate_shows_the_first_row_but_not_its_password(self):
+        handler = make_handler(form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])):
+            handler._post_sync(str(CONTEST_ID))
+
+        self.assertEqual(rendered_params(handler)["preview"], {
+            "username": "ana", "first_name": "Ana", "last_name": "Pérez",
+            "team": None, "group": None})
 
     def test_validate_is_the_default_action(self):
         handler = make_handler(form=import_form(None))
@@ -705,6 +717,21 @@ class TestRoutes(unittest.TestCase):
             self.assertIsNotNone(match, msg=url)
             self.assertEqual(match.groups(), ("12", job_id))
 
+    def test_the_polls_of_the_status_handlers_are_logged_at_debug(self):
+        # The page asks every 500 ms; an error is still told as such.
+        for handler_class in (ImportJobStatusHandler,
+                              GlobalImportJobStatusHandler):
+            for status, level in ((200, logging.DEBUG),
+                                  (404, logging.WARNING)):
+                handler = make_handler(handler_class)
+                handler.get_status = lambda: status
+                handler.request = SimpleNamespace(
+                    method="GET", path="/status", request_time=lambda: 0.0)
+                handler._request_summary = lambda: "GET /status"
+                with self.assertLogs("tornado.access", level="DEBUG") as logs:
+                    log_request(handler)
+                self.assertEqual(logs.records[0].levelno, level)
+
 
 class TestPermissions(unittest.TestCase):
     """Only the admins with all the permissions may import."""
@@ -766,6 +793,7 @@ class TestImportTemplates(unittest.TestCase):
         params.setdefault("summary", None)
         params.setdefault("job", None)
         params.setdefault("notice", None)
+        params.setdefault("preview", None)
         return self.render_core("contest_users_import.html", **params)
 
     def test_the_form_uploads_a_file_with_one_select_per_field(self):
@@ -1092,7 +1120,38 @@ class TestImportTemplates(unittest.TestCase):
 
         self.assertIn("Usuarios nuevos: 1", html)
         self.assertIn("Participaciones nuevas: 1", html)
-        self.assertIn("Usuarios actualizados: 0", html)
+        self.assertIn("Usuarios ya existentes (se sobrescriben): 0", html)
+        self.assertIn("Participaciones ya existentes (se sobrescriben): 0",
+                      html)
+
+    def test_no_label_says_updated_for_what_already_exists(self):
+        # There is no count of the rows that change something: the
+        # existing ones are overwritten, identical or not.
+        html = self.render_import(summary=make_plan().summary())
+
+        # The keys of the summary keep their names.
+        self.assertNotIn("actualizad", html.replace("_actualizad", ""))
+        self.assertIn("ya existentes (se sobrescribieron): ", html)
+
+    def test_the_first_row_of_a_validation_is_shown_and_escaped(self):
+        preview = {"username": "ana", "first_name": "<b>Ana</b>",
+                   "last_name": "Pérez", "team": None, "group": "A"}
+
+        html = self.render_import(summary=make_plan().summary(),
+                                  preview=preview)
+
+        self.assertIn("Primera fila del archivo; comprueba que las columnas "
+                      "son las correctas:", html)
+        self.assertIn("<li>Usuario (username): ana</li>", html)
+        self.assertIn("<li>Nombre (first_name): &lt;b&gt;Ana&lt;/b&gt;</li>",
+                      html)
+        self.assertIn("<li>Equipo (team): (vacío)</li>", html)
+        self.assertIn("<li>Grupo (group): A</li>", html)
+        self.assertNotIn("<b>Ana</b>", html)
+        self.assertNotIn("Contraseña", html.split("<form")[0])
+
+    def test_there_is_no_first_row_without_a_preview(self):
+        self.assertNotIn("import-preview", self.render_import())
 
     def test_the_validation_warns_about_what_an_import_clears(self):
         summary = {**make_plan().summary(), "equipos_quitados": 3,
@@ -1103,8 +1162,9 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn("3 participaciones perderán su equipo", html)
         self.assertIn("2 participaciones pasarán al grupo principal", html)
         # The warnings come after the counts of the summary.
-        self.assertLess(html.index("Participaciones actualizadas"),
-                        html.index("perderán su equipo"))
+        self.assertLess(
+            html.index("Participaciones ya existentes (se sobrescriben)"),
+            html.index("perderán su equipo"))
 
     def test_the_warnings_of_the_validation_have_a_singular(self):
         summary = {**make_plan().summary(), "equipos_quitados": 1,
@@ -1143,7 +1203,7 @@ class TestImportTemplates(unittest.TestCase):
                                            "usuarios_actualizados": 2})
 
         self.assertIn("Usuarios nuevos: 1", html)
-        self.assertIn("Usuarios actualizados: 2", html)
+        self.assertIn("Usuarios ya existentes (se sobrescriben): 2", html)
         self.assertNotIn("<li>Participaciones", html)
         self.assertNotIn('class="import-box import-warning"', html)
 
@@ -1330,6 +1390,11 @@ class TestGlobalImportPage(unittest.TestCase):
         jobs.start.assert_not_called()
         html = self.render(handler)
         self.assertIn("Usuarios nuevos: 1", html)
+        # Only the fields of a user import, and never the password.
+        self.assertEqual(params["preview"], {
+            "username": "ana", "first_name": "Ana", "last_name": "Pérez"})
+        self.assertIn("<li>Nombre (first_name): Ana</li>", html)
+        self.assertNotIn("<li>Equipo (team)", html)
         # The script of the page names them, so look for the list item.
         self.assertNotIn("<li>Participaciones nuevas", html)
         self.assertIn('action="/users/import"', html)

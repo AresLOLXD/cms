@@ -37,6 +37,13 @@ class HelloHandler(tornado.web.RequestHandler):
         self.write("hello")
 
 
+class QuietHandler(tornado.web.RequestHandler):
+    quiet_access_log = True
+
+    def get(self):
+        self.write("polled")
+
+
 class TestRequestLog(
     ServiceLoggingIsolationMixin, unittest.IsolatedAsyncioTestCase,
 ):
@@ -45,7 +52,8 @@ class TestRequestLog(
            return_value=Address("127.0.0.1", 0))
     async def asyncSetUp(self, _address):
         self.service = WebService(
-            listen_port=0, handlers=[(r"/", HelloHandler)],
+            listen_port=0,
+            handlers=[(r"/", HelloHandler), (r"/quiet", QuietHandler)],
             parameters={"static_files": [("cms.server", "static")]},
             shard=0, listen_address="127.0.0.1")
         self.run_task = asyncio.create_task(self.service._async_run())
@@ -97,6 +105,17 @@ class TestRequestLog(
             record = await self._request("GET", "/static/favicon.ico")
         self.assertEqual(record.levelno, logging.WARNING)
         self.assertTrue(record.getMessage().startswith("404 GET "))
+
+    async def test_a_quiet_handler_is_logged_at_debug_when_it_succeeds(self):
+        record = await self._request("GET", "/quiet")
+        self.assertEqual(record.levelno, logging.DEBUG)
+        self.assertTrue(re.match(r"^200 GET /quiet ", record.getMessage()))
+
+    async def test_a_failed_quiet_handler_is_logged_as_today(self):
+        with patch.object(QuietHandler, "get",
+                          side_effect=tornado.web.HTTPError(404)):
+            record = await self._request("GET", "/quiet")
+        self.assertEqual(record.levelno, logging.WARNING)
 
 
 class TestCustomLogFunction(

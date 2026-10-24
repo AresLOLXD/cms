@@ -123,6 +123,10 @@ class TestGenerateRandomPassword(unittest.TestCase):
     def test_alphabet(self):
         self.assertRegex(generate_random_password(), r"^[a-z]*$")
 
+    def test_length(self):
+        # 12 letters of 26 are about 56 bits.
+        self.assertEqual(len(generate_random_password()), 12)
+
     def test_random(self):
         self.assertNotEqual(generate_random_password(),
                             generate_random_password())
