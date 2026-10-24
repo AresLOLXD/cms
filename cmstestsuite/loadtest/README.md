@@ -7,7 +7,8 @@ the same scenario against two **targets**, this fork and stock upstream
 CMS, so that the numbers can be compared (issue #7).
 
 It is not part of the pytest suite. Its unit tests live in
-`cmstestsuite/unit_tests/loadtest/` and need neither Docker nor a database.
+`cmstestsuite/unit_tests/loadtest/` and need no Docker; only
+`db_export_test.py` needs the test database the other database tests use.
 
 ## What it measures
 
@@ -52,12 +53,13 @@ The scenario (`scenario.py`, `setup_contest.py`, `driver.py`):
 Every request goes to the ContestWebServer shards round-robin, like an
 nginx upstream.
 
-Two **profiles**:
+Three **profiles**:
 
 | profile | contests | subtask `depends_on` | two-phase evaluation | ranked on RWS | targets |
 |---|---|---|---|---|---|
 | `portable` | `loada`, `loadb` | removed | off | `loada` only, at the RWS root (ProxyService `-c <loada id>`) | fork, upstream |
 | `full` | `loada`, `loadb` | yes, chains up to 4 levels | on | both, one ranking group each (ProxyService `-c ALL`) | fork only |
+| `omi` | `loada` only, 4 tasks of its own (`loadb` is created empty) | yes, one chain of 4 levels | on | `loada` (ProxyService `-c ALL`) | fork only |
 
 Two **targets**:
 
@@ -83,8 +85,70 @@ Comparability caveats (from the design doc):
 - Fork-only work cannot be turned off and must be stated: the participant
   activity recorder, cookie refresh on polls, and more PG connections per
   process.
-- `full` has no upstream counterpart. It is reported as a third
-  configuration.
+- `full` and `omi` have no upstream counterpart. `full` is reported as a
+  third configuration; `omi` measures runtime variation, not a comparison
+  (see "The `omi` profile").
+
+### The `omi` profile
+
+The other profiles compress a contest into 25 minutes with cheap tasks:
+each simulated user submits 3-5 times faster than a real OMI 2025
+contestant, a submission costs about a tenth of the Worker time, and every
+solution runs in milliseconds. `omi` is shaped like a real OMI, so that N
+harness users mean N contestants, and it exists to answer one question:
+does the measured runtime of the same program vary under load (the
+false-TLE risk on a host with SMT and more Workers than cores; issues #52,
+#53 and #54)?
+
+- **Tasks:** one contest, `loada`, with four Batch tasks (`omia`, `omib`,
+  `omic`, `omicomm`). Each has four subtasks of five testcases, 20 in all:
+  a sample, a screening WA case, a screening TLE case and two heavy ones.
+  Score type GroupMin, 4 x 25 points, with a `depends_on` chain through the
+  four subtasks of `omib`. One time limit, 2 s, and one language,
+  C++20 / g++ (the Python and Java kinds have weight 0).
+- **Solutions:** a new kind, `ac_cpu`, is correct and burns CPU: its input
+  may end with a line `reps`, and it then spins that many iterations (three
+  independent multiply chains, about 1.1 ns per iteration on a Zen 3, and
+  1.45 times slower when the SMT sibling runs the same loop) before printing
+  the sum. Only the heavy testcases have the line, so the others finish in
+  milliseconds. It includes `<bits/stdc++.h>`, so that compiling takes
+  seconds like OMI 2025's 2.2-3.0 s. Mix: `ac_cpu` 0.30, `wa_overflow`
+  0.17, `tle` 0.15, `wa_small` 0.12, `re` 0.09, `ce` 0.08, `wa_zero` 0.09
+  (plain `ac` is not sent). Only `ac` and `ac_cpu` score the maximum.
+- **Communication is substituted.** OMI 2025 had one Communication task a
+  day. `omicomm` is a fourth **Batch** task with a higher CPU cost per
+  heavy testcase (1.0e9 iterations, about 1.1 s on a Zen 3; the three real
+  Batch tasks use 6.0e8, about 0.7 s). The FIFO and two-sandbox path of a
+  real Communication task is not exercised. If #52 needs it, that is a
+  separate issue.
+- **First estimates, to calibrate.** The `reps` of the heavy testcases
+  (`scenario.OMI_TASKS`), the weights above and the 2 s limit were chosen
+  from the baseline report (section 6.2: about 15 sandbox-seconds per
+  submission with the compilation, 0.5-1.0 s per evaluation) and a
+  measurement on one workstation. A submission here has at most 20
+  evaluations against OMI 2025's 37-70, so the mean Worker time per
+  submission is lower than 15 s. No run has been made on a runner yet: the
+  first one must check the sandbox time per evaluation and per
+  submission (`docker_stats.log`, `monitor.jsonl`), the compilation time
+  and that the Workers saturate as intended, and then adjust the numbers.
+
+Command lines (document, not presets). The rate follows OMI 2025's day 2:
+0.8 x 24 submissions per contestant over 270 steady minutes is 0.071
+submissions per user per minute, and the last 15 minutes hold 11.5% of the
+submissions (about 2.8 per user), which the driver's 1-3 submissions per
+user at `--end-burst-factor 1.0` approximates (mean 2.0;
+`--end-burst-factor 1.4` gives about 2.7). The run is a slice of the day: 30
+minutes at the steady rate and the 15-minute close.
+
+```bash
+# 100 users (OMI 2025 had 99); fits a 4-vCPU runner
+./run.sh --target fork --profile omi --name omi-100 --users-a 100 --users-b 0 \
+    --rate 7 --contest 2700 --end-burst 900 --end-burst-factor 1.0 --workers 8 --cws 4
+# 500 users: --users-a 500 --rate 35, on a host with at least 16 CPUs
+```
+
+`run.sh` refuses `--profile omi` without `--users-b 0`: `loadb` has no
+tasks. On GitHub Actions set `LOAD_PROFILE: omi` and `LOAD_USERS_B: "0"`.
 
 ## Prerequisites
 
@@ -129,13 +193,13 @@ Python, Java and isolate versions of the image. Each build takes about
 ## Run
 
 ```bash
-./run.sh --target fork|upstream --profile portable|full --name NAME [options]
+./run.sh --target fork|upstream --profile portable|full|omi --name NAME [options]
 ```
 
 | flag | default | meaning |
 |---|---|---|
 | `--target` | (required) | `fork` or `upstream`; uses the image `cmsload-<target>:latest` |
-| `--profile` | (required) | `portable` or `full`; `full` runs on the fork only |
+| `--profile` | (required) | `portable`, `full` or `omi`; `full` and `omi` run on the fork only, and `omi` needs `--users-b 0` |
 | `--name` | (required) | the run name; the output goes to `out/<name>/`, which must not exist yet (or be empty) |
 | `--users-a` | 175 | users in contest `loada` |
 | `--users-b` | 75 | users in contest `loadb` |
@@ -148,6 +212,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
 | `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
 | `--poll-cap` | (none) | longest delay in seconds between two status polls of a submission; the driver applies it after each multiplication of the backoff, like the fork's `task_submissions.html`, which caps it at 10 s (`PAGE_POLL_CAP_S` in `driver.py`; a test keeps it equal to the page's). Each submission caps at the value times (0.9 + hash * 0.2), the hash that staggers its backoff, so the capped polls of a burst of submissions do not line up in waves. Without the option the backoff has no limit, like upstream's page. The driver emulates the browser, so it applies to both targets. Must be a finite number greater than 0. `run.sh` records it in `users.json` |
+| `--cpus` | every CPU of the host | limits the `cms` container (every service and sandbox in it) to this many CPUs, which may be fractional, to emulate a smaller host on a bigger one; a number greater than 0 and not above the host's CPUs. See "Limiting the CPUs" |
 | `--watchdog` | off | also runs `cmsWatchdog` in observe mode with the `/proc` source in the `cms` container, and `watchdogstats.py` at the end (fork target only; see "Watchdog runs") |
 
 The defaults are the `full1` values of the 2026-09-30 run. `run.sh`
@@ -209,6 +274,34 @@ interrupted one:
 python3 analyze.py out/NAME --project-prefix cmsload-<target>
 ```
 
+### Limiting the CPUs
+
+`--cpus N` writes `LOAD_CMS_CPUS` to `.env.load`, and `compose.yml` turns it
+into `cpus:` for the `cms` container: a CFS quota of N CPUs on everything in
+it, services and sandboxes. It emulates a smaller production host on a
+bigger machine (`--cpus 6` on the 16-thread workstation for a 6-vCPU VM).
+The default is every CPU of the host, which limits nothing. It is not
+needed on the 4-vCPU hosted runner. The PostgreSQL, ranking and driver
+containers are not limited. Two limits to know:
+
+- **A quota is not a cpuset.** It limits CPU time, not which hardware
+  threads run it, so N CPUs of quota spread over all the host's threads and
+  do not reproduce a host of N threads on N / 2 physical cores. The SMT
+  pairing of the production VM is not emulated.
+- **The sandboxes may escape it.** The `cms` container is `privileged` with
+  `cgroup: host`, and isolate may place a sandbox in its own cgroup outside
+  the container's quota. Then `cpus:` slows the services but not the
+  sandboxes, which is exactly what #52 measures. **Not checked yet.** Check
+  it in a smoke run with `--cpus` below the host's CPUs, while the driver
+  runs: compare `cat /proc/PID/cgroup` and the `Cpus_allowed_list` line of
+  `/proc/PID/status`, for a `cmsWorker` and for a running sandboxed program
+  (`docker exec cmsload-fork-cms-1 ...`, then the PID of an `omia` or `suma`
+  process shown by `top`). If the program's cgroup path is not under the
+  Worker's, or `nr_throttled` in the `cpu.stat` of the container's cgroup
+  never grows under a busy run, the quota does not reach the sandboxes. The
+  fallback is `taskset` for the Workers in `start.sh` (#53 notes it); it is
+  not implemented.
+
 ## Output
 
 Everything goes to `out/<name>/` (git-ignored):
@@ -223,7 +316,7 @@ Everything goes to `out/<name>/` (git-ignored):
 | `monitor.jsonl` | `monitor.py` | a sample every 2 s: RPC `echo` round trip to ES, SS, PS, AWS and every CWS, ES queue and busy workers, CPU, RSS and PostgreSQL connections per CMS process, `pg_stat_activity` states, lock waits, longest idle-in-transaction |
 | `docker_stats.log` | `run.sh` | `docker stats` of every container every 5 s, prefixed with the Unix time |
 | `processes_start.txt`, `processes_end.txt` | `run.sh` | the process census: found and expected count of every `cms<Service>`; a missing one is marked `SHORT` and `run.sh` prints a warning |
-| `db_export.json` | `db_export.py` | every submission (timestamp, status, score, `scored_at`, tries, evaluation count) and CMS's task score of every participation and task |
+| `db_export.json` | `db_export.py` | every submission (timestamp, status, score, `scored_at`, tries, evaluation count), CMS's task score of every participation and task, and every evaluation of the active datasets (`submission_id`, `testcase` codename, `outcome`, `text`, `execution_time` and `execution_wall_clock_time` in seconds; about 120 bytes a row, 4-7 MB at 500 users). Runs from before this key have no `evaluations` |
 | `cmslog/` | the CMS services | the log directory of the `cms` container: one directory per service, plus `cms/`, LogService's merged log of all of them |
 | `start.log` | `start.sh`, `run.sh` | the services' stdout and stderr, and one line per service start and exit (name, pid, status, UTC time) |
 | `cms_stdout.log`, `db.log`, `ranking.log`, `db_init.log` | compose | the container logs of `cms`, PostgreSQL (slow statements over 1 s and lock waits are logged), RWS and `cmsInitDB` |
@@ -255,6 +348,24 @@ Everything goes to `out/<name>/` (git-ignored):
   driver could not find on the submissions page; score mismatches
   against `expected_score()`; the solution mix; the histogram of
   (compilation tries, evaluation tries).
+- **Runtime spread of the same program:** how much the measured runtime
+  of one program varies, for `execution_time` (CPU) and for
+  `execution_wall_clock_time`; absent when the export has no
+  `evaluations`. Only the runs of fully correct submissions count (they
+  run every testcase to the end, so a longer time is the host, not the
+  program), grouped by (kind, task, testcase), since the same codename on
+  another task has another input, and by the phase the driver sent the
+  submission in, `steady` or `end_burst`. A (group, phase) with fewer than
+  5 runs or a median under 0.1 s is skipped and counted (a few
+  milliseconds of noise are a large spread that says nothing about a time
+  limit). Per group and phase: `spread` = (max - min) / mean (the 10%
+  criterion of #52) and p95 / p50; the table gives the median and p95 of
+  each over the groups. The line "End-burst p50 over steady p50" is the
+  direct SMT signal: per group, the burst median divided by the steady
+  one. The headline also counts the runs of those submissions that hit the
+  time limit, that is false TLEs. The phase is the one of the submission,
+  not of its evaluation, so a long queue blurs it. No new `metrics.json`
+  keys.
 - **Ranking (RWS):** final RWS against CMS task scores of the ranked
   contests, and the ranking lag (RWS change seen minus the latest
   `scored_at` of that user and task; 2 s polling).
@@ -358,11 +469,11 @@ git push origin --delete loadtest/<topic>
   `run.sh` options (`LOAD_USERS_A`, `LOAD_USERS_B`, `LOAD_LOGIN_WINDOW`,
   `LOAD_CONTEST`, `LOAD_END_BURST`, `LOAD_RATE`,
   `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`,
-  `LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP`)
+  `LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP`, `LOAD_CPUS`)
   and `UPSTREAM_REF`; change them in the commit you push. The values in
   the file are the `run.sh` defaults, except 4 CWS shards instead of 2
-  (`LOAD_REQUEST_TIME_HEADER` and `LOAD_POLL_CAP` are empty, which leaves
-  those options off).
+  (`LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP` and `LOAD_CPUS` are empty,
+  which leaves those options off).
 - **Jobs:** four `pair` jobs, repeats 1 to 4, each on its own runner
   (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
   full-size run asks for). Each one builds both images
@@ -372,8 +483,8 @@ git push origin --delete loadtest/<topic>
   first in even ones, two of each. Because the fork and upstream of a
   repeat share a runner, the shared runner cancels the runner-to-runner
   variation (the CPU model varies: the three runners of one smoke test
-  had three different ones). With `LOAD_PROFILE: full` only the fork
-  runs. Then `compare` runs `compare.py --median` and the per-run table
+  had three different ones). With `LOAD_PROFILE: full` or `omi` only the
+  fork runs. Then `compare` runs `compare.py --median` and the per-run table
   over every run that has a `metrics.json`; `--median` runs for the
   `full` profile too, since one workflow run never mixes profiles.
 - **Results:** the summary of each `pair` job shows the runner and the
@@ -490,7 +601,9 @@ design.
   over HTTP, round-robin; nginx's buffering and TLS cost are not there.
 - **Synthetic, cheap testcases:** "sum of N numbers" runs in milliseconds,
   so the workers are faster than with real tasks; worker capacity
-  numbers do not carry over.
+  numbers do not carry over. The `omi` profile spins on purpose in its
+  heavy testcases, but its `reps`, mix and limit are uncalibrated first
+  estimates, and its fourth task only stands in for a Communication task.
 - **One client IP:** every user comes from the driver container's
   address.
 - **Fork-only work that cannot be turned off:** the participant activity
