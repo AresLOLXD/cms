@@ -547,3 +547,36 @@ class TestConfirmationPage(unittest.TestCase):
 
         self.assertEqual(arguments, MAX_PLAN_USERS + 4)
         self.assertLessEqual(arguments, MAX_FORM_FIELDS - 50)
+
+
+class TestUserPageRemoveButton(unittest.TestCase):
+
+    def test_it_opens_the_bulk_preview_of_that_user(self):
+        template = AWS_ENVIRONMENT.get_template("user.html")
+        user = SimpleNamespace(
+            id=7, first_name="Ana", last_name="Perez", username="ana",
+            password="plaintext:x", email="", preferred_languages=[],
+            timezone="")
+        params = {"url": fake_url, "xsrf_form_html": "",
+                  "admin": SimpleNamespace(permission_all=True),
+                  "user": user, "participations": [],
+                  "unassigned_contests": []}
+        html = "".join(template.blocks["core"](template.new_context(params)))
+
+        (form,) = re.findall(
+            r'<form action="/users/remove".*?</form>', html, re.DOTALL)
+        self.assertNotIn('name="operation"', form)
+        # What the button posts gives the preview of that user alone.
+        posted = dict(re.findall(
+            r'<input type="hidden" name="(\w+)" value="([^"]*)"', form))
+        handler = make_handler(form={"action": posted["action"]},
+                               user_ids=[posted["user_id"]])
+        plan = make_plan(entry(7, "ana"))
+        with mock.patch(MODULE + ".plan_removal",
+                        return_value=plan) as planner:
+            handler._post_sync()
+
+        planner.assert_called_once_with(
+            handler.sql_session, contest_id=None, user_ids=[7],
+            usernames=[])
+        self.assertIs(handler.render.call_args.kwargs["plan"], plan)
