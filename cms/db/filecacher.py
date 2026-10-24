@@ -33,6 +33,7 @@ import os
 import tempfile
 import fcntl
 from abc import ABCMeta, abstractmethod
+from contextlib import suppress
 import typing
 
 import gevent
@@ -794,7 +795,15 @@ class FileCacher:
             with open(dst.name, 'rb') as src:
                 fobj = self.backend.create_file(digest)
                 if fobj is not None:
-                    copyfileobj(src, fobj, self.CHUNK_SIZE)
+                    try:
+                        copyfileobj(src, fobj, self.CHUNK_SIZE)
+                    except BaseException:
+                        # Release the large object connection, without
+                        # letting a failing close replace the real error.
+                        # (commit_file closes fobj itself otherwise.)
+                        with suppress(Exception):
+                            fobj.close()
+                        raise
                     self.backend.commit_file(fobj, digest, desc)
 
             os.rename(dst.name, cache_file_path)

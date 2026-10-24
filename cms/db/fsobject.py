@@ -83,6 +83,9 @@ class LargeObject(io.RawIOBase, typing.BinaryIO):
         """
         io.RawIOBase.__init__(self)
 
+        # Set first, so that closing a half-built object is harmless.
+        self._fd = None
+        self._conn = None
         self.loid = loid
 
         # Check mode value.
@@ -98,26 +101,33 @@ class LargeObject(io.RawIOBase, typing.BinaryIO):
         self._writable = 'w' in modeset
 
         self._conn = custom_psycopg2_connection()
-        cursor = self._conn.cursor()
+        try:
+            cursor = self._conn.cursor()
 
-        # If the loid is 0, create the large object.
-        if self.loid == 0:
-            creat_mode = LargeObject.INV_READ | LargeObject.INV_WRITE
-            self.loid = self._execute("SELECT lo_creat(%(mode)s);",
-                                      {'mode': creat_mode},
-                                      "Couldn't create large object.", cursor)
+            # If the loid is 0, create the large object.
             if self.loid == 0:
-                raise OSError("Couldn't create large object.")
+                creat_mode = LargeObject.INV_READ | LargeObject.INV_WRITE
+                self.loid = self._execute("SELECT lo_creat(%(mode)s);",
+                                          {'mode': creat_mode},
+                                          "Couldn't create large object.",
+                                          cursor)
+                if self.loid == 0:
+                    raise OSError("Couldn't create large object.")
 
-        # Open the large object.
-        open_mode = (LargeObject.INV_READ if self._readable else 0) | \
-                    (LargeObject.INV_WRITE if self._writable else 0)
-        self._fd = self._execute("SELECT lo_open(%(loid)s, %(mode)s);",
-                                 {'loid': self.loid, 'mode': open_mode},
-                                 "Couldn't open large object with LOID "
-                                 "%s." % self.loid, cursor)
+            # Open the large object.
+            open_mode = (LargeObject.INV_READ if self._readable else 0) | \
+                        (LargeObject.INV_WRITE if self._writable else 0)
+            self._fd = self._execute("SELECT lo_open(%(loid)s, %(mode)s);",
+                                     {'loid': self.loid, 'mode': open_mode},
+                                     "Couldn't open large object with LOID "
+                                     "%s." % self.loid, cursor)
 
-        cursor.close()
+            cursor.close()
+        except BaseException:
+            # Don't leave the connection open in an aborted transaction.
+            self._fd = None
+            self._conn.close()
+            raise
 
     # cursor is typed as typing.Any because psycopg2 doesn't have good type hints.
     def _execute(
@@ -327,15 +337,17 @@ class LargeObject(io.RawIOBase, typing.BinaryIO):
         if self._fd is None:
             return
 
-        self._execute("SELECT lo_close(%(fd)s);",
-                      {'fd': self._fd},
-                      "Couldn't close large object.")
+        try:
+            self._execute("SELECT lo_close(%(fd)s);",
+                          {'fd': self._fd},
+                          "Couldn't close large object.")
 
-        self._conn.commit()
-
-        # We delete the fd number to avoid writing on another file by
-        # mistake
-        self._fd = None
+            self._conn.commit()
+        finally:
+            # We delete the fd number to avoid writing on another file by
+            # mistake, and release the connection even if the above failed.
+            self._fd = None
+            self._conn.close()
 
     @staticmethod
     def unlink(loid: int, conn=None):
@@ -345,12 +357,18 @@ class LargeObject(io.RawIOBase, typing.BinaryIO):
         with caution!
 
         """
-        if conn is None:
+        # Close the connection only if we opened it.
+        own_conn = conn is None
+        if own_conn:
             conn = custom_psycopg2_connection()
             conn.autocommit = True
 
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT lo_unlink(%(loid)s);", {'loid': loid})
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT lo_unlink(%(loid)s);", {'loid': loid})
+        finally:
+            if own_conn:
+                conn.close()
 
 
 class FSObject(Base):
