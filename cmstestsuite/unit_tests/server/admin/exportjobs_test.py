@@ -79,7 +79,12 @@ class TestPureFunctions(unittest.TestCase):
         self.assertEqual(argv, [
             "nice", "-n", "19", sys.executable, "-m",
             "cmscontrib.DumpExporter", "-c", "3", "4", "-F", "-G", "-X",
-            "/data/dump_3-4"])
+            "--", "/data/dump_3-4"])
+
+    def test_the_target_is_not_swallowed_by_the_contests_without_flags(self):
+        # -c takes any number of values: only "--" ends them.
+        self.assertEqual(export_argv([3], (), "/data/dump_3")[-4:],
+                         ["-c", "3", "--", "/data/dump_3"])
 
     def test_the_name_lists_the_contests_until_there_are_too_many(self):
         today = date(2026, 10, 24)
@@ -181,6 +186,11 @@ class TestExportJobStore(unittest.IsolatedAsyncioTestCase):
         self.clock.now += 2
 
         self.assertIsNone(store.get(job.id, OWNER_ID))
+        # The files go in an executor thread, not in the event loop.
+        for _ in range(500):
+            if not os.path.exists(job.directory):
+                break
+            await asyncio.sleep(0.01)
         self.assertFalse(os.path.exists(job.directory))
 
     async def test_the_ttl_counts_from_the_end_not_from_the_start(self):

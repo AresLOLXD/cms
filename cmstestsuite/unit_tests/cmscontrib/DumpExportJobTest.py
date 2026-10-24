@@ -69,7 +69,7 @@ class TestDumpExportJob(DatabaseMixin, FileSystemMixin, unittest.TestCase):
         # As the job does, with the environment of this process (the
         # configuration of the database included).
         subprocess.run(
-            export_argv([self.contest.id], ("-G",),
+            export_argv([self.contest.id], (),
                         os.path.join(self.base_dir, name)),
             check=True, stdin=subprocess.DEVNULL)
         archive = pack_zip(self.base_dir, name)

@@ -93,9 +93,11 @@ def export_argv(contest_ids: Sequence[int], flags: Sequence[str],
         slow down the contest that shares the machine.
 
     """
+    # "--": -c takes any number of values, and would swallow the target
+    # when there are no flags after it.
     return ["nice", "-n", "19", sys.executable, "-m",
             "cmscontrib.DumpExporter", "-c", *map(str, contest_ids),
-            *flags, target]
+            *flags, "--", target]
 
 
 def pack_zip(directory: str, name: str) -> str:
@@ -196,13 +198,19 @@ class ExportJobStore:
         shutil.rmtree(self._directory, ignore_errors=True)
 
     def _evict(self) -> None:
-        """Forget the finished jobs older than JOB_TTL, with their files."""
+        """Forget the finished jobs older than JOB_TTL, with their files.
+
+        Call it in the event loop: the files of a job, gigabytes of them,
+        are removed in an executor thread, not in the loop.
+
+        """
         cutoff = self._clock() - JOB_TTL
+        loop = asyncio.get_running_loop()
         for job_id in [i for i, j in self._jobs.items()
                        if j.finished_at is not None
                        and j.finished_at < cutoff]:
-            shutil.rmtree(self._jobs.pop(job_id).directory,
-                          ignore_errors=True)
+            loop.run_in_executor(
+                None, shutil.rmtree, self._jobs.pop(job_id).directory, True)
 
     def running_job(self) -> ExportJob | None:
         """Return the job that is running, whoever started it, if any.
@@ -323,6 +331,10 @@ class ExportJobStore:
                                        job.name)
             job.size = os.path.getsize(job.path)
         except asyncio.CancelledError:
+            # shortcut: kill() skips the exporter's cleanup at exit, so its
+            # copy of the files it read stays in temp_dir (as when
+            # supervisord stops the group); upgrade it to SIGINT and a wait
+            # if cancelling a job becomes common.
             if process is not None and process.returncode is None:
                 process.kill()
             shutil.rmtree(job.directory, ignore_errors=True)

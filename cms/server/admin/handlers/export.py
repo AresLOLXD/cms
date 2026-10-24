@@ -22,6 +22,7 @@ only for the admin who started it. The job itself is in exportjobs.py.
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
@@ -36,7 +37,6 @@ from cms.db import Contest, Group
 from cms.server.admin.exportjobs import EXPORT_JOBS, ExportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
-from .contestuser import _write_job_status
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,9 @@ def running_contests(session: Session, contest_ids: Collection[int],
         select(Contest.id, Contest.name, Group)
         .join(Group, Group.contest_id == Contest.id)
         .where(Contest.id.in_(contest_ids))).all()
+    # shortcut: only the chosen contests are looked at, but the dump also
+    # holds every other contest of their users (the exporter's known
+    # FIXME); upgrade it to look at the contests of their participations.
     # shortcut: the extra time or delay of one participation is not
     # considered, so a participant who works past the end of the group is
     # not noticed; upgrade it if exports are asked for at that moment.
@@ -205,7 +208,9 @@ class ExportJobStatusHandler(BaseHandler):
         job = EXPORT_JOBS.get(job_id, self.current_user.id)
         if job is None:
             raise tornado.web.HTTPError(404)
-        _write_job_status(self, job)
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.write(json.dumps(job.as_json()))
 
 
 class ExportDownloadHandler(BaseHandler):
