@@ -29,10 +29,10 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from cms import ServiceCoord, get_service_shards, get_service_address
-from cms.db import Admin, Contest, Question
+from cms.db import Admin, Contest, Participation, Question
 from cms.server.jinja2_toolbox import markdown_filter
 from cms.server.util import normalize_login_next_page
 from cmscommon.crypto import validate_password
@@ -173,19 +173,40 @@ class NotificationsHandler(BaseHandler):
         last_notification = make_datetime(
             float(self.get_argument("last_notification", "0")))
 
-        questions: list[Question] = self.sql_session.execute(
-            select(Question)
+        query = (
+            select(Question, Participation.contest_id)
+            .join(Participation, Question.participation_id == Participation.id)
             .filter(Question.reply_timestamp.is_(None))
-            .filter(Question.question_timestamp > last_notification)
-        ).scalars().all()
+            .filter(Question.question_timestamp > last_notification))
 
-        for question in questions:
+        # A contest page asks for its own questions and those of the
+        # contests sent to the same ranking group; a page without contest
+        # asks for all. An id that is not a number or not a contest gets an
+        # empty list, not a 404: a stale tab polls forever.
+        contest_id = self.get_argument("contest_id", None)
+        if contest_id is not None:
+            try:
+                contest_id = int(contest_id)
+            except ValueError:
+                contest_id = -1  # No contest has this id.
+            # The NULL group of an ungrouped contest stays in SQL, where it
+            # matches nothing; compared in Python, it would match every
+            # ungrouped contest.
+            group_id = select(Contest.ranking_group_id) \
+                .where(Contest.id == contest_id).scalar_subquery()
+            query = query.filter(Participation.contest_id.in_(
+                select(Contest.id).where(or_(
+                    Contest.id == contest_id,
+                    Contest.ranking_group_id == group_id))))
+
+        for question, question_contest_id in \
+                self.sql_session.execute(query).all():
             res.append({
                 "type": "new_question",
                 "timestamp": make_timestamp(question.question_timestamp),
                 "subject": question.subject,
                 "text": question.text,
-                "contest_id": question.participation.contest_id
+                "contest_id": question_contest_id
             })
 
         # Simple notifications
