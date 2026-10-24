@@ -21,12 +21,15 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, InterfaceError, \
     OperationalError, ProgrammingError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
+from cms.db import User
 from cms.server.admin.handlers import base
 from cms.server.admin.handlers.base import BaseHandler
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 SQL = "UPDATE admins SET authentication = :secret_hash"
 PARAMETERS = {"secret_hash": "s3cr3t-hash"}
@@ -142,6 +145,27 @@ class TestTryCommitFailure(unittest.TestCase):
         self.notification.assert_called_once()
         self.assertEqual(self.notification.call_args.args[1],
                          "Operation failed.")
+
+
+class TestTryCommitRealSession(DatabaseMixin, unittest.TestCase):
+
+    def test_a_failed_commit_leaves_the_session_usable(self):
+        self.add_user(username="taken")
+        self.session.commit()
+        self.add_user(username="taken")
+        handler = BaseHandler.__new__(BaseHandler)
+        handler.application = MagicMock()
+        handler.sql_session = self.session
+
+        committed = handler.try_commit()
+
+        self.assertFalse(committed)
+        # Without the rollback, this raises PendingRollbackError.
+        self.assertEqual(self.session.scalar(
+            select(func.count()).select_from(User)), 1)
+        notification = handler.application.service.add_notification
+        notification.assert_called_once()
+        self.assertEqual(notification.call_args.args[1], "Operation failed.")
 
 
 if __name__ == "__main__":
