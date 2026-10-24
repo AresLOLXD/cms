@@ -161,6 +161,20 @@ def generate_cms_toml() -> str:
     rws_host = _get("CMS_RWS_HOST", "localhost")
     es_bind_host = _get("CMS_ES_BIND_HOST", "localhost")
 
+    # Refuse, do not shift: compose publishes the ports, the healthcheck uses
+    # CMS_AWS_HTTP_PORT and the reverse proxy routes them by number.
+    # shortcut: only the HTTP ports are compared, not the RPC ones; upgrade if
+    # CMS_CWS_COUNT can reach the 100 that separates the CWS and AWS RPC ports.
+    cws_ports_range = range(cws_http_port, cws_http_port + cws_count)
+    for name, port in (("CMS_AWS_HTTP_PORT", aws_http_port),
+                       ("CMS_RWS_HTTP_PORT", rws_http_port)):
+        if port in cws_ports_range:
+            print(f"ERROR: the {cws_count} Contest Web Servers listen on ports "
+                  f"{cws_ports_range.start}-{cws_ports_range.stop - 1}, which "
+                  f"include {name}={port}. Change CMS_CWS_HTTP_PORT, "
+                  f"CMS_CWS_COUNT or {name}.", file=sys.stderr)
+            sys.exit(1)
+
     bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
     telegram_configured = bool(bot_token and chat_id)

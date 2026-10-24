@@ -157,7 +157,8 @@ def test_dockerfile_creates_the_data_dir_as_cmsuser(monkeypatch):
 
 
 def test_cms_toml_multiple_cws(monkeypatch):
-    _set(monkeypatch, {"CMS_CWS_COUNT": "3", "CMS_CWS_HTTP_PORT": "8888"})
+    _set(monkeypatch, {"CMS_CWS_COUNT": "3", "CMS_CWS_HTTP_PORT": "8888",
+                       "CMS_AWS_HTTP_PORT": "8891", "CMS_RWS_HTTP_PORT": "8892"})
     toml = gc.generate_cms_toml()
     assert "listen_port = [8888, 8889, 8890]" in toml
     assert '["localhost", 21000], ["localhost", 21001], ["localhost", 21002]' in toml
@@ -396,6 +397,22 @@ def test_supervisord_evaluation_and_proxy_no_flag_when_all(monkeypatch):
     # services still present without flag
     assert "cmsEvaluationService 0" in conf
     assert "cmsProxyService 0" in conf
+
+
+@pytest.mark.parametrize("environment, clashing_variable", [
+    ({"CMS_CWS_COUNT": "2"}, "CMS_AWS_HTTP_PORT"),
+    ({"CMS_CWS_COUNT": "3", "CMS_AWS_HTTP_PORT": "9000"}, "CMS_RWS_HTTP_PORT"),
+    ({"CMS_CWS_COUNT": "2", "CMS_AWS_HTTP_PORT": "9000"}, None),
+])
+def test_cms_toml_refuses_cws_ports_overlapping_aws_or_rws(
+        monkeypatch, capsys, environment, clashing_variable):
+    _set(monkeypatch, environment)
+    if clashing_variable is None:
+        gc.generate_cms_toml()
+        return
+    with pytest.raises(SystemExit):
+        gc.generate_cms_toml()
+    assert clashing_variable in capsys.readouterr().err
 
 
 def test_cms_toml_proxy_uses_default_localhost_rws_host(monkeypatch):
