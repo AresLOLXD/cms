@@ -213,8 +213,14 @@ def plan_removal(session: Session, *, contest_id: int | None,
                      user_tests=user_tests.get(user.id, 0),
                      contests=sorted(contests.get(user.id, set())))
         for user in sorted(found.values(), key=lambda u: u.username)]
-    running = any(p.group.start <= now < p.group.stop
-                  for p in participations)
+    # The window of compute_actual_phase for a traditional contest, ends
+    # included.
+    # shortcut: ignores per_user_time and starting_time, so it can only
+    # warn when it need not; upgrade if USACO-like contests are used.
+    running = any(
+        p.group.start + p.delay_time <= now
+        <= p.group.stop + p.delay_time + p.extra_time
+        for p in participations)
     return RemovalPlan(users=users, ignored=ignored, running=running)
 
 

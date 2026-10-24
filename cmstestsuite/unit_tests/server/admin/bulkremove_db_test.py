@@ -20,7 +20,7 @@
 """Tests for the bulk removal of AWS run against the database."""
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 
@@ -164,13 +164,32 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
         this_contest = plan_removal(self.session,
                                     contest_id=self.contest.id,
                                     user_ids=[ana.id], now=NOW)
-        at_the_stop = plan_removal(
-            self.session, contest_id=None, user_ids=[ana.id],
-            now=datetime(2026, 10, 10, 14, 0))
 
         self.assertTrue(platform.running)
         self.assertFalse(this_contest.running)
-        self.assertFalse(at_the_stop.running)
+
+    def test_running_window_is_inclusive_and_follows_delay_and_extra(self):
+        # The window of compute_actual_phase: both ends count, and the
+        # participation's delay and extra time move them.
+        ana, _ = self.add_participant("ana", self.other_contest)
+        beto, beto_p = self.add_participant("beto", self.other_contest)
+        beto_p.delay_time = timedelta(minutes=30)
+        beto_p.extra_time = timedelta(hours=1)
+        self.other_contest.main_group.start = datetime(2026, 10, 10, 9, 0)
+        self.other_contest.main_group.stop = datetime(2026, 10, 10, 14, 0)
+        self.session.commit()
+        second = timedelta(seconds=1)
+
+        for user, start, stop in (
+                (ana, datetime(2026, 10, 10, 9, 0),
+                 datetime(2026, 10, 10, 14, 0)),
+                (beto, datetime(2026, 10, 10, 9, 30),
+                 datetime(2026, 10, 10, 15, 30))):
+            for now, running in ((start - second, False), (start, True),
+                                 (stop, True), (stop + second, False)):
+                plan = plan_removal(self.session, contest_id=None,
+                                    user_ids=[user.id], now=now)
+                self.assertEqual(plan.running, running, (user.username, now))
 
     def test_nothing_chosen(self):
         plan = plan_removal(self.session, contest_id=None, now=NOW)
