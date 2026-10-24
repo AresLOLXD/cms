@@ -50,7 +50,12 @@ request_body @import_csv {
 }
 ```
 
-This is the only protection that runs before AWS checks who sent the file. See
+Put the snippet at the top level of the site block. Do not put it inside a
+`handle_path /admin/*` block: there Caddy has already removed the `/admin`
+prefix, so the paths above never match and nothing is capped, with no message.
+
+Besides restricting who can reach `/admin/` (Caddy's `basic_auth` or a VPN),
+this is the only protection that runs before AWS checks who sent the file. See
 "Request body limits" in [Docker deployment](docker-deployment.md).
 
 | Field | Required | What it holds | Headers recognised automatically |
@@ -151,7 +156,7 @@ replace the participation passwords.
    before importing.
 
    Below the counts, the page shows the first row of the file as the import
-   will read it, after "Primer renglón del archivo; comprueba que las columnas
+   will read it, after "Primera fila del archivo; comprueba que las columnas
    son las correctas:". It lists "Usuario (username)", "Nombre (first_name)"
    and "Apellidos (last_name)", plus "Equipo (team)" and "Grupo (group)" on a
    contest import, and never the password. An empty team or group shows as

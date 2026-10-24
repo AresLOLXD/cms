@@ -90,7 +90,7 @@ participación no tiene contraseña propia.</p>
 
 {% if preview %}
 <div class="import-box import-preview">
-  <p>Primer renglón del archivo; comprueba que las columnas son las correctas:</p>
+  <p>Primera fila del archivo; comprueba que las columnas son las correctas:</p>
   <ul>
     {% for field, value in preview.items() %}
     <li>{{ labels[field] }}: {{ value or "(vacío)" }}</li>

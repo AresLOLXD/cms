@@ -1140,6 +1140,8 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import(summary=make_plan().summary(),
                                   preview=preview)
 
+        self.assertIn("Primera fila del archivo; comprueba que las columnas "
+                      "son las correctas:", html)
         self.assertIn("<li>Usuario (username): ana</li>", html)
         self.assertIn("<li>Nombre (first_name): &lt;b&gt;Ana&lt;/b&gt;</li>",
                       html)
