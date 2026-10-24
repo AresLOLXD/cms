@@ -63,8 +63,11 @@ The script asks two questions:
 
 ## Step 4 — Import a contest and set it as active
 
-Open the Admin interface in your browser at `http://your-server:8889` and
-create your contest there. To restore a backup made with `./export.sh`, use
+Open the Admin interface and create your contest there. It listens on
+`127.0.0.1:8889` of the server only (see "Ports" below), so reach it through
+your reverse proxy or, from your own computer, through an SSH tunnel:
+`ssh -L 8889:127.0.0.1:8889 user@your-server`, then open
+`http://localhost:8889`. To restore a backup made with `./export.sh`, use
 `./import.sh` instead: it reads the backup from the `dumps/` folder (see
 [Docker Scripts Guide](docker-scripts.md)).
 
