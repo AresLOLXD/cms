@@ -80,6 +80,9 @@ _do_up() {
     echo "         You can delete the CMS_LOADER_* lines from .env." >&2
   fi
 
+  # Build arg of the cms and ranking images (the org.opencontainers.image.revision label).
+  export GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+
   local up_cmd=(docker compose -f "$COMPOSE_FILE" --env-file "$REPO_ROOT/.env" -p "$PROJECT_NAME")
 
   local current_localdb

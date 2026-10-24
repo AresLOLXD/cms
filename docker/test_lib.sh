@@ -101,13 +101,14 @@ TMP_ROOT=$(mktemp -d)
 trap 'rm -rf "$TMP_ROOT"' EXIT
 mkdir -p "$TMP_ROOT/docker" "$TMP_ROOT/bin"
 cp "$REPO_ROOT/docker/_lib.sh" "$TMP_ROOT/docker/_lib.sh"
-printf '#!/usr/bin/env bash\necho "$*" >> "$DOCKER_CALLS"\n' > "$TMP_ROOT/bin/docker"
+printf '#!/usr/bin/env bash\necho "$*" >> "$DOCKER_CALLS"\necho "$GIT_SHA" >> "$DOCKER_CALLS.sha"\n' > "$TMP_ROOT/bin/docker"
 chmod +x "$TMP_ROOT/bin/docker"
 
 # run_do_up ANSWER... — feed the answers (local database, rebuild choice) to
 # _do_up; docker calls end up in $TMP_ROOT/calls, its output in $DO_UP_OUT.
 run_do_up() {
   : > "$TMP_ROOT/calls"
+  : > "$TMP_ROOT/calls.sha"
   DO_UP_OUT=$(printf '%s\n' "$@" | DOCKER_CALLS="$TMP_ROOT/calls" PATH="$TMP_ROOT/bin:$PATH" \
     bash -c "source '$TMP_ROOT/docker/_lib.sh'; _do_up" 2>&1)
 }
@@ -184,6 +185,26 @@ if [[ "$DO_UP_OUT" != *"CMS-Loader"* ]]; then
   check "_do_up does not warn without CMS_LOADER_SESSION_SECRET" "ok"
 else
   check "_do_up does not warn without CMS_LOADER_SESSION_SECRET" "out: $DO_UP_OUT"
+fi
+
+# ── _do_up: GIT_SHA build arg ─────────────────────────────────────────────────
+# The image revision label comes from the repo's HEAD, or "unknown" outside git.
+
+run_do_up n 1
+if [[ "$(tail -n1 "$TMP_ROOT/calls.sha")" == "unknown" ]]; then
+  check "_do_up exports GIT_SHA=unknown outside a git repo" "ok"
+else
+  check "_do_up exports GIT_SHA=unknown outside a git repo" "got '$(tail -n1 "$TMP_ROOT/calls.sha")'"
+fi
+
+git -C "$TMP_ROOT" init -q
+git -C "$TMP_ROOT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m t
+head_sha=$(git -C "$TMP_ROOT" rev-parse HEAD)
+run_do_up n 1
+if [[ "$(tail -n1 "$TMP_ROOT/calls.sha")" == "$head_sha" ]]; then
+  check "_do_up exports GIT_SHA=HEAD inside a git repo" "ok"
+else
+  check "_do_up exports GIT_SHA=HEAD inside a git repo" "got '$(tail -n1 "$TMP_ROOT/calls.sha")'"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

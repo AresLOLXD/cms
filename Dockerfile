@@ -154,3 +154,7 @@ EOF
 
 ENTRYPOINT ["/home/cmsuser/entrypoint.sh"]
 CMD ["supervisord", "--nodaemon", "-c", "/home/cmsuser/cms/etc/supervisord.conf"]
+
+# At the end of the last stage, so a new commit does not invalidate the cache.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=$GIT_SHA

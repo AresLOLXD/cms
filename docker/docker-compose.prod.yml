@@ -45,6 +45,8 @@ services:
   db-init:
     build:
       context: ..
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - path: ../.env
         required: false
@@ -62,6 +64,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ranking
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - path: ../.env
         required: false
@@ -90,6 +94,8 @@ services:
   cms:
     build:
       context: ..
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - path: ../.env
         required: false
