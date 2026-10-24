@@ -118,6 +118,12 @@ SUMMARY_PERIOD_S = 3600.0
 # The self-guard (3.11).
 SELF_GUARD_S = 60.0
 
+# A crash loop of the watchdog itself (#68): more than START_LOOP_LIMIT
+# starts in START_LOOP_WINDOW_S. supervisord never reaches FATAL for a
+# program that crashes after its startsecs, so the watchdog counts.
+START_LOOP_LIMIT = 5
+START_LOOP_WINDOW_S = 3600.0
+
 # The class of each managed kind (3.2): the kind is what follows "cms"
 # in a program's command. Any other kind is never acted on.
 KIND_CLASS: dict[str, str] = {

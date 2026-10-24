@@ -117,6 +117,44 @@ class TestFiles(unittest.TestCase):
         self.assertIsNone(loaded.exhausted_until)
         self.assertEqual([booking.wall for booking in loaded.shadow], [WALL])
 
+    def test_the_starts_accumulate_across_restarts(self):
+        for count in (1, 2, 3):
+            again = Files(self.run_dir, os.path.join(self.root, "log"))
+            self.assertEqual(again.record_start(WALL + count), count)
+
+    def test_old_and_future_starts_are_dropped(self):
+        os.makedirs(self.run_dir)
+        with open(self.files.starts, "w") as f:
+            json.dump([WALL - 3601, WALL - 3600, WALL - 10, WALL + 10,
+                       "x", True, None], f)
+        # The hour is inclusive; the one ahead of now and the ones that
+        # are not times go; now is added.
+        self.assertEqual(self.files.record_start(WALL), 3)
+        with open(self.files.starts) as f:
+            self.assertEqual(json.load(f), [WALL - 3600, WALL - 10, WALL])
+
+    def test_a_corrupt_starts_file_counts_as_empty(self):
+        os.makedirs(self.run_dir)
+        for content in (b"{broken", b'"\xff"', b'{"a": 1}', b"5", b""):
+            with self.subTest(content=content):
+                with open(self.files.starts, "wb") as f:
+                    f.write(content)
+                self.assertEqual(self.files.record_start(WALL), 1)
+
+    def test_the_starts_are_capped(self):
+        os.makedirs(self.run_dir)
+        with open(self.files.starts, "w") as f:
+            json.dump([WALL - 100 + i / 100 for i in range(80)], f)
+        self.assertEqual(self.files.record_start(WALL), 50)
+        with open(self.files.starts) as f:
+            self.assertEqual(len(json.load(f)), 50)
+
+    def test_an_unwritable_run_dir_does_not_raise(self):
+        # A file where the directory should be.
+        with open(self.run_dir, "w"):
+            pass
+        self.assertEqual(self.files.record_start(WALL), 1)
+
     def test_a_future_red_interval_and_incident_are_brought_back_to_now(
             self):
         # An outage that ends ahead of now would make R5 see one after

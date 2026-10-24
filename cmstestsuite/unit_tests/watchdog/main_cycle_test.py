@@ -40,8 +40,8 @@ from cms.watchdog.control import DryRunActuator, Outcome, ProcessInfo, \
 from cms.watchdog.main import Alerter, Files, Watchdog, parse_classes, \
     restart_line, start_line, status_line, take_snapshot
 from cms.watchdog.policy import ENFORCE, HOLDS, OBSERVE, PAUSE_S, RESTART, \
-    SELF_GUARD_S, START, SUMMARY_PERIOD_S, Decision, Ledger, PolicyState, \
-    ProgramFacts
+    SELF_GUARD_S, START, START_LOOP_LIMIT, SUMMARY_PERIOD_S, Decision, \
+    Ledger, PolicyState, ProgramFacts
 from cms.watchdog.probes import GateResult, ProbeResult, RankingTarget, \
     RpcProbe, db_gate
 
@@ -1067,6 +1067,23 @@ class TestServe(unittest.TestCase):
         self.assertIn("ERROR Watchdog: its cycle failed unexpectedly "
                       "(RuntimeError: a bug)", self.out)
         self.guard.cancel_dump_traceback_later.assert_called_once_with()
+
+    def test_a_crash_loop_is_alerted_once_at_the_sixth_start(self):
+        # supervisord restarts it without a backoff once it ran past
+        # startsecs, and never reaches FATAL: it counts its own starts.
+        async def cycle(watchdog_, *args):
+            raise RuntimeError("a bug")
+
+        outs = []
+        with patch.object(Watchdog, "cycle", cycle):
+            for _ in range(START_LOOP_LIMIT + 2):
+                with self.assertRaisesRegex(RuntimeError, "a bug"):
+                    self.serve()
+                outs.append(self.out)
+        self.assertEqual(["crash-looping" in out for out in outs],
+                         [False] * START_LOOP_LIMIT + [True, False])
+        self.assertIn("ERROR Watchdog: it has started 6 times in the last "
+                      "hour", outs[START_LOOP_LIMIT])
 
 
 class TestCommandLine(unittest.TestCase):
