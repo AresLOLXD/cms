@@ -2,7 +2,7 @@
 # Run one contest-shaped load test of one target against a fresh local
 # cmsload-<target> stack (the image comes from ./build.sh).
 #
-#   ./run.sh --target fork|upstream --profile portable|full --name NAME \
+#   ./run.sh --target fork|upstream --profile portable|full|omi --name NAME \
 #            [--users-a N] [--users-b N] [--login-window S] [--contest S] \
 #            [--end-burst S] [--rate R] [--end-burst-factor F] \
 #            [--workers N] [--cws N] [--request-time-header NAME] \
@@ -72,8 +72,8 @@ done
 
 [[ $TARGET == fork || $TARGET == upstream ]] ||
   { echo "--target must be fork or upstream" >&2; exit 2; }
-[[ $PROFILE == portable || $PROFILE == full ]] ||
-  { echo "--profile must be portable or full" >&2; exit 2; }
+[[ $PROFILE == portable || $PROFILE == full || $PROFILE == omi ]] ||
+  { echo "--profile must be portable, full or omi" >&2; exit 2; }
 [[ $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   { echo "--name is required: letters, digits, dot, dash and underscore, starting with a letter or digit" >&2; exit 2; }
 [[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9-]+$ ]] ||
@@ -81,8 +81,13 @@ done
 # A number with a non-zero digit, so that it is greater than 0.
 [[ -z $POLL_CAP || ($POLL_CAP =~ ^[0-9]+(\.[0-9]+)?$ && $POLL_CAP =~ [1-9]) ]] ||
   { echo "--poll-cap must be a number of seconds greater than 0" >&2; exit 2; }
-if [[ $PROFILE == full && $TARGET == upstream ]]; then
-  echo "The full profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
+if [[ $PROFILE != portable && $TARGET == upstream ]]; then
+  echo "The $PROFILE profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
+  exit 2
+fi
+# All the omi tasks are in loada; loadb has none, so it cannot have users.
+if [[ $PROFILE == omi && $UB != 0 ]]; then
+  echo "The omi profile has no tasks in loadb: pass --users-b 0" >&2
   exit 2
 fi
 if ((FAULTS)); then
@@ -152,7 +157,7 @@ rm -rf "$RUN_DIR"
 mkdir "$RUN_DIR"
 chmod 777 "$RUN_DIR"
 TWO_PHASE=false
-[[ $PROFILE == full ]] && TWO_PHASE=true
+[[ $PROFILE != portable ]] && TWO_PHASE=true
 # Handed to both render_config.py and the driver, only when it is set.
 REQUEST_TIME_ARGS=()
 [[ -n $REQUEST_TIME_HEADER ]] &&
@@ -361,7 +366,7 @@ if ((WATCHDOG)); then
 fi
 
 # ProxyService starts now that the contests exist. The portable profile has
-# one ranked contest; the full one serves every contest and ranking group
+# one ranked contest; the fork profiles serve every contest and ranking group
 # ("-c ALL" is multi-contest mode; without -c ProxyService would ask for a
 # contest, or exit when it has no TTY).
 if [[ $PROFILE == portable ]]; then

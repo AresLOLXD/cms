@@ -6,12 +6,13 @@ whose cms.toml points to the target database), on the fork and on stock
 upstream CMS. It creates, from scenario.py and per --profile:
 
 - ranking groups "loada" and "loadb" (one public scoreboard per contest),
-  in the full profile only, since upstream has no ranking groups;
+  in the fork profiles (full, omi) only, since upstream has no ranking
+  groups;
 - contests "loada" and "loadb", with the start/stop given on the command
   line, and active (served by CWS -c ALL) where the build has that column;
 - the tasks, one dataset each, with testcases named "sN-nn-tag" so that
-  two-phase screening and, in the full profile, subtask dependencies both
-  apply;
+  two-phase screening and, in the fork profiles, subtask dependencies both
+  apply (the omi profile has its own four tasks, all in loada);
 - users with bcrypt passwords (like AWS/CMS-Loader imports) and their
   participations.
 
@@ -40,9 +41,12 @@ sys.path.insert(0, "/loadtest")
 import scenario  # noqa: E402
 
 
-def make_input(rng: random.Random, n: int, max_value: int) -> tuple[bytes, bytes]:
+def make_input(rng: random.Random, n: int, max_value: int,
+               reps: int = 0) -> tuple[bytes, bytes]:
     values = [rng.randint(1, max_value) for _ in range(n)]
     text = "%d\n%s\n" % (n, " ".join(map(str, values)))
+    if reps:  # a trailing line that only ac_cpu reads
+        text += "%d\n" % reps
     return text.encode(), ("%d\n" % sum(values)).encode()
 
 
@@ -63,6 +67,14 @@ def group_cases(category: str) -> list[tuple[str, int, int]]:
                 ("scr-tle", scenario.LARGE_N, large)] + [
             ("t", scenario.LARGE_N // 2 + i * scenario.LARGE_N // 14, large)
             for i in range(7)]
+    if category == "K":
+        # scr-tle is twice the L size: tle.cpp needs 2.5 s at n = 1e5 on a
+        # Zen 3, too close to the omi limit of 2 s. The two "t" cases are the
+        # heavy ones: the same size as scr-wa, the reps line (main) makes
+        # them cost CPU.
+        return [("sample", 3, small), ("scr-wa", 1000, large),
+                ("scr-tle", 2 * scenario.LARGE_N, large),
+                ("t", 1000, large), ("t", 1001, large)]
     raise ValueError(category)
 
 
@@ -91,11 +103,11 @@ def contest_extra_kwargs(contest_name: str, profile: str,
     """Return the Contest() arguments that only the fork knows.
 
     The fork serves only active contests (CWS answers 404 otherwise) and
-    publishes a contest through its ranking group in the full profile.
+    publishes a contest through its ranking group in the fork profiles.
 
     contest_name: the contest being created.
     profile: the scenario profile.
-    ranking_groups: contest name -> RankingGroup, for the full profile.
+    ranking_groups: contest name -> RankingGroup, for the fork profiles.
     has_active: whether this build's Contest has the "active" column.
 
     return: the extra keyword arguments for Contest().
@@ -104,7 +116,7 @@ def contest_extra_kwargs(contest_name: str, profile: str,
     if not has_active:
         return {}
     kwargs: dict = {"active": True}
-    if profile == "full":
+    if profile in scenario.FORK_PROFILES:
         kwargs["ranking_group"] = ranking_groups[contest_name]
     return kwargs
 
@@ -136,9 +148,9 @@ def main() -> int:
     parser.add_argument("--out", default="/loadtest/out/users.json")
     args = parser.parse_args()
 
-    if args.profile == "full" and RankingGroup is None:
-        print("The full profile needs ranking groups, "
-              "which this build lacks.")
+    if args.profile in scenario.FORK_PROFILES and RankingGroup is None:
+        print("The %s profile needs ranking groups, "
+              "which this build lacks." % args.profile)
         return 1
 
     # A provisional window: the real one is set after the users, see below.
@@ -159,14 +171,14 @@ def main() -> int:
         groups = []
         for contest_name, user_count in (("loada", args.users_a),
                                          ("loadb", args.users_b)):
-            if args.profile == "full":
+            if args.profile in scenario.FORK_PROFILES:
                 ranking_groups[contest_name] = RankingGroup(
                     name=contest_name,
                     description="Ranking %s" % contest_name)
                 session.add(ranking_groups[contest_name])
             contest = Contest(
                 name=contest_name, description="Load test %s" % contest_name,
-                languages=list(scenario.LANGUAGES.values()),
+                languages=list(scenario.languages(args.profile).values()),
                 allow_questions=True, allow_user_tests=False,
                 **contest_extra_kwargs(contest_name, args.profile,
                                        ranking_groups,
@@ -177,7 +189,8 @@ def main() -> int:
             contest.main_group = group
             session.add(contest)
 
-            for num, listed in enumerate(scenario.TASKS[contest_name]):
+            for num, listed in enumerate(
+                    scenario.contest_tasks(contest_name, args.profile)):
                 spec = scenario.task_spec(listed["name"], args.profile)
                 task = Task(
                     name=spec["name"], title=spec["name"].capitalize(),
@@ -192,7 +205,7 @@ def main() -> int:
                     language="es", digest=statement_digest)
                 dataset = Dataset(
                     task=task, description="Default",
-                    time_limit=scenario.TIME_LIMIT,
+                    time_limit=scenario.time_limit(args.profile),
                     memory_limit=scenario.MEMORY_LIMIT_BYTES,
                     task_type="Batch",
                     task_type_parameters=["alone", ["", ""], "diff"],
@@ -203,9 +216,12 @@ def main() -> int:
                 for index, sub in enumerate(spec["subtasks"]):
                     for case_num, (tag, n, max_value) in enumerate(
                             group_cases(sub["category"])):
-                        key = (sub["category"], case_num)
+                        # Only the heavy cases of an omi task spin.
+                        reps = spec.get("heavy_reps", 0) if tag == "t" else 0
+                        key = (sub["category"], case_num, reps)
                         if key not in digests:
-                            data_in, data_out = make_input(rng, n, max_value)
+                            data_in, data_out = make_input(
+                                rng, n, max_value, reps)
                             digests[key] = (
                                 file_cacher.put_file_content(data_in, "in"),
                                 file_cacher.put_file_content(data_out, "out"))

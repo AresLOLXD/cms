@@ -5,13 +5,19 @@ Every task is "print the sum of N numbers". Subtask categories:
   S: N <= 10, values <= 1000
   M: N <= 1000, values <= 1000
   L: N up to LARGE_N, values up to 1e9 (the sum overflows 32 bits)
+  K: omi profile only, see below
 Each group has a sample, a screening WA case and a screening TLE case
 (codenames sN-00-sample, sN-01-scr-wa, sN-02-scr-tle), so two-phase
 screening applies to every group.
+
+The omi profile (OMI_TASKS) is the same sum task with category K, whose two
+heavy testcases end with a "reps" line: the ac_cpu solution then spins that
+many iterations, so a testcase costs a chosen amount of CPU.
 """
 
 LARGE_N = 100_000
 TIME_LIMIT = 1.0
+TIME_LIMIT_OMI = 2.0
 MEMORY_LIMIT_BYTES = 256 * 1024 * 1024
 STATEMENT_BYTES = 300 * 1024
 SCORE_MODE = "max_subtask"
@@ -21,6 +27,36 @@ LANGUAGES = {
     "py": "Python 3 / CPython",
     "java": "Java / JDK",
 }
+
+LANGUAGES_OMI = {"cpp": "C++20 / g++"}
+
+
+def _omi_task(name: str, heavy_reps: int, chained: bool = False) -> dict:
+    """Return an omi task: GroupMin, four K subtasks of 25 points.
+
+    heavy_reps: spin iterations of the two heavy testcases of each subtask.
+    chained: whether each subtask needs the one before it.
+
+    """
+    subtasks = [{"category": "K", "max_score": 25} for _ in range(4)]
+    if chained:
+        for index in (1, 2, 3):
+            subtasks[index]["depends_on"] = [index - 1]
+    return {"name": name, "score_type": "GroupMin", "heavy_reps": heavy_reps,
+            "subtasks": subtasks}
+
+
+# The reps are first estimates: about 0.7 s and 1.1 s of one core on a Zen 3
+# at 4 GHz (3 multiply chains, 4 cycles per iteration), calibrate them with a
+# GitHub Actions run (see the README). The OMI 2025 evaluations took
+# 0.5-1.0 s. "omicomm" stands in for the Communication task of OMI 2025: a
+# Batch task that costs more CPU per testcase, with no FIFO or second sandbox.
+OMI_TASKS = [
+    _omi_task("omia", 600_000_000),
+    _omi_task("omib", 600_000_000, chained=True),
+    _omi_task("omic", 600_000_000),
+    _omi_task("omicomm", 1_000_000_000),
+]
 
 TASKS = {
     "loada": [
@@ -59,7 +95,8 @@ TASKS = {
 # Solution kinds: (file, language key, weight, categories it passes).
 # "ce" does not compile: status "compilation failed", score 0.
 SOLUTIONS = {
-    "ac": ("ac.cpp", "cpp", 0.28, "SML"),
+    "ac": ("ac.cpp", "cpp", 0.28, "SMLK"),
+    "ac_cpu": ("ac_cpu.cpp", "cpp", 0.0, "SMLK"),
     "ac_py": ("ac.py", "py", 0.10, "SML"),
     "ac_java": ("ac.java.tmpl", "java", 0.04, "SML"),
     "wa_overflow": ("wa_overflow.cpp", "cpp", 0.14, "SM"),
@@ -71,13 +108,24 @@ SOLUTIONS = {
 }
 
 
-PROFILES = ("portable", "full")
+# Share of the submissions of each kind in the omi profile; the kinds not
+# listed (the Python and Java ones, plain ac) are never sent. The weights are
+# first estimates: calibrate them against the OMI 2025 sandbox time per
+# submission (about 15 s with the compilation).
+OMI_WEIGHTS = {"ac_cpu": 0.30, "wa_overflow": 0.17, "tle": 0.15,
+               "wa_small": 0.12, "re": 0.09, "ce": 0.08, "wa_zero": 0.09}
+
+PROFILES = ("portable", "full", "omi")
+# The profiles that use fork-only features: dependencies, two-phase, ranking
+# groups.
+FORK_PROFILES = ("full", "omi")
 
 # Contests published to RWS per profile, with the scores path relative to
 # the RWS base URL. Upstream ProxyService ranks one contest at the root.
 RANKED = {
     "portable": {"loada": "scores"},
     "full": {"loada": "loada/scores", "loadb": "loadb/scores"},
+    "omi": {"loada": "loada/scores"},
 }
 
 
@@ -90,7 +138,35 @@ def _check_profile(profile: str) -> None:
 def two_phase(profile: str) -> bool:
     """Return whether two-phase evaluation is on in the profile."""
     _check_profile(profile)
-    return profile == "full"
+    return profile in FORK_PROFILES
+
+
+def contest_tasks(contest: str, profile: str) -> list[dict]:
+    """Return the task specs of the contest in the profile."""
+    _check_profile(profile)
+    if profile == "omi":  # one contest; loadb stays empty
+        return OMI_TASKS if contest == "loada" else []
+    return TASKS[contest]
+
+
+def weights(profile: str) -> dict[str, float]:
+    """Return the share of the submissions of each solution kind."""
+    _check_profile(profile)
+    if profile == "omi":
+        return {kind: OMI_WEIGHTS.get(kind, 0.0) for kind in SOLUTIONS}
+    return {kind: solution[2] for kind, solution in SOLUTIONS.items()}
+
+
+def languages(profile: str) -> dict[str, str]:
+    """Return the CMS language name of each language key."""
+    _check_profile(profile)
+    return LANGUAGES_OMI if profile == "omi" else LANGUAGES
+
+
+def time_limit(profile: str) -> float:
+    """Return the time limit in seconds of every task of the profile."""
+    _check_profile(profile)
+    return TIME_LIMIT_OMI if profile == "omi" else TIME_LIMIT
 
 
 def task_spec(task_name: str, profile: str) -> dict:
@@ -101,10 +177,10 @@ def task_spec(task_name: str, profile: str) -> dict:
 
     """
     _check_profile(profile)
-    for tasks in TASKS.values():
+    for tasks in (*TASKS.values(), OMI_TASKS):
         for spec in tasks:
             if spec["name"] == task_name:
-                if profile == "full":
+                if profile in FORK_PROFILES:
                     return spec
                 return dict(spec, subtasks=[
                     {k: v for k, v in sub.items() if k != "depends_on"}

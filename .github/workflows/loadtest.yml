@@ -21,8 +21,9 @@ name: loadtest
 # on its own runner (ubuntu-24.04: 4 vCPUs, 16 GB): it builds both images,
 # then runs fork and upstream one after the other, fork first in odd
 # repeats and upstream first in even ones (2 and 2), so that the shared
-# runner cancels the runner-to-runner variation. The full profile runs
-# the fork only. "compare" puts the metrics of every run side by side.
+# runner cancels the runner-to-runner variation. The full and omi profiles
+# run the fork only (the omi one also needs LOAD_USERS_B "0"). "compare"
+# puts the metrics of every run side by side.
 #
 # Cost: standard runners are free on this public repository; the 4 pair
 # jobs take 4 of the 20 concurrent jobs GitHub Free allows. Duration:
@@ -62,7 +63,7 @@ env:
   # to both targets; empty leaves the option off (no limit, like upstream's
   # page).
   LOAD_POLL_CAP: ""
-  # portable or full; full has no upstream counterpart.
+  # portable, full or omi; full and omi have no upstream counterpart.
   LOAD_PROFILE: portable
   # The merge-base of the fork and upstream, as in the README.
   UPSTREAM_REF: cc9dfafb
@@ -102,7 +103,7 @@ jobs:
 
       - name: Record the runner and the run order
         run: |
-          if [[ $LOAD_PROFILE == full ]]; then
+          if [[ $LOAD_PROFILE != portable ]]; then
             order=fork
           elif ((REPEAT % 2)); then
             order="fork upstream"
@@ -125,7 +126,7 @@ jobs:
         run: ./build.sh fork HEAD
 
       - name: Build the upstream image
-        if: env.LOAD_PROFILE != 'full'
+        if: env.LOAD_PROFILE == 'portable'
         run: ./build.sh upstream "$UPSTREAM_REF"
 
       # One target after the other, with a teardown in between: run.sh
