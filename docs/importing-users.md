@@ -4,8 +4,7 @@ The Admin Web Server (AWS) can load the contestants of a contest from one CSV
 file. For each row it creates the user if it does not exist and registers the
 user in the contest with that day's password. It can also create the user
 accounts alone, with their own password, from the global Users list (see
-"Importing accounts" below). It replaces [CMS-Loader](cms-loader.md), which
-will be removed after 2026-10-10.
+"Importing accounts" below). It replaces CMS-Loader, which has been removed.
 
 The import page is in Spanish. The texts below are quoted as they appear on
 the page.

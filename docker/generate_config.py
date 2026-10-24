@@ -161,6 +161,20 @@ def generate_cms_toml() -> str:
     rws_host = _get("CMS_RWS_HOST", "localhost")
     es_bind_host = _get("CMS_ES_BIND_HOST", "localhost")
 
+    # Refuse, do not shift: compose publishes the ports, the healthcheck uses
+    # CMS_AWS_HTTP_PORT and the reverse proxy routes them by number.
+    # shortcut: only the HTTP ports are compared, not the RPC ones; upgrade if
+    # CMS_CWS_COUNT can reach the 100 that separates the CWS and AWS RPC ports.
+    cws_ports_range = range(cws_http_port, cws_http_port + cws_count)
+    for name, port in (("CMS_AWS_HTTP_PORT", aws_http_port),
+                       ("CMS_RWS_HTTP_PORT", rws_http_port)):
+        if port in cws_ports_range:
+            print(f"ERROR: the {cws_count} Contest Web Servers listen on ports "
+                  f"{cws_ports_range.start}-{cws_ports_range.stop - 1}, which "
+                  f"include {name}={port}. Change CMS_CWS_HTTP_PORT, "
+                  f"CMS_CWS_COUNT or {name}.", file=sys.stderr)
+            sys.exit(1)
+
     bot_token = os.environ.get("CMS_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CMS_TELEGRAM_CHAT_ID", "").strip()
     telegram_configured = bool(bot_token and chat_id)
@@ -327,31 +341,6 @@ def generate_supervisord_conf() -> str:
     elif telegram_configured:
         blocks.append(
             program("cmstelegrambot", f"cmsTelegramBot 0 -c {contest_id}", 65)
-        )
-
-    loader_secret = os.environ.get("CMS_LOADER_SESSION_SECRET", "")
-    loader_user = os.environ.get("CMS_LOADER_ADMIN_USER", "")
-    loader_pass = os.environ.get("CMS_LOADER_ADMIN_PASSWORD", "")
-    loader_port = _get_int("CMS_LOADER_PORT", 9995)
-
-    if loader_secret and loader_user and loader_pass:
-        env_str = (
-            f'SESSION_SECRET="%(ENV_CMS_LOADER_SESSION_SECRET)s",'
-            f'ADMIN_USER="%(ENV_CMS_LOADER_ADMIN_USER)s",'
-            f'ADMIN_PASSWORD="%(ENV_CMS_LOADER_ADMIN_PASSWORD)s",'
-            f'PORT="{loader_port}",'
-            f'NODE_ENV="production"'
-        )
-        blocks.append(
-            f"[program:cmsloader]\n"
-            f"priority=70\n"
-            f"directory=/home/cmsuser/cms-loader\n"
-            f"command=/home/cmsuser/cms-loader/node_modules/.bin/tsx src/index.ts\n"
-            f"environment={env_str}\n"
-            "autostart=true\nautorestart=true\nstartretries=30\n"
-            "stopasgroup=true\nkillasgroup=true\n"
-            "stdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\n"
-            "stderr_logfile=/dev/stderr\nstderr_logfile_maxbytes=0\n"
         )
 
     if watchdog_mode != "off":

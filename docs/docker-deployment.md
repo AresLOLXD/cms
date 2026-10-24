@@ -63,8 +63,11 @@ The script asks two questions:
 
 ## Step 4 — Import a contest and set it as active
 
-Open the Admin interface in your browser at `http://your-server:8889` and
-create your contest there. To restore a backup made with `./export.sh`, use
+Open the Admin interface and create your contest there. It listens on
+`127.0.0.1:8889` of the server only (see "Ports" below), so reach it through
+your reverse proxy or, from your own computer, through an SSH tunnel:
+`ssh -L 8889:127.0.0.1:8889 user@your-server`, then open
+`http://localhost:8889`. To restore a backup made with `./export.sh`, use
 `./import.sh` instead: it reads the backup from the `dumps/` folder (see
 [Docker Scripts Guide](docker-scripts.md)).
 
@@ -79,6 +82,12 @@ This lists all contests in the database, prompts you to pick one, updates
 It accepts only a numeric ID and replaces whatever was set before, including
 `ALL`; to serve every active contest, set `CMS_CONTEST_ID=ALL` in `.env` by hand.
 
+## Importing users
+
+To load the contestants from a CSV file, use the import pages of the Admin
+Web Server; see [Importing users and participations](importing-users.md).
+CMS-Loader, the separate tool that used to do this on port 9995, was removed.
+
 ## Ports
 
 By default the following ports are bound to `127.0.0.1` (loopback only). A
@@ -92,7 +101,6 @@ plain HTTP. You can change all port numbers in `.env`.
 | `8888` | Contest Web Server (contestants log in here) |
 | `8889` | Admin Web Server (contest administration) |
 | `8890` | Ranking Web Server (public scoreboard) |
-| `9995` | CMS-Loader (bulk user import; runs only when `CMS_LOADER_SESSION_SECRET`, `CMS_LOADER_ADMIN_USER` and `CMS_LOADER_ADMIN_PASSWORD` are set, see [CMS-Loader](cms-loader.md)) |
 
 ## Submissions at the contest stop
 
@@ -417,7 +425,9 @@ deployment follows the two steps in
 
 Set `CMS_CWS_COUNT=2` in your `.env`. CMS will start two contest web servers
 on consecutive ports (8888 and 8889 with the default `CMS_CWS_HTTP_PORT=8888`).
-The Admin and Ranking Web Server ports must not fall in that range: set
+The Admin and Ranking Web Server ports must not fall in that range: the
+containers refuse to start otherwise, and the ERROR line is in the `db-init`
+logs (`./up.sh` only reports "db-init didn't complete successfully"). Set
 `CMS_AWS_HTTP_PORT` and `CMS_RWS_HTTP_PORT` to `CMS_CWS_HTTP_PORT + CMS_CWS_COUNT`
 or higher (for example 8890 and 8891). Point your load balancer (e.g. nginx) at
 the contest web server ports with `ip_hash`, as shown in "Scaling Contest Web

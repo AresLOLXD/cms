@@ -26,7 +26,6 @@ users from the Admin Web Server.
    Detailed timing configuration
    Task versioning
    importing-users
-   cms-loader
    multi-contest
    migrating-to-multi-contest
    two-phase-grading

@@ -46,8 +46,7 @@ services:
     build:
       context: ..
       args:
-        CMS_LOADER_VERSION: ${CMS_LOADER_VERSION:-main}
-        CMS_LOADER_BASE_PATH: ${CMS_LOADER_BASE_PATH:-/}
+        GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - path: ../.env
         required: false
@@ -65,6 +64,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ranking
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - path: ../.env
         required: false
@@ -94,8 +95,7 @@ services:
     build:
       context: ..
       args:
-        CMS_LOADER_VERSION: ${CMS_LOADER_VERSION:-main}
-        CMS_LOADER_BASE_PATH: ${CMS_LOADER_BASE_PATH:-/}
+        GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - path: ../.env
         required: false
@@ -120,14 +120,13 @@ services:
     cgroup: host
     # Ports are published on the host's loopback only: Docker-published ports
     # bypass the host firewall (ufw), so binding them to all interfaces would
-    # expose plain-HTTP CWS/AWS/loader to the internet, skipping the reverse
+    # expose plain-HTTP CWS/AWS to the internet, skipping the reverse
     # proxy (TLS, crowdsec) and letting clients spoof X-Forwarded-For. The
     # reverse proxy running on the host (reaching them via localhost) must be
     # the only entry point.
     ports:
       - "127.0.0.1:${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}:${CMS_CWS_HTTP_PORT:-8888}-${CMS_CWS_HTTP_PORT_END:-8888}"
       - "127.0.0.1:${CMS_AWS_HTTP_PORT:-8889}:${CMS_AWS_HTTP_PORT:-8889}"
-      - "127.0.0.1:${CMS_LOADER_PORT:-9995}:${CMS_LOADER_PORT:-9995}"
     ulimits:
       nofile:
         soft: 65536

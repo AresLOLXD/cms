@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean
     apt-get update
     apt-get install -y build-essential libexpat-dev curl ca-certificates
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     apt-get install -y nodejs
 EOF
 
@@ -32,32 +32,7 @@ RUN mkdir -p /build && \
     ldd bin/karel 2>&1 | grep -q "not a dynamic executable" || \
         { echo "ERROR: karel binary is not statically linked"; exit 1; }
 
-# ─── Stage 2: Build CMS-Loader (Node.js/TypeScript) ──────────────────────────
-FROM ${BASE_IMAGE} AS loader-builder
-
-ARG CMS_LOADER_VERSION=main
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
-#!/bin/bash -ex
-    export DEBIAN_FRONTEND=noninteractive
-    rm -f /etc/apt/apt.conf.d/docker-clean
-    apt-get update
-    apt-get install -y curl ca-certificates git
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
-    npm install -g pnpm
-EOF
-
-ARG CMS_LOADER_BASE_PATH=/
-RUN git clone --branch "${CMS_LOADER_VERSION}" --depth 1 \
-        https://github.com/AresLOLXD/CMS-Loader.git /build && \
-    cd /build && \
-    pnpm install && \
-    VITE_BASE_PATH="${CMS_LOADER_BASE_PATH}" pnpm run build && \
-    pnpm prune --prod --ignore-scripts
-
-# ─── Stage 3: CMS runtime ─────────────────────────────────────────────────────
+# ─── Stage 2: CMS runtime ─────────────────────────────────────────────────────
 FROM ${BASE_IMAGE}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -67,7 +42,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean
     apt-get update
     apt-get install -y curl ca-certificates
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     PACKAGES=(
         build-essential
         cppreference-doc-en-html
@@ -110,6 +85,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         >/etc/apt/keyrings/isolate.asc
     apt-get update
     apt-get install -y isolate
+    # Same RUN as apt-get update: a cached layer only exists if this passed.
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' isolate)" ge 2.6 \
+        || { echo "ERROR: isolate >= 2.6 is required, got $(dpkg-query -W -f='${Version}' isolate)"; exit 1; }
     sed -i 's@^cg_root .*@cg_root = /sys/fs/cgroup@' /etc/isolate
 EOF
 
@@ -129,20 +107,6 @@ EOF
 COPY --from=rekarel-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -sf /usr/local/lib/node_modules/@rekarel/cli/dist/commands.cjs /usr/local/bin/rekarel
 COPY --from=rekarel-builder /build/bin/karel /usr/local/bin/karel
-
-# Copy CMS-Loader build artifacts from the loader-builder stage.
-# CMS-Loader runs TypeScript directly via tsx (no tsc compilation step).
-# Copy: server source, pre-built frontend, prod node_modules (tsx stays as a dep).
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/src           /home/cmsuser/cms-loader/src
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/client/dist   /home/cmsuser/cms-loader/client/dist
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/node_modules  /home/cmsuser/cms-loader/node_modules
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/package.json  /home/cmsuser/cms-loader/package.json
-COPY --from=loader-builder --chown=cmsuser:cmsuser \
-    /build/tsconfig.json /home/cmsuser/cms-loader/tsconfig.json
 
 USER cmsuser
 ENV LANG=C.UTF-8
@@ -190,3 +154,7 @@ EOF
 
 ENTRYPOINT ["/home/cmsuser/entrypoint.sh"]
 CMD ["supervisord", "--nodaemon", "-c", "/home/cmsuser/cms/etc/supervisord.conf"]
+
+# At the end of the last stage, so a new commit does not invalidate the cache.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=$GIT_SHA

@@ -544,7 +544,8 @@ All shard ports are bound to `127.0.0.1` (loopback only) when you start with `./
 ### Port conflict warning
 
 With the defaults (`CMS_CWS_HTTP_PORT=8888`, `CMS_AWS_HTTP_PORT=8889`, `CMS_RWS_HTTP_PORT=8890`), setting
-`CMS_CWS_COUNT > 1` puts shards on ports that may collide with other servers.
+`CMS_CWS_COUNT > 1` puts shards on the Admin or Ranking port, and the containers refuse to start
+(the ERROR line is in the `db-init` logs; `./up.sh` only reports "db-init didn't complete successfully").
 When `CMS_CWS_COUNT > 1`, move both `CMS_AWS_HTTP_PORT` and `CMS_RWS_HTTP_PORT` above the CWS range:
 
 ```

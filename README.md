@@ -80,7 +80,6 @@ migrated code can be tested in CI without the two colliding.
 |---------|-------------|-----|
 | Docker deployment | Stand up the full system with `./up.sh` | [docs/docker-deployment.md](docs/docker-deployment.md) |
 | Helper scripts | `up`, `down`, `status`, `logs`, `restart`, `contest`, `export`, `import` (plus `sync-upstream`, for the fork's maintainers) | [docs/docker-scripts.md](docs/docker-scripts.md) |
-| CMS-Loader | Bulk-import users and participations via CSV from the browser | [docs/cms-loader.md](docs/cms-loader.md) |
 | AWS user import | Bulk-import users and participations via CSV from the Admin Web Server, one file per contest | [docs/importing-users.md](docs/importing-users.md) |
 | Subtask dependencies | A subtask whose prerequisite scored 0 is worth 0 and is not graded | [docs/subtask-dependencies.md](docs/subtask-dependencies.md) |
 | Two-phase grading | Opt-in (`CMS_TWO_PHASE_EVALUATION`): grade a few screening testcases of each subtask first, and skip the rest of the subtask if one fails | [docs/two-phase-grading.md](docs/two-phase-grading.md) |
