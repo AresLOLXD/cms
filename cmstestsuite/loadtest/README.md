@@ -111,16 +111,24 @@ false-TLE risk on a host with SMT and more Workers than cores; issues #52,
   independent multiply chains, about 1.1 ns per iteration on a Zen 3, and
   1.45 times slower when the SMT sibling runs the same loop) before printing
   the sum. Only the heavy testcases have the line, so the others finish in
-  milliseconds. It includes `<bits/stdc++.h>`, so that compiling takes
-  seconds like OMI 2025's 2.2-3.0 s. Mix: `ac_cpu` 0.30, `wa_overflow`
+  milliseconds. Only `ac_cpu` includes `<bits/stdc++.h>` (the other kinds are
+  small `<cstdio>` programs), so its compile takes seconds like OMI 2025's
+  2.2-3.0 s, but the mean compile time over the mix is lower. Mix: `ac_cpu` 0.30, `wa_overflow`
   0.17, `tle` 0.15, `wa_small` 0.12, `re` 0.09, `ce` 0.08, `wa_zero` 0.09
   (plain `ac` is not sent). Only `ac` and `ac_cpu` score the maximum.
 - **Communication is substituted.** OMI 2025 had one Communication task a
-  day. `omicomm` is a fourth **Batch** task with a higher CPU cost per
-  heavy testcase (1.0e9 iterations, about 1.1 s on a Zen 3; the three real
-  Batch tasks use 6.0e8, about 0.7 s). The FIFO and two-sandbox path of a
-  real Communication task is not exercised. If #52 needs it, that is a
-  separate issue.
+  day. `omicomm` is a fourth **Batch** task with a somewhat higher CPU cost
+  per heavy testcase (7.0e8 iterations; the three real Batch tasks use
+  6.0e8). How much a real Communication testcase costs is a guess. The loop
+  takes 4 cycles per iteration, so the times depend on the clock: on the
+  workstation (about 3.5-4 GHz) the heavy testcases took 0.65 s and 0.75 s;
+  on a GitHub runner's EPYC 7763 (2.45-3.2 GHz) expect 0.75-1.0 s and
+  0.9-1.1 s alone, and up to 1.4 s and 1.7 s with a busy SMT sibling (x1.45).
+  That leaves `omicomm` about 20% of headroom under the 2 s limit at
+  2.45 GHz with SMT, so a TLE count there says as much about the
+  calibration as about the host until the `reps` are calibrated on the
+  runner. The FIFO and two-sandbox path of a real Communication task is
+  not exercised. If #52 needs it, that is a separate issue.
 - **First estimates, to calibrate.** The `reps` of the heavy testcases
   (`scenario.OMI_TASKS`), the weights above and the 2 s limit were chosen
   from the baseline report (section 6.2: about 15 sandbox-seconds per
@@ -361,12 +369,24 @@ Everything goes to `out/<name>/` (git-ignored):
   milliseconds of noise are a large spread that says nothing about a time
   limit). Per group and phase: `spread` = (max - min) / mean (the 10%
   criterion of #52) and p95 / p50; the table gives the median and p95 of
-  each over the groups. The line "End-burst p50 over steady p50" is the
-  direct SMT signal: per group, the burst median divided by the steady
-  one. The headline also counts the runs of those submissions that hit the
-  time limit, that is false TLEs. The phase is the one of the submission,
-  not of its evaluation, so a long queue blurs it. No new `metrics.json`
-  keys.
+  each over the groups. The groups are not independent samples. With 4
+  tasks and 2 heavy inputs per task, the 32 `ac_cpu` groups are 8
+  task/input pairs (the 4 subtasks of a task repeat the same input), and
+  each submission adds one run to every group of its task, close together
+  in time; read the medians over groups as 8 observations at best.
+  `spread` also grows with the number of runs (it uses the max and the
+  min), so compare it between phases only when their `n` are alike, and
+  prefer p95 / p50. The line "Phase ratio (end_burst p50 / steady p50)"
+  compares the two phases per group. It is not by itself an SMT signal: ES
+  sends each testcase as its own job, so even a lone `ac_cpu` submission
+  fills the Workers, and SMT contention depends on how many Workers are
+  busy against the physical cores, not on the phase. **The SMT experiment
+  is a `--workers` sweep:** Workers equal to the physical cores against
+  twice that, at the same load, comparing the spread and p95 / p50 of the
+  runs. The headline also counts the runs of fully correct submissions that
+  hit the time limit, in any phase: false TLEs. The phase is the one of
+  the submission, not of its evaluation, so a long queue blurs it. No new
+  `metrics.json` keys.
 - **Ranking (RWS):** final RWS against CMS task scores of the ranked
   contests, and the ranking lag (RWS change seen minus the latest
   `scored_at` of that user and task; 2 s polling).

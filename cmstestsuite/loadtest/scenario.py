@@ -46,16 +46,19 @@ def _omi_task(name: str, heavy_reps: int, chained: bool = False) -> dict:
             "subtasks": subtasks}
 
 
-# The reps are first estimates: about 0.7 s and 1.1 s of one core on a Zen 3
-# at 4 GHz (3 multiply chains, 4 cycles per iteration), calibrate them with a
-# GitHub Actions run (see the README). The OMI 2025 evaluations took
-# 0.5-1.0 s. "omicomm" stands in for the Communication task of OMI 2025: a
-# Batch task that costs more CPU per testcase, with no FIFO or second sandbox.
+# The reps are first estimates, 4 cycles per iteration (3 multiply chains):
+# 600M take 0.65 s on a Zen 3 at about 3.5-4 GHz and 0.98 s at 2.45 GHz (an
+# EPYC 7763 runner's base clock), 700M take 0.75 s and 1.14 s, and an SMT
+# sibling running the same loop adds about 45%, so omicomm stays under the
+# 2 s limit (1.66 s) at 2.45 GHz. Calibrate them with a GitHub Actions run
+# (see the README). The OMI 2025 evaluations took 0.5-1.0 s. "omicomm" stands
+# in for the Communication task of OMI 2025: a Batch task that costs a bit
+# more CPU per testcase, with no FIFO or second sandbox.
 OMI_TASKS = [
     _omi_task("omia", 600_000_000),
     _omi_task("omib", 600_000_000, chained=True),
     _omi_task("omic", 600_000_000),
-    _omi_task("omicomm", 1_000_000_000),
+    _omi_task("omicomm", 700_000_000),
 ]
 
 TASKS = {

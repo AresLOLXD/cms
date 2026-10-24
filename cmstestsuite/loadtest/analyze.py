@@ -122,7 +122,7 @@ def runtime_spread(evaluations: list[dict], submissions_by_id: dict,
         in SPREAD_PHASES with enough runs, plus "ratio" (end_burst p50 over
         steady p50) when it has both; "skipped", the number of (group, phase)
         left out for too few runs or a median under SPREAD_MIN_TIME_S; "tle",
-        the runs the sandbox killed for the time limit. stats is n, min, p50,
+        the runs the sandbox killed for the time limit, in any phase. stats is n, min, p50,
         p95, max, spread ((max - min) / mean) and p95_p50.
 
     """
@@ -135,12 +135,11 @@ def runtime_spread(evaluations: list[dict], submissions_by_id: dict,
     for ev in evaluations:
         sub = submissions_by_id.get(ev["submission_id"])
         driver = by_opaque.get(sub["opaque_id"]) if sub else None
-        if driver is None or driver.get("expected") != 100.0 \
-                or driver["phase"] not in SPREAD_PHASES:
+        if driver is None or driver.get("expected") != 100.0:
             continue
         tle += bool(ev["text"]) and ev["text"][0].startswith(
             "Execution timed out")
-        if ev.get(field) is not None:
+        if driver["phase"] in SPREAD_PHASES and ev.get(field) is not None:
             times[(driver["kind"], driver["task"], ev["testcase"],
                    driver["phase"])].append(ev[field])
     groups: dict = {}
@@ -182,8 +181,8 @@ def spread_lines(result: dict, field: str) -> list[str]:
             phase, len(stats), fmt(pct(spreads, 50)), fmt(pct(spreads, 95)),
             fmt(pct(ratios, 50)), fmt(pct(ratios, 95))))
     burst = [g["ratio"] for g in groups if "ratio" in g]
-    lines.append("\nEnd-burst p50 over steady p50, %d groups: median %s, "
-                 "p95 %s, max %s." % (
+    lines.append("\nPhase ratio (end_burst p50 / steady p50), %d groups: "
+                 "median %s, p95 %s, max %s." % (
                      len(burst), fmt(pct(burst, 50)), fmt(pct(burst, 95)),
                      fmt(max(burst, default=float("nan")))))
     return lines

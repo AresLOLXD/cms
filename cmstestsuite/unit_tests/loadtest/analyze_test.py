@@ -114,6 +114,15 @@ class RuntimeSpreadTest(unittest.TestCase):
         self.assertEqual(result["tle"], 1)
         self.assertEqual(result["groups"][self.GROUP]["steady"]["p50"], 2.0)
 
+    def test_false_timeouts_count_in_any_phase_of_a_correct_submission(self):
+        timed_out = ("Execution timed out (wall clock limit exceeded)",)
+        result = analyze.runtime_spread(*merged(
+            runs([1.0], "start_burst", text=timed_out),
+            runs([1.0], "drain", first=2, text=timed_out),
+            runs([1.0], "steady", first=3, kind="tle", expected=0.0,
+                 text=timed_out)))
+        self.assertEqual(result["tle"], 2)
+
 
 class AnalyzeTest(unittest.TestCase):
 
