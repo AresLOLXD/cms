@@ -41,6 +41,7 @@ from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
 from cms.io import WebService, rpc_method
 from cms.service import EvaluationService
 from cmscommon.binary import hex_to_bin
+from .exportjobs import EXPORT_JOBS
 from .handlers import HANDLERS
 from .handlers.base import decode_admin_session
 from .jinja2_toolbox import AWS_ENVIRONMENT
@@ -128,6 +129,10 @@ class AdminWebServer(WebService):
                 max_parts=MAX_FORM_FIELDS,
                 max_part_header_size=MAX_PART_HEADER_SIZE),
             urlencoded=ParseUrlEncodedConfig(max_arguments=MAX_FORM_FIELDS)))
+
+        # The dumps that a previous AWS process left are lost to the
+        # registry of jobs, which lives in memory: remove them.
+        EXPORT_JOBS.wipe()
 
         # A list of pending notifications, appended to and drained
         # from executor threads; guarded by notifications_lock.
