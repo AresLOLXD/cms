@@ -67,8 +67,9 @@ class TestClockZones(unittest.TestCase):
             ["UTC", "Test/Zone (XYZ, UTC-06:00)"])
 
     def test_unresolvable_contest_zone_is_left_out(self):
-        # An unknown name, and a malformed key (a ValueError in zoneinfo).
-        for name in ("Not/AZone", "../etc/passwd"):
+        # An unknown name, a malformed key (a ValueError in zoneinfo) and
+        # a deep one (a RecursionError): the page must still render.
+        for name in ("Not/AZone", "../etc/passwd", "a/" * 300 + "b"):
             with self.subTest(name=name):
                 self.assertEqual(
                     [row["label"] for row in self.zones(name)],

@@ -80,8 +80,10 @@ def clock_zones(timestamp: datetime, contest: Contest | None) -> list[dict]:
         try:
             zones.append(
                 (contest.timezone, babel.dates.get_timezone(contest.timezone)))
-        except (LookupError, ValueError):
-            # An unknown name, or one that is not a valid zone key.
+        except Exception:
+            # The name is admin-typed and zoneinfo can fail in several ways
+            # (unknown, malformed, a directory, too deep): no row, and the
+            # page, which holds the form to fix it, must still render.
             pass
 
     rows = [{"label": "UTC", "offset_seconds": 0}]

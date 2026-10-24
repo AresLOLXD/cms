@@ -36,8 +36,8 @@ server; use them as a starting point, not as a limit.
   the contest's time zone, so the Admin Web Server shows the local equivalent
   of the ranking schedule (see "Windows" in
   [multi-contest.md](multi-contest.md)). The sidebar of the Admin Web Server
-  also shows the current time in UTC, in the server's time zone and in the
-  contest's.
+  also shows the current time in UTC and, when they differ, in the server's
+  time zone and in the contest's.
 
 Changes to `.env` apply when the containers are recreated (`./up.sh`).
 
