@@ -692,6 +692,26 @@ class TestExecuteRpcCleanup(unittest.IsolatedAsyncioTestCase):
             ("WARNING", "No pending request with id %s found." % id_),
             ("WARNING", "No pending request with id never-sent found.")])
 
+    async def test_late_error_answer_is_logged_with_its_first_line(self):
+        id_ = await self.abandon_call()
+        error = "ValueError: boom\nTraceback (most recent call last):\n..."
+
+        with self.assertLogs("cms.io.async_rpc", "DEBUG") as logs:
+            self.client.process_incoming_response(
+                {"__id": id_, "__data": None, "__error": error})
+
+        self.assertEqual(self.logged(logs), [
+            ("DEBUG",
+             "Late answer to echo, the caller gave up: ValueError: boom.")])
+
+    async def test_call_that_was_never_sent_is_not_remembered(self):
+        self.client.disconnect()
+
+        with self.assertRaises(RPCError):
+            await self.client.execute_rpc("echo", {"string": "x"})
+
+        self.assertEqual(self.client._abandoned, {})
+
     async def test_only_the_last_abandoned_calls_are_remembered(self):
         with patch.object(self.client, "MAX_ABANDONED", 2):
             first = await self.abandon_call()

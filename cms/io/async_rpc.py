@@ -662,8 +662,13 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         if id_ not in self.pending_outgoing_requests:
             method = self._abandoned.pop(id_, None)
             if method is not None:
-                # The caller already logged giving up, if it had to.
-                logger.debug("Late answer to %s, the caller gave up.", method)
+                # The caller already logged giving up, if it had to; an
+                # error is in no other log (the peer only sends it).
+                error = response["__error"]
+                detail = ("" if error is None
+                          else ": " + str(error).partition("\n")[0])
+                logger.debug("Late answer to %s, the caller gave up%s.",
+                             method, detail)
             else:
                 logger.warning("No pending request with id %s found.", id_)
             return
@@ -714,11 +719,13 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
         self.pending_outgoing_requests[id_] = request
         self.pending_outgoing_requests_results[id_] = result
 
+        sent = False
         try:
             try:
                 await self._write(data_encoded)
             except OSError:
                 raise RPCError("Write failed.")
+            sent = True
             return await result
         finally:
             # However this ends, the request is no longer pending. The
@@ -726,8 +733,12 @@ class AsyncRemoteServiceClient(AsyncRemoteServiceBase):
             # dicts when the connection drops) or still be there (the
             # caller was cancelled, e.g. by a timeout): pop() copes
             # with both.
-            if self.pending_outgoing_requests.pop(id_, None) is not None:
-                # Neither answered nor finalized: the caller gave up.
+            if (self.pending_outgoing_requests.pop(id_, None) is not None
+                    and sent):
+                # Sent, and neither answered nor finalized: the caller
+                # gave up. shortcut: a call cancelled while it is being
+                # written is not remembered, so its late answer is a
+                # WARNING; remember it if that shows up in the logs.
                 self._abandoned[id_] = method
                 if len(self._abandoned) > self.MAX_ABANDONED:
                     self._abandoned.popitem(last=False)
