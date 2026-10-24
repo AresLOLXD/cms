@@ -19,10 +19,11 @@
 import collections
 from collections.abc import Awaitable, Callable
 from typing import Any
-from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy import and_, select
+from sqlalchemy.orm import Session, joinedload
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
+from telegram.error import BadRequest, RetryAfter
 
 from cms.db.base import Base
 
@@ -38,15 +39,18 @@ import asyncio
 import html
 import logging
 import os
+import re
 
 # We use yaml instead of json or similar because
 import yaml
 
 from cms import config
 from cms.conf import ConfigError
-from cms.db import ask_for_contest, Announcement, Question, Participation
+from cms.db import (
+    ask_for_contest, Announcement, Contest, Group, Question, Participation)
 from cms.db.session import SessionGen
 from cms.util import contest_id_from_args
+from cmscommon.datetime import EPOCH, make_datetime
 
 from telegram.ext import (
     ApplicationBuilder,
@@ -59,19 +63,26 @@ from telegram.ext import (
 logger = logging.getLogger(__name__)
 
 HELP_MESSAGE = """
-Bot to interact with the questions of a CMS contest. \
-This bot will automatically post new questions in \
-this channel, and allows you to reply.
+Bot to interact with the questions and announcements of all the CMS \
+contests. This bot will automatically post new questions in this \
+channel, each with the hashtag of its contest, and allows you to reply \
+to them and to create announcements.
 
 In particular, you can use the <i>inline keyboard</i> to reply to \
-questions with built-in answers or to ignore questions, and the \
-following command:
+questions with built-in answers or to ignore questions, and you \
+can use the following commands:
 
 <pre>/answer Reply here</pre>
 Send this command while replying to question to reply with the text \
 "Reply here".
 
-Currently, announcements are not supported in multi-contest mode.
+<pre>/announcement contest_name Announcement subject
+Announcement body
+</pre>
+Send an announcement with title "Announcement subject" and body \
+"Announcement body" to the running contest called "contest_name". More \
+precisely, the subject of the announcement ends at the end of the first \
+line. Announcements created elsewhere are not posted here.
 """
 
 HELP_MESSAGE_ANNOUNCEMENT = """
@@ -103,6 +114,94 @@ def sqlalchemy_to_dict(obj: Base) -> dict:
     return d
 
 
+def contest_hashtag(contest_name: str) -> str:
+    """Return the hashtag that marks the messages of a contest.
+
+    Hashtags do not allow "-", which a contest name may have.
+
+    contest_name: the name of the contest.
+
+    return: the hashtag, with its "#".
+
+    """
+    return "#" + re.sub(r"\W", "_", contest_name)
+
+
+def running_contest_names(session: Session, now: datetime.datetime) -> list[str]:
+    """Return the names of the contests that have a group running.
+
+    session: the DB session to read with.
+    now: the current time, as a naive UTC datetime.
+
+    return: the names, sorted.
+
+    """
+    running = Contest.groups.any(and_(Group.start <= now, now <= Group.stop))
+    return list(session.scalars(
+        select(Contest.name).where(running).order_by(Contest.name)))
+
+
+def parse_announcement(
+    text: str, running_names: list[str]
+) -> tuple[str, str, str]:
+    """Split the text of /announcement when the bot serves all the contests.
+
+    The first line is "/announcement contest_name subject", the rest of the
+    message is the body.
+
+    text: the text of the message.
+    running_names: the names of the contests that may be announced to.
+
+    return: the contest name, the subject and the body.
+
+    raise (ValueError): if the message is not valid; its text is the
+        reply for the sender.
+
+    """
+    running = ", ".join(running_names) or "none"
+    first_line, _, body = text.partition("\n")
+    words = first_line.split(None, 2)
+    if len(words) < 2:
+        raise ValueError(f"Missing contest name. Running contests: {running}")
+    if words[1] not in running_names:
+        raise ValueError(
+            f"{words[1]} is not a running contest. Running contests: {running}")
+    if len(words) < 3:
+        raise ValueError("Missing announcement subject")
+    if not body.strip():
+        raise ValueError("Missing announcement body")
+    return words[1], words[2], body.strip()
+
+
+def load_cutoff(path: str, has_sent_questions: bool) -> datetime.datetime:
+    """Return the moment before which no question is posted.
+
+    The first start of the bot writes the current time in path, so that a
+    bot that serves a contest with a history does not post all of it.
+
+    path: the file that keeps the cutoff; a file that cannot be read is
+        taken as missing.
+    has_sent_questions: whether the bot has already posted questions; an
+        install that did so before the cutoff existed keeps posting
+        everything, as it always did, and writes no file.
+
+    return: the cutoff, as a naive UTC datetime.
+
+    """
+    try:
+        with open(path) as f:
+            return datetime.datetime.fromisoformat(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        if has_sent_questions:
+            return EPOCH
+    cutoff = make_datetime()
+    # Replace, not write in place: a partial file would stop every start.
+    with open(path + ".tmp", "w") as f:
+        f.write(cutoff.isoformat())
+    os.replace(path + ".tmp", path)
+    return cutoff
+
+
 class TelegramBot:
 
     def __init__(self, chat_id: str, token: str, contest_id: int | None) -> None:
@@ -121,10 +220,9 @@ class TelegramBot:
             CommandHandler("start", self.send_help_message))
         self.application.add_handler(
             CommandHandler("help", self.send_help_message))
-        if self.contest_id is not None:
-            self.application.add_handler(
-                CommandHandler("announcement", self.send_announcement)
-            )
+        self.application.add_handler(
+            CommandHandler("announcement", self.send_announcement)
+        )
         self.application.add_handler(
             CommandHandler("answer", self.custom_answer))
         self.application.add_handler(CallbackQueryHandler(self.answer))
@@ -161,6 +259,12 @@ class TelegramBot:
 
         self.question_status = load_status(self.question_storage_dir)
         self.announcement_status = load_status(self.announcement_storage_dir)
+        # The state of a bot for all the contests always has contest names:
+        # what a single-contest run left would post every contest's history.
+        self.cutoff = load_cutoff(
+            os.path.join(config.global_.data_dir, "telegram", "cutoff"),
+            bool(self.question_status) and self.contest_id is not None,
+        )
 
         for (qid, q) in self.question_status.items():
             self.msg_id_to_qid[q["msg_id"]] = qid
@@ -213,7 +317,7 @@ class TelegramBot:
         text = text.strip()
         with SessionGen() as ses:
             question = Question.get_from_id(qid, ses)
-            question.reply_timestamp = datetime.datetime.now()
+            question.reply_timestamp = make_datetime()
             question.ignored = False
             question.reply_text = text
             question.reply_subject = ""
@@ -240,7 +344,7 @@ class TelegramBot:
                 question.reply_text = None
                 question.reply_subject = None
             else:
-                question.reply_timestamp = datetime.datetime.now()
+                question.reply_timestamp = make_datetime()
                 question.ignored = False
                 question.reply_text = ""
                 question.reply_subject = text
@@ -255,34 +359,56 @@ class TelegramBot:
             )
             return
         text = update.message.text
-        try:
-            subject, text = text.split("\n", 1)
-        except:
-            await context.bot.send_message(
-                chat_id=self.chat_id,
-                text="Missing announcement body",
-                parse_mode="HTML",
-                reply_parameters=ReplyParameters(update.message.message_id),
-            )
-            return
-        subject = subject.split(" ", 1)[1]
-        text = text.strip()
+        contest_name = None
+        if self.contest_id is None:
+            with SessionGen() as ses:
+                running = running_contest_names(ses, make_datetime())
+            try:
+                contest_name, subject, text = parse_announcement(text, running)
+            except ValueError as error:
+                await context.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=str(error),
+                    reply_parameters=ReplyParameters(
+                        update.message.message_id),
+                )
+                return
+        else:
+            try:
+                subject, text = text.split("\n", 1)
+            except:
+                await context.bot.send_message(
+                    chat_id=self.chat_id,
+                    text="Missing announcement body",
+                    parse_mode="HTML",
+                    reply_parameters=ReplyParameters(
+                        update.message.message_id),
+                )
+                return
+            subject = subject.split(" ", 1)[1]
+            text = text.strip()
         announcement = Announcement(
-            subject=subject, text=text, timestamp=datetime.datetime.now()
+            subject=subject, text=text, timestamp=make_datetime()
         )
-        announcement.contest_id = self.contest_id
         with SessionGen() as ses:
+            announcement.contest_id = (
+                self.contest_id if contest_name is None
+                else ses.execute(
+                    select(Contest.id).where(Contest.name == contest_name)
+                ).scalar_one())
             ses.add(announcement)
             ses.commit()
+        if contest_name is not None:
+            await context.bot.send_message(
+                chat_id=self.chat_id,
+                text=f"Announcement sent to {contest_hashtag(contest_name)}",
+                reply_parameters=ReplyParameters(update.message.message_id),
+            )
 
     async def run(self):
         async with self.application:
             try:
                 await self.application.start()
-                commands = [("help", "get help"),
-                            ("answer", "reply to a question")]
-                if self.contest_id is not None:
-                    commands.append(("announcement", "send an announcement"))
                 await self.application.bot.set_my_commands(())
                 await self.application.updater.start_polling()
                 await self.db_loop()
@@ -305,7 +431,27 @@ class TelegramBot:
 
         if has_changed:
             obj_id = obj["id"]
-            obj = await callback(existing, obj)
+            while True:
+                try:
+                    obj = await callback(existing, obj)
+                    break
+                except RetryAfter as flood:
+                    # Telegram lets a group get about 20 messages a minute,
+                    # and the end of a contest sends more. The same item is
+                    # retried, not skipped: the order of the questions matters.
+                    retry = flood.retry_after
+                    # An int, or a timedelta in newer python-telegram-bot.
+                    if hasattr(retry, "total_seconds"):
+                        retry = retry.total_seconds()
+                    logger.warning(
+                        "Telegram flood control, waiting %s s", retry)
+                    await asyncio.sleep(retry)
+                except Exception:
+                    # shortcut: an item that always fails is tried and logged
+                    # again at every poll (1 s), upgrade to a per-item
+                    # backoff if a bad message ever floods the log.
+                    logger.exception("Could not post %s %s", directory, obj_id)
+                    return
             store[obj_id] = obj
             with open(os.path.join(directory, self.file_name(obj_id)), "w") as f:
                 f.write(yaml.safe_dump(obj))
@@ -329,11 +475,45 @@ class TelegramBot:
             changed_callback,
         )
 
+    async def _edit_message(
+        self, text: str, msg_id: int, reply_markup: InlineKeyboardMarkup | None = None
+    ):
+        """Edit a message that was posted, unless it is already as wanted.
+
+        An answer from AWS, or a second click on the same button, changes
+        a stored column but not the text, and Telegram refuses an edit that
+        changes nothing. The message is as wanted, so that is not a failure.
+        Neither is a message that was deleted from the chat.
+
+        """
+        try:
+            await self.application.bot.edit_message_text(
+                text,
+                message_id=msg_id,
+                chat_id=self.chat_id,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+        except BadRequest as error:
+            message = error.message.lower()
+            if "message to edit not found" in message:
+                # An admin deleted it from the chat; no edit can work, and
+                # it is not posted again.
+                logger.warning("Message %s was deleted from the chat", msg_id)
+            elif "message is not modified" not in message:
+                raise
+
     async def question_callback(self, old: dict, new: dict) -> dict:
         subject = html.escape(new["subject"])
         text = html.escape(new["text"])
         qid = new["id"]
-        msg = f"<b>New question from {new['username']}</b>\nSubject: <i>{subject}</i>\n\n{text}"
+        # Only when the bot serves all the contests (see the read below).
+        contest_name = new.get("contest_name")
+        tags = [] if contest_name is None else [contest_hashtag(contest_name)]
+        msg = f"<b>New question from {new['username']}</b>\n"
+        if contest_name is not None:
+            msg += f"Contest: <b>{html.escape(contest_name)}</b>\n"
+        msg += f"Subject: <i>{subject}</i>\n\n{text}"
 
         if new["ignored"]:
             msg += f"\n\n<i>Ignored</i>"
@@ -342,7 +522,10 @@ class TelegramBot:
             ans_text = html.escape(new["reply_text"])
             msg += f"\n\n<b>Answer: </b><i>{ans_subject}</i>\n\n<i>{ans_text}</i>"
         else:
-            msg = f"#todo\n{msg}\n\nReply with <code>/answer your_reply_here</code> for a custom reply"
+            tags.insert(0, "#todo")
+            msg += "\n\nReply with <code>/answer your_reply_here</code> for a custom reply"
+        if tags:
+            msg = " ".join(tags) + "\n" + msg
 
         reply_markup = InlineKeyboardMarkup(
             [
@@ -385,13 +568,7 @@ class TelegramBot:
             ).message_id
         else:
             msg_id = old["msg_id"]
-            await self.application.bot.edit_message_text(
-                msg,
-                message_id=msg_id,
-                chat_id=self.chat_id,
-                parse_mode="HTML",
-                reply_markup=reply_markup,
-            )
+            await self._edit_message(msg, msg_id, reply_markup)
         new["msg_id"] = msg_id
         self.msg_id_to_qid[msg_id] = qid
         return new
@@ -408,9 +585,7 @@ class TelegramBot:
             ).message_id
         else:
             msg_id = old["msg_id"]
-            await self.application.bot.edit_message_text(
-                text, message_id=msg_id, chat_id=self.chat_id, parse_mode="HTML"
-            )
+            await self._edit_message(text, msg_id)
         new["msg_id"] = msg_id
         return new
 
@@ -423,10 +598,12 @@ class TelegramBot:
         same query as the question, so the number of queries does not
         depend on how many participants asked something. The dicts are
         built before the session is closed, so they can be used by the
-        caller afterwards.
+        caller afterwards. Only the questions asked since the cutoff are
+        read, so the work of each poll does not grow with the history.
 
         return: the questions, in the order they were asked (each with the
-            "username" of the participant who asked it), and the
+            "username" of the participant who asked it, and, when the bot
+            serves all the contests, the "contest_name"), and the
             announcements (none when the bot serves all the contests).
 
         """
@@ -437,15 +614,28 @@ class TelegramBot:
                 .options(
                     joinedload(Question.participation)
                     .joinedload(Participation.user))
+                # shortcut: the working set is every question since the
+                # first start (about 162 ms per poll at 3000 questions, run
+                # on the event loop), upgrade to a running-contests filter
+                # if it grows.
+                .filter(Question.question_timestamp >= self.cutoff)
                 .order_by(Question.id)
             )
             if self.contest_id is not None:
                 query = query.filter(
                     Participation.contest_id == self.contest_id)
+            else:
+                # The key is left out of the single contest dicts: a new
+                # key would look like a change of every stored question.
+                query = query.options(
+                    joinedload(Question.participation)
+                    .joinedload(Participation.contest))
 
             def q_to_dict(q) -> dict:
                 d = sqlalchemy_to_dict(q)
                 d["username"] = q.participation.user.username
+                if self.contest_id is None:
+                    d["contest_name"] = q.participation.contest.name
                 return d
 
             qs = [q_to_dict(x) for x in session.execute(query).scalars().all()]
@@ -481,7 +671,8 @@ def main():
     parser.add_argument("shard", default="", help="unused", nargs="?")
     contest_id_help = (
         "id of the contest to post questions and announcements for, "
-        "or ALL to serve all contests and ignore announcements"
+        "or ALL to serve all contests (announcements are then posted "
+        "with /announcement and the name of the contest)"
     )
     parser.add_argument("-c", "--contest-id", type=str, help=contest_id_help)
 

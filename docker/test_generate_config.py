@@ -468,15 +468,15 @@ def test_ranking_only_mode_skips_supervisord(monkeypatch, tmp_path):
     assert not (tmp_path / "supervisord.conf").exists()
 
 
-def test_supervisord_no_telegram_bot_when_all(monkeypatch, capsys):
+def test_supervisord_telegram_program_when_all(monkeypatch):
     _set(monkeypatch, {
         "CMS_CONTEST_ID": "ALL",
         "CMS_TELEGRAM_BOT_TOKEN": "123456:ABC-DEF",
         "CMS_TELEGRAM_CHAT_ID": "-1001234567890",
     })
     conf = gc.generate_supervisord_conf()
-    assert "cmstelegrambot" not in conf
-    assert "Telegram bot" in capsys.readouterr().err
+    assert "[program:cmstelegrambot]" in conf
+    assert "cmsTelegramBot 0 -c ALL" in conf
 
 
 @pytest.mark.parametrize("compose_file, service", [
