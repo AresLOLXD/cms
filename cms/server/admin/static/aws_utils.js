@@ -32,7 +32,7 @@ var CMS = CMS || {};
 CMS.AWSUtils = function(url_root, timestamp,
                         contest_start, contest_stop,
                         analysis_start, analysis_stop,
-                        analysis_enabled) {
+                        analysis_enabled, contest_id) {
     this.url = CMS.AWSUtils.create_url_builder(url_root);
     this.first_date = new Date();
     this.last_notification = timestamp;
@@ -42,6 +42,8 @@ CMS.AWSUtils = function(url_root, timestamp,
     this.analysis_start = analysis_start;
     this.analysis_stop = analysis_stop;
     this.analysis_enabled = analysis_enabled;
+    // Undefined on a page without contest: notifications are then global.
+    this.contest_id = contest_id;
     this.file_asked_name = "";
     this.file_asked_url = "";
     this.notifications_pending = false;
@@ -405,7 +407,9 @@ CMS.AWSUtils.prototype.update_notifications = function() {
     var update_unread_counts = this.bind_func(this, this.update_unread_counts);
     this.ajax_request(
         this.url("notifications"),
-        "last_notification=" + this.last_notification,
+        "last_notification=" + this.last_notification
+            + (this.contest_id === undefined
+               ? "" : "&contest_id=" + this.contest_id),
         function(response, error) {
             self.notifications_pending = false;
             if (error == null) {

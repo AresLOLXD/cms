@@ -33,7 +33,8 @@ function init()
         {{ contest.main_group.stop|make_timestamp }},
         {{ contest.main_group.analysis_start|make_timestamp }}, 
         {{ contest.main_group.analysis_stop|make_timestamp }},
-        {{ contest.main_group.analysis_enabled | int }});
+        {{ contest.main_group.analysis_enabled | int }},
+        {{ contest.id }});
 
     utils.update_remaining_time();
     setInterval(function() { utils.update_remaining_time(); }, 1000);

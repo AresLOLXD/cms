@@ -67,6 +67,13 @@ that matter most with several contests at once:
   contest's **Overview**, **Queue status** reads "Queue empty." and
   **Submissions status** has no **Compiling...**, **Evaluating...** or
   **Scoring...** row left. After the end this can take a few minutes.
+- AWS shows the new questions as pop-ups and desktop notifications according
+  to the page you have open. A page of a contest shows the questions of that
+  contest and of the contests sent to the same ranking group; a page without
+  a contest (the contest list, a ranking group) shows all of them. A contest
+  notifies only while someone has open its page, the page of another contest
+  in its ranking group, or a page without a contest: keep one contest page
+  open per group (and per ungrouped contest), or one page without a contest.
 
 ## After the exam
 

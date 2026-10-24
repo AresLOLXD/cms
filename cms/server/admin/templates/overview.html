@@ -213,7 +213,28 @@ function stop_updating_statuses()
 
 function update_statuses()
 {
+    // Probe first: with an expired session every RPC answers 403, and
+    // CrowdSec bans a burst of distinct 403 paths. poll_rpc_request has
+    // stopped the polling before this callback runs, so on a 403 the
+    // round ends here. Any other status (a 503 from a service that is
+    // down, a timeout) still lets the rest go: the logs matter most then.
+    utils.poll_rpc_request("LogService", 0,
+                           "last_messages",
+                           {},
+                           function(response) {
+        if (response["status"] !== "not authorized") {
+            poll_other_statuses();
+        }
+        update_logs(response);
+    }, stop_updating_statuses);
+}
 
+// shortcut: if the session ends between the probe and these requests (logout
+// in another tab, admin disabled), they can still answer 403 together, three
+// distinct paths (about 1-2% per logout); chain them one after another if
+// bans show up again. The proxy whitelist is the backstop.
+function poll_other_statuses()
+{
     {% if contest is not none %}
     utils.poll_rpc_request("AdminWebServer", 0,
                            "submissions_status",
@@ -230,11 +251,6 @@ function update_statuses()
                            "workers_status",
                            {},
                            update_workers_status,
-                           stop_updating_statuses);
-    utils.poll_rpc_request("LogService", 0,
-                           "last_messages",
-                           {},
-                           update_logs,
                            stop_updating_statuses);
 }
 
