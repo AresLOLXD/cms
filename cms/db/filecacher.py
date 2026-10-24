@@ -33,6 +33,7 @@ import os
 import tempfile
 import fcntl
 from abc import ABCMeta, abstractmethod
+from contextlib import suppress
 import typing
 
 import gevent
@@ -796,13 +797,14 @@ class FileCacher:
                 if fobj is not None:
                     try:
                         copyfileobj(src, fobj, self.CHUNK_SIZE)
-                        self.backend.commit_file(fobj, digest, desc)
-                    finally:
-                        # Closing twice is harmless. This releases the
-                        # large object connection if the copy fails.
-                        # shortcut: a failing close here masks the original
-                        # error (kept as __context__), fix if it ever matters.
-                        fobj.close()
+                    except BaseException:
+                        # Release the large object connection, without
+                        # letting a failing close replace the real error.
+                        # (commit_file closes fobj itself otherwise.)
+                        with suppress(Exception):
+                            fobj.close()
+                        raise
+                    self.backend.commit_file(fobj, digest, desc)
 
             os.rename(dst.name, cache_file_path)
 

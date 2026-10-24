@@ -95,16 +95,18 @@ class LargeObjectCloseTest(DatabaseMixin, unittest.TestCase):
         self.assert_all_closed()
 
     def test_file_cacher_round_trip(self):
+        # Each test stores its own content: the database outlives the test.
+        content = self.id().encode()
         file_cacher = FileCacher()
-        digest = file_cacher.put_file_content(b"content", "Test #064")
+        digest = file_cacher.put_file_content(content, "Test #064")
         os.unlink(os.path.join(file_cacher.file_dir, digest))
-        self.assertEqual(file_cacher.get_file_content(digest), b"content")
+        self.assertEqual(file_cacher.get_file_content(digest), content)
         self.assertEqual(len(self.opened), 2)
         self.assert_all_closed()
 
     def test_delete_releases_unlink_connection(self):
         file_cacher = FileCacher()
-        digest = file_cacher.put_file_content(b"content", "Test #064")
+        digest = file_cacher.put_file_content(self.id().encode(), "Test #064")
         self.opened.clear()
         file_cacher.backend.delete(digest)
         self.assertEqual(len(self.opened), 1)
@@ -116,7 +118,7 @@ class LargeObjectCloseTest(DatabaseMixin, unittest.TestCase):
                    side_effect=OSError("copy failed")):
             # Keep the exception, hence the frame holding fobj, alive.
             try:
-                file_cacher.put_file_content(b"content", "Test #064")
+                file_cacher.put_file_content(self.id().encode(), "Test #064")
             except OSError as error:
                 held = error
             else:
@@ -124,6 +126,18 @@ class LargeObjectCloseTest(DatabaseMixin, unittest.TestCase):
         self.assertIsNotNone(held)
         self.assertEqual(len(self.opened), 1)
         self.assert_all_closed()
+
+    def test_failed_copy_keeps_the_original_error(self):
+        def interrupt(src, dst, size):
+            # What green psycopg2 does to the connection when a wait is
+            # interrupted: close it, then let the interruption propagate.
+            dst._conn.close()
+            raise KeyboardInterrupt()
+
+        file_cacher = FileCacher()
+        with patch("cms.db.filecacher.copyfileobj", interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                file_cacher.put_file_content(self.id().encode(), "Test #064")
 
 
 if __name__ == "__main__":

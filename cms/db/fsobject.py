@@ -125,6 +125,7 @@ class LargeObject(io.RawIOBase, typing.BinaryIO):
             cursor.close()
         except BaseException:
             # Don't leave the connection open in an aborted transaction.
+            self._fd = None
             self._conn.close()
             raise
 
