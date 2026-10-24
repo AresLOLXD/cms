@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean
     apt-get update
     apt-get install -y build-essential libexpat-dev curl ca-certificates
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     apt-get install -y nodejs
 EOF
 
@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean
     apt-get update
     apt-get install -y curl ca-certificates
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
     PACKAGES=(
         build-essential
         cppreference-doc-en-html
@@ -85,6 +85,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         >/etc/apt/keyrings/isolate.asc
     apt-get update
     apt-get install -y isolate
+    # Same RUN as apt-get update: a cached layer only exists if this passed.
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' isolate)" ge 2.6 \
+        || { echo "ERROR: isolate >= 2.6 is required, got $(dpkg-query -W -f='${Version}' isolate)"; exit 1; }
     sed -i 's@^cg_root .*@cg_root = /sys/fs/cgroup@' /etc/isolate
 EOF
 

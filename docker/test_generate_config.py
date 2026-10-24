@@ -129,6 +129,19 @@ def test_prod_compose_gives_cms_time_to_stop_gracefully(monkeypatch):
     assert int(grace[:-1]) > stop_total
 
 
+def test_dockerfile_checks_the_isolate_version_where_it_installs_it():
+    dockerfile = os.path.join(os.path.dirname(__file__), "..", "Dockerfile")
+    if not os.path.isfile(dockerfile):
+        pytest.skip("Dockerfile is not in this tree: .dockerignore keeps it out "
+                    "of the image that runs the tests in CI")
+    with open(dockerfile) as f:
+        text = f.read()
+    # The check must share the RUN (the heredoc up to its EOF) with the
+    # install, so a cached layer cannot hold an isolate that failed it.
+    install_run = text.split("apt-get install -y isolate")[1].split("\nEOF")[0]
+    assert "dpkg --compare-versions" in install_run
+
+
 def test_dockerfile_creates_the_data_dir_as_cmsuser(monkeypatch):
     # A named volume inherits the ownership of the image's directory the first
     # time it is created, so the directory must belong to cmsuser (the user
