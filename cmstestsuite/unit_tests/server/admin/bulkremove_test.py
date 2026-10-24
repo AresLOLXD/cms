@@ -89,11 +89,12 @@ class TestParseUsernames(unittest.TestCase):
 
 class TestFingerprint(unittest.TestCase):
 
-    def plan(self, *user_ids, submissions=0, running=False, ignored=()):
+    def plan(self, *user_ids, submissions=0, running=False, ignored=(),
+             contests=("dia1",)):
         users = [RemovalEntry(user_id=user_id, username="u%d" % user_id,
                               first_name="", last_name="",
                               submissions=submissions, user_tests=0,
-                              contests=["dia1"])
+                              contests=list(contests))
                  for user_id in user_ids]
         return RemovalPlan(users=users, ignored=list(ignored),
                            running=running, groups=[])
@@ -103,8 +104,10 @@ class TestFingerprint(unittest.TestCase):
             self.plan(3, 1).fingerprint,
             self.plan(1, 3, ignored=[("x", "no existe")]).fingerprint)
 
-    def test_it_follows_the_users_the_counts_and_the_running_state(self):
+    def test_it_follows_users_counts_contests_and_running_state(self):
         base = self.plan(1, 3).fingerprint
         self.assertNotEqual(base, self.plan(1).fingerprint)
         self.assertNotEqual(base, self.plan(1, 3, submissions=1).fingerprint)
         self.assertNotEqual(base, self.plan(1, 3, running=True).fingerprint)
+        self.assertNotEqual(
+            base, self.plan(1, 3, contests=("dia1", "dia2")).fingerprint)

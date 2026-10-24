@@ -418,7 +418,9 @@ removed:
   user exists but is not in this contest). They do not stop the rest.
 - "Rankings que se vaciarán y se enviarán otra vez:", the ranking groups
   whose scoreboard AWS regenerates after the removal. "raíz (/)" is the root
-  ranking.
+  ranking, only used when a single contest is served (`CMS_CONTEST_ID=<id>`):
+  with `CMS_CONTEST_ID=ALL`, a contest without a ranking group is not sent to
+  any scoreboard.
 - In red, when any participation concerned belongs to a contest that is
   running now: "Atención: hay un concurso en curso entre los afectados. Se
   perderán envíos hechos durante el concurso, y vaciar y volver a enviar un
@@ -465,4 +467,7 @@ confirmation page listed, as **Regenerate** does in **Ranking groups** (see
 [Running several contests at once](multi-contest.md)): the scoreboard is
 emptied and sent again, within seconds. A scoreboard only adds and updates
 what it receives, so without this the removed contestants would stay on it,
-with their scores. You do not need to press **Regenerate** yourself.
+with their scores. You do not need to press **Regenerate** yourself, except
+when a single contest is served (`CMS_CONTEST_ID=<id>`) and it has a ranking
+group: it is sent to the root ranking whatever its group, so press
+**Regenerate** on the **Root ranking** row.
