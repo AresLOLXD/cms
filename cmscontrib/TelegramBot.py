@@ -19,8 +19,8 @@
 import collections
 from collections.abc import Awaitable, Callable
 from typing import Any
-from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy import and_, select
+from sqlalchemy.orm import Session, joinedload
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 
@@ -45,7 +45,8 @@ import yaml
 
 from cms import config
 from cms.conf import ConfigError
-from cms.db import ask_for_contest, Announcement, Question, Participation
+from cms.db import (
+    ask_for_contest, Announcement, Contest, Group, Question, Participation)
 from cms.db.session import SessionGen
 from cms.util import contest_id_from_args
 from cmscommon.datetime import EPOCH, make_datetime
@@ -61,19 +62,26 @@ from telegram.ext import (
 logger = logging.getLogger(__name__)
 
 HELP_MESSAGE = """
-Bot to interact with the questions of a CMS contest. \
-This bot will automatically post new questions in \
-this channel, and allows you to reply.
+Bot to interact with the questions and announcements of all the CMS \
+contests. This bot will automatically post new questions in this \
+channel, each with the hashtag of its contest, and allows you to reply \
+to them and to create announcements.
 
 In particular, you can use the <i>inline keyboard</i> to reply to \
-questions with built-in answers or to ignore questions, and the \
-following command:
+questions with built-in answers or to ignore questions, and you \
+can use the following commands:
 
 <pre>/answer Reply here</pre>
 Send this command while replying to question to reply with the text \
 "Reply here".
 
-Currently, announcements are not supported in multi-contest mode.
+<pre>/announcement contest_name Announcement subject
+Announcement body
+</pre>
+Send an announcement with title "Announcement subject" and body \
+"Announcement body" to the running contest called "contest_name". More \
+precisely, the subject of the announcement ends at the end of the first \
+line. Announcements created elsewhere are not posted here.
 """
 
 HELP_MESSAGE_ANNOUNCEMENT = """
@@ -116,6 +124,52 @@ def contest_hashtag(contest_name: str) -> str:
 
     """
     return "#" + re.sub(r"\W", "_", contest_name)
+
+
+def running_contest_names(session: Session, now: datetime.datetime) -> list[str]:
+    """Return the names of the contests that have a group running.
+
+    session: the DB session to read with.
+    now: the current time, as a naive UTC datetime.
+
+    return: the names, sorted.
+
+    """
+    running = Contest.groups.any(and_(Group.start <= now, now <= Group.stop))
+    return list(session.scalars(
+        select(Contest.name).where(running).order_by(Contest.name)))
+
+
+def parse_announcement(
+    text: str, running_names: list[str]
+) -> tuple[str, str, str]:
+    """Split the text of /announcement when the bot serves all the contests.
+
+    The first line is "/announcement contest_name subject", the rest of the
+    message is the body.
+
+    text: the text of the message.
+    running_names: the names of the contests that may be announced to.
+
+    return: the contest name, the subject and the body.
+
+    raise (ValueError): if the message is not valid; its text is the
+        reply for the sender.
+
+    """
+    running = ", ".join(running_names) or "none"
+    first_line, _, body = text.partition("\n")
+    words = first_line.split(None, 2)
+    if len(words) < 2:
+        raise ValueError(f"Missing contest name. Running contests: {running}")
+    if words[1] not in running_names:
+        raise ValueError(
+            f"{words[1]} is not a running contest. Running contests: {running}")
+    if len(words) < 3:
+        raise ValueError("Missing announcement subject")
+    if not body.strip():
+        raise ValueError("Missing announcement body")
+    return words[1], words[2], body.strip()
 
 
 def load_cutoff(path: str, has_sent_questions: bool) -> datetime.datetime:
@@ -162,10 +216,9 @@ class TelegramBot:
             CommandHandler("start", self.send_help_message))
         self.application.add_handler(
             CommandHandler("help", self.send_help_message))
-        if self.contest_id is not None:
-            self.application.add_handler(
-                CommandHandler("announcement", self.send_announcement)
-            )
+        self.application.add_handler(
+            CommandHandler("announcement", self.send_announcement)
+        )
         self.application.add_handler(
             CommandHandler("answer", self.custom_answer))
         self.application.add_handler(CallbackQueryHandler(self.answer))
@@ -300,34 +353,56 @@ class TelegramBot:
             )
             return
         text = update.message.text
-        try:
-            subject, text = text.split("\n", 1)
-        except:
-            await context.bot.send_message(
-                chat_id=self.chat_id,
-                text="Missing announcement body",
-                parse_mode="HTML",
-                reply_parameters=ReplyParameters(update.message.message_id),
-            )
-            return
-        subject = subject.split(" ", 1)[1]
-        text = text.strip()
+        contest_name = None
+        if self.contest_id is None:
+            with SessionGen() as ses:
+                running = running_contest_names(ses, make_datetime())
+            try:
+                contest_name, subject, text = parse_announcement(text, running)
+            except ValueError as error:
+                await context.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=str(error),
+                    reply_parameters=ReplyParameters(
+                        update.message.message_id),
+                )
+                return
+        else:
+            try:
+                subject, text = text.split("\n", 1)
+            except:
+                await context.bot.send_message(
+                    chat_id=self.chat_id,
+                    text="Missing announcement body",
+                    parse_mode="HTML",
+                    reply_parameters=ReplyParameters(
+                        update.message.message_id),
+                )
+                return
+            subject = subject.split(" ", 1)[1]
+            text = text.strip()
         announcement = Announcement(
-            subject=subject, text=text, timestamp=datetime.datetime.now()
+            subject=subject, text=text, timestamp=make_datetime()
         )
-        announcement.contest_id = self.contest_id
         with SessionGen() as ses:
+            announcement.contest_id = (
+                self.contest_id if contest_name is None
+                else ses.execute(
+                    select(Contest.id).where(Contest.name == contest_name)
+                ).scalar_one())
             ses.add(announcement)
             ses.commit()
+        if contest_name is not None:
+            await context.bot.send_message(
+                chat_id=self.chat_id,
+                text=f"Announcement sent to {contest_hashtag(contest_name)}",
+                reply_parameters=ReplyParameters(update.message.message_id),
+            )
 
     async def run(self):
         async with self.application:
             try:
                 await self.application.start()
-                commands = [("help", "get help"),
-                            ("answer", "reply to a question")]
-                if self.contest_id is not None:
-                    commands.append(("announcement", "send an announcement"))
                 await self.application.bot.set_my_commands(())
                 await self.application.updater.start_polling()
                 await self.db_loop()
@@ -546,7 +621,8 @@ def main():
     parser.add_argument("shard", default="", help="unused", nargs="?")
     contest_id_help = (
         "id of the contest to post questions and announcements for, "
-        "or ALL to serve all contests and ignore announcements"
+        "or ALL to serve all contests (announcements are then posted "
+        "with /announcement and the name of the contest)"
     )
     parser.add_argument("-c", "--contest-id", type=str, help=contest_id_help)
 

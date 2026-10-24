@@ -28,15 +28,16 @@ with run(), which only works for coroutines that never wait.
 import os
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from sqlalchemy import event
 
-from cms.db import engine
+from cms.db import Announcement, engine
 from cmscommon.datetime import EPOCH, make_datetime
-from cmscontrib.TelegramBot import TelegramBot, load_cutoff
+from cmscontrib.TelegramBot import (
+    TelegramBot, load_cutoff, parse_announcement, running_contest_names)
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
 
@@ -392,6 +393,108 @@ class TestQuestionText(unittest.TestCase):
 
         self.assertTrue(text.startswith("#omi_2026_day1\n"))
         self.assertNotIn("#todo", text)
+
+
+class TestParseAnnouncement(unittest.TestCase):
+
+    RUNNING = ["day1", "day2"]
+
+    def test_contest_subject_and_body(self):
+        self.assertEqual(
+            parse_announcement(
+                "/announcement day2  A subject\nFirst line\nSecond line\n",
+                self.RUNNING),
+            ("day2", "A subject", "First line\nSecond line"))
+
+    def test_bad_messages_say_what_is_running(self):
+        for text, problem in [
+                ("/announcement\nBody", "Missing contest name"),
+                ("/announcement day9 Subject\nBody", "day9 is not a running"),
+                ("/announcement day1 Subject", "Missing announcement body"),
+                ("/announcement day1\nBody", "Missing announcement subject")]:
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError) as caught:
+                    parse_announcement(text, self.RUNNING)
+                self.assertIn(problem, str(caught.exception))
+        # The name is checked first, and the reply lists the running ones.
+        with self.assertRaisesRegex(ValueError, "Running contests: day1, day2"):
+            parse_announcement("/announcement day9 S\nB", self.RUNNING)
+
+    def test_nothing_is_running(self):
+        with self.assertRaisesRegex(ValueError, "Running contests: none"):
+            parse_announcement("/announcement day1 S\nB", [])
+
+
+class TestAnnouncements(DatabaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.now = make_datetime()
+        hour = timedelta(hours=1)
+        self.past = self.add_contest(name="past", groups=[self.get_group(
+            start=self.now - 3 * hour, stop=self.now - 2 * hour)])
+        self.running = self.add_contest(name="running", groups=[
+            self.get_group(start=self.now - 3 * hour, stop=self.now - hour),
+            self.get_group(start=self.now - hour, stop=self.now + hour),
+            self.get_group(start=self.now - hour, stop=self.now + 2 * hour)])
+        self.future = self.add_contest(name="future", groups=[self.get_group(
+            start=self.now + hour, stop=self.now + 2 * hour)])
+        self.session.commit()
+
+    def tearDown(self):
+        self.delete_data()
+        super().tearDown()
+
+    def test_running_contest_names(self):
+        # A contest with several running groups is listed once.
+        self.assertEqual(
+            running_contest_names(self.session, self.now), ["running"])
+
+    def send(self, bot_contest_id, text):
+        """Send an /announcement message to a bot and return what it did.
+
+        bot_contest_id (int|None): the contest the bot serves.
+        text (str): the text of the message.
+
+        return (str): the text of the reply of the bot.
+
+        """
+        bot = TelegramBot.__new__(TelegramBot)
+        bot.chat_id = 1
+        bot.contest_id = bot_contest_id
+        update = MagicMock()
+        update.effective_chat.id = 1
+        update.message.text = text
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        run(bot.send_announcement(update, context))
+        calls = context.bot.send_message.call_args_list
+        return calls[0].kwargs["text"] if calls else None
+
+    def announcements(self):
+        self.session.expire_all()
+        return [(a.contest.name, a.subject, a.text)
+                for a in self.session.query(Announcement)]
+
+    def test_all_mode_announces_in_the_named_running_contest(self):
+        reply = self.send(None, "/announcement running Hello\nA body")
+
+        self.assertEqual(self.announcements(), [("running", "Hello", "A body")])
+        self.assertEqual(reply, "Announcement sent to #running")
+
+    def test_all_mode_refuses_a_contest_that_is_not_running(self):
+        reply = self.send(None, "/announcement past Hello\nA body")
+
+        self.assertEqual(self.announcements(), [])
+        self.assertIn("past is not a running contest", reply)
+        self.assertIn("Running contests: running", reply)
+
+    def test_single_contest_mode_is_unchanged(self):
+        reply = self.send(self.past.id, "/announcement Hello there\nA body")
+
+        self.assertEqual(
+            self.announcements(), [("past", "Hello there", "A body")])
+        self.assertIsNone(reply)
 
 
 if __name__ == "__main__":
