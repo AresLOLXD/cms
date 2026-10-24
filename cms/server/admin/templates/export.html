@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block core %}
+<style>
+/* AWS styles ".notification" only inside its own "#notifications" toasts,
+   so the blocks of this page have classes of their own. */
+.export-box {
+    margin: 1em 0;
+    padding: 0.25em 1em;
+    border: 1px solid #8a94a6;
+    border-left-width: 5px;
+    background: #f2f4f8;
+}
+p.export-box { padding: 0.75em 1em; }
+.export-box p { padding: 0.5em 0; }
+.export-error { border-color: #c0392b; background: #fdecea; }
+.export-warning { border-color: #d98e04; background: #fff6df; }
+.export-done { border-color: #2e8b57; background: #e8f6ee; }
+ul.export-list { list-style: disc; margin: 0 0 0.75em 1.5em; }
+</style>
+<div class="core_title">
+  <h1>Exportar concursos</h1>
+</div>
+
+<p>Descarga un archivo <code>.zip</code> con los concursos que elijas: el
+mismo contenido y formato que genera <code>cmsDumpExporter</code>, que se
+reimporta sin cambios con <code>cmsDumpImporter</code>.</p>
+<ul class="export-list">
+  <li>El archivo contiene las contraseñas de los usuarios (cifradas o en texto
+  plano, según estén guardadas) y todos los envíos: trátalo como información
+  confidencial. Solo los administradores con todos los permisos pueden
+  exportar y descargar.</li>
+  <li>El volcado puede incluir más de lo que eliges: <code>cmsDumpExporter</code>
+  también exporta los usuarios de esos concursos y todos los concursos en los
+  que participan. No incluye los grupos de ranking ni el registro de actividad
+  de los participantes.</li>
+  <li>No es un respaldo de toda la base de datos: para eso usa
+  <code>backup.sh</code> (<code>pg_dump</code>).</li>
+  <li>Solo corre una exportación a la vez en todo AWS. El archivo se borra una
+  hora después de que termina.</li>
+</ul>
+
+{% if errors %}
+<div class="export-box export-error">
+  <p>No se inició la exportación:</p>
+  <ul class="export-list">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if notice %}
+<div class="export-box">
+  <p>{{ notice }}</p>
+</div>
+{% endif %}
+
+{% if job %}
+<div id="export_job" data-status-url="{{ url("export", job.id, "status") }}"
+     data-download-url="{{ url("export", job.id, "download") }}"
+     data-export-url="{{ url("export") }}">
+  <h2>{{ job.name }}</h2>
+  <p id="export_text" aria-live="polite">Consultando el estado…</p>
+  <div id="export_result" aria-live="polite"></div>
+</div>
+{% else %}
+<form method="POST" id="export_form" action="{{ url("export") }}">
+  {{ xsrf_form_html|safe }}
+  <h3>Concursos *</h3>
+  {% if contest_list|length < 1 %}<p>(no hay concursos)</p>{% endif %}
+  {% for c in contest_list %}
+  <p><label><input type="checkbox" name="contest_id" value="{{ c.id }}"{% if c.id in form.contest_ids %} checked{% endif %}>
+    {{ c.name }}{% if c.id in running %} (en curso o en modo de análisis){% endif %}</label></p>
+  {% endfor %}
+
+  <h3>Contenido</h3>
+  <p><label><input type="radio" name="content" value="all"{% if form.content == "all" %} checked{% endif %}>
+    Base de datos y archivos</label></p>
+  <p><label><input type="radio" name="content" value="no_files"{% if form.content == "no_files" %} checked{% endif %}>
+    Solo la base de datos, sin archivos (<code>-F</code>)</label></p>
+  <p><label><input type="radio" name="content" value="only_files"{% if form.content == "only_files" %} checked{% endif %}>
+    Solo los archivos, sin la base de datos (<code>-f</code>; no se puede reimportar)</label></p>
+
+  <h3>Opciones</h3>
+  <p><label><input type="checkbox" name="no_generated" value="1"{% if "no_generated" in form.options %} checked{% endif %}>
+    No exportar lo que se puede regenerar: resultados y ejecutables (<code>-G</code>, recomendado)</label></p>
+  <p><label><input type="checkbox" name="no_submissions" value="1"{% if "no_submissions" in form.options %} checked{% endif %}>
+    No exportar los envíos (<code>-S</code>)</label></p>
+  <p><label><input type="checkbox" name="no_user_tests" value="1"{% if "no_user_tests" in form.options %} checked{% endif %}>
+    No exportar las pruebas de usuario (<code>-U</code>)</label></p>
+  <p><label><input type="checkbox" name="no_users" value="1"{% if "no_users" in form.options %} checked{% endif %}>
+    No exportar los usuarios (<code>-X</code>)</label></p>
+
+  {% if running %}
+  <div class="export-box export-warning">
+    <p>Hay concursos en curso o en modo de análisis. El volcado se lee sin
+    congelar la base de datos: puede salir inconsistente, y las consultas y la
+    lectura de archivos cargan la base de datos que usa el concurso.</p>
+    <p><label><input type="checkbox" name="confirm_running" value="1">
+      Entiendo el riesgo y quiero exportar de todos modos</label></p>
+  </div>
+  {% endif %}
+
+  <p>* obligatorio</p>
+  <button type="submit">Exportar</button>
+</form>
+{% endif %}
+
+{% if jobs %}
+<h3>Tus exportaciones</h3>
+<table>
+  {% for j in jobs %}
+  <tr>
+    <td><a href="{{ url("export") }}?job={{ j.id }}">{{ j.name }}</a></td>
+    <td>{% if j.status == "running" %}en curso{% elif j.status == "done" %}lista{% else %}falló{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<script>
+(function () {
+    "use strict";
+    var form = document.getElementById("export_form");
+    if (form) {
+        var button = form.querySelector("button");
+        // A second submit, from a double click, would be refused while the
+        // first export runs.
+        form.addEventListener("submit", function () {
+            button.disabled = true;
+        });
+        // Going back may show the page as it was left, with the button
+        // disabled.
+        window.addEventListener("pageshow", function () {
+            button.disabled = false;
+        });
+    }
+    var job = document.getElementById("export_job");
+    if (!job) { return; }
+    function addLine(parent, text, className) {
+        var line = document.createElement("p");
+        if (className) { line.className = className; }
+        line.textContent = text;
+        parent.appendChild(line);
+    }
+    function megabytes(bytes) {
+        return (bytes / 1048576).toFixed(1) + " MB";
+    }
+    var url = job.getAttribute("data-status-url");
+    var MAX_FAILURES = 5;
+    var RETRY_MS = 2000;
+    var POLL_MS = 2000;
+    var failures = 0;
+    var poll = function () {
+        fetch(url, {credentials: "same-origin"}).then(function (r) {
+            if (!r.ok) { throw new Error(r.status); }
+            return r.json();
+        }).then(function (s) {
+            var text = document.getElementById("export_text");
+            var out = document.getElementById("export_result");
+            // Written again from scratch each time.
+            out.textContent = "";
+            if (s.status === "done") {
+                text.textContent = "Listo.";
+                var box = document.createElement("div");
+                box.className = "export-box export-done";
+                var line = document.createElement("p");
+                var link = document.createElement("a");
+                link.href = job.getAttribute("data-download-url");
+                link.textContent = "Descargar el .zip (" + megabytes(s.size) + ")";
+                line.appendChild(link);
+                box.appendChild(line);
+                addLine(box, "El archivo estará disponible una hora.");
+                out.appendChild(box);
+            } else if (s.status === "error") {
+                text.textContent = "La exportación falló.";
+                addLine(out, "Error: " + s.error, "export-box export-error");
+            } else {
+                text.textContent = s.phase === "packing"
+                    ? "Empaquetando el .zip…"
+                    : "Exportando… puede tardar varios minutos; puedes cerrar esta página y volver desde la lista de exportaciones.";
+                setTimeout(poll, POLL_MS);
+            }
+            if (s.status !== "running") {
+                var back = document.createElement("p");
+                var again = document.createElement("a");
+                again.href = job.getAttribute("data-export-url");
+                again.textContent = "Exportar otros concursos";
+                back.appendChild(again);
+                out.appendChild(back);
+            }
+            failures = 0;
+        }).catch(function () {
+            failures += 1;
+            if (failures < MAX_FAILURES) {
+                setTimeout(poll, RETRY_MS);
+                return;
+            }
+            var out = document.getElementById("export_result");
+            out.textContent = "";
+            addLine(out, "No se pudo consultar el estado; recarga la página.",
+                "export-box");
+        });
+    };
+    poll();
+}());
+</script>
+{% endblock core %}

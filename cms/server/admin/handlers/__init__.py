@@ -63,6 +63,10 @@ from .contestuser import \
     ImportJobStatusHandler, \
     ImportGlobalUsersHandler, \
     GlobalImportJobStatusHandler
+from .export import \
+    ExportHandler, \
+    ExportJobStatusHandler, \
+    ExportDownloadHandler
 from .bulkremove import \
     BulkRemoveParticipationsHandler, \
     BulkRemoveUsersHandler
@@ -240,6 +244,12 @@ HANDLERS = [
     (r"/team/([0-9]+)", TeamHandler),
     (r"/user/([0-9]+)/add_participation", AddParticipationHandler),
     (r"/user/([0-9]+)/edit_participation", EditParticipationHandler),
+
+    # Export of contests as a dump
+
+    (r"/export", ExportHandler),
+    (r"/export/([A-Za-z0-9_-]+)/status", ExportJobStatusHandler),
+    (r"/export/([A-Za-z0-9_-]+)/download", ExportDownloadHandler),
 
     # Ranking groups
 
