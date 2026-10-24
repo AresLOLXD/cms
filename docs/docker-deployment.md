@@ -309,8 +309,8 @@ A fourth thing is the options in the URL. Of them, the database check gives
 `psql` `host` and `port` (also several hosts, as SQLAlchemy reads them:
 `?host=a:5432&host=b:5432` or `?host=a,b&port=5432,5433`), `sslmode`,
 `sslrootcert`, `sslcert`, `sslkey`, `sslcrl`, `sslcrldir`, `sslcertmode`,
-`sslsni`, `sslnegotiation` (PostgreSQL 17 or later; an older `psql` ignores
-it), `ssl_min_protocol_version`, `ssl_max_protocol_version` and
+`sslsni`, `sslnegotiation` (libpq 17 or later; the image's libpq is 16, so
+CMS's own connection rejects it), `ssl_min_protocol_version`, `ssl_max_protocol_version` and
 `target_session_attrs`. The files they name are read inside the `cms`
 container. It reads no other option (`options`, `application_name` and
 `connect_timeout` would override its own settings), and nothing of its own

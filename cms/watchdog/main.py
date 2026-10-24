@@ -1308,16 +1308,21 @@ async def serve(mode: str, restart_classes: frozenset[str],
     ledger, problem = files.load_ledger(wall)
     if problem:
         alerter.emit("ERROR", problem, wall)
-    # Exactly at the crossing: no repeats, and no state to keep.
+    # Exactly at the crossing: no state to keep. A steady loop of 10 to
+    # 12 minutes a run always holds 6 starts in the hour, and says it at
+    # each one.
     if files.record_start(wall) == policy.START_LOOP_LIMIT + 1:
         alerter.emit(
             "ERROR", "Watchdog: it has started %d times in the last hour, "
             "so it is crash-looping (each run ends in an error or at its "
-            "self-guard). Read the error: ./logs.sh cms | grep -B3 -A30 "
-            "'cycle failed unexpectedly'. To stop the loop, stop "
-            "cmswatchdog (see 'Turning it off') or set CMS_WATCHDOG=off "
+            "self-guard). Read the error: ./logs.sh cms | grep -E -B3 -A30 "
+            r"'cycle failed unexpectedly|^Timeout \('. To stop the loop, "
+            "stop cmswatchdog (see 'Turning it off') or set CMS_WATCHDOG=off "
             "and run ./up.sh. Keep the traceback for the developers." % (
                 policy.START_LOOP_LIMIT + 1), wall)
+        # Not at the end of the first cycle: a self-guard exit or an OOM
+        # kill in it would lose the line, and they are this loop.
+        await alerter.flush()
     source = (control.SupervisorSource() if process_source == "supervisor"
               else control.ProcSource())
     dry_run = control.DryRunActuator(source, usr1_wait_s=policy.USR1_WAIT_S)

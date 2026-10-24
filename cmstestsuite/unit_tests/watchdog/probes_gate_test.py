@@ -188,7 +188,7 @@ class TestEnvironment(unittest.TestCase):
              "PGSSLMAXPROTOCOLVERSION", "TLSv1.3"),
             ("target_session_attrs=read-write", "PGTARGETSESSIONATTRS",
              "read-write"),
-            # SQLAlchemy keeps the last of a repeated key.
+            # CMS would fail on a repeated key; the gate takes the last.
             ("sslmode=disable&sslmode=require", "PGSSLMODE", "require"),
         )
         for query, name, value in cases:

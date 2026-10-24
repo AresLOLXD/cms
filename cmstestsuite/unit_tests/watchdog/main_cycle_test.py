@@ -1071,19 +1071,41 @@ class TestServe(unittest.TestCase):
     def test_a_crash_loop_is_alerted_once_at_the_sixth_start(self):
         # supervisord restarts it without a backoff once it ran past
         # startsecs, and never reaches FATAL: it counts its own starts.
+        events: list = []
+        real_flush = Alerter.flush
+
         async def cycle(watchdog_, *args):
+            events.append("cycle")
             raise RuntimeError("a bug")
 
+        async def flush(alerter_):
+            events.append(("flush", len(alerter_._pending)))
+            return await real_flush(alerter_)
+
         outs = []
-        with patch.object(Watchdog, "cycle", cycle):
+        first_events = []
+        with patch.object(Watchdog, "cycle", cycle), \
+                patch.object(Alerter, "flush", flush):
             for _ in range(START_LOOP_LIMIT + 2):
+                events.clear()
                 with self.assertRaisesRegex(RuntimeError, "a bug"):
                     self.serve()
                 outs.append(self.out)
+                first_events.append(events[:2])
         self.assertEqual(["crash-looping" in out for out in outs],
                          [False] * START_LOOP_LIMIT + [True, False])
         self.assertIn("ERROR Watchdog: it has started 6 times in the last "
                       "hour", outs[START_LOOP_LIMIT])
+        # A self-guard exit writes no "cycle failed" line, only
+        # faulthandler's.
+        self.assertIn(r"'cycle failed unexpectedly|^Timeout \('",
+                      outs[START_LOOP_LIMIT])
+        # A self-guard exit or an OOM kill in the first cycle would lose
+        # a line that waits for the end of the cycle: it goes out first.
+        self.assertEqual(first_events[START_LOOP_LIMIT],
+                         [("flush", 1), "cycle"])
+        self.assertEqual(first_events[0][0], "cycle")
+        self.assertEqual(first_events[START_LOOP_LIMIT + 1][0], "cycle")
 
 
 class TestCommandLine(unittest.TestCase):
