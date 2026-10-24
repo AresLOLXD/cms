@@ -54,7 +54,8 @@ JOB_TTL = 3600.0
 MIN_FREE_BYTES = 5 * 1024 ** 3
 BUSY = "ya hay una exportación en curso; espera a que termine"
 NO_SPACE = ("no hay espacio libre suficiente en el disco de AWS para "
-            "exportar (se necesitan al menos %d GB libres)")
+            "exportar (se necesitan al menos %d GB libres, tanto en el "
+            "directorio de exportaciones como en el temp_dir)")
 EXPORT_FAILED = "la exportación falló (código de salida %d); no se generó nada"
 UNEXPECTED_FAILURE = "la exportación falló; no se generó nada"
 
@@ -226,8 +227,11 @@ class ExportJobStore:
         if self.running_job() is not None:
             raise ValueError(BUSY)
         os.makedirs(self._directory, mode=0o700, exist_ok=True)
-        if shutil.disk_usage(self._directory).free < MIN_FREE_BYTES:
-            raise ValueError(NO_SPACE % (MIN_FREE_BYTES // 1024 ** 3))
+        # The exporter's FileCacher also keeps a copy of every file it reads
+        # in the temp_dir of the configuration, until it exits.
+        for path in (self._directory, config.global_.temp_dir):
+            if shutil.disk_usage(path).free < MIN_FREE_BYTES:
+                raise ValueError(NO_SPACE % (MIN_FREE_BYTES // 1024 ** 3))
         job = ExportJob(
             id=secrets.token_urlsafe(16), owner_id=owner_id,
             contest_ids=tuple(contest_ids), flags=tuple(flags),

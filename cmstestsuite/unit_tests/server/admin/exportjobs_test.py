@@ -217,6 +217,24 @@ class TestExportJobStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(os.listdir(self.directory), [])
         self.assertIsNone(store.running_job())
 
+    async def test_the_temp_dir_of_the_exporter_needs_space_too(self):
+        store = self.make_store(build_argv=fake_argv())
+        real_usage = shutil.disk_usage
+
+        def usage(path):
+            # Only the temp_dir of the configuration is short of space.
+            if path == exportjobs.config.global_.temp_dir:
+                return mock.Mock(free=0)
+            return real_usage(path)
+
+        with mock.patch.object(exportjobs, "MIN_FREE_BYTES", 1), \
+                mock.patch("shutil.disk_usage", usage), \
+                self.assertRaises(ValueError) as caught:
+            store.start(OWNER_ID, [1], ())
+
+        self.assertIn("temp_dir", str(caught.exception))
+        self.assertIsNone(store.running_job())
+
     async def test_cancelling_kills_the_exporter_and_removes_the_files(self):
         gate = os.path.join(os.path.dirname(self.directory), "never")
         store = self.make_store(build_argv=fake_argv(gate=gate))

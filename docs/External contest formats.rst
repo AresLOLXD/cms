@@ -33,7 +33,7 @@ Admins with all the permissions can also get a dump from the Admin Web Server, w
 
 - As with ``cmsDumpExporter -c``, the dump can be wider than the contests chosen: it also holds the users of those contests and every contest they take part in. It does not hold the ranking groups or the participant activity log.
 
-- Only one export runs at a time in the whole Admin Web Server, and it starts only if the disk has at least 5 GB free in the ``aws-exports`` directory inside the ``data_dir`` of ``cms.toml``. The file is deleted one hour after the export ends; what a failed export wrote, and what a previous AWS process left, is deleted too.
+- Only one export runs at a time in the whole Admin Web Server, and it starts only if the disk has at least 5 GB free in the ``aws-exports`` directory inside the ``data_dir`` of ``cms.toml`` and in its ``temp_dir``, where the exporter keeps a copy of the files it reads until it ends. The file is deleted one hour after the export ends; what a failed export wrote, and what a previous AWS process left, is deleted too.
 
 - The export reads the database without freezing it and loads it for minutes, in the same database the contest uses. A contest that is running, or in its analysis mode, is refused unless the admin ticks the confirmation on the page, because the dump may be inconsistent and the load can affect the contest. Leave ``-G`` ticked, as it is by default, to keep the dump small and quick.
 
