@@ -299,7 +299,9 @@ The rules:
 - The form to create a group has the same four fields, but not the "… now"
   buttons.
 
-**Enter the times in UTC.** Every time field is in UTC, like the rest of AWS: a
+**Enter the times in UTC.** Every time field is in UTC, like the rest of AWS
+(which labels its times "UTC"; only the activity pages use the contest's time
+zone, and they name it): a
 time typed as 13:00 is 13:00 UTC, not 13:00 where the contest is. After you
 save, the page shows the equivalent in the server's time zone (`CMS_TIMEZONE`)
 next to each field, for example "= 2026-10-10 13:00 CST", and in the "next:"

@@ -141,6 +141,11 @@ ul.normal_list {
     height: calc(1.5em + 2 * 1.125em);
 }
 
+#clock {
+    font-size: 0.75em;
+    margin-top: 10px;
+}
+
 #sidebar_header {
     margin-bottom: 15px;
 }

@@ -311,6 +311,16 @@ class TestContestActivityPage(PageTestBase):
         self.assertIn("A missing device is not evidence of an API script",
                       page)
 
+    def test_page_has_the_clock_and_names_the_contest_timezone(self):
+        handler = self.make_handler()
+
+        handler._get_sync(str(self.contest.id))
+
+        page = "".join(handler.chunks)
+        self.assertIn('id="clock"', page)
+        self.assertIn('"label": "UTC"', page)
+        self.assertIn("Times are in the contest's timezone (", page)
+
     def test_unknown_contest_is_a_404(self):
         with self.assertRaises(tornado.web.HTTPError) as error:
             self.make_handler()._get_sync("999999")
@@ -337,6 +347,19 @@ class TestParticipationPage(PageTestBase):
         self.assertNotIn("172.16.0.9", page)
         self.assertEqual(len(handler.r_params["activity_intervals"]), 2)
         self.assertEqual(len(handler.r_params["activity_flagged_ids"]), 2)
+
+    def test_page_names_the_contest_timezone_and_labels_utc_times(self):
+        self.add_message(participation=self.participation,
+                         timestamp=T0 + timedelta(microseconds=5))
+        self.session.commit()
+        handler = self.make_handler(ParticipationHandler)
+
+        handler._get_sync(str(self.contest.id),
+                          str(self.participation.user_id))
+
+        page = "".join(handler.chunks)
+        self.assertIn("Times are in the contest's timezone (", page)
+        self.assertIn(">2026-10-12 10:00:00 UTC<", page)
 
     def test_simultaneous_activity_is_not_capped(self):
         for start in (0, 100):
