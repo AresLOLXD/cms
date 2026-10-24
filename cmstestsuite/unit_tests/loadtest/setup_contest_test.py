@@ -19,6 +19,7 @@
 """Tests for the pure helpers of the load-test contest setup."""
 
 import os
+import random
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -50,6 +51,40 @@ class ScoreParametersTest(unittest.TestCase):
         params = setup_contest.score_parameters(
             scenario.task_spec("suma", "portable"))
         self.assertTrue(all("threshold" not in p for p in params))
+
+
+class OmiSetupTest(unittest.TestCase):
+
+    def test_every_omi_task_has_twenty_testcases_in_four_groups(self):
+        for spec in scenario.OMI_TASKS:
+            self.assertEqual(len(spec["subtasks"]), 4)
+            self.assertEqual(
+                sum(len(setup_contest.group_cases(sub["category"]))
+                    for sub in spec["subtasks"]), 20)
+
+    def test_omi_scores_are_group_min_of_four_by_25(self):
+        for spec in scenario.OMI_TASKS:
+            params = setup_contest.score_parameters(
+                scenario.task_spec(spec["name"], "omi"))
+            self.assertEqual(spec["score_type"], "GroupMin")
+            self.assertEqual([p["max_score"] for p in params], [25] * 4)
+
+    def test_the_reps_line_follows_the_input_only_when_asked(self):
+        data_in, data_out = setup_contest.make_input(
+            random.Random(1), 3, 1000, reps=700)
+        lines = data_in.decode().split("\n")
+        self.assertEqual(lines[0], "3")
+        self.assertEqual(lines[2:], ["700", ""])
+        self.assertEqual(int(data_out), sum(map(int, lines[1].split())))
+        plain, _ = setup_contest.make_input(random.Random(1), 3, 1000)
+        self.assertEqual(plain.decode().count("\n"), 2)
+
+    def test_omi_contest_is_published_through_its_ranking_group(self):
+        groups = {"loada": object()}
+        self.assertEqual(
+            setup_contest.contest_extra_kwargs(
+                "loada", "omi", groups, has_active=True),
+            {"active": True, "ranking_group": groups["loada"]})
 
 
 class ContestExtraKwargsTest(unittest.TestCase):

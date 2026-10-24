@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Export what the analysis needs from the CMS database (run in the cms
 container after a run): every submission with its timestamps, status and
-score, evaluation counts, and CMS's own task score per participation/task
+score, evaluation counts, every evaluation of the active datasets with its
+outcome and measured times, and CMS's own task score per participation/task
 (to compare with the ranking)."""
 
 import json
@@ -10,13 +11,13 @@ import sys
 from sqlalchemy import func
 
 from cms.db import (Contest, Evaluation, Participation, SessionGen,
-                    Submission, SubmissionResult)
+                    Submission, SubmissionResult, Task, Testcase)
 from cms.grading.scoring import task_score
 from cmscommon.datetime import make_timestamp
 
 
 def main():
-    out = {"submissions": [], "task_scores": []}
+    out = {"submissions": [], "task_scores": [], "evaluations": []}
     with SessionGen() as session:
         eval_counts = dict(session.query(
             Evaluation.submission_id, func.count(Evaluation.id)).group_by(
@@ -50,6 +51,22 @@ def main():
                 if sr is not None and sr.scored_at is not None else None,
                 "evaluations": eval_counts.get(sub.id, 0),
             })
+        # Same filter as the submissions: the task's active dataset. About
+        # 120 bytes a row, so json.dump of the whole list is fine.
+        for sub_id, codename, outcome, text, cpu, wall in session.query(
+                Evaluation.submission_id, Testcase.codename,
+                Evaluation.outcome, Evaluation.text,
+                Evaluation.execution_time,
+                Evaluation.execution_wall_clock_time) \
+                .select_from(Evaluation) \
+                .join(Testcase, Testcase.id == Evaluation.testcase_id) \
+                .join(Submission, Submission.id == Evaluation.submission_id) \
+                .join(Task, Task.id == Submission.task_id) \
+                .filter(Evaluation.dataset_id == Task.active_dataset_id):
+            out["evaluations"].append({
+                "submission_id": sub_id, "testcase": codename,
+                "outcome": outcome, "text": text, "execution_time": cpu,
+                "execution_wall_clock_time": wall})
     json.dump(out, sys.stdout)
 
 

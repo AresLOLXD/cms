@@ -44,6 +44,86 @@ METRIC_KEYS = {
     "peak_pg_connections", "cpu_mean_by_container", "mem_last_by_container"}
 
 
+def runs(times, phase="steady", kind="ac_cpu", testcase="s1-03-t", first=1,
+         expected=100.0, text=("Output is correct",)):
+    """Return (evaluations, db submissions by id, driver submissions) of
+    one submission per time, each with one evaluation of the testcase."""
+    evaluations, db, driver = [], {}, []
+    for sub_id, t in enumerate(times, first):
+        evaluations.append({
+            "submission_id": sub_id, "testcase": testcase, "outcome": "1.0",
+            "text": list(text), "execution_time": t,
+            "execution_wall_clock_time": t * 2})
+        db[sub_id] = {"id": sub_id, "opaque_id": 100 + sub_id, "task": "omia"}
+        driver.append({"opaque_id": 100 + sub_id, "kind": kind,
+                       "task": "omia", "phase": phase, "expected": expected})
+    return evaluations, db, driver
+
+
+def merged(*parts):
+    evaluations, db, driver = [], {}, []
+    for ev, sub, drv in parts:
+        evaluations += ev
+        db.update(sub)
+        driver += drv
+    return evaluations, db, driver
+
+
+class RuntimeSpreadTest(unittest.TestCase):
+
+    GROUP = ("ac_cpu", "omia", "s1-03-t")
+
+    def test_spread_is_range_over_mean_per_group_and_phase(self):
+        result = analyze.runtime_spread(*runs([1.0, 1.1, 1.2, 1.3, 1.4]))
+        stats = result["groups"][self.GROUP]["steady"]
+        self.assertEqual(stats["n"], 5)
+        self.assertEqual((stats["min"], stats["max"]), (1.0, 1.4))
+        self.assertAlmostEqual(stats["p50"], 1.2)
+        self.assertAlmostEqual(stats["spread"], 0.4 / 1.2)
+        self.assertAlmostEqual(stats["p95_p50"], 1.38 / 1.2)
+        self.assertEqual(result["skipped"], 0)
+
+    def test_burst_over_steady_ratio_needs_both_phases(self):
+        result = analyze.runtime_spread(*merged(
+            runs([1.0] * 5, "steady"),
+            runs([1.5] * 5, "end_burst", first=6)))
+        self.assertAlmostEqual(result["groups"][self.GROUP]["ratio"], 1.5)
+        alone = analyze.runtime_spread(*runs([1.0] * 5, "end_burst"))
+        self.assertNotIn("ratio", alone["groups"][self.GROUP])
+
+    def test_small_or_short_groups_are_skipped_and_counted(self):
+        result = analyze.runtime_spread(*merged(
+            runs([1.0] * 4, "steady"),
+            runs([0.01] * 6, "steady", testcase="s1-00-sample", first=5)))
+        self.assertEqual(result["groups"], {})
+        self.assertEqual(result["skipped"], 2)
+
+    def test_only_fully_correct_submissions_in_the_two_phases_count(self):
+        result = analyze.runtime_spread(*merged(
+            runs([1.0] * 5, "steady", kind="wa_small", expected=0.0),
+            runs([1.0] * 5, "drain", first=6),
+            runs([1.0] * 5, "steady", first=11)))
+        self.assertEqual(list(result["groups"]), [self.GROUP])
+        self.assertEqual(result["groups"][self.GROUP]["steady"]["n"], 5)
+
+    def test_wall_clock_time_and_timeouts(self):
+        evaluations, db, driver = runs([1.0] * 5)
+        evaluations[0]["text"] = ["Execution timed out"]
+        result = analyze.runtime_spread(
+            evaluations, db, driver, field="execution_wall_clock_time")
+        self.assertEqual(result["tle"], 1)
+        self.assertEqual(result["groups"][self.GROUP]["steady"]["p50"], 2.0)
+
+    def test_false_timeouts_count_in_any_phase_of_a_correct_submission(self):
+        timed_out = ("Execution timed out (wall clock limit exceeded)",)
+        result = analyze.runtime_spread(*merged(
+            runs([1.0], "start_burst", text=timed_out),
+            runs([1.0], "drain", first=2, text=timed_out),
+            runs([1.0], "steady", first=3, kind="tle", expected=0.0,
+                 text=timed_out)))
+        self.assertEqual(result["tle"], 2)
+
+
 class AnalyzeTest(unittest.TestCase):
 
     def setUp(self):
@@ -212,6 +292,26 @@ class AnalyzeTest(unittest.TestCase):
         analyze.main(self.run_dir, project_prefix="other-")
         self.assertEqual(self.metrics()["cpu_mean_by_container"],
                          {"other-container": 99.0})
+
+    def test_summary_has_the_runtime_spread_only_with_evaluations(self):
+        analyze.main(self.run_dir)
+        with open(os.path.join(self.run_dir, "summary.md")) as f:
+            self.assertNotIn("Runtime spread", f.read())
+        path = os.path.join(self.run_dir, "db_export.json")
+        with open(path) as f:
+            db = json.load(f)
+        db["evaluations"] = [
+            {"submission_id": 1, "testcase": "s1-03-t", "outcome": "1.0",
+             "text": ["Output is correct"], "execution_time": 1.0 + i / 10,
+             "execution_wall_clock_time": 1.5} for i in range(5)]
+        with open(path, "w") as f:
+            json.dump(db, f)
+        analyze.main(self.run_dir)
+        with open(os.path.join(self.run_dir, "summary.md")) as f:
+            summary = f.read()
+        self.assertIn("Runtime spread (execution_time)", summary)
+        self.assertIn("Runtime spread (execution_wall_clock_time)", summary)
+        self.assertEqual(set(self.metrics()), METRIC_KEYS)
 
     def test_a_run_without_the_optional_inputs_still_gets_metrics(self):
         for name in ("docker_stats.log", "db.log", "monitor.jsonl",

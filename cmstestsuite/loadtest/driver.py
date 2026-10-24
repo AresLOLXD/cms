@@ -124,7 +124,8 @@ class Driver:
             with open(os.path.join(SOLUTIONS_DIR, fname), "rb") as f:
                 self.sources[kind] = f.read()
         self.kinds = list(scenario.SOLUTIONS)
-        self.weights = [scenario.SOLUTIONS[k][2] for k in self.kinds]
+        share = scenario.weights(self.profile)
+        self.weights = [share[k] for k in self.kinds]
         n = len(self.users)
         # Mean think time so that n users give --steady-rate submissions/min
         # (ignoring the time spent waiting for results).
@@ -225,7 +226,8 @@ class Driver:
             return
         form = aiohttp.FormData()
         form.add_field("_xsrf", self.xsrf(user))
-        form.add_field("language", scenario.LANGUAGES[lang_key])
+        form.add_field("language",
+                       scenario.languages(self.profile)[lang_key])
         form.add_field("%s.%%l" % task, source,
                        filename="%s.%s" % (task, ext),
                        content_type="application/octet-stream")
@@ -423,7 +425,8 @@ class Driver:
             else:
                 offset = self.rng.uniform(login_window / 3, login_window)
             user["arrival"] = self.start - 5 - offset
-            user["tasks"] = [t["name"] for t in scenario.TASKS[user["contest"]]]
+            user["tasks"] = [t["name"] for t in scenario.contest_tasks(
+                user["contest"], self.profile)]
             user["known"] = {}
         connector_limit = self.args.connections
         timeout = aiohttp.ClientTimeout(total=self.args.request_timeout)

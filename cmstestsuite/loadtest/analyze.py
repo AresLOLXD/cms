@@ -19,6 +19,12 @@ import os
 import re
 
 PHASES = ["login_burst", "start_burst", "steady", "end_burst", "drain"]
+# Runtime spread: the phases compared, the fewest runs of a testcase that give
+# a spread, and the shortest median worth comparing (a few ms of noise on a
+# cheap testcase is a large spread that says nothing about a time limit).
+SPREAD_PHASES = ("steady", "end_burst")
+SPREAD_MIN_RUNS = 5
+SPREAD_MIN_TIME_S = 0.1
 
 METRIC_KEYS = (
     "run", "target", "profile", "users", "poll_cap", "submissions_sent",
@@ -94,6 +100,92 @@ def rws_mismatches(task_scores: list[dict], ranking: list[dict],
         if abs(cms_score - rws_score) > 1e-6:
             diff.append((ts, rws_score))
     return pairs, diff
+
+
+def runtime_spread(evaluations: list[dict], submissions_by_id: dict,
+                   driver_subs: list[dict],
+                   field: str = "execution_time") -> dict:
+    """Measure how much the runtime of the same program varies.
+
+    Only the runs of fully correct submissions count: they run every testcase
+    to the end, so a longer time is the host, not the program. A run is
+    grouped by (kind, task, testcase), since a codename on another task has
+    another input, and by the phase its submission was sent in.
+
+    evaluations: db_export evaluations (submission_id, testcase, text and
+        the field).
+    submissions_by_id: db_export submissions by their id.
+    driver_subs: driver submissions (opaque_id, kind, task, phase, expected).
+    field: execution_time (CPU) or execution_wall_clock_time.
+
+    return: "groups", (kind, task, testcase) -> {phase: stats} for each phase
+        in SPREAD_PHASES with enough runs, plus "ratio" (end_burst p50 over
+        steady p50) when it has both; "skipped", the number of (group, phase)
+        left out for too few runs or a median under SPREAD_MIN_TIME_S; "tle",
+        the runs the sandbox killed for the time limit, in any phase. stats is n, min, p50,
+        p95, max, spread ((max - min) / mean) and p95_p50.
+
+    """
+    # shortcut: the phase is the one the driver sent the submission in, not
+    # the one its evaluation ran in; use scored_at if a long queue makes the
+    # two differ.
+    by_opaque = {s["opaque_id"]: s for s in driver_subs if "opaque_id" in s}
+    times = collections.defaultdict(list)
+    tle = 0
+    for ev in evaluations:
+        sub = submissions_by_id.get(ev["submission_id"])
+        driver = by_opaque.get(sub["opaque_id"]) if sub else None
+        if driver is None or driver.get("expected") != 100.0:
+            continue
+        tle += bool(ev["text"]) and ev["text"][0].startswith(
+            "Execution timed out")
+        if driver["phase"] in SPREAD_PHASES and ev.get(field) is not None:
+            times[(driver["kind"], driver["task"], ev["testcase"],
+                   driver["phase"])].append(ev[field])
+    groups: dict = {}
+    skipped = 0
+    for (kind, task, testcase, phase), values in times.items():
+        p50 = pct(values, 50)
+        if len(values) < SPREAD_MIN_RUNS or p50 < SPREAD_MIN_TIME_S:
+            skipped += 1
+            continue
+        p95 = pct(values, 95)
+        groups.setdefault((kind, task, testcase), {})[phase] = {
+            "n": len(values), "min": min(values), "p50": p50, "p95": p95,
+            "max": max(values),
+            "spread": (max(values) - min(values)) / (sum(values) / len(values)),
+            "p95_p50": p95 / p50}
+    for group in groups.values():
+        if len(group) == 2:
+            group["ratio"] = group["end_burst"]["p50"] / group["steady"]["p50"]
+    return {"groups": groups, "skipped": skipped, "tle": tle}
+
+
+def spread_lines(result: dict, field: str) -> list[str]:
+    """Return the summary lines of a runtime_spread result."""
+    groups = list(result["groups"].values())
+    lines = ["Runtime spread (%s): %d groups; %d (group, phase) skipped for "
+             "fewer than %d runs or a median under %g s; %d runs hit the "
+             "time limit." % (field, len(groups), result["skipped"],
+                              SPREAD_MIN_RUNS, SPREAD_MIN_TIME_S,
+                              result["tle"])]
+    if not groups:
+        return lines
+    lines += ["", "| phase | groups | spread p50 | spread p95 | "
+              "p95/p50 p50 | p95/p50 p95 |", "|---|---|---|---|---|---|"]
+    for phase in SPREAD_PHASES:
+        stats = [g[phase] for g in groups if phase in g]
+        spreads = [x["spread"] for x in stats]
+        ratios = [x["p95_p50"] for x in stats]
+        lines.append("| %s | %d | %s | %s | %s | %s |" % (
+            phase, len(stats), fmt(pct(spreads, 50)), fmt(pct(spreads, 95)),
+            fmt(pct(ratios, 50)), fmt(pct(ratios, 95))))
+    burst = [g["ratio"] for g in groups if "ratio" in g]
+    lines.append("\nPhase ratio (end_burst p50 / steady p50), %d groups: "
+                 "median %s, p95 %s, max %s." % (
+                     len(burst), fmt(pct(burst, 50)), fmt(pct(burst, 95)),
+                     fmt(max(burst, default=float("nan")))))
+    return lines
 
 
 def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
@@ -297,6 +389,16 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
         (s["compilation_tries"], s["evaluation_tries"])
         for s in db["submissions"])
     w("(compilation_tries, evaluation_tries) histogram: %s" % dict(tries))
+    if db.get("evaluations"):
+        w("\n## Runtime spread of the same program\n")
+        w("Fully correct submissions only, per (kind, task, testcase), "
+          "steady against end burst.\n")
+        submissions_by_id = {s["id"]: s for s in db["submissions"]}
+        for field in ("execution_time", "execution_wall_clock_time"):
+            lines += spread_lines(runtime_spread(
+                db["evaluations"], submissions_by_id, driver_subs, field),
+                field)
+            w("")
 
     # ---- ranking ------------------------------------------------------------
     w("\n## Ranking (RWS)\n")

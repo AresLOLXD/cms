@@ -21,8 +21,9 @@ name: loadtest
 # on its own runner (ubuntu-24.04: 4 vCPUs, 16 GB): it builds both images,
 # then runs fork and upstream one after the other, fork first in odd
 # repeats and upstream first in even ones (2 and 2), so that the shared
-# runner cancels the runner-to-runner variation. The full profile runs
-# the fork only. "compare" puts the metrics of every run side by side.
+# runner cancels the runner-to-runner variation. The full and omi profiles
+# run the fork only (the omi one also needs LOAD_USERS_B "0"). "compare"
+# puts the metrics of every run side by side.
 #
 # Cost: standard runners are free on this public repository; the 4 pair
 # jobs take 4 of the 20 concurrent jobs GitHub Free allows. Duration:
@@ -41,8 +42,8 @@ permissions:
 
 # The knob names must not reuse the variables compose.yml interpolates
 # (LOAD_TARGET, LOAD_DB_PASSWORD, LOAD_RWS_PASSWORD, LOAD_SECRET_KEY,
-# LOAD_WORKER_COUNT, LOAD_CWS_COUNT): shell variables override the
-# --env-file that run.sh writes.
+# LOAD_WORKER_COUNT, LOAD_CWS_COUNT, LOAD_CMS_CPUS): shell variables override
+# the --env-file that run.sh writes.
 env:
   LOAD_USERS_A: "175"
   LOAD_USERS_B: "75"
@@ -62,7 +63,10 @@ env:
   # to both targets; empty leaves the option off (no limit, like upstream's
   # page).
   LOAD_POLL_CAP: ""
-  # portable or full; full has no upstream counterpart.
+  # CPUs the cms container may use, to emulate a smaller host (the README's
+  # "Limiting the CPUs"); empty leaves it unlimited.
+  LOAD_CPUS: ""
+  # portable, full or omi; full and omi have no upstream counterpart.
   LOAD_PROFILE: portable
   # The merge-base of the fork and upstream, as in the README.
   UPSTREAM_REF: cc9dfafb
@@ -102,7 +106,7 @@ jobs:
 
       - name: Record the runner and the run order
         run: |
-          if [[ $LOAD_PROFILE == full ]]; then
+          if [[ $LOAD_PROFILE != portable ]]; then
             order=fork
           elif ((REPEAT % 2)); then
             order="fork upstream"
@@ -125,7 +129,7 @@ jobs:
         run: ./build.sh fork HEAD
 
       - name: Build the upstream image
-        if: env.LOAD_PROFILE != 'full'
+        if: env.LOAD_PROFILE == 'portable'
         run: ./build.sh upstream "$UPSTREAM_REF"
 
       # One target after the other, with a teardown in between: run.sh
@@ -141,6 +145,9 @@ jobs:
           fi
           if [[ -n $LOAD_POLL_CAP ]]; then
             extra+=(--poll-cap "$LOAD_POLL_CAP")
+          fi
+          if [[ -n $LOAD_CPUS ]]; then
+            extra+=(--cpus "$LOAD_CPUS")
           fi
           for target in $ORDER; do
             name=ci-$REPEAT-$target
@@ -195,7 +202,8 @@ jobs:
                 sed -n '3,4p' "$dir/summary.md"
                 grep -e '^Login failures' -e '^Submissions sent' \
                     -e '^Never scored' -e '^Rows not identified' \
-                    -e '^Score mismatches' -e '^Final RWS' "$dir/summary.md"
+                    -e '^Score mismatches' -e '^Final RWS' \
+                    -e '^Runtime spread' "$dir/summary.md"
                 (cd "$dir" &&
                   grep -s -H SHORT processes_start.txt processes_end.txt)
               } | sed 's/^/- /' || true

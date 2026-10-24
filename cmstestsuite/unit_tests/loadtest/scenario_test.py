@@ -61,5 +61,52 @@ class ExpectedScoreTest(unittest.TestCase):
             scenario.task_spec("cadena", "fast")
 
 
+class OmiProfileTest(unittest.TestCase):
+
+    def test_omi_is_a_two_phase_profile_with_one_ranked_contest(self):
+        self.assertIn("omi", scenario.PROFILES)
+        self.assertTrue(scenario.two_phase("omi"))
+        self.assertEqual(scenario.RANKED["omi"], {"loada": "loada/scores"})
+
+    def test_omi_has_four_tasks_in_loada_and_none_in_loadb(self):
+        self.assertEqual(len(scenario.contest_tasks("loada", "omi")), 4)
+        self.assertEqual(scenario.contest_tasks("loadb", "omi"), [])
+        self.assertEqual(scenario.contest_tasks("loadb", "full"),
+                         scenario.TASKS["loadb"])
+
+    def test_omi_keeps_the_dependencies_of_its_tasks(self):
+        chained = [spec["name"] for spec in scenario.OMI_TASKS
+                   if scenario.task_spec(spec["name"], "omi")["subtasks"][1]
+                   .get("depends_on")]
+        self.assertEqual(len(chained), 1)
+
+    def test_ac_cpu_scores_the_maximum_and_a_wrong_kind_nothing(self):
+        for spec in scenario.OMI_TASKS:
+            self.assertEqual(
+                scenario.expected_score(spec["name"], "ac_cpu", "omi"), 100.0)
+            self.assertEqual(
+                scenario.expected_score(spec["name"], "wa_overflow", "omi"),
+                0.0)
+
+    def test_omi_weights_sum_to_one_and_every_kind_in_use_is_cpp(self):
+        weights = scenario.weights("omi")
+        self.assertAlmostEqual(sum(weights.values()), 1.0)
+        used = [kind for kind, weight in weights.items() if weight]
+        self.assertTrue(used)
+        self.assertEqual({scenario.SOLUTIONS[kind][1] for kind in used},
+                         {"cpp"})
+        self.assertEqual(scenario.languages("omi"), {"cpp": "C++20 / g++"})
+
+    def test_other_profiles_keep_their_weights_and_never_send_ac_cpu(self):
+        for profile in ("portable", "full"):
+            weights = scenario.weights(profile)
+            self.assertAlmostEqual(sum(weights.values()), 1.0)
+            self.assertEqual(weights["ac_cpu"], 0.0)
+
+    def test_omi_time_limit_is_longer_than_the_others(self):
+        self.assertEqual(scenario.time_limit("omi"), 2.0)
+        self.assertEqual(scenario.time_limit("full"), scenario.TIME_LIMIT)
+
+
 if __name__ == "__main__":
     unittest.main()

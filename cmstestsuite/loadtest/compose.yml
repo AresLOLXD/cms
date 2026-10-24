@@ -71,6 +71,9 @@ services:
       LOAD_WORKER_COUNT: ${LOAD_WORKER_COUNT}
       LOAD_CWS_COUNT: ${LOAD_CWS_COUNT}
       TZ: UTC
+    # run.sh --cpus: a CFS quota on the container, to emulate a smaller host;
+    # 0 (the default) is no limit.
+    cpus: ${LOAD_CMS_CPUS}
     depends_on:
       db-init:
         condition: service_completed_successfully

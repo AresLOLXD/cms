@@ -2,11 +2,11 @@
 # Run one contest-shaped load test of one target against a fresh local
 # cmsload-<target> stack (the image comes from ./build.sh).
 #
-#   ./run.sh --target fork|upstream --profile portable|full --name NAME \
+#   ./run.sh --target fork|upstream --profile portable|full|omi --name NAME \
 #            [--users-a N] [--users-b N] [--login-window S] [--contest S] \
 #            [--end-burst S] [--rate R] [--end-burst-factor F] \
 #            [--workers N] [--cws N] [--request-time-header NAME] \
-#            [--poll-cap SECONDS] [--faults] [--watchdog]
+#            [--poll-cap SECONDS] [--cpus N] [--faults] [--watchdog]
 #
 # The defaults are the 2026-09-30 full1 values: users-a 175, users-b 75,
 # login-window 150, contest 1500, end-burst 300, rate 45 (submissions per
@@ -19,6 +19,10 @@
 # --poll-cap SECONDS limits the delay between two status polls of a
 # submission in the driver, like the fork's task_submissions.html; without it
 # the backoff has no limit, like upstream's page.
+# --cpus N limits the cms container (every service and sandbox in it) to N
+# CPUs, to emulate a smaller production host on a bigger one; it may be
+# fractional, default: no limit (see "Limiting the CPUs" in the README for
+# what it does to the sandboxes).
 # --faults (fork target only, --contest 2100 or more) also runs
 # faults.py, which injects the database faults of #39 at fixed times of
 # the contest, and then faultstats.py, which writes out/<name>/faults.md
@@ -39,7 +43,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER='' POLL_CAP=''
+TARGET='' PROFILE='' NAME='' REQUEST_TIME_HEADER='' POLL_CAP='' CPUS=''
 UA=175 UB=75 LOGIN=150 CONTEST=1500 ENDB=300 RATE=45 EBF=1.0 WORKERS=8 CWS=2
 FAULTS=0 WATCHDOG=0
 
@@ -63,6 +67,7 @@ while (($#)); do
     --cws) CWS=${2:?--cws needs a value}; shift 2 ;;
     --request-time-header) REQUEST_TIME_HEADER=${2:?--request-time-header needs a value}; shift 2 ;;
     --poll-cap) POLL_CAP=${2:?--poll-cap needs a value}; shift 2 ;;
+    --cpus) CPUS=${2:?--cpus needs a value}; shift 2 ;;
     --faults) FAULTS=1; shift ;;
     --watchdog) WATCHDOG=1; shift ;;
     -h | --help) usage; exit 0 ;;
@@ -72,8 +77,8 @@ done
 
 [[ $TARGET == fork || $TARGET == upstream ]] ||
   { echo "--target must be fork or upstream" >&2; exit 2; }
-[[ $PROFILE == portable || $PROFILE == full ]] ||
-  { echo "--profile must be portable or full" >&2; exit 2; }
+[[ $PROFILE == portable || $PROFILE == full || $PROFILE == omi ]] ||
+  { echo "--profile must be portable, full or omi" >&2; exit 2; }
 [[ $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   { echo "--name is required: letters, digits, dot, dash and underscore, starting with a letter or digit" >&2; exit 2; }
 [[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9-]+$ ]] ||
@@ -81,8 +86,19 @@ done
 # A number with a non-zero digit, so that it is greater than 0.
 [[ -z $POLL_CAP || ($POLL_CAP =~ ^[0-9]+(\.[0-9]+)?$ && $POLL_CAP =~ [1-9]) ]] ||
   { echo "--poll-cap must be a number of seconds greater than 0" >&2; exit 2; }
-if [[ $PROFILE == full && $TARGET == upstream ]]; then
-  echo "The full profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
+[[ -z $CPUS || ($CPUS =~ ^[0-9]+(\.[0-9]+)?$ && $CPUS =~ [1-9]) ]] ||
+  { echo "--cpus must be a number of CPUs greater than 0" >&2; exit 2; }
+# Docker refuses a limit above the host's CPUs, but only once it starts.
+[[ -z $CPUS ]] ||
+  awk -v cpus="$CPUS" -v host="$(nproc)" 'BEGIN { exit !(cpus <= host) }' ||
+  { echo "--cpus $CPUS is more than the $(nproc) CPUs of this host" >&2; exit 2; }
+if [[ $PROFILE != portable && $TARGET == upstream ]]; then
+  echo "The $PROFILE profile uses fork-only features (dependencies, two-phase, ranking groups); run it on the fork target." >&2
+  exit 2
+fi
+# All the omi tasks are in loada; loadb has none, so it cannot have users.
+if [[ $PROFILE == omi && $UB != 0 ]]; then
+  echo "The omi profile has no tasks in loadb: pass --users-b 0" >&2
   exit 2
 fi
 if ((FAULTS)); then
@@ -143,6 +159,7 @@ LOAD_RWS_PASSWORD=$RWS_PASSWORD
 LOAD_SECRET_KEY=$SECRET_KEY
 LOAD_WORKER_COUNT=$WORKERS
 LOAD_CWS_COUNT=$CWS
+LOAD_CMS_CPUS=${CPUS:-0}
 EOF
 )
 chmod 600 "$HERE/.env.load"
@@ -152,7 +169,7 @@ rm -rf "$RUN_DIR"
 mkdir "$RUN_DIR"
 chmod 777 "$RUN_DIR"
 TWO_PHASE=false
-[[ $PROFILE == full ]] && TWO_PHASE=true
+[[ $PROFILE != portable ]] && TWO_PHASE=true
 # Handed to both render_config.py and the driver, only when it is set.
 REQUEST_TIME_ARGS=()
 [[ -n $REQUEST_TIME_HEADER ]] &&
@@ -361,7 +378,7 @@ if ((WATCHDOG)); then
 fi
 
 # ProxyService starts now that the contests exist. The portable profile has
-# one ranked contest; the full one serves every contest and ranking group
+# one ranked contest; the fork profiles serve every contest and ranking group
 # ("-c ALL" is multi-contest mode; without -c ProxyService would ask for a
 # contest, or exit when it has no TTY).
 if [[ $PROFILE == portable ]]; then
