@@ -42,8 +42,8 @@ permissions:
 
 # The knob names must not reuse the variables compose.yml interpolates
 # (LOAD_TARGET, LOAD_DB_PASSWORD, LOAD_RWS_PASSWORD, LOAD_SECRET_KEY,
-# LOAD_WORKER_COUNT, LOAD_CWS_COUNT): shell variables override the
-# --env-file that run.sh writes.
+# LOAD_WORKER_COUNT, LOAD_CWS_COUNT, LOAD_CMS_CPUS): shell variables override
+# the --env-file that run.sh writes.
 env:
   LOAD_USERS_A: "175"
   LOAD_USERS_B: "75"
@@ -63,6 +63,9 @@ env:
   # to both targets; empty leaves the option off (no limit, like upstream's
   # page).
   LOAD_POLL_CAP: ""
+  # CPUs the cms container may use, to emulate a smaller host (the README's
+  # "Limiting the CPUs"); empty leaves it at every CPU of the runner.
+  LOAD_CPUS: ""
   # portable, full or omi; full and omi have no upstream counterpart.
   LOAD_PROFILE: portable
   # The merge-base of the fork and upstream, as in the README.
@@ -142,6 +145,9 @@ jobs:
           fi
           if [[ -n $LOAD_POLL_CAP ]]; then
             extra+=(--poll-cap "$LOAD_POLL_CAP")
+          fi
+          if [[ -n $LOAD_CPUS ]]; then
+            extra+=(--cpus "$LOAD_CPUS")
           fi
           for target in $ORDER; do
             name=ci-$REPEAT-$target
