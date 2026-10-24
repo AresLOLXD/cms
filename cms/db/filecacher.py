@@ -794,8 +794,15 @@ class FileCacher:
             with open(dst.name, 'rb') as src:
                 fobj = self.backend.create_file(digest)
                 if fobj is not None:
-                    copyfileobj(src, fobj, self.CHUNK_SIZE)
-                    self.backend.commit_file(fobj, digest, desc)
+                    try:
+                        copyfileobj(src, fobj, self.CHUNK_SIZE)
+                        self.backend.commit_file(fobj, digest, desc)
+                    finally:
+                        # Closing twice is harmless. This releases the
+                        # large object connection if the copy fails.
+                        # shortcut: a failing close here masks the original
+                        # error (kept as __context__), fix if it ever matters.
+                        fobj.close()
 
             os.rename(dst.name, cache_file_path)
 

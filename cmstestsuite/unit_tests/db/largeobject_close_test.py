@@ -110,6 +110,21 @@ class LargeObjectCloseTest(DatabaseMixin, unittest.TestCase):
         self.assertEqual(len(self.opened), 1)
         self.assert_all_closed()
 
+    def test_failed_copy_closes_the_destination(self):
+        file_cacher = FileCacher()
+        with patch("cms.db.filecacher.copyfileobj",
+                   side_effect=OSError("copy failed")):
+            # Keep the exception, hence the frame holding fobj, alive.
+            try:
+                file_cacher.put_file_content(b"content", "Test #064")
+            except OSError as error:
+                held = error
+            else:
+                self.fail("The copy did not fail.")
+        self.assertIsNotNone(held)
+        self.assertEqual(len(self.opened), 1)
+        self.assert_all_closed()
+
 
 if __name__ == "__main__":
     unittest.main()
