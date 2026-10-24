@@ -104,12 +104,17 @@ class ProxyExecutorTest(unittest.IsolatedAsyncioTestCase):
         entries = _entries(
             ProxyOperation(ProxyExecutor.CONTEST_TYPE, {"c": {}}))
 
-        with patch("cms.service.ProxyService.asyncio.sleep",
-                   new_callable=AsyncMock) as sleep_mock:
+        # A clock just below a power of two: now + 1 is rounded to the next
+        # binade, so (now + 1) - now is 1 - 2**-44, not exactly 1.
+        with patch("cms.service.ProxyService.monotonic",
+                   return_value=511.5 + 2**-44), \
+                patch("cms.service.ProxyService.asyncio.sleep",
+                      new_callable=AsyncMock) as sleep_mock:
             await self.executor.execute(entries)
 
         # The first wait is short, and the data is kept for the retry.
-        sleep_mock.assert_awaited_once_with(1)
+        sleep_mock.assert_awaited_once()
+        self.assertAlmostEqual(sleep_mock.await_args.args[0], 1)
         self.assertEqual(
             [status["item"] for status in self.executor.get_status()],
             [entries[0].item.to_dict()])
