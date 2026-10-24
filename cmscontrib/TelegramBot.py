@@ -179,7 +179,8 @@ def load_cutoff(path: str, has_sent_questions: bool) -> datetime.datetime:
     The first start of the bot writes the current time in path, so that a
     bot that serves a contest with a history does not post all of it.
 
-    path: the file that keeps the cutoff.
+    path: the file that keeps the cutoff; a file that cannot be read is
+        taken as missing.
     has_sent_questions: whether the bot has already posted questions; an
         install that did so before the cutoff existed keeps posting
         everything, as it always did, and writes no file.
@@ -190,12 +191,14 @@ def load_cutoff(path: str, has_sent_questions: bool) -> datetime.datetime:
     try:
         with open(path) as f:
             return datetime.datetime.fromisoformat(f.read().strip())
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         if has_sent_questions:
             return EPOCH
     cutoff = make_datetime()
-    with open(path, "w") as f:
+    # Replace, not write in place: a partial file would stop every start.
+    with open(path + ".tmp", "w") as f:
         f.write(cutoff.isoformat())
+    os.replace(path + ".tmp", path)
     return cutoff
 
 
@@ -256,9 +259,11 @@ class TelegramBot:
 
         self.question_status = load_status(self.question_storage_dir)
         self.announcement_status = load_status(self.announcement_storage_dir)
+        # The state of a bot for all the contests always has contest names:
+        # what a single-contest run left would post every contest's history.
         self.cutoff = load_cutoff(
             os.path.join(config.global_.data_dir, "telegram", "cutoff"),
-            bool(self.question_status),
+            bool(self.question_status) and self.contest_id is not None,
         )
 
         for (qid, q) in self.question_status.items():
@@ -312,7 +317,7 @@ class TelegramBot:
         text = text.strip()
         with SessionGen() as ses:
             question = Question.get_from_id(qid, ses)
-            question.reply_timestamp = datetime.datetime.now()
+            question.reply_timestamp = make_datetime()
             question.ignored = False
             question.reply_text = text
             question.reply_subject = ""
@@ -339,7 +344,7 @@ class TelegramBot:
                 question.reply_text = None
                 question.reply_subject = None
             else:
-                question.reply_timestamp = datetime.datetime.now()
+                question.reply_timestamp = make_datetime()
                 question.ignored = False
                 question.reply_text = ""
                 question.reply_subject = text
@@ -434,9 +439,13 @@ class TelegramBot:
                     # Telegram lets a group get about 20 messages a minute,
                     # and the end of a contest sends more. The same item is
                     # retried, not skipped: the order of the questions matters.
-                    logger.warning("Telegram flood control, waiting %s s",
-                                   flood.retry_after)
-                    await asyncio.sleep(flood.retry_after)
+                    retry = flood.retry_after
+                    # An int, or a timedelta in newer python-telegram-bot.
+                    if hasattr(retry, "total_seconds"):
+                        retry = retry.total_seconds()
+                    logger.warning(
+                        "Telegram flood control, waiting %s s", retry)
+                    await asyncio.sleep(retry)
                 except Exception:
                     # shortcut: an item that always fails is tried and logged
                     # again at every poll (1 s), upgrade to a per-item
@@ -474,6 +483,7 @@ class TelegramBot:
         An answer from AWS, or a second click on the same button, changes
         a stored column but not the text, and Telegram refuses an edit that
         changes nothing. The message is as wanted, so that is not a failure.
+        Neither is a message that was deleted from the chat.
 
         """
         try:
@@ -485,7 +495,12 @@ class TelegramBot:
                 reply_markup=reply_markup,
             )
         except BadRequest as error:
-            if "message is not modified" not in error.message.lower():
+            message = error.message.lower()
+            if "message to edit not found" in message:
+                # An admin deleted it from the chat; no edit can work, and
+                # it is not posted again.
+                logger.warning("Message %s was deleted from the chat", msg_id)
+            elif "message is not modified" not in message:
                 raise
 
     async def question_callback(self, old: dict, new: dict) -> dict:
@@ -599,6 +614,10 @@ class TelegramBot:
                 .options(
                     joinedload(Question.participation)
                     .joinedload(Participation.user))
+                # shortcut: the working set is every question since the
+                # first start (about 162 ms per poll at 3000 questions, run
+                # on the event loop), upgrade to a running-contests filter
+                # if it grows.
                 .filter(Question.question_timestamp >= self.cutoff)
                 .order_by(Question.id)
             )

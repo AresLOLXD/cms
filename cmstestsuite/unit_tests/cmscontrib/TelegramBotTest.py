@@ -32,9 +32,11 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import yaml
 from sqlalchemy import event
 from telegram.error import BadRequest, RetryAfter
 
+from cms import config
 from cms.db import Announcement, engine
 from cmscommon.datetime import EPOCH, make_datetime
 from cmscontrib.TelegramBot import (
@@ -341,6 +343,29 @@ class TestLoadCutoff(unittest.TestCase):
         self.assertEqual(load_cutoff(self.path, has_sent_questions=True), EPOCH)
         self.assertFalse(os.path.exists(self.path))
 
+    def test_a_garbled_file_is_like_a_missing_one(self):
+        # A start that fails on it would be retried by supervisord until it
+        # gives up.
+        for content in ("", "yesterday"):
+            with self.subTest(content=content):
+                with open(self.path, "w") as f:
+                    f.write(content)
+                before = make_datetime()
+
+                self.assertGreaterEqual(
+                    load_cutoff(self.path, has_sent_questions=False), before)
+                self.assertGreaterEqual(
+                    load_cutoff(self.path, has_sent_questions=False), before)
+
+    def test_the_file_is_replaced_not_written_in_place(self):
+        # A start interrupted while writing must not leave a partial file.
+        with patch("cmscontrib.TelegramBot.os.replace",
+                   wraps=os.replace) as replace:
+            load_cutoff(self.path, has_sent_questions=False)
+
+        replace.assert_called_once()
+        self.assertEqual(os.listdir(os.path.dirname(self.path)), ["cutoff"])
+
     def test_the_file_wins_over_the_state(self):
         with open(self.path, "w") as f:
             f.write("2026-10-10T12:00:00")
@@ -348,6 +373,77 @@ class TestLoadCutoff(unittest.TestCase):
         self.assertEqual(
             load_cutoff(self.path, has_sent_questions=True),
             datetime(2026, 10, 10, 12))
+
+
+class TestCutoffOfAStartedBot(unittest.TestCase):
+
+    def start(self, contest_id):
+        """Start a bot that has the state of an old single-contest run.
+
+        contest_id (int|None): the contest the bot serves, None for all.
+
+        return (TelegramBot, str): the bot and its data directory.
+
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        questions = os.path.join(directory.name, "telegram", "question")
+        os.makedirs(questions)
+        with open(os.path.join(questions, "3.yaml"), "w") as f:
+            yaml.safe_dump({"id": 3, "msg_id": 5}, f)
+        with patch.object(config.global_, "data_dir", directory.name):
+            return (TelegramBot("1", "123456:ABC-DEF", contest_id),
+                    directory.name)
+
+    def test_single_contest_keeps_posting_everything(self):
+        bot, directory = self.start(7)
+
+        self.assertEqual(bot.cutoff, EPOCH)
+        self.assertFalse(
+            os.path.exists(os.path.join(directory, "telegram", "cutoff")))
+
+    def test_all_contests_starts_from_now_despite_the_old_state(self):
+        # The old state has no contest names, and the history of every
+        # contest would be posted.
+        bot, directory = self.start(None)
+
+        self.assertGreater(bot.cutoff, datetime(2020, 1, 1))
+        self.assertTrue(
+            os.path.exists(os.path.join(directory, "telegram", "cutoff")))
+
+
+class TestAnswerTimestamps(DatabaseMixin, unittest.TestCase):
+
+    def tearDown(self):
+        self.delete_data()
+        super().tearDown()
+
+    def test_answers_are_stamped_in_utc(self):
+        # CWS compares reply_timestamp with a naive UTC time, so a local
+        # time (the container has TZ=CMS_TIMEZONE) hides the answer.
+        question = self.add_question(participation=self.add_participation())
+        self.session.commit()
+        bot = TelegramBot.__new__(TelegramBot)
+        bot.chat_id = 1
+        bot.msg_id_to_qid = {10: question.id}
+        update = MagicMock()
+        update.effective_chat.id = 1
+
+        update.message.text = "/answer Reply here"
+        update.message.reply_to_message.message_id = 10
+        with patch("cmscontrib.TelegramBot.make_datetime",
+                   return_value=datetime(2026, 10, 10, 12)):
+            run(bot.custom_answer(update, MagicMock()))
+        self.session.expire_all()
+        self.assertEqual(question.reply_timestamp, datetime(2026, 10, 10, 12))
+
+        update.callback_query.data = f"{question.id} Yes"
+        update.callback_query.answer = AsyncMock()
+        with patch("cmscontrib.TelegramBot.make_datetime",
+                   return_value=datetime(2026, 10, 10, 13)):
+            run(bot.answer(update, MagicMock()))
+        self.session.expire_all()
+        self.assertEqual(question.reply_timestamp, datetime(2026, 10, 10, 13))
 
 
 class TestQuestionText(unittest.TestCase):
@@ -556,6 +652,19 @@ class TestStoreRobustness(unittest.TestCase):
         self.assertTrue(os.path.exists(
             os.path.join(self.bot.question_storage_dir, "3.yaml")))
 
+    def test_deleted_message_is_not_edited_again(self):
+        # An admin deleted the message from the chat: the edit can never
+        # work, so the question is stored as it is and not retried.
+        self.bot.question_status[3] = self.question(3, msg_id=10)
+        self.edit.side_effect = BadRequest("Message to edit not found")
+
+        with self.assertLogs("cmscontrib.TelegramBot", "WARNING"):
+            run(self.bot.store_question(
+                self.question(3, ignored=True), self.bot.question_callback))
+
+        self.assertTrue(self.bot.question_status[3]["ignored"])
+        self.send.assert_not_awaited()
+
     def test_loop_goes_on_after_a_failed_question(self):
         self.send.side_effect = [
             RuntimeError("Telegram is down"),
@@ -583,6 +692,17 @@ class TestStoreRobustness(unittest.TestCase):
         self.sleep.assert_awaited_once_with(3)
         self.assertEqual(self.send.await_count, 2)
         self.assertEqual(self.bot.question_status[1]["msg_id"], 6)
+
+    def test_flood_control_wait_may_be_a_timedelta(self):
+        # Newer python-telegram-bot versions give a timedelta.
+        flood = RetryAfter(3)
+        flood.retry_after = timedelta(seconds=3)
+        self.send.side_effect = [flood, SimpleNamespace(message_id=6)]
+
+        run(self.bot.store_question(
+            self.question(1), self.bot.question_callback))
+
+        self.sleep.assert_awaited_once_with(3)
 
 
 if __name__ == "__main__":
