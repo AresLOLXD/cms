@@ -60,8 +60,6 @@ logger = logging.getLogger(__name__)
 
 
 class ContestUsersHandler(BaseHandler):
-    REMOVE_FROM_CONTEST = "Remove from contest"
-
     def _get_sync(self, contest_id):
         self.contest = self.safe_get_item(Contest, contest_id)
 
@@ -80,35 +78,6 @@ class ContestUsersHandler(BaseHandler):
     async def get(self, contest_id):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._get_sync, contest_id)
-
-    def _post_sync(self, contest_id):
-        fallback_page = self.url("contest", contest_id, "users")
-
-        try:
-            user_id = self.get_argument("user_id")
-            operation = self.get_argument("operation")
-            assert operation in (
-                self.REMOVE_FROM_CONTEST,
-            ), "Please select a valid operation"
-        except Exception as error:
-            self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
-            self.redirect(fallback_page)
-            return
-
-        if operation == self.REMOVE_FROM_CONTEST:
-            asking_page = \
-                self.url("contest", contest_id, "user", user_id, "remove")
-            # Open asking for remove page
-            self.redirect(asking_page)
-            return
-
-        self.redirect(fallback_page)
-
-    @require_permission(BaseHandler.PERMISSION_ALL)
-    async def post(self, contest_id):
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._post_sync, contest_id)
 
 
 class RemoveParticipationHandler(BaseHandler):

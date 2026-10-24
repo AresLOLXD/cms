@@ -24,6 +24,7 @@ The messages are meant to be shown as they are in the page.
 """
 
 import dataclasses
+import hashlib
 import re
 from collections.abc import Sequence
 from datetime import datetime
@@ -31,15 +32,16 @@ from datetime import datetime
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
-from cms.db import Participation, Submission, User, UserTest
+from cms.db import Contest, Participation, Submission, User, UserTest
 from cmscommon.datetime import make_datetime
 
 MAX_LIST_BYTES = 1024 * 1024
 # The most users that one removal takes. The confirmation page posts one
-# user_id per planned user and 3 fields of its own (the XSRF token, the
-# action and the typed count), and AWS parses at most 10,000 arguments
-# of a form (MAX_FORM_FIELDS in cms/server/admin/server.py); this stays
-# 100 under that, so that the form is always parsed.
+# user_id per planned user and 4 fields of its own (the XSRF token, the
+# action, the fingerprint and the typed count), and AWS parses at most
+# 10,000 arguments of a form (MAX_FORM_FIELDS in
+# cms/server/admin/server.py); this stays 100 under that, so that the form
+# is always parsed.
 MAX_PLAN_USERS = 9_900
 # Why a value of the selection is not removed.
 NOT_FOUND = "no existe"
@@ -109,6 +111,9 @@ class RemovalPlan:
     users: list[RemovalEntry]
     ignored: list[tuple[str, str]]
     running: bool
+    # The ranking groups of the contests concerned (None is the root),
+    # which the public scoreboards still show the users in.
+    groups: list[str | None]
 
     @property
     def user_ids(self) -> list[int]:
@@ -121,6 +126,21 @@ class RemovalPlan:
     @property
     def user_tests(self) -> int:
         return sum(entry.user_tests for entry in self.users)
+
+    @property
+    def fingerprint(self) -> str:
+        """A digest of what the admin is shown, to notice a stale plan.
+
+        It covers the users with their counts and contests, and the
+        running state; not what is ignored, which a confirmation, that
+        names the users by id, does not see.
+
+        """
+        shown = [(entry.user_id, entry.submissions, entry.user_tests,
+                  entry.contests)
+                 for entry in sorted(self.users, key=lambda e: e.user_id)]
+        return hashlib.sha256(
+            repr((shown, self.running)).encode("utf-8")).hexdigest()
 
 
 def _count_by_user(session: Session, model, participation_ids: list[int]
@@ -178,7 +198,8 @@ def plan_removal(session: Session, *, contest_id: int | None,
     if found:
         query = select(Participation) \
             .where(Participation.user_id.in_(list(found))) \
-            .options(joinedload(Participation.contest),
+            .options(joinedload(Participation.contest)
+                     .joinedload(Contest.ranking_group),
                      joinedload(Participation.group))
         if contest_id is not None:
             query = query.where(Participation.contest_id == contest_id)
@@ -213,9 +234,23 @@ def plan_removal(session: Session, *, contest_id: int | None,
                      user_tests=user_tests.get(user.id, 0),
                      contests=sorted(contests.get(user.id, set())))
         for user in sorted(found.values(), key=lambda u: u.username)]
-    running = any(p.group.start <= now < p.group.stop
-                  for p in participations)
-    return RemovalPlan(users=users, ignored=ignored, running=running)
+    # The window of compute_actual_phase for a traditional contest, ends
+    # included.
+    # shortcut: ignores per_user_time and starting_time, so it can only
+    # warn when it need not; upgrade if USACO-like contests are used.
+    running = any(
+        p.group.start + p.delay_time <= now
+        <= p.group.stop + p.delay_time + p.extra_time
+        for p in participations)
+    # shortcut: assumes ranking groups; a ProxyService serving a single
+    # contest (CMS_CONTEST_ID=<id>) sends it to the root whatever its
+    # group. Upgrade if that mode is used with groups.
+    groups = sorted(
+        {None if p.contest.ranking_group is None
+         else p.contest.ranking_group.name for p in participations},
+        key=lambda name: name or "")
+    return RemovalPlan(users=users, ignored=ignored, running=running,
+                       groups=groups)
 
 
 def remove_users(session: Session, user_ids: Sequence[int]) -> int:

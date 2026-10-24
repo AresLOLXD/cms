@@ -51,9 +51,15 @@ def entry(user_id, username, submissions=0, contests=("dia1",)):
                         contests=list(contests))
 
 
-def make_plan(*entries, ignored=(), running=False):
+def make_plan(*entries, ignored=(), running=False, groups=()):
     return RemovalPlan(users=list(entries), ignored=list(ignored),
-                       running=running)
+                       running=running, groups=list(groups))
+
+
+def confirm_form(plan):
+    """The form of the confirmation page of plan, filled in right."""
+    return {"action": "confirm", "expected_count": str(len(plan.users)),
+            "fingerprint": plan.fingerprint}
 
 
 def fake_url(*parts):
@@ -91,7 +97,6 @@ def make_handler(handler_class=BulkRemoveUsersHandler, *, form=None,
     handler.redirect = mock.MagicMock()
     handler.url = mock.MagicMock(side_effect=fake_url)
     handler.schedule_rpc = mock.MagicMock()
-    handler.try_commit = mock.MagicMock(return_value=True)
     return handler
 
 
@@ -206,8 +211,11 @@ class TestPreview(unittest.TestCase):
 class TestConfirm(unittest.TestCase):
 
     def confirm(self, handler_class, plan, *, user_ids, expected_count,
-                contest_id=None):
-        form = {"action": "confirm", "expected_count": expected_count}
+                contest_id=None, fingerprint=None):
+        """Confirm plan, whose preview had fingerprint (default: its own)."""
+        form = dict(confirm_form(plan), expected_count=expected_count)
+        if fingerprint is not None:
+            form["fingerprint"] = fingerprint
         handler = make_handler(handler_class, form=form, user_ids=user_ids)
         with mock.patch(MODULE + ".plan_removal", return_value=plan), \
                 mock.patch(MODULE + ".remove_users",
@@ -221,21 +229,28 @@ class TestConfirm(unittest.TestCase):
         return handler, users, participations
 
     def test_platform_removal(self):
-        plan = make_plan(entry(7, "ana"), entry(9, "beto"))
+        plan = make_plan(entry(7, "ana"), entry(9, "beto"),
+                         groups=[None, "omi"])
         handler, users, participations = self.confirm(
             BulkRemoveUsersHandler, plan, user_ids=["9", "7"],
             expected_count="2")
 
         users.assert_called_once_with(handler.sql_session, [7, 9])
         participations.assert_not_called()
-        handler.try_commit.assert_called_once_with()
-        handler.schedule_rpc.assert_called_once_with(
-            handler.service.proxy_service.reinitialize)
-        self.assertIn(("Se borraron 2 usuarios", ""), notifications(handler))
+        handler.sql_session.commit.assert_called_once_with()
+        # Each group that lost users is emptied and sent again (a
+        # reinitialize would not drop the removed users from RWS).
+        regenerate = handler.service.proxy_service.regenerate_ranking
+        self.assertEqual(handler.schedule_rpc.call_args_list, [
+            mock.call(regenerate, group=None),
+            mock.call(regenerate, group="omi")])
+        # Only ours: try_commit would add an "Operation successful."
+        self.assertEqual(notifications(handler),
+                         [("Se borraron 2 usuarios", "")])
         handler.redirect.assert_called_once_with("/users")
 
     def test_contest_removal(self):
-        plan = make_plan(entry(7, "ana"))
+        plan = make_plan(entry(7, "ana"), groups=["omi"])
         handler, users, participations = self.confirm(
             BulkRemoveParticipationsHandler, plan, user_ids=["7"],
             expected_count="1", contest_id=CONTEST_ID)
@@ -243,7 +258,8 @@ class TestConfirm(unittest.TestCase):
         participations.assert_called_once_with(
             handler.sql_session, CONTEST_ID, [7])
         users.assert_not_called()
-        handler.schedule_rpc.assert_called_once()
+        handler.schedule_rpc.assert_called_once_with(
+            handler.service.proxy_service.regenerate_ranking, group="omi")
         self.assertIn(("Se quitó 1 participación", ""),
                       notifications(handler))
         handler.redirect.assert_called_once_with("/contest/4/users")
@@ -275,6 +291,19 @@ class TestConfirm(unittest.TestCase):
         for part in ("root", "2", "platform", "ana", "beto"):
             self.assertIn(part, message)
 
+    def test_a_long_list_of_usernames_is_cut_in_the_log(self):
+        plan = make_plan(*(entry(i, "user%d" % i) for i in range(250)))
+        with self.assertLogs(MODULE, level="INFO") as logged:
+            self.confirm(BulkRemoveUsersHandler, plan,
+                         user_ids=[str(i) for i in range(250)],
+                         expected_count="250")
+
+        (record,) = logged.records
+        message = record.getMessage()
+        self.assertIn("user199", message)
+        self.assertNotIn("user200", message)
+        self.assertTrue(message.endswith("and 50 more."), message[-30:])
+
     def test_a_contest_removal_is_logged_with_the_contest(self):
         plan = make_plan(entry(7, "ana"))
         with self.assertLogs(MODULE, level="INFO") as logged:
@@ -301,60 +330,69 @@ class TestConfirm(unittest.TestCase):
             self.assertIs(params["plan"], plan)
 
     def test_a_changed_plan_removes_nothing(self):
-        # Beto was removed by someone else since the preview.
-        plan = make_plan(entry(7, "ana"), ignored=[("9", NOT_FOUND)])
-        handler, users, _ = self.confirm(
-            BulkRemoveUsersHandler, plan, user_ids=["7", "9"],
-            expected_count="2")
+        # Beto was removed by someone else since the preview, and ana got
+        # a submission.
+        previewed = make_plan(entry(7, "ana"), entry(9, "beto"))
+        for current, fingerprint in (
+                (make_plan(entry(7, "ana")), previewed.fingerprint),
+                (make_plan(entry(7, "ana", submissions=1)),
+                 make_plan(entry(7, "ana")).fingerprint),
+                (make_plan(entry(7, "ana")), ""),
+                (make_plan(entry(7, "ana")), None)):
+            form = confirm_form(current)
+            form.pop("fingerprint")
+            if fingerprint is not None:
+                form["fingerprint"] = fingerprint
+            handler = make_handler(form=form, user_ids=["7"])
+            with mock.patch(MODULE + ".plan_removal", return_value=current), \
+                    mock.patch(MODULE + ".remove_users") as users:
+                handler._post_sync()
 
-        users.assert_not_called()
-        handler.schedule_rpc.assert_not_called()
-        params = handler.render.call_args.kwargs
-        self.assertEqual(params["error"], PLAN_CHANGED)
-        self.assertIs(params["plan"], plan)
+            users.assert_not_called()
+            handler.sql_session.commit.assert_not_called()
+            handler.schedule_rpc.assert_not_called()
+            params = handler.render.call_args.kwargs
+            self.assertEqual(params["error"], PLAN_CHANGED)
+            self.assertIs(params["plan"], current)
 
-    def test_a_failed_commit_schedules_no_rpc(self):
-        form = {"action": "confirm", "expected_count": "1"}
-        handler = make_handler(form=form, user_ids=["7"])
-        handler.try_commit.return_value = False
-        with mock.patch(MODULE + ".plan_removal",
-                        return_value=make_plan(entry(7, "ana"))), \
-                mock.patch(MODULE + ".remove_users", return_value=1):
-            handler._post_sync()
-
-        handler.schedule_rpc.assert_not_called()
-        handler.redirect.assert_called_once_with("/users")
-
-    def test_a_failed_commit_logs_nothing(self):
-        form = {"action": "confirm", "expected_count": "1"}
-        handler = make_handler(form=form, user_ids=["7"])
-        handler.try_commit.return_value = False
-        with mock.patch(MODULE + ".plan_removal",
-                        return_value=make_plan(entry(7, "ana"))), \
+    def failed_commit(self):
+        """Confirm a removal whose commit fails; return the handler."""
+        plan = make_plan(entry(7, "ana"))
+        handler = make_handler(form=confirm_form(plan), user_ids=["7"])
+        handler.sql_session.commit.side_effect = RuntimeError("deadlock")
+        with mock.patch(MODULE + ".plan_removal", return_value=plan), \
                 mock.patch(MODULE + ".remove_users", return_value=1), \
                 self.assertNoLogs(MODULE, level="INFO"):
             handler._post_sync()
+        return handler
+
+    def test_a_failed_commit_removes_nothing_and_says_so_once(self):
+        handler = self.failed_commit()
+
+        handler.sql_session.rollback.assert_called_once_with()
+        handler.schedule_rpc.assert_not_called()
+        handler.redirect.assert_called_once_with("/users")
+        self.assertEqual(notifications(handler), [
+            ("No se borró nada", repr(RuntimeError("deadlock")))])
 
     def test_a_failed_removal_rolls_back(self):
-        form = {"action": "confirm", "expected_count": "1"}
-        handler = make_handler(form=form, user_ids=["7"])
-        with mock.patch(MODULE + ".plan_removal",
-                        return_value=make_plan(entry(7, "ana"))), \
+        plan = make_plan(entry(7, "ana"))
+        handler = make_handler(form=confirm_form(plan), user_ids=["7"])
+        with mock.patch(MODULE + ".plan_removal", return_value=plan), \
                 mock.patch(MODULE + ".remove_users",
                            side_effect=RuntimeError("boom")):
             handler._post_sync()
 
         handler.sql_session.rollback.assert_called_once_with()
-        handler.try_commit.assert_not_called()
+        handler.sql_session.commit.assert_not_called()
         handler.schedule_rpc.assert_not_called()
         self.assertEqual(notifications(handler), [
             ("No se borró nada", repr(RuntimeError("boom")))])
 
     def failed_removal_text(self, error):
-        form = {"action": "confirm", "expected_count": "1"}
-        handler = make_handler(form=form, user_ids=["7"])
-        with mock.patch(MODULE + ".plan_removal",
-                        return_value=make_plan(entry(7, "ana"))), \
+        plan = make_plan(entry(7, "ana"))
+        handler = make_handler(form=confirm_form(plan), user_ids=["7"])
+        with mock.patch(MODULE + ".plan_removal", return_value=plan), \
                 mock.patch(MODULE + ".remove_users", side_effect=error):
             handler._post_sync()
         ((subject, text),) = notifications(handler)
@@ -434,18 +472,23 @@ class TestConfirmationPage(unittest.TestCase):
         plan = make_plan(entry(7, "ana", submissions=3,
                                contests=("dia1", "dia2")),
                          entry(9, "beto"),
-                         ignored=[("nadie", NOT_FOUND)])
+                         ignored=[("nadie", NOT_FOUND)],
+                         groups=[None, "omi"])
         html = self.render(plan)
 
         self.assertIn("ana", html)
         self.assertIn("dia1, dia2", html)
         self.assertIn("Se borrarán 2 usuarios, 3 envíos y 0 user tests.",
                       html)
+        self.assertIn("Rankings que se vaciarán y se enviarán otra vez: "
+                      "raíz (/), omi.", html)
         self.assertIn("nadie", html)
         self.assertIn(NOT_FOUND, html)
         self.assertIn('name="user_id" value="7"', html)
         self.assertIn('name="user_id" value="9"', html)
         self.assertIn('name="action" value="confirm"', html)
+        self.assertIn('name="fingerprint" value="%s"' % plan.fingerprint,
+                      html)
         self.assertIn('name="expected_count"', html)
         self.assertIn("Escribe 2 para confirmar", html)
         self.assertNotIn("bulk_remove_running", html)
@@ -455,8 +498,21 @@ class TestConfirmationPage(unittest.TestCase):
         html = self.render(make_plan(entry(7, "ana"), running=True),
                            contest=contest)
 
-        self.assertIn("Se quitarán 1 participaciones de este concurso", html)
+        self.assertIn("Se quitará 1 participación de este concurso, con", html)
         self.assertIn("bulk_remove_running", html)
+        self.assertNotIn("Rankings que se vaciarán", html)
+
+    def test_one_user_is_told_in_the_singular(self):
+        html = self.render(make_plan(entry(7, "ana")))
+
+        self.assertIn("Se borrará 1 usuario, 0 envíos", html)
+
+    def test_several_participations_are_told_in_the_plural(self):
+        contest = SimpleNamespace(id=CONTEST_ID, name="dia1")
+        html = self.render(make_plan(entry(7, "ana"), entry(9, "beto")),
+                           contest=contest)
+
+        self.assertIn("Se quitarán 2 participaciones de este concurso", html)
 
     def test_error_line(self):
         html = self.render(make_plan(entry(7, "ana")), error=WRONG_COUNT)
@@ -489,5 +545,38 @@ class TestConfirmationPage(unittest.TestCase):
         arguments = len(re.findall(
             r'<(?:input|select|textarea|button)\b[^>]*\sname="', html))
 
-        self.assertEqual(arguments, MAX_PLAN_USERS + 3)
+        self.assertEqual(arguments, MAX_PLAN_USERS + 4)
         self.assertLessEqual(arguments, MAX_FORM_FIELDS - 50)
+
+
+class TestUserPageRemoveButton(unittest.TestCase):
+
+    def test_it_opens_the_bulk_preview_of_that_user(self):
+        template = AWS_ENVIRONMENT.get_template("user.html")
+        user = SimpleNamespace(
+            id=7, first_name="Ana", last_name="Perez", username="ana",
+            password="plaintext:x", email="", preferred_languages=[],
+            timezone="")
+        params = {"url": fake_url, "xsrf_form_html": "",
+                  "admin": SimpleNamespace(permission_all=True),
+                  "user": user, "participations": [],
+                  "unassigned_contests": []}
+        html = "".join(template.blocks["core"](template.new_context(params)))
+
+        (form,) = re.findall(
+            r'<form action="/users/remove".*?</form>', html, re.DOTALL)
+        self.assertNotIn('name="operation"', form)
+        # What the button posts gives the preview of that user alone.
+        posted = dict(re.findall(
+            r'<input type="hidden" name="(\w+)" value="([^"]*)"', form))
+        handler = make_handler(form={"action": posted["action"]},
+                               user_ids=[posted["user_id"]])
+        plan = make_plan(entry(7, "ana"))
+        with mock.patch(MODULE + ".plan_removal",
+                        return_value=plan) as planner:
+            handler._post_sync()
+
+        planner.assert_called_once_with(
+            handler.sql_session, contest_id=None, user_ids=[7],
+            usernames=[])
+        self.assertIs(handler.render.call_args.kwargs["plan"], plan)

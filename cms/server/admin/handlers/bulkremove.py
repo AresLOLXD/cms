@@ -32,12 +32,15 @@ from .base import BaseHandler, require_permission
 NOTHING_CHOSEN = "No elegiste ningún usuario."
 WRONG_COUNT = ("El número escrito no coincide con el número de usuarios. "
                "No se borró nada.")
-PLAN_CHANGED = ("La selección cambió desde la vista previa: revisa la "
-                "lista y confirma otra vez. No se borró nada.")
+PLAN_CHANGED = ("La selección cambió desde la vista previa (los usuarios, "
+                "sus concursos o envíos, o si hay un concurso en curso): "
+                "revisa la lista y confirma otra vez. No se borró nada.")
 PLAN_TOO_LARGE = "La selección es demasiado grande"
 PLAN_TOO_LARGE_TEXT = ("Son %d usuarios y el máximo por vez es %d. "
                        "Divídela en listas más pequeñas.")
 MAX_ERROR_LENGTH = 300
+# The most usernames that the audit log line names; it counts the rest.
+MAX_LOGGED_USERNAMES = 200
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +51,8 @@ class _BulkRemoveHandler(BaseHandler):
     POST with action=preview (the default) shows what would be removed:
     the checked user_id values and the usernames of the "usernames"
     textarea and of the "file" upload. POST with action=confirm removes
-    the posted user_id values, if they still resolve to the same users
-    and expected_count is their number.
+    the posted user_id values, if the plan is still the one the preview
+    showed (its fingerprint) and expected_count is the number of users.
 
     """
 
@@ -117,7 +120,7 @@ class _BulkRemoveHandler(BaseHandler):
             return
         plan = plan_removal(self.sql_session, contest_id=self._scope_id(),
                             user_ids=user_ids)
-        if len(plan.users) != len(set(user_ids)):
+        if self.get_argument("fingerprint", "") != plan.fingerprint:
             self._render_plan(plan, PLAN_CHANGED)
             return
         if self.get_argument("expected_count", "") != str(len(plan.users)):
@@ -129,6 +132,9 @@ class _BulkRemoveHandler(BaseHandler):
             else:
                 count = remove_participations(
                     self.sql_session, self.contest.id, plan.user_ids)
+            # Inside the try, so that a failed commit is told like a
+            # failed DELETE; try_commit would add its own notification.
+            self.sql_session.commit()
         except Exception as error:
             self.sql_session.rollback()
             # A failed DELETE repr() holds the SQL with one placeholder
@@ -138,21 +144,27 @@ class _BulkRemoveHandler(BaseHandler):
             self._notify("No se borró nada", text[:MAX_ERROR_LENGTH])
             self.redirect(self._back_url)
             return
-        if self.try_commit():
-            self.schedule_rpc(self.service.proxy_service.reinitialize)
-            if self.contest is None:
-                scope = "the platform"
-                subject = "Se borró 1 usuario" if count == 1 \
-                    else "Se borraron %d usuarios" % count
-            else:
-                scope = "contest %s (id %s)" % (self.contest.name,
-                                                self.contest.id)
-                subject = "Se quitó 1 participación" if count == 1 \
-                    else "Se quitaron %d participaciones" % count
-            logger.info("Admin %s removed %d user(s) from %s: %s.",
-                        self.current_user.name, count, scope,
-                        ", ".join(entry.username for entry in plan.users))
-            self._notify(subject, "")
+        # reinitialize only resets the groups that lost contests, and RWS
+        # only merges what it receives: the removed users would stay.
+        for group in plan.groups:
+            self.schedule_rpc(self.service.proxy_service.regenerate_ranking,
+                              group=group)
+        if self.contest is None:
+            scope = "the platform"
+            subject = "Se borró 1 usuario" if count == 1 \
+                else "Se borraron %d usuarios" % count
+        else:
+            scope = "contest %s (id %s)" % (self.contest.name,
+                                            self.contest.id)
+            subject = "Se quitó 1 participación" if count == 1 \
+                else "Se quitaron %d participaciones" % count
+        usernames = [entry.username for entry in plan.users]
+        logged = ", ".join(usernames[:MAX_LOGGED_USERNAMES])
+        if len(usernames) > MAX_LOGGED_USERNAMES:
+            logged += " and %d more" % (len(usernames) - MAX_LOGGED_USERNAMES)
+        logger.info("Admin %s removed %d user(s) from %s: %s.",
+                    self.current_user.name, count, scope, logged)
+        self._notify(subject, "")
         self.redirect(self._back_url)
 
     def _render_plan(self, plan: RemovalPlan, error: str | None) -> None:

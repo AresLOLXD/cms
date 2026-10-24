@@ -20,13 +20,13 @@
 """Tests for the bulk removal of AWS run against the database."""
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 
 from cms.db import Evaluation, Executable, File, Message, Participation, \
-    Question, Submission, SubmissionResult, User, UserTest, UserTestFile, \
-    UserTestResult
+    Question, RankingGroup, Submission, SubmissionResult, User, UserTest, \
+    UserTestFile, UserTestResult
 from cms.server.admin.bulkremove import NOT_FOUND, NOT_IN_CONTEST, \
     plan_removal, remove_participations, remove_users
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -112,6 +112,19 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
         self.assertEqual(plan.user_ids, [ana.id])
         self.assertEqual(plan.ignored, [])
 
+    def test_a_user_chosen_by_id_and_by_name_is_listed_once(self):
+        ana, _ = self.add_participant("ana")
+        self.add_participant("beto")
+        self.session.commit()
+
+        plan = plan_removal(self.session, contest_id=None,
+                            user_ids=[ana.id], usernames=["beto", "ana"],
+                            now=NOW)
+
+        self.assertEqual([entry.username for entry in plan.users],
+                         ["ana", "beto"])
+        self.assertEqual(plan.ignored, [])
+
     def test_usernames_match_exactly(self):
         self.add_participant("ana")
         self.session.commit()
@@ -135,6 +148,19 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
         self.assertEqual(plan.users[0].contests, ["dia1"])
         self.assertEqual(plan.ignored, [("beto", NOT_IN_CONTEST),
                                         ("nadie", NOT_FOUND)])
+
+    def test_contest_scope_ignores_a_checked_user_who_does_not_participate(
+            self):
+        beto, _ = self.add_participant("beto", self.other_contest)
+        self.session.commit()
+
+        plan = plan_removal(self.session, contest_id=self.contest.id,
+                            user_ids=[beto.id], now=NOW)
+
+        self.assertEqual(plan.users, [])
+        self.assertEqual(plan.ignored, [("beto", NOT_IN_CONTEST)])
+        self.assertEqual(remove_participations(
+            self.session, self.contest.id, plan.user_ids), 0)
 
     def test_contest_scope_counts_that_contest_only(self):
         ana, ana_p = self.add_participant("ana")
@@ -164,19 +190,55 @@ class TestPlanRemoval(BulkRemoveDatabaseTestCase):
         this_contest = plan_removal(self.session,
                                     contest_id=self.contest.id,
                                     user_ids=[ana.id], now=NOW)
-        at_the_stop = plan_removal(
-            self.session, contest_id=None, user_ids=[ana.id],
-            now=datetime(2026, 10, 10, 14, 0))
 
         self.assertTrue(platform.running)
         self.assertFalse(this_contest.running)
-        self.assertFalse(at_the_stop.running)
+
+    def test_running_window_is_inclusive_and_follows_delay_and_extra(self):
+        # The window of compute_actual_phase: both ends count, and the
+        # participation's delay and extra time move them.
+        ana, _ = self.add_participant("ana", self.other_contest)
+        beto, beto_p = self.add_participant("beto", self.other_contest)
+        beto_p.delay_time = timedelta(minutes=30)
+        beto_p.extra_time = timedelta(hours=1)
+        self.other_contest.main_group.start = datetime(2026, 10, 10, 9, 0)
+        self.other_contest.main_group.stop = datetime(2026, 10, 10, 14, 0)
+        self.session.commit()
+        second = timedelta(seconds=1)
+
+        for user, start, stop in (
+                (ana, datetime(2026, 10, 10, 9, 0),
+                 datetime(2026, 10, 10, 14, 0)),
+                (beto, datetime(2026, 10, 10, 9, 30),
+                 datetime(2026, 10, 10, 15, 30))):
+            for now, running in ((start - second, False), (start, True),
+                                 (stop, True), (stop + second, False)):
+                plan = plan_removal(self.session, contest_id=None,
+                                    user_ids=[user.id], now=now)
+                self.assertEqual(plan.running, running, (user.username, now))
+
+    def test_groups_are_the_ranking_groups_of_the_counted_contests(self):
+        # dia1 is in no ranking group (the root), dia2 is in "omi".
+        self.other_contest.ranking_group = RankingGroup(
+            name="omi", description="OMI")
+        ana, _ = self.add_participant("ana")
+        self.add_participation(user=ana, contest=self.other_contest)
+        self.session.commit()
+
+        platform = plan_removal(self.session, contest_id=None,
+                                user_ids=[ana.id], now=NOW)
+        this_contest = plan_removal(self.session,
+                                    contest_id=self.other_contest.id,
+                                    user_ids=[ana.id], now=NOW)
+
+        self.assertEqual(platform.groups, [None, "omi"])
+        self.assertEqual(this_contest.groups, ["omi"])
 
     def test_nothing_chosen(self):
         plan = plan_removal(self.session, contest_id=None, now=NOW)
 
-        self.assertEqual((plan.users, plan.ignored, plan.running),
-                         ([], [], False))
+        self.assertEqual((plan.users, plan.ignored, plan.running, plan.groups),
+                         ([], [], False, []))
 
 
 class TestRemove(BulkRemoveDatabaseTestCase):

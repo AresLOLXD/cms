@@ -20,7 +20,8 @@
 
 import unittest
 
-from cms.server.admin.bulkremove import MAX_LIST_BYTES, parse_usernames
+from cms.server.admin.bulkremove import MAX_LIST_BYTES, RemovalEntry, \
+    RemovalPlan, parse_usernames
 
 
 class TestParseUsernames(unittest.TestCase):
@@ -84,3 +85,29 @@ class TestParseUsernames(unittest.TestCase):
             parse_usernames("josé\n".encode("latin-1"))
         self.assertEqual(str(caught.exception),
                          "la lista no está en UTF-8")
+
+
+class TestFingerprint(unittest.TestCase):
+
+    def plan(self, *user_ids, submissions=0, running=False, ignored=(),
+             contests=("dia1",)):
+        users = [RemovalEntry(user_id=user_id, username="u%d" % user_id,
+                              first_name="", last_name="",
+                              submissions=submissions, user_tests=0,
+                              contests=list(contests))
+                 for user_id in user_ids]
+        return RemovalPlan(users=users, ignored=list(ignored),
+                           running=running, groups=[])
+
+    def test_it_ignores_the_order_and_what_is_ignored(self):
+        self.assertEqual(
+            self.plan(3, 1).fingerprint,
+            self.plan(1, 3, ignored=[("x", "no existe")]).fingerprint)
+
+    def test_it_follows_users_counts_contests_and_running_state(self):
+        base = self.plan(1, 3).fingerprint
+        self.assertNotEqual(base, self.plan(1).fingerprint)
+        self.assertNotEqual(base, self.plan(1, 3, submissions=1).fingerprint)
+        self.assertNotEqual(base, self.plan(1, 3, running=True).fingerprint)
+        self.assertNotEqual(
+            base, self.plan(1, 3, contests=("dia1", "dia2")).fingerprint)
