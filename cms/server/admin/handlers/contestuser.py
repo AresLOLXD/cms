@@ -404,7 +404,8 @@ class ImportPageHandler(BaseHandler):
                      errors: list[str] | None = None,
                      summary: dict[str, int] | None = None,
                      job: ImportJob | None = None,
-                     notice: str | None = None) -> None:
+                     notice: str | None = None,
+                     preview: dict[str, str | None] | None = None) -> None:
         """Render the page.
 
         The template gets every one of these parameters, as AWS renders
@@ -417,6 +418,9 @@ class ImportPageHandler(BaseHandler):
         job: the import job whose progress to show, instead of the form.
         notice: something to tell the admin that is not an error, as
             errors say that nothing was applied.
+        preview: field -> value of the first row of the file, after
+            "validate", so that the admin sees a wrong mapping. Never the
+            password.
 
         """
         self.r_params = self.render_params()
@@ -428,6 +432,7 @@ class ImportPageHandler(BaseHandler):
         self.r_params["summary"] = summary
         self.r_params["job"] = job
         self.r_params["notice"] = notice
+        self.r_params["preview"] = preview
         self.render("contest_users_import.html", **self.r_params)
 
     def _job_url(self, job: ImportJob) -> str:
@@ -476,7 +481,10 @@ class ImportPageHandler(BaseHandler):
             self._render_page(mapping, errors=errors)
             return
         if self.get_argument("action", "validate") != "import":
-            self._render_page(mapping, summary=plan.summary())
+            first = rows[0]
+            self._render_page(mapping, summary=plan.summary(), preview={
+                field: getattr(first, field)
+                for field in self.fields if field != "password"})
             return
         service = self.service
 
