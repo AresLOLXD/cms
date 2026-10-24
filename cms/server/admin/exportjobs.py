@@ -107,6 +107,10 @@ def pack_zip(directory: str, name: str) -> str:
     return: the path of the zip, next to the dump.
 
     """
+    # shortcut: this runs in a thread of the AWS process, at the default
+    # deflate level and without lowering its priority, so a multi-GB
+    # export competes with AWS for a core while it packs; upgrade it to
+    # a niced child process if that slows the other admins down.
     archive = shutil.make_archive(os.path.join(directory, name), "zip",
                                   root_dir=directory, base_dir=name)
     shutil.rmtree(os.path.join(directory, name))
@@ -305,6 +309,9 @@ class ExportJobStore:
                                   os.path.join(job.directory, job.name)),
                 env={**os.environ, "TMPDIR": job.directory},
                 stdin=asyncio.subprocess.DEVNULL)
+            # shortcut: no time limit, so an exporter that hangs (a lock in
+            # the database, say) keeps new exports out until AWS restarts;
+            # upgrade it to asyncio.timeout() if that ever happens.
             code = await process.wait()
             if code != 0:
                 logger.error("Dump export by admin %d failed: the exporter "
