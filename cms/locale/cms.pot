@@ -552,6 +552,9 @@ msgstr ""
 msgid "An error occured while the server was handling your request."
 msgstr ""
 
+msgid "The server could not read the data of your request. It may have been damaged on its way, or it may contain too many files. Please try again; if you were sending output files one by one, send a single zip file instead. If the problem continues, notify the contest administrators."
+msgstr ""
+
 msgid "Note that attempts to tamper with Contest Management System (such as probing the server with customized URLs) may be considered cheating and may lead to disqualification."
 msgstr ""
 

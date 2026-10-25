@@ -44,6 +44,7 @@ except:
 
 import tornado.web
 from sqlalchemy import select
+from tornado.httputil import HTTPInputError
 from werkzeug.datastructures import LanguageAccept
 from werkzeug.http import parse_accept_header
 
@@ -181,7 +182,17 @@ class BaseHandler(CommonRequestHandler):
                 self.write("A critical error has occurred :-(")
                 self.finish()
                 return
-        self.render("error.html", status_code=status_code, **self.r_params)
+        # Tornado answers a body it cannot parse (too many parts, a part
+        # header too large, a damaged body) with a 400 raised from an
+        # HTTPInputError, before any handler runs. That is not a
+        # contestant forging URLs, and the page must not say so.
+        exc = kwargs["exc_info"][1] if "exc_info" in kwargs else None
+        invalid_body = (
+            status_code == 400
+            and isinstance(exc, tornado.web.HTTPError)
+            and isinstance(exc.__cause__, HTTPInputError))
+        self.render("error.html", status_code=status_code,
+                    invalid_body=invalid_body, **self.r_params)
 
     def is_multi_contest(self):
         """Return whether CWS serves all contests."""

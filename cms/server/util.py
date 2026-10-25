@@ -276,6 +276,18 @@ class CommonRequestHandler(RequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Resolve the real client IP from behind any trusted reverse
+        # proxies (see WebService's num_proxies_used). It is done here,
+        # not in prepare(), because a request can fail before prepare()
+        # (the body, the XSRF token) and Tornado logs that failure, and
+        # the page of its error may show it, with request.remote_ip.
+        # Local import to avoid a circular import: cms.io.web_service
+        # imports Url from this module.
+        from cms.io.web_service import resolve_remote_ip
+        self.request.remote_ip = resolve_remote_ip(
+            self.request.headers.get("X-Forwarded-For"),
+            self.request.remote_ip,
+            self.service.num_proxies_used)
         # When the handler was built. This is the time of everything
         # but the decisions taken at the stop (see arrival_time).
         self.timestamp = make_datetime()
@@ -311,15 +323,12 @@ class CommonRequestHandler(RequestHandler):
     async def prepare(self):
         """This method is executed at the beginning of each request.
 
-        First resolves the real client IP from behind any trusted
-        reverse proxies (see WebService's num_proxies_used), since
-        the auth hook below (or a handler's own get()/post()) may
-        depend on it -- e.g. the contestants' IP-lock feature. Then,
-        if the service was configured with an auth handler (see
+        If the service was configured with an auth handler (see
         WebService's auth_handler attribute), it's consulted here,
         before any handler-specific get()/post() runs: a False
         return from its authenticate() coroutine aborts the request
-        with 403.
+        with 403. It sees the real client IP, already resolved by
+        __init__().
 
         It also stores the running event loop, which schedule_rpc()
         submits its coroutines to.
@@ -327,13 +336,6 @@ class CommonRequestHandler(RequestHandler):
         """
         super().prepare()
         self._loop = asyncio.get_running_loop()
-        # Local import to avoid a circular import: cms.io.web_service
-        # imports Url from this module.
-        from cms.io.web_service import resolve_remote_ip
-        self.request.remote_ip = resolve_remote_ip(
-            self.request.headers.get("X-Forwarded-For"),
-            self.request.remote_ip,
-            self.service.num_proxies_used)
         auth_handler = getattr(self.service, "auth_handler", None)
         if auth_handler is not None:
             if not await auth_handler.authenticate(self):

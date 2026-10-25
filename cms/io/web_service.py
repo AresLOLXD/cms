@@ -195,6 +195,11 @@ class WebService(AsyncService):
         else:
             self.auth_handler = None
         num_proxies_used = parameters.pop('num_proxies_used', None) or 0
+        # Options of Tornado's HTTPServer, left at its defaults if absent.
+        http_server_options = {
+            key: parameters.pop(key)
+            for key in ('max_body_size', 'max_buffer_size', 'body_timeout')
+            if key in parameters}
 
         infra_handlers = []
         if static_files:
@@ -231,13 +236,14 @@ class WebService(AsyncService):
         # which would let a contestant spoof request.remote_ip and
         # bypass the IP-lock feature. request.remote_ip is therefore
         # always the raw TCP peer address here; resolve_remote_ip()
-        # below replicates ProxyFix's semantics explicitly. (Task 7's
-        # CommonRequestHandler.prepare() is responsible for calling
+        # below replicates ProxyFix's semantics explicitly.
+        # (CommonRequestHandler.__init__() is responsible for calling
         # resolve_remote_ip() with self.num_proxies_used and assigning
-        # the result to self.request.remote_ip, before any handler
-        # body or the auth hook runs.)
+        # the result to self.request.remote_ip, before the XSRF check,
+        # any handler body or the auth hook runs.)
         self.num_proxies_used = num_proxies_used
-        self._http_server = tornado.httpserver.HTTPServer(self.application)
+        self._http_server = tornado.httpserver.HTTPServer(
+            self.application, **http_server_options)
         self._http_server_sockets: list = []
 
     def run(self) -> bool:

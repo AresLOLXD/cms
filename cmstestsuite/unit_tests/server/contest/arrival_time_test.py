@@ -230,6 +230,9 @@ class HandlerTimesTest(unittest.TestCase):
 
         """
         application = tornado.web.Application([])
+        # As WebService sets it: the handler resolves the client IP
+        # with it when it is created.
+        service.num_proxies_used = 0
         application.service = service
         request = HTTPServerRequest(
             method="GET", uri="/", headers=HTTPHeaders(headers or {}),

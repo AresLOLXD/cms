@@ -38,7 +38,8 @@ from cmstestsuite.unit_tests.server.admin.pool_exhaustion_test import \
 from cms.conf import Address
 from cms.io.async_rpc import AsyncRemoteServiceServer
 from cms.server.admin import server
-from cms.server.admin.server import AdminWebServer
+from cms.server.admin.server import (
+    BODY_TIMEOUT, MAX_BODY_SIZE, AdminWebServer)
 from cmscommon.datetime import make_datetime
 
 
@@ -62,6 +63,13 @@ class TestConstruction(unittest.TestCase):
     def test_constructs_without_raising(self):
         server = AdminWebServer(0)
         self.assertIsNone(server.auth_handler)
+
+    def test_bounds_the_body_of_a_request(self):
+        http_server = AdminWebServer(0)._http_server
+        self.assertEqual(
+            http_server.conn_params.max_body_size, MAX_BODY_SIZE)
+        self.assertEqual(http_server.max_buffer_size, MAX_BODY_SIZE)
+        self.assertEqual(http_server.conn_params.body_timeout, BODY_TIMEOUT)
 
 
 class TestSubmissionsStatus(DatabaseMixin, unittest.TestCase):

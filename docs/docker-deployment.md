@@ -177,6 +177,10 @@ reverse_proxy 127.0.0.1:8888 {
 }
 ```
 
+If the same site also serves `/admin/`, that `request_body` caps `/admin/` at
+10 MB too, and an archive of testcases over it gets a 413. Leave `/admin/` out
+of it with a matcher, as `@no_files` does in "Request body limits" below.
+
 Once the proxy writes the header, put its name in `.env` and run
 `./restart.sh`:
 
@@ -234,15 +238,19 @@ Two harmless effects near the stop:
 
 ## Request body limits
 
-The reverse proxy is the only effective limit on the size of a request. The
-Contest Web Server and the Admin Web Server accept up to 100 MiB (the default
-of Tornado, the web framework they use), and they parse the body of a form
-before they check who sent it, so a large request costs them work even when it
-comes from someone who is not logged in. Set `max_size` in the `request_body`
-of each proxy site that forwards to them (see the Caddy example in
-"Submissions at the contest stop" above). A request over that size is refused
-by the proxy with a 413 or a connection reset: the person sees a browser error
-and no CMS page, and the CMS log shows nothing.
+The reverse proxy is the precise limit on the size of a request. The Contest
+Web Server and the Admin Web Server have a limit of their own, as a backstop:
+32 MiB and 100 MiB. They hold the body of a request in memory, and they parse
+the body of a form before they check who sent it, so a large request costs
+them work even when it comes from someone who is not logged in. Set `max_size`
+in the `request_body` of each proxy site that forwards to them (see the Caddy
+example in "Submissions at the contest stop" above). A request over that size
+is refused by the proxy with a 413 or a connection reset: the person sees a
+browser error and no CMS page, and the CMS log shows nothing. A request over
+the limit of the servers is answered with a bare 400 that Caddy turns into a
+blank 502, also with no CMS page, so keep the `max_size` of the proxy below
+it. If it happens, the log of the server has an INFO line, `Malformed HTTP
+message … Content-Length too long`, with the IP of the proxy.
 
 - **Contestants.** Set `max_size` to at least the larger of 5 MB (a user test
   can carry up to 5 MB of input) and the largest submission you expect. For an
@@ -250,15 +258,54 @@ and no CMS page, and the CMS log shows nothing.
   output, plus about 1 KiB per output for the overhead of the form. Add a
   margin. If you use `request_buffers` for the request time header, set it to
   the same size: Caddy can hold up to that many bytes in memory for each
-  request in flight, so do not set `max_size` far above what you need.
+  request in flight, so do not set `max_size` far above what you need. Keep it
+  below 32 MiB, the limit of the Contest Web Server. If the largest submission
+  you expect is over that (998 outputs of 100 KB each, for example), raise
+  `MAX_BODY_SIZE` in `cms/server/contest/server.py` too, and rebuild the image.
 - **Admins.** `/admin/` needs its own limit, large enough for the largest
-  archive you import through the Admin Web Server.
+  archive you import through the Admin Web Server, and at most 100 MiB, the
+  limit of that server.
 
 Because the Admin Web Server parses a body before it checks the login, anyone
 who can reach `/admin/` can make it parse a request of up to that size. We
 recommend that the proxy lets only your administrators reach `/admin/`, for
 example with Caddy's `basic_auth` or behind a VPN. This is only a
 recommendation: CMS works without it.
+
+Both servers also close the connection, with no response, when a body has not
+arrived whole 300 seconds (Contest Web Server) or 600 seconds (Admin Web
+Server) after its headers. Without `request_buffers`, Caddy passes the body on
+as it arrives, and the person sees a blank 502 from the proxy; the log of the
+server has an INFO line, `Timeout reading body from …`, with the IP of the
+proxy. With Caddy's `request_buffers` (see above), Caddy takes in a slow
+upload itself and hands the body over at once. Without it, 300 seconds still
+cover a 9 MB body at 256 kbit/s, and a 100 MiB archive in 600 seconds needs
+about 1.4 Mbit/s from the admin.
+
+The pages of the Contest Web Server that take no file (the login, a question,
+a token) need far less than the `max_size` of the site. In Caddy you can cap
+them at a few hundred KB, and leave the whole `max_size` to the submit and
+test paths: when two `request_body` apply to a path, the smaller `max_size`
+wins. The pattern allows the contest name before the path (when the server
+serves all contests) and the `/api/` submit. The second line leaves `/admin/`
+out: the admin uploads archives, and without that line this cap would refuse
+them with a 413 when `/admin/` is in the same site:
+
+```
+@no_files {
+    not path_regexp ^(/[^/]+)?/(tasks/[^/]+/(submit|test)|api/[^/]+/submit)$
+    not path /admin/*
+}
+request_body @no_files {
+    max_size 256KB
+}
+```
+
+Caddy's global option `servers { timeouts { read_header … read_body … } }`
+also limits how long a client may take to send its headers and its body to
+Caddy. We have run the snippet above on Caddy 2.11.7, but not that option: try
+it with a test user before the contest, and set `read_body` above the time of
+your slowest legitimate upload.
 
 ## CrowdSec and an expired admin session
 

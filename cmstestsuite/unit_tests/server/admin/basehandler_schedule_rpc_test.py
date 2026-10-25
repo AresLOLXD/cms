@@ -79,8 +79,8 @@ class TestBaseHandlerScheduleRpc(unittest.IsolatedAsyncioTestCase):
 
         app = tornado.web.Application([(r"/", _RpcHandler)])
         # As WebService sets it: the handlers need it when created, for
-        # the static file hasher.
-        app.service = MagicMock()
+        # the static file hasher and the client IP.
+        app.service = MagicMock(num_proxies_used=0)
         app.fake_rpc = fake_rpc
         # A real client that never connects: its calls fail with a plain
         # RPCError. The other one stands for a service that is not

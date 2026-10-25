@@ -14,6 +14,11 @@
 {% trans %}An error occured while the server was handling your request.{% endtrans %}
 </p>
 
+{% if invalid_body %}
+<p>
+{% trans %}The server could not read the data of your request. It may have been damaged on its way, or it may contain too many files. Please try again; if you were sending output files one by one, send a single zip file instead. If the problem continues, notify the contest administrators.{% endtrans %}
+</p>
+{% else %}
 <p>
 {% trans %}Note that attempts to tamper with Contest Management System (such as probing the server with customized URLs) may be considered cheating and may lead to disqualification.{% endtrans %}
 </p>
@@ -21,6 +26,7 @@
 <p>
 {% trans %}If you encountered this error during normal usage, please notify the contest administrators.{% endtrans %}
 </p>
+{% endif %}
 
 </div>
 {% endblock body %}

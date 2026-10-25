@@ -555,6 +555,9 @@ msgstr "Error %(status_code)s"
 msgid "An error occured while the server was handling your request."
 msgstr "Ocurrió un error mientras el servidor procesaba su solicitud."
 
+msgid "The server could not read the data of your request. It may have been damaged on its way, or it may contain too many files. Please try again; if you were sending output files one by one, send a single zip file instead. If the problem continues, notify the contest administrators."
+msgstr "El servidor no pudo leer los datos de su solicitud. Pueden haberse dañado en el camino o incluir demasiados archivos. Inténtelo de nuevo; si estaba enviando archivos de salida uno por uno, envíe un único archivo zip. Si el problema continúa, avise a los administradores del concurso."
+
 msgid "Note that attempts to tamper with Contest Management System (such as probing the server with customized URLs) may be considered cheating and may lead to disqualification."
 msgstr "Notar que cualquier intento de afectar el funcionamiento del sistema (como por ejemplo intentar acceder al servidor a través de URLs personalizadas) podría ser considerado un intento de trampa, y podría producir su descalificación."
 
