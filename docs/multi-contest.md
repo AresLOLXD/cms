@@ -204,10 +204,12 @@ someone fixes the data.
   minutes, the log says "Contest … (…) can be sent to the rankings again."
   and the contest is sent with all its scores, without a Regenerate.
 - **"Database error while reading contest … (…): …. Its scores are held back
-  and it is retried at the next sweep."** One line, without a traceback.
-  PostgreSQL failed (a timeout, a lost connection, no free connection) while
-  ProxyService read that contest. Nothing is wrong with the contest: it is
-  held back (with the contests not read yet, if ProxyService was sending
+  and it is retried at the next sweep."** The line has no traceback, but in
+  a sweep the sweeper logs "Unexpected error when searching for missed
+  operations." with one right after, with the same cause. PostgreSQL failed
+  (a timeout, a lost connection, no free connection) while ProxyService
+  read that contest. Nothing is wrong with the contest: it is held back
+  (with the contests not read yet, if ProxyService was sending
   everything), and the rest of the work is left for the next sweep. Fix
   PostgreSQL first (see "When the database misbehaves" in
   [Contest day](contest-day.md)); nothing else is needed. Within about 6
