@@ -2,14 +2,18 @@
 
 import asyncio
 import json
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
 import requests.exceptions
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError, \
+    PendingRollbackError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import object_session
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -22,7 +26,7 @@ from cms import config
 from cms.conf import Address
 from cms.db import Dataset, RankingGroup
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
-    ProxyService, RefusedEntity, encode_id
+    ProxyService, RefusedEntity, _is_database_error, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
 from cmscommon.datetime import make_timestamp
 
@@ -44,6 +48,20 @@ VISIBILITY = ["PUT visibility"]
 CONTEST_DATA = {"PUT contests/", "PUT users/", "PUT tasks/"}
 # What sending the scores of some submissions takes:
 SCORES = {"PUT submissions/", "PUT subchanges/"}
+
+
+class TestIsDatabaseError(unittest.TestCase):
+
+    def test_database_errors_are_told_from_data_errors(self):
+        for error, expected in (
+            (OperationalError("SELECT 1", {}, Exception("timeout")), True),
+            (PendingRollbackError("Can't reconnect"), True),
+            (PoolTimeoutError("QueuePool limit reached"), True),
+            (ValueError("No testcase matches"), False),
+            (AttributeError("no score type"), False),
+        ):
+            with self.subTest(error=type(error).__name__):
+                self.assertIs(_is_database_error(error), expected)
 
 
 class TestProxyServiceGroups(
@@ -160,6 +178,28 @@ class TestProxyServiceGroups(
         result.public_score_details = dict()
         result.ranking_score_details = ["100"]
         return contest, submission
+
+    def in_another_thread(self, function, *args):
+        """Call function on a thread of its own, as another RPC would."""
+        with ThreadPoolExecutor(1) as pool:
+            return pool.submit(function, *args).result()
+
+    def add_scored_submission(self, contest):
+        """Add and commit a scored submission to the task of contest."""
+        task = contest.tasks[0]
+        submission = self.add_submission(
+            task=task, participation=contest.participations[0])
+        result = self.add_submission_result(
+            submission=submission, dataset=task.active_dataset)
+        result.compilation_outcome = "ok"
+        result.evaluation_outcome = "ok"
+        result.score = 100
+        result.score_details = dict()
+        result.public_score = 50
+        result.public_score_details = dict()
+        result.ranking_score_details = ["100"]
+        self.session.commit()
+        return submission
 
     async def start(self, contest_id: int | None = None) -> ProxyService:
         """Build a ProxyService and let its startup data reach the rankings.
@@ -398,6 +438,220 @@ class TestProxyServiceGroups(
                          {encode_id(self.contest_a.name)})
         self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
                          {"%d" % self.sub_a.id})
+
+    async def test_regenerate_enqueues_the_reset_with_the_data_in_one_go(self):
+        service = await self.start()
+        singles = list()
+        batches = list()
+        real_enqueue_all = service._threadsafe_enqueue_all
+
+        def spy_all(operations, *args, **kwargs):
+            batches.append(list(operations))
+            real_enqueue_all(operations, *args, **kwargs)
+
+        service._threadsafe_enqueue = \
+            lambda *args, **kwargs: singles.append(args)
+        service._threadsafe_enqueue_all = spy_all
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+
+        # One callback of the loop: nothing queued by another thread
+        # can come between the reset and the data it was built for.
+        self.assertEqual(singles, [])
+        self.assertEqual(len(batches), 1)
+        types = [operation.type_ for operation in batches[0]]
+        self.assertEqual(types[:2], [ProxyExecutor.RESET_TYPE,
+                                     ProxyExecutor.VISIBILITY_TYPE])
+        self.assertIn(ProxyExecutor.CONTEST_TYPE, types)
+        self.assertEqual(types[-2:], [ProxyExecutor.SUBMISSION_TYPE,
+                                      ProxyExecutor.SUBCHANGE_TYPE])
+        self.assertEqual({operation.group for operation in batches[0]},
+                         {"olim"})
+
+    async def test_regenerate_failing_to_read_leaves_the_ranking_alone(self):
+        contest_a2, _ = self.add_contest_with_submission(self.olim)
+        contest_a3, _ = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        # The second contest is held back at the start, and works again
+        # when the regenerate reads it: the build marks its scores as
+        # sent, and the third contest hits the database error.
+        self.break_contest(contest_a2)
+        service = await self.start()
+        self.broken_datasets.clear()
+        service.scores_sent_to_rankings.discard(self.sub_a.id)
+        scores = set(service.scores_sent_to_rankings)
+        tokens = set(service.tokens_sent_to_rankings)
+        database_is_failing = self.fail_the_database_at(contest_a3)
+        self.clear_requests()
+
+        with self.assertLogs("cms.service.ProxyService", "ERROR") as logs:
+            with self.assertRaises(DBAPIError):
+                await service.regenerate_ranking("olim")
+        await self._settle(service)
+
+        # The scoreboard is as it was, not empty.
+        self.assertEqual(self.delete_urls(), [])
+        self.assertEqual(self.put_urls(), [])
+        # The one held back before stays so, and so does the one that
+        # hit the error: the sweep sends it in full once it can.
+        self.assertEqual(service._broken_contests,
+                         {contest_a2.id, contest_a3.id})
+        self.assertEqual(service.scores_sent_to_rankings, scores)
+        self.assertEqual(service.tokens_sent_to_rankings, tokens)
+        failure = [r for r in logs.records
+                   if r.getMessage().startswith("Regenerate")]
+        self.assertEqual(len(failure), 1)
+        self.assertFalse(failure[0].exc_info)
+        self.assertIn("olim", failure[0].getMessage())
+        self.assertIn("division by zero", failure[0].getMessage())
+
+        # Once the database answers, the sweep sends the score the
+        # build had marked, and the contests held back in full.
+        database_is_failing[0] = False
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(service._broken_contests, set())
+        self.assertIn("%d" % self.sub_a.id,
+                      self.put_payload(url("olim/submissions/")))
+
+    async def test_regenerate_resends_a_score_its_reset_could_wipe(self):
+        contest_a2, sub_a2 = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        # The build itself marks this score as sent: it must stay so.
+        service.scores_sent_to_rankings.discard(sub_a2.id)
+        scored = list()
+        real_operations = ProxyService._operations_for_contest
+
+        def operations_for_contest(service_, contest):
+            # While regenerate reads its second contest, another thread
+            # scores a submission of the first one, which it has read
+            # already: the score goes out before the reset, and is not
+            # in what the reset is followed by.
+            if contest.id == contest_a2.id and not scored:
+                scored.append(self.add_scored_submission(self.contest_a))
+                self.in_another_thread(
+                    service_._submission_scored_sync, scored[0].id)
+            return real_operations(service_, contest)
+
+        self.clear_requests()
+        with patch.object(ProxyService, "_operations_for_contest",
+                          operations_for_contest):
+            await service.regenerate_ranking("olim")
+        await self._settle(service)
+        new_id = scored[0].id
+        self.assertEqual(self.delete_urls(),
+                         [url("olim/contests/"), url("olim/users/")])
+        self.assertIn(sub_a2.id, service.scores_sent_to_rankings)
+        self.assertNotIn(new_id, service.scores_sent_to_rankings)
+
+        # The sweep sends it again, as the ranking lost it.
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
+                         {"%d" % new_id})
+
+    async def test_regenerate_resends_a_score_changed_while_it_reads(self):
+        contest_a2, _ = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        real_operations = ProxyService._operations_for_contest
+        rescored = list()
+
+        def operations_for_contest(service_, contest):
+            # The build has read the score of the first contest (100)
+            # when another thread rescores that submission: the new
+            # score is queued ahead of the reset, and the build still
+            # sends the old one. The submission was in the sent set
+            # already, so only what threads pass through
+            # operations_for_score tells.
+            if contest.id == contest_a2.id and not rescored:
+                rescored.append(1)
+                self.sub_a.get_result().score = 30
+                self.session.commit()
+                self.in_another_thread(
+                    service_._submission_scored_sync, self.sub_a.id)
+            return real_operations(service_, contest)
+
+        self.clear_requests()
+        with patch.object(ProxyService, "_operations_for_contest",
+                          operations_for_contest):
+            await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertNotIn(self.sub_a.id, service.scores_sent_to_rankings)
+
+        # The sweep sends the new score after the old one.
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        subchanges = self.put_payload(url("olim/subchanges/"))
+        self.assertEqual(
+            [value["score"] for value in subchanges.values()
+             if value["submission"] == "%d" % self.sub_a.id], [30])
+
+    async def test_regenerate_marks_its_group_for_the_next_sweep(self):
+        # Contest data that a reinitialize queues while the build reads
+        # is wiped by the reset, and the build may have read it before.
+        service = await self.start()
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertEqual(service._groups_to_repair, {"olim"})
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(set(self.put_payload(url("olim/contests/"))),
+                         {encode_id(self.contest_a.name)})
+
+    async def test_regenerate_looks_at_other_threads_after_scheduling_reset(
+        self,
+    ):
+        service = await self.start()
+        scored = list()
+        real_enqueue_all = service._threadsafe_enqueue_all
+
+        def enqueue_all(operations):
+            # Another thread scores a submission after the build read
+            # its contest, right before the reset is scheduled: the
+            # score is queued ahead of it.
+            scored.append(self.add_scored_submission(self.contest_a))
+            self.in_another_thread(
+                service._submission_scored_sync, scored[0].id)
+            real_enqueue_all(operations)
+
+        service._threadsafe_enqueue_all = enqueue_all
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertNotIn(scored[0].id, service.scores_sent_to_rankings)
+
+    async def test_regenerates_of_two_groups_run_one_at_a_time(self):
+        service = await self.start()
+        guard = threading.Lock()
+        inside = [0, 0]
+        real_operations = ProxyService._operations_for_contest
+
+        def slow_operations(service_, contest):
+            with guard:
+                inside[0] += 1
+                inside[1] = max(inside)
+            time.sleep(0.2)
+            try:
+                return real_operations(service_, contest)
+            finally:
+                with guard:
+                    inside[0] -= 1
+
+        self.clear_requests()
+        with patch.object(ProxyService, "_operations_for_contest",
+                          slow_operations):
+            await asyncio.gather(service.regenerate_ranking("olim"),
+                                 service.regenerate_ranking("omips"))
+        await self._settle(service)
+        self.assertEqual(inside[1], 1)
+        self.assertCountEqual(
+            self.delete_urls(),
+            [url("olim/contests/"), url("olim/users/"),
+             url("omips/contests/"), url("omips/users/")])
 
     async def test_regenerate_rejects_invalid_group(self):
         service = await self.start()
@@ -683,32 +937,68 @@ class TestProxyServiceGroups(
         self.assertEqual([u for u in self.put_urls() if "olim/" in u],
                          [url("olim/visibility")])
 
-    async def test_contests_broken_by_a_database_error_all_heal(self):
-        # A failed statement aborts the PostgreSQL transaction, so the
-        # contests that follow in the same initialize() fail as well.
+    def fail_the_database_at(self, contest) -> list[bool]:
+        """Make reading the data of contest abort its transaction.
+
+        A failed statement aborts the PostgreSQL transaction, so a
+        session that went on would fail for every contest after it.
+
+        return: a one-item list, the switch: set it to False to heal.
+
+        """
         database_is_failing = [True]
         real_operations = ProxyService._operations_for_contest
 
-        def operations_for_contest(service, contest):
-            if database_is_failing[0] and contest.id == self.contest_a.id:
-                object_session(contest).execute(text("SELECT 1 / 0"))
-            return real_operations(service, contest)
+        def operations_for_contest(service, other):
+            if database_is_failing[0] and other.id == contest.id:
+                object_session(other).execute(text("SELECT 1 / 0"))
+            return real_operations(service, other)
 
-        with patch.object(ProxyService, "_operations_for_contest",
-                          operations_for_contest):
-            service = await self.start()
-            self.assertEqual(
-                service._broken_contests,
-                {self.contest_a.id, self.contest_b.id})
-            # Only the visibility settings of the groups got there (at
-            # startup, and again with the sweep).
-            self.assertEqual(
-                set(self.put_urls()),
-                {url("olim/visibility"), url("omips/visibility")})
+        patcher = patch.object(ProxyService, "_operations_for_contest",
+                               operations_for_contest)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return database_is_failing
 
-            database_is_failing[0] = False
-            await service._missing_operations()
-            await self._settle(service)
+    async def test_contests_broken_by_a_database_error_all_heal(self):
+        service = await self.start()
+        self.clear_requests()
+        database_is_failing = self.fail_the_database_at(self.contest_a)
+
+        # The reinitialize stops at the first contest: going on would
+        # fail for the others, on the aborted transaction. The contests
+        # not read yet are held, as the first one.
+        with self.assertLogs("cms.service.ProxyService", "INFO") as logs:
+            with self.assertRaises(DBAPIError):
+                await service.reinitialize()
+        await self._settle(service)
+        self.assertEqual(service._broken_contests,
+                         {self.contest_a.id, self.contest_b.id})
+        # Only the visibility settings of the groups got there.
+        self.assertEqual(
+            set(self.put_urls()),
+            {url("olim/visibility"), url("omips/visibility")})
+        warnings = [r for r in logs.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIsNone(warnings[0].exc_info)
+        self.assertIn("Database error", warnings[0].getMessage())
+        self.assertIn(self.contest_a.name, warnings[0].getMessage())
+        self.assertIn("division by zero", warnings[0].getMessage())
+        self.assertFalse(any("Cannot build" in r.getMessage()
+                             for r in logs.records))
+
+        # The sweep fails the same way while it lasts, and it keeps
+        # them held.
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            with self.assertRaises(DBAPIError):
+                await service._missing_operations()
+        self.assertEqual(service._broken_contests,
+                         {self.contest_a.id, self.contest_b.id})
+
+        database_is_failing[0] = False
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
 
         self.assertEqual(service._broken_contests, set())
         for group, contest, submission in (
@@ -720,6 +1010,13 @@ class TestProxyServiceGroups(
             self.assertEqual(
                 set(self.put_payload(url("%s/submissions/" % group))),
                 {"%d" % submission.id})
+
+    async def test_a_database_error_at_startup_stops_the_service(self):
+        # Like the unguarded SessionGen before it: supervisord starts
+        # the service again, and a restart starts clean.
+        self.fail_the_database_at(self.contest_b)
+        with self.assertRaises(DBAPIError):
+            await self.start()
 
     async def test_healed_contest_gets_all_its_scores_again(self):
         service = await self.start()
@@ -1101,6 +1398,13 @@ class TestProxyServiceGroups(
             real_enqueue(operation, *args, **kwargs)
 
         service._threadsafe_enqueue = spy
+        real_enqueue_all = service._threadsafe_enqueue_all
+
+        def spy_all(operations, *args, **kwargs):
+            enqueued.extend(operations)
+            real_enqueue_all(operations, *args, **kwargs)
+
+        service._threadsafe_enqueue_all = spy_all
         names = {ProxyExecutor.RESET_TYPE: "reset",
                  ProxyExecutor.VISIBILITY_TYPE: "visibility"}
 

@@ -114,6 +114,13 @@ contest that should not be there), go to **Ranking groups** and press
 sent again; it refills within seconds. This replaces the old
 `clear-ranking.sh` script.
 
+AWS answers "Ranking regeneration requested" at once, whether or not the
+regeneration then works. ProxyService reads the data before it empties the
+scoreboard, so if the database fails meanwhile the scoreboard is left as it
+was, and may be stale (users or contests removed since still show on it).
+Check `./logs.sh cms` for "Regenerate of ranking … failed", and press
+**Regenerate** again once PostgreSQL answers.
+
 Also press **Regenerate** on the affected ranking groups if ProxyService, its
 container or the host restarted around the time contests were moved between
 ranking groups: the change may not have reached the scoreboards.
@@ -203,6 +210,25 @@ someone fixes the data.
   affected. Fix what the error names. At the next try, within about 6
   minutes, the log says "Contest … (…) can be sent to the rankings again."
   and the contest is sent with all its scores, without a Regenerate.
+- **"Database error while reading contest … (…): …. Its scores are held back
+  and it is retried at the next sweep."** The line has no traceback, but in
+  a sweep the sweeper logs "Unexpected error when searching for missed
+  operations." with one right after, with the same cause. PostgreSQL failed
+  (a timeout, a lost connection, no free connection) while ProxyService
+  read that contest. Nothing is wrong with the contest: it is held back
+  (with the contests not read yet, if ProxyService was sending
+  everything), and the rest of the work is left for the next sweep. Fix
+  PostgreSQL first (see "When the database misbehaves" in
+  [Contest day](contest-day.md)); nothing else is needed. Within about 6
+  minutes of PostgreSQL answering, or at once after restarting
+  `cmsproxyservice`, the contests are sent with all their scores. A
+  "Reinitializing the rankings failed." (below) after it has the same
+  cause.
+- **"Regenerate of ranking … failed (…): the scoreboard was left as it was
+  and may be stale (what was removed since may still show on it). Press
+  Regenerate again once the database answers."** The Regenerate of that
+  group could not read the database, so nothing was emptied or sent. Fix
+  PostgreSQL first, then press **Regenerate** on the group again.
 - **"Reinitializing the rankings failed. The ranking groups that lost
   contests (…) were being reset and may be left empty: once the cause is
   fixed, use Regenerate for them in AWS (Ranking groups)."**, with a
