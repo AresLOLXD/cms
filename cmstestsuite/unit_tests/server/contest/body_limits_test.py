@@ -84,12 +84,12 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
 
     async def post(
         self, content_type: str, body: str,
-        headers: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None, path: str = "/",
     ) -> HTTPResponse:
         # The contest list takes a POST, and checks the XSRF token
         # before it does anything else with it.
         return await self.client.fetch(
-            "http://127.0.0.1:%d/" % self.port,
+            "http://127.0.0.1:%d%s" % (self.port, path),
             method="POST", body=body,
             headers={"Content-Type": content_type,
                      "Accept-Language": "en", **(headers or {})},
@@ -140,6 +140,24 @@ class BodyLimitsTest(DatabaseMixin, unittest.IsolatedAsyncioTestCase):
         response = await self.post(
             MULTIPART_CONTENT_TYPE, multipart_body(1))
         self.assertEqual(response.code, 403)
+        page = response.body.decode()
+        self.assertIn("tamper", page)
+        self.assertNotIn("could not read the data of your request", page)
+
+    async def test_error_raised_by_a_handler_keeps_the_generic_message(self):
+        # A 400 that the application raises (here, a missing argument of
+        # the registration form, after a valid XSRF check) is not a body
+        # Tornado could not read.
+        contest = self.add_contest(allow_registration=True, active=True)
+        name = contest.name
+        self.session.commit()
+        self.addCleanup(self.delete_data)
+        token = "0123456789abcdef0123456789abcdef"
+        response = await self.post(
+            URLENCODED_CONTENT_TYPE, "_xsrf=" + token,
+            headers={"Cookie": "_xsrf=" + token},
+            path="/%s/register" % name)
+        self.assertEqual(response.code, 400)
         page = response.body.decode()
         self.assertIn("tamper", page)
         self.assertNotIn("could not read the data of your request", page)
