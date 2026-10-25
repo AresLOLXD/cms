@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
@@ -177,6 +178,11 @@ class TestProxyServiceGroups(
         result.public_score_details = dict()
         result.ranking_score_details = ["100"]
         return contest, submission
+
+    def in_another_thread(self, function, *args):
+        """Call function on a thread of its own, as another RPC would."""
+        with ThreadPoolExecutor(1) as pool:
+            return pool.submit(function, *args).result()
 
     def add_scored_submission(self, contest):
         """Add and commit a scored submission to the task of contest."""
@@ -466,14 +472,16 @@ class TestProxyServiceGroups(
         contest_a2, _ = self.add_contest_with_submission(self.olim)
         contest_a3, _ = self.add_contest_with_submission(self.olim)
         self.session.commit()
+        # The second contest is held back at the start, and works again
+        # when the regenerate reads it: the build marks its scores as
+        # sent, and the third contest hits the database error.
+        self.break_contest(contest_a2)
         service = await self.start()
-        # The build would mark this score as sent, and hold back the
-        # second contest, before the third one hits the database error.
+        self.broken_datasets.clear()
         service.scores_sent_to_rankings.discard(self.sub_a.id)
         scores = set(service.scores_sent_to_rankings)
         tokens = set(service.tokens_sent_to_rankings)
-        self.break_contest(contest_a2)
-        self.fail_the_database_at(contest_a3)
+        database_is_failing = self.fail_the_database_at(contest_a3)
         self.clear_requests()
 
         with self.assertLogs("cms.service.ProxyService", "ERROR") as logs:
@@ -484,10 +492,12 @@ class TestProxyServiceGroups(
         # The scoreboard is as it was, not empty.
         self.assertEqual(self.delete_urls(), [])
         self.assertEqual(self.put_urls(), [])
-        self.assertEqual(service._broken_contests, set())
+        # The one held back before stays so, and so does the one that
+        # hit the error: the sweep sends it in full once it can.
+        self.assertEqual(service._broken_contests,
+                         {contest_a2.id, contest_a3.id})
         self.assertEqual(service.scores_sent_to_rankings, scores)
         self.assertEqual(service.tokens_sent_to_rankings, tokens)
-        # Besides the traceback of the contest that broke by itself.
         failure = [r for r in logs.records
                    if r.getMessage().startswith("Regenerate")]
         self.assertEqual(len(failure), 1)
@@ -495,10 +505,12 @@ class TestProxyServiceGroups(
         self.assertIn("olim", failure[0].getMessage())
         self.assertIn("division by zero", failure[0].getMessage())
 
-        # Once the database answers, the score the build had marked is
-        # sent by the sweep.
+        # Once the database answers, the sweep sends the score the
+        # build had marked, and the contests held back in full.
+        database_is_failing[0] = False
         await service._missing_operations()
         await self._settle(service)
+        self.assertEqual(service._broken_contests, set())
         self.assertIn("%d" % self.sub_a.id,
                       self.put_payload(url("olim/submissions/")))
 
@@ -518,7 +530,8 @@ class TestProxyServiceGroups(
             # in what the reset is followed by.
             if contest.id == contest_a2.id and not scored:
                 scored.append(self.add_scored_submission(self.contest_a))
-                service_._submission_scored_sync(scored[0].id)
+                self.in_another_thread(
+                    service_._submission_scored_sync, scored[0].id)
             return real_operations(service_, contest)
 
         self.clear_requests()
@@ -539,7 +552,58 @@ class TestProxyServiceGroups(
         self.assertEqual(set(self.put_payload(url("olim/submissions/"))),
                          {"%d" % new_id})
 
-    async def test_regenerate_copies_the_sent_sets_after_scheduling_reset(
+    async def test_regenerate_resends_a_score_changed_while_it_reads(self):
+        contest_a2, _ = self.add_contest_with_submission(self.olim)
+        self.session.commit()
+        service = await self.start()
+        real_operations = ProxyService._operations_for_contest
+        rescored = list()
+
+        def operations_for_contest(service_, contest):
+            # The build has read the score of the first contest (100)
+            # when another thread rescores that submission: the new
+            # score is queued ahead of the reset, and the build still
+            # sends the old one. The submission was in the sent set
+            # already, so only what threads pass through
+            # operations_for_score tells.
+            if contest.id == contest_a2.id and not rescored:
+                rescored.append(1)
+                self.sub_a.get_result().score = 30
+                self.session.commit()
+                self.in_another_thread(
+                    service_._submission_scored_sync, self.sub_a.id)
+            return real_operations(service_, contest)
+
+        self.clear_requests()
+        with patch.object(ProxyService, "_operations_for_contest",
+                          operations_for_contest):
+            await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertNotIn(self.sub_a.id, service.scores_sent_to_rankings)
+
+        # The sweep sends the new score after the old one.
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        subchanges = self.put_payload(url("olim/subchanges/"))
+        self.assertEqual(
+            [value["score"] for value in subchanges.values()
+             if value["submission"] == "%d" % self.sub_a.id], [30])
+
+    async def test_regenerate_marks_its_group_for_the_next_sweep(self):
+        # Contest data that a reinitialize queues while the build reads
+        # is wiped by the reset, and the build may have read it before.
+        service = await self.start()
+        await service.regenerate_ranking("olim")
+        await self._settle(service)
+        self.assertEqual(service._groups_to_repair, {"olim"})
+        self.clear_requests()
+        await service._missing_operations()
+        await self._settle(service)
+        self.assertEqual(set(self.put_payload(url("olim/contests/"))),
+                         {encode_id(self.contest_a.name)})
+
+    async def test_regenerate_looks_at_other_threads_after_scheduling_reset(
         self,
     ):
         service = await self.start()
@@ -551,7 +615,8 @@ class TestProxyServiceGroups(
             # its contest, right before the reset is scheduled: the
             # score is queued ahead of it.
             scored.append(self.add_scored_submission(self.contest_a))
-            service._submission_scored_sync(scored[0].id)
+            self.in_another_thread(
+                service._submission_scored_sync, scored[0].id)
             real_enqueue_all(operations)
 
         service._threadsafe_enqueue_all = enqueue_all

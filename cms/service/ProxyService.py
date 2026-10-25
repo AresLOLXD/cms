@@ -37,7 +37,7 @@ import math
 import string
 import threading
 import typing
-from collections.abc import Callable, Set
+from collections.abc import Callable
 from time import monotonic
 from urllib.parse import urljoin, urlsplit
 
@@ -1081,10 +1081,18 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         # know their tasks.
         self._broken_contests: set[int] = set()
 
-        # Regenerates run one at a time: each one takes the difference
-        # in the sets above to fix up what it raced with, and must not
-        # take what another one built.
+        # Regenerates run one at a time: each one records what other
+        # threads send meanwhile (see _mark_sent), and must not take
+        # what another one built.
+        # shortcut: the lock parks a thread of the default executor for
+        # each regenerate waiting (a bulk removal fires one for each
+        # group); a dedicated single-thread executor would serialize
+        # them without that, upgrade if the pool ever runs short.
         self._regenerate_lock = threading.Lock()
+        # While a regenerate builds: its thread's ID and the IDs of the
+        # scores and tokens that other threads mark as sent meanwhile.
+        self._regenerate_record: \
+            tuple[int, set[int], set[int]] | None = None
 
         # Last known mapping from ranking group name to the IDs of its
         # contests (always empty in legacy mode), used by reinitialize
@@ -1551,7 +1559,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             subchange_data["score"] = submission_result.score
             subchange_data["extra"] = submission_result.ranking_score_details
 
-        self.scores_sent_to_rankings.add(submission.id)
+        self._mark_sent(submission.id, token=False)
 
         return [
             ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
@@ -1583,13 +1591,31 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             "time": int(make_timestamp(submission.token.timestamp)),
             "token": True}
 
-        self.tokens_sent_to_rankings.add(submission.id)
+        self._mark_sent(submission.id, token=True)
 
         return [
             ProxyOperation(ProxyExecutor.SUBMISSION_TYPE,
                            {submission_id: submission_data}, group),
             ProxyOperation(ProxyExecutor.SUBCHANGE_TYPE,
                            {subchange_id: subchange_data}, group)]
+
+    def _mark_sent(self, submission_id: int, token: bool) -> None:
+        """Mark a score or a token as sent, just before it is queued.
+
+        While a regenerate builds, note what the other threads mark
+        (even if it was marked before: a rescore): the reset of the
+        regenerate may wipe it, and it may not be in what the regenerate
+        read. The note comes before the thread queues anything.
+
+        submission_id: the ID of the submission.
+        token: True for its token, False for its score.
+
+        """
+        record = self._regenerate_record
+        if record is not None and record[0] != threading.get_ident():
+            record[2 if token else 1].add(submission_id)
+        (self.tokens_sent_to_rankings if token
+         else self.scores_sent_to_rankings).add(submission_id)
 
     @rpc_method
     async def reinitialize(self):
@@ -1704,8 +1730,12 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         The read takes seconds, and a score that another thread queues
         or sends meanwhile may be wiped by the reset while not being in
-        what was read. Such scores leave the sets of what was sent, so
-        that the sweeper sends them again.
+        what was read (or while being there with its old value). Such
+        scores and tokens leave the sets of what was sent, so that the
+        sweeper sends them again. The group is also marked for the
+        next sweep, to send its contest data again: a reinitialize may
+        have queued it meanwhile, and the build may have read it
+        before.
 
         raise (sqlalchemy.exc.SQLAlchemyError): on a database error (see
             _is_database_error).
@@ -1718,6 +1748,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             sent_before = (self.scores_sent_to_rankings.copy(),
                            self.tokens_sent_to_rankings.copy())
             operations = [ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group)]
+            record = (threading.get_ident(), set(), set())
+            self._regenerate_record = record
             try:
                 with SessionGen() as session:
                     if group is not None:
@@ -1731,11 +1763,22 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                                 session, contest, only_missing=False,
                                 enqueue=operations.append)
                 self._threadsafe_enqueue_all(operations)
+                # Only after the reset is scheduled: whatever the other
+                # threads noted up to now was queued ahead of it (or
+                # never goes). What this thread marked is in the data.
+                # shortcut: relies on CPython's atomic set.copy() under
+                # the GIL; revisit under free-threaded Python.
+                _, scores, tokens = record
+                self.scores_sent_to_rankings.difference_update(scores.copy())
+                self.tokens_sent_to_rankings.difference_update(tokens.copy())
+                with self._groups_to_repair_lock:
+                    self._groups_to_repair.add(group)
             except BaseException as error:
                 # Nothing was enqueued: the build marked scores as sent
-                # that never went, and held back contests the ranking
-                # still has.
-                self._broken_contests = broken_before
+                # that never went, and may have taken contests out of
+                # the broken ones (the others it marked stay: the sweep
+                # sends them in full).
+                self._broken_contests.update(broken_before)
                 self._forget_sent_since(sent_before)
                 logger.error(
                     "Regenerate of ranking %s failed (%s): the scoreboard "
@@ -1745,38 +1788,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                     describe_error(error),
                     exc_info=not _is_database_error(error))
                 raise
-            # Only after the reset is scheduled: whatever the sets got
-            # up to now came before it in the queue (or never goes).
-            # What the build added itself is in the operations.
-            self._forget_sent_since(
-                sent_before, self._sent_ids_of(operations))
+            finally:
+                self._regenerate_record = None
 
-    @staticmethod
-    def _sent_ids_of(
-        operations: list[ProxyOperation]
-    ) -> tuple[set[int], set[int]]:
-        """Return the submissions whose scores and tokens operations send.
-
-        operations: any operations.
-
-        return: the IDs of the submissions with a score, and of those
-            with a token.
-
-        """
-        scores: set[int] = set()
-        tokens: set[int] = set()
-        for operation in operations:
-            if operation.type_ == ProxyExecutor.SUBCHANGE_TYPE:
-                for key, data in operation.data.items():
-                    # See operations_for_score and operations_for_token.
-                    (tokens if key.endswith("t") else scores).add(
-                        int(data["submission"]))
-        return scores, tokens
-
-    def _forget_sent_since(
-        self, before: tuple[set[int], set[int]],
-        keep: tuple[Set[int], Set[int]] = (frozenset(), frozenset()),
-    ) -> None:
+    def _forget_sent_since(self, before: tuple[set[int], set[int]]) -> None:
         """Take out of the sets of what was sent what was added since.
 
         Other threads add to the sets meanwhile, so iterate over
@@ -1784,16 +1799,13 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         before: copies of the sets of scores and tokens sent, taken
             earlier.
-        keep: scores and tokens to leave in the sets, if they were
-            added.
 
         """
         # shortcut: relies on CPython's atomic set.copy() under the GIL;
         # revisit under free-threaded Python.
-        for sent, was, kept in zip((self.scores_sent_to_rankings,
-                                    self.tokens_sent_to_rankings),
-                                   before, keep):
-            sent.difference_update(sent.copy() - was - kept)
+        for sent, was in zip((self.scores_sent_to_rankings,
+                              self.tokens_sent_to_rankings), before):
+            sent.difference_update(sent.copy() - was)
 
     @rpc_method
     async def submission_scored(self, submission_id: int):
