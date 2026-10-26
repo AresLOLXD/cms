@@ -606,3 +606,12 @@ def test_watchdog_classes_are_the_policys():
                if isinstance(node, ast.AnnAssign)
                and getattr(node.target, "id", None) == "CLASS_ORDER"]
     assert sorted(gc.WATCHDOG_CLASSES) == sorted(order)
+
+
+def test_prod_compose_run_tmpfs_is_owned_by_cmsuser():
+    # A bare tmpfs is root:root 755, and the container runs as cmsuser (uid
+    # 2000, see the Dockerfile): cmsWatchdog could not write its ledger there.
+    entries = _prod_compose_services()["cms"]["tmpfs"]
+    [entry] = [e for e in entries if e.split(":")[0] == "/home/cmsuser/cms/run"]
+    options = entry.split(":", 1)[1].split(",")
+    assert "uid=2000" in options and "gid=2000" in options

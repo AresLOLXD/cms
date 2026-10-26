@@ -115,7 +115,8 @@ services:
       - cms-cache:/home/cmsuser/cms/cache
       - ../dumps:/home/cmsuser/cms/dumps
     tmpfs:
-      - /home/cmsuser/cms/run
+      # A bare tmpfs is root:root; cmsuser (uid 2000, see the Dockerfile) must own it.
+      - /home/cmsuser/cms/run:uid=2000,gid=2000,mode=0755
     privileged: true
     cgroup: host
     # Ports are published on the host's loopback only: Docker-published ports
