@@ -35,6 +35,7 @@ import asyncio
 from sqlalchemy import select, func, update
 
 from cms.db import Contest, Participation, Submission, Team, Group, User
+from cms.db.connect_options import describe_error
 from cmscommon.datetime import make_datetime
 
 from .base import BaseHandler, SimpleContestHandler, SimpleHandler, \
@@ -229,7 +230,8 @@ class RemoveTeamHandler(BaseHandler):
                 self.schedule_rpc(self.service.proxy_service.reinitialize)
         except Exception as fallback_error:
             self.service.add_notification(
-                make_datetime(), "Error removing team", repr(fallback_error)
+                make_datetime(), "Error removing team",
+                describe_error(fallback_error)
             )
 
         # Maybe they'll want to do this again (for another team)
