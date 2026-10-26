@@ -641,6 +641,88 @@ CMS.AWSUtils.prototype.update_clock = function(zones) {
 
 
 /**
+ * Convert a UTC date-time typed in a form to the server zone.
+ *
+ * text (string): what the field holds, in the format the server accepts
+ *     (YYYY-MM-DD HH:MM:SS, with optional fractional seconds).
+ * server (object): the clock row of the server zone: its offset_seconds
+ *     and its timezone, the IANA name or null if the host has none.
+ * return (string): "YYYY-MM-DD HH:MM:SS ZONE" for the typed instant (the
+ *     zone, and its daylight saving, are those of that date, not of
+ *     today), or "" if the text is empty or not a valid date-time.
+ */
+CMS.AWSUtils.prototype.utc_to_server_zone = function(text, server) {
+    var match = /^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2}):(\d{1,2})(?:\.\d{1,6})?$/
+        .exec(text.trim());
+    if (match === null) {
+        return "";
+    }
+    var f = match.slice(1, 7).map(Number);
+    var date = new Date(Date.UTC(f[0], f[1] - 1, f[2], f[3], f[4], f[5]));
+    // Date.UTC rolls an impossible date (31 February) over: reject it.
+    if (date.getUTCFullYear() != f[0] || date.getUTCMonth() != f[1] - 1
+            || date.getUTCDate() != f[2] || date.getUTCHours() != f[3]
+            || date.getUTCMinutes() != f[4] || date.getUTCSeconds() != f[5]) {
+        return "";
+    }
+    if (server.timezone) {
+        try {
+            var parts = {};
+            new Intl.DateTimeFormat("en-US", {
+                timeZone: server.timezone, hourCycle: "h23",
+                year: "numeric", month: "2-digit", day: "2-digit",
+                hour: "2-digit", minute: "2-digit", second: "2-digit",
+                timeZoneName: "short"
+            }).formatToParts(date).forEach(function(part) {
+                parts[part.type] = part.value;
+            });
+            // shortcut: en-US has no short name for some zones and
+            // prints GMT+2 for them; upgrade if that confuses the operators.
+            return parts.year + "-" + parts.month + "-" + parts.day + " "
+                + parts.hour + ":" + parts.minute + ":" + parts.second
+                + " " + parts.timeZoneName;
+        } catch (e) {
+            // An unknown name: use the fixed offset below.
+        }
+    }
+    var seconds = server.offset_seconds;
+    var minutes = Math.abs(seconds) / 60;
+    return new Date(date.getTime() + seconds * 1000).toISOString()
+        .slice(0, 19).replace("T", " ") + " UTC" + (seconds < 0 ? "-" : "+")
+        + this.two_digits(Math.floor(minutes / 60)) + ":"
+        + this.two_digits(minutes % 60);
+};
+
+
+/**
+ * Show, to the right of every input marked data-utc-time, the time typed
+ * in it (UTC) in the server zone, and keep it up to date while typing.
+ * Does nothing on a page without such inputs.
+ *
+ * zones (array): the zones of the sidebar clock.
+ */
+CMS.AWSUtils.prototype.init_utc_hints = function(zones) {
+    var utils = this;
+    // shortcut: a server in UTC has no row, so it gets no hint (it would
+    // repeat the typed time); add one if that is wanted.
+    var server = zones.filter(function(zone) { return zone.server; })[0];
+    if (server === undefined) {
+        return;
+    }
+    $("[data-utc-time]").each(function() {
+        var input = $(this);
+        var hint = $('<span class="utc-local-hint">').insertAfter(input);
+        var update = function() {
+            var local = utils.utc_to_server_zone(input.val(), server);
+            hint.text(local === "" ? "" : "= " + local);
+        };
+        input.on("input", update);
+        update();
+    });
+};
+
+
+/**
  * Check the status returned by an RPC call and display the error if
  * necessary, otherwise redirect to another page.
  *

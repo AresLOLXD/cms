@@ -6,7 +6,7 @@
           Start time (in UTC)
         </td>
         <td>
-          <input type="text" name="start" value="{{ group.start }}"/>
+          <input type="text" name="start" value="{{ group.start }}" data-utc-time/>
         </td>
       </tr>
       <tr>
@@ -16,7 +16,7 @@
           End time (in UTC)
         </td>
         <td>
-          <input type="text" name="stop" value="{{ group.stop }}"/>
+          <input type="text" name="stop" value="{{ group.stop }}" data-utc-time/>
         </td>
       </tr>
       <tr>
@@ -44,7 +44,7 @@
                                     Example: '2015-12-31 15:00:00'."></span>
           Analysis mode start time (in UTC)
         </td>
-        <td><input type="text" name="analysis_start" value="{{ group.analysis_start }}"></td>
+        <td><input type="text" name="analysis_start" value="{{ group.analysis_start }}" data-utc-time></td>
       </tr>
       <tr>
         <td>
@@ -52,5 +52,5 @@
                                     Example: '2015-12-31 18:00:00'."></span>
           Analysis mode end time (in UTC)
         </td>
-        <td><input type="text" name="analysis_stop" value="{{ group.analysis_stop }}"></td>
+        <td><input type="text" name="analysis_stop" value="{{ group.analysis_stop }}" data-utc-time></td>
       </tr>

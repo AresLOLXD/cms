@@ -56,7 +56,7 @@ class TestClockZones(unittest.TestCase):
         self.assertEqual(self.zones("Asia/Kolkata"), [
             {"label": "UTC", "offset_seconds": 0},
             {"label": "Test/Zone (XYZ, UTC-06:00)",
-             "offset_seconds": -6 * 3600},
+             "offset_seconds": -6 * 3600, "server": True, "timezone": None},
             {"label": "Asia/Kolkata (IST, UTC+05:30)",
              "offset_seconds": 5 * 3600 + 1800},
         ])
@@ -82,6 +82,14 @@ class TestClockZones(unittest.TestCase):
         self.assertEqual(
             [row["label"] for row in rows],
             ["UTC", "America/Mexico_City (CST, UTC-06:00)"])
+
+    def test_the_server_row_carries_the_iana_name_for_the_utc_fields(self):
+        with patch("cms.server.admin.formatting.local_tz",
+                   ZoneInfo("America/Mexico_City")):
+            rows = clock_zones(NOW, SimpleNamespace(timezone="Asia/Kolkata"))
+        self.assertEqual(
+            [(row.get("server"), row.get("timezone")) for row in rows],
+            [(None, None), (True, "America/Mexico_City"), (None, None)])
 
     def test_contest_zone_equal_to_the_server_zone_is_not_repeated(self):
         with patch("cms.server.admin.formatting.local_tz",

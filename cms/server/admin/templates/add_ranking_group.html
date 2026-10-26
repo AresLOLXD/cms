@@ -27,7 +27,7 @@
           {% if loop.first %}<span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Leave a time empty for none."></span>{% endif %}
           {{ label }} (UTC)
         </td>
-        <td><input type="text" name="{{ name }}" value="" placeholder="YYYY-MM-DD HH:MM:SS"/></td>
+        <td><input type="text" name="{{ name }}" value="" placeholder="YYYY-MM-DD HH:MM:SS" data-utc-time/></td>
       </tr>
       {% endfor %}
       <tr>

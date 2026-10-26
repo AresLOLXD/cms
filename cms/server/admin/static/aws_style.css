@@ -798,3 +798,6 @@ th.diff-only, td.diff-only {
 table.diff-open th.diff-only, table.diff-open td.diff-only {
     display: table-cell;
 }
+.utc-local-hint {
+    margin-left: 0.5em;
+}

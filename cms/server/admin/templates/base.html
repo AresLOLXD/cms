@@ -42,6 +42,7 @@ function init()
     var clock_zones = {{ clock_zones(timestamp, contest)|tojson }};
     utils.update_clock(clock_zones);
     setInterval(function() { utils.update_clock(clock_zones); }, 1000);
+    utils.init_utc_hints(clock_zones);
 
     utils.update_notifications();
     setInterval(function() { utils.update_notifications(); }, 15000);
