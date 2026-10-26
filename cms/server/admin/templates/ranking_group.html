@@ -34,10 +34,9 @@
       <tr>
         <td>{{ f.label }} (UTC)</td>
         <td>
-          <input type="text" autocomplete="off" name="{{ f.name }}" value="{{ f.utc }}" placeholder="YYYY-MM-DD HH:MM:SS"/>
+          <input type="text" autocomplete="off" name="{{ f.name }}" value="{{ f.utc }}" placeholder="YYYY-MM-DD HH:MM:SS" data-utc-time/>
           <!-- What the field was rendered with: only a change to it counts, so a stale page does not undo somebody else's schedule. -->
           <input type="hidden" autocomplete="off" name="{{ f.name }}_shown" value="{{ f.utc }}"/>
-          {% if f.local %}= {{ f.local }}{% endif %}
         </td>
       </tr>
       {% endfor %}

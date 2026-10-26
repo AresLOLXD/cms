@@ -178,7 +178,7 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
     group: the ranking group.
     now: the current time, naive UTC.
 
-    return: the fields (name, label, UTC value, local value), whether it
+    return: the fields (name, label, UTC value), whether it
         is hidden or frozen now, a one-line summary and the next change,
         the first future time that changes the hidden or frozen state
         (or ""). Frozen follows the freeze window alone, also while the
@@ -192,8 +192,7 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
             "%Y-%m-%d %H:%M %Z")
 
     fields = [{"name": name, "label": label,
-               "utc": format_utc(getattr(group, name)),
-               "local": local(getattr(group, name))}
+               "utc": format_utc(getattr(group, name))}
               for name, label in WINDOW_FIELDS]
 
     def state_at(when: datetime) -> tuple[bool, bool]:

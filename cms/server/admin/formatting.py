@@ -69,7 +69,9 @@ def clock_zones(timestamp: datetime, contest: Contest | None) -> list[dict]:
 
     return: UTC, the zone of the server and the zone of the contest (if
         set, valid and not already shown), each as a dict with the
-        "label" to show and the "offset_seconds" from UTC at timestamp.
+        "label" to show and the "offset_seconds" from UTC at timestamp;
+        the row of the server zone also has "server" set and its IANA
+        "timezone" name (None if the zone has no key).
 
     """
     # get_system_timezone() gives the abbreviation ("CST") for a zoneinfo
@@ -99,6 +101,12 @@ def clock_zones(timestamp: datetime, contest: Contest | None) -> list[dict]:
         offset = f"UTC{'-' if seconds < 0 else '+'}{hours:02d}:{minutes:02d}"
         row = {"label": f"{name} ({abbreviation}, {offset})",
                "offset_seconds": seconds}
-        if row not in rows:
+        if zone is local_tz:
+            # For the UTC fields of the forms: the name gives the right
+            # daylight saving for any date, the offset is only for a host
+            # whose zone has no IANA key.
+            row["server"] = True
+            row["timezone"] = getattr(local_tz, "key", None)
+        if all(other["label"] != row["label"] for other in rows):
             rows.append(row)
     return rows

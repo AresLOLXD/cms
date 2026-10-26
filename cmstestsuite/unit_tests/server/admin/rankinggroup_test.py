@@ -367,18 +367,14 @@ class TestVisibilityView(unittest.TestCase):
         self.assertEqual(view["summary"], "oculto")
         self.assertIs(view["frozen_now"], False)
 
-    def test_fields_carry_utc_and_local_times(self):
-        zone = timezone(timedelta(hours=-6), "XYZ")
-        with patch("cms.server.admin.handlers.rankinggroup.local_tz", zone):
-            view = self.view(hide_at=datetime(2026, 10, 10, 20, 30, 15))
+    def test_fields_carry_the_utc_times(self):
+        view = self.view(hide_at=datetime(2026, 10, 10, 20, 30, 15))
         fields = {f["name"]: f for f in view["fields"]}
         self.assertEqual(
             list(fields), ["hide_at", "show_at", "freeze_at", "unfreeze_at"])
         self.assertEqual(fields["hide_at"]["label"], "Hide from")
         self.assertEqual(fields["hide_at"]["utc"], "2026-10-10 20:30:15")
-        self.assertEqual(fields["hide_at"]["local"], "2026-10-10 14:30 XYZ")
         self.assertEqual(fields["show_at"]["utc"], "")
-        self.assertEqual(fields["show_at"]["local"], "")
 
     def test_next_change_is_the_earliest_future_time(self):
         zone = timezone(timedelta(hours=-6), "XYZ")
@@ -808,13 +804,12 @@ class TestRankingGroupTemplates(unittest.TestCase):
                 self.assertIn('value=""', tag)
                 self.assertIn('autocomplete="off"', tag)
 
-    def test_group_page_shows_the_local_time_next_to_utc(self):
-        zone = timezone(timedelta(hours=-6), "XYZ")
-        with patch("cms.server.admin.handlers.rankinggroup.local_tz", zone):
-            html = self.render_group(freeze_at=datetime(2026, 10, 10, 20, 0))
+    def test_group_page_leaves_the_local_time_to_the_browser(self):
+        html = self.render_group(freeze_at=datetime(2026, 10, 10, 20, 0))
 
-        self.assertIn("= 2026-10-10 14:00 XYZ", html)
-        self.assertEqual(html.count("= 2026-"), 1)
+        # Only the four typed fields, not their _shown twins, are marked.
+        self.assertEqual(html.count("data-utc-time"), 4)
+        self.assertNotIn("= 2026-", html)
 
     def test_group_page_offers_hide_or_show_now(self):
         html = self.render_group()

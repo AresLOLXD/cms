@@ -108,7 +108,7 @@
                                     Example: '2015-12-31 15:00:00'."></span>
           Time of first login (in UTC)
         </td>
-        <td><input type="text" name="starting_time" value="{{ participation.starting_time if participation.starting_time is not none else "" }}"></td>
+        <td><input type="text" name="starting_time" value="{{ participation.starting_time if participation.starting_time is not none else "" }}" data-utc-time></td>
       </tr>
       <tr>
         <td>
