@@ -423,6 +423,10 @@ class OperationAdapter(logging.LoggerAdapter):
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.DEBUG)
 
+# httpx logs each request URL at INFO, and the Telegram bot token is in it.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 # Install a shell handler.
 shell_handler = StreamHandler(sys.stderr)
