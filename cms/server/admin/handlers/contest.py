@@ -33,6 +33,7 @@
 
 import asyncio
 
+import babel.dates
 from sqlalchemy import select
 
 from cms import ServiceCoord, get_service_shards, get_service_address
@@ -152,6 +153,9 @@ class ContestHandler(SimpleContestHandler("contest.html")):
             self.get_timedelta_sec(attrs, "min_user_test_interval")
 
             self.get_string(attrs, "timezone", empty=None)
+            if attrs.get("timezone") is not None:
+                # Raises for a name that get_timezone() could not resolve.
+                babel.dates.get_timezone(attrs["timezone"])
             self.get_int(attrs, "score_precision")
 
             self.get_group_settings(contest.main_group)

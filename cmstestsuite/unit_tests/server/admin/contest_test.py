@@ -169,5 +169,28 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
         self.assertEqual(contest.ranking_group_id, self.group_id)
 
 
+    def test_bad_timezone_is_rejected_without_commit(self):
+        for name in ("America/Mexico_City/", "Foo/Bar", "America"):
+            with self.subTest(timezone=name):
+                handler = self._post(timezone=name)
+
+                self.assertEqual(
+                    self._notifications(handler), ["Invalid field(s)."])
+                handler.schedule_rpc.assert_not_called()
+                contest = self._reload_contest()
+                self.assertEqual(contest.name, "before")
+                self.assertIsNone(contest.timezone)
+
+    def test_valid_and_empty_timezones_are_saved(self):
+        for name, expected in (("America/Mexico_City", "America/Mexico_City"),
+                               ("", None)):
+            with self.subTest(timezone=name):
+                handler = self._post(timezone=name)
+
+                self.assertEqual(self._notifications(handler),
+                                 ["Operation successful."])
+                self.assertEqual(self._reload_contest().timezone, expected)
+
+
 if __name__ == "__main__":
     unittest.main()
