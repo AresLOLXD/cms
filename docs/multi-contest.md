@@ -328,14 +328,15 @@ The rules:
 **Enter the times in UTC.** Every time field is in UTC, like the rest of AWS
 (which labels its times "UTC"; only the activity pages use the contest's time
 zone, and they name it): a
-time typed as 13:00 is 13:00 UTC, not 13:00 where the contest is. After you
-save, the page shows the equivalent in the server's time zone (`CMS_TIMEZONE`)
-next to each field, for example "= 2026-10-10 13:00 CST", and in the "next:"
-line described below. Always check it against the contest's start and end.
+time typed as 13:00 is 13:00 UTC, not 13:00 where the contest is. While you
+type, the page shows the equivalent in the server's time zone (`CMS_TIMEZONE`)
+to the right of the field, for example "= 2026-10-10 13:00:00 CST", and, once
+saved, in the "next:" line described below. Always check it against the
+contest's start and end.
 This check works only if `CMS_TIMEZONE` in `.env` is set to the contest's time
 zone (for example `America/Mexico_City`). If it is unset, it defaults to UTC:
-the local equivalent then equals the UTC value, and comparing them catches
-nothing. Set `CMS_TIMEZONE` before you schedule anything; it applies when the
+no local time is shown next to the fields and the "next:" line repeats the UTC
+value, so the check catches nothing. Set `CMS_TIMEZONE` before you schedule anything; it applies when the
 containers are recreated (`./up.sh`).
 
 ### What the group page shows
@@ -451,8 +452,8 @@ After saving a schedule, on the group's page:
 1. Compare the local equivalents shown next to each field, and in the "next:"
    line, with the contest's start and end. If they do not match, the times
    were typed in the wrong time zone: correct them. This only works if
-   `CMS_TIMEZONE` is set: if it is unset it defaults to UTC, and the local
-   equivalent equals the UTC value.
+   `CMS_TIMEZONE` is set: if it is unset it defaults to UTC, and no local time
+   is shown next to the fields (the "next:" line repeats the UTC value).
 2. Read the **Now** row: it must say what you expect at this moment.
 3. Open the public URL (`http://<server>:<CMS_RWS_HTTP_PORT>/<group>/`) in a
    private browser window. It shows the notice if the group is hidden, the
