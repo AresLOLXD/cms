@@ -122,11 +122,14 @@ class TestTryCommitFailure(unittest.TestCase):
         self.assertNotIn("secret_hash", message)
         self.assertNotIn("s3cr3t", message)
 
-    def test_an_integrity_error_keeps_its_text_in_the_notification(self):
-        error = _integrity_error()
-        self.commit_failing_with(error)
+    def test_an_integrity_error_shows_the_driver_text_but_no_sql(self):
+        self.commit_failing_with(_integrity_error())
 
-        self.assertEqual(self.notification.call_args.args[2], "%s" % error)
+        text = self.notification.call_args.args[2]
+        self.assertIn("duplicate key value", text)
+        self.assertNotIn("UPDATE", text)
+        self.assertNotIn("secret_hash", text)
+        self.assertNotIn("s3cr3t", text)
 
     def test_another_database_error_is_a_bug_and_propagates(self):
         error = ProgrammingError(SQL, PARAMETERS, _DriverError("syntax"))

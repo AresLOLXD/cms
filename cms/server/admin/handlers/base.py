@@ -351,7 +351,8 @@ class BaseHandler(CommonRequestHandler):
             self.sql_session.commit()
         except (DBAPIError, PoolTimeoutError) as error:
             if isinstance(error, IntegrityError):
-                text = "%s" % error
+                # Not str(error): it carries the SQL and its parameters.
+                text = describe_error(error)
             elif isinstance(error, (OperationalError, PoolTimeoutError)) \
                     or is_disconnect(error):
                 # Not str(error): it carries the SQL and its parameters.

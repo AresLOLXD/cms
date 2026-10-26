@@ -74,8 +74,7 @@ def clock_zones(timestamp: datetime, contest: Contest | None) -> list[dict]:
         "timezone" name (None if the zone has no key).
 
     """
-    # get_system_timezone() gives the abbreviation ("CST") for a zoneinfo
-    # zone, which is what Babel returns since 2.12: the key is the name.
+    # The key is the IANA name; get_system_timezone() is for a keyless zone.
     zones = [(getattr(local_tz, "key", None) or get_system_timezone(),
               local_tz)]
     if contest is not None and contest.timezone is not None:

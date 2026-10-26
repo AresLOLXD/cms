@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import functools
+import logging
 import os
 import sys
 import time
@@ -27,6 +29,9 @@ if typing.TYPE_CHECKING:
     from cms.db import User, Contest
 
 import babel.dates
+
+
+logger = logging.getLogger(__name__)
 
 
 __all__ = [
@@ -74,6 +79,29 @@ utc = babel.dates.UTC
 local_tz = babel.dates.LOCALTZ
 
 
+@functools.lru_cache(maxsize=256)
+def _find_timezone(name: str | None) -> tzinfo | None:
+    """Resolve a time zone name typed by an admin or a user.
+
+    The cache makes the warning appear once per name and process (CWS
+    builds the zone on every page) and skips the repeated disk lookup.
+
+    name: the name of the zone, like "Europe/Rome", or None.
+
+    return: the zone, or None if the name is empty or cannot be resolved
+        (zoneinfo raises more than LookupError for malformed, too deep
+        or directory names).
+
+    """
+    if not name:
+        return None
+    try:
+        return babel.dates.get_timezone(name)
+    except Exception:
+        logger.warning("Ignoring the unknown timezone %r.", name)
+        return None
+
+
 def get_timezone(user: "User | None", contest: "Contest") -> tzinfo:
     """Return the timezone for the given user and contest
 
@@ -83,16 +111,11 @@ def get_timezone(user: "User | None", contest: "Contest") -> tzinfo:
     return: the timezone information for the user.
 
     """
-    if user is not None and user.timezone is not None:
-        try:
-            return babel.dates.get_timezone(user.timezone)
-        except LookupError:
-            pass
-    if contest.timezone is not None:
-        try:
-            return babel.dates.get_timezone(contest.timezone)
-        except LookupError:
-            pass
+    names = (user.timezone if user is not None else None, contest.timezone)
+    for name in names:
+        zone = _find_timezone(name)
+        if zone is not None:
+            return zone
     return local_tz
 
 
@@ -104,6 +127,6 @@ def get_system_timezone() -> str:
         "Europe/Rome", "CET", etc.
 
     """
-    if hasattr(local_tz, 'zone'):
-        return local_tz.zone
-    return local_tz.tzname(make_datetime())
+    return (getattr(local_tz, "zone", None)
+            or getattr(local_tz, "key", None)
+            or local_tz.tzname(make_datetime()))
