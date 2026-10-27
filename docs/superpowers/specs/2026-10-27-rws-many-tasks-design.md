@@ -147,3 +147,85 @@ for the whole branch.
 Opaque sticky backgrounds (`tr:hover` is rgba); the `bottom` set by
 `visibility.py`; the 20-task threshold at the projector; a rebuild of the table
 while a live update arrives (`score_handler` walks the cells); `FROZEN_ROUTES`.
+
+## Revision 1 (builder check, 2026-10-27)
+These points correct or complete the sections above; where they disagree,
+this section wins.
+
+### Corrections (facts in the code)
+- **There is no rebuild path to reuse.** `Scoreboard.init` binds only user,
+  score, rank and select events (no contest/task handlers) and `generate()`
+  runs once: it re-binds the delegated clicks (a second run would make
+  `td.sel` toggle twice), `make_body` pushes onto `user_list` without clearing
+  it and it resets `sort_key`. The toggle needs a new `render()`: columns,
+  head, `tbody.empty()`, `user_list = []`, `make_body`, then re-apply the
+  `sort_key` classes; it is synchronous, so it cannot race `score_handler`.
+  Live task/contest creation stays ignored, as today. `create_user` calls
+  `make_row`, so `make_row` must read the same collapsed variable. Places that
+  assume task columns: the `td.task` branch of `score_handler`, the `th.score`
+  click, `sort_key` of the form `t_<id>`, `make_cols`, `make_head`, `make_row`,
+  `create_user`. Rank, `move_user` and UserDetail do not depend on them.
+- **Threshold:** use `DataStore.task_count` (the total; everything is loaded
+  before `Scoreboard.init`, see Ranking.js).
+- **Units:** the auto-width units are 20 + 3T + 4C + 5 (the last only if there
+  is more than one contest); fixed: sel 2em, rank 48px, user_id, team
+  2em+20px. Name = 20 units = 10 + 10, so the totals do not change; user_id
+  from 8em to 13em takes about 68 px, so task columns get ~10 % narrower in
+  every ranking. The `15 px per col + 240 px` min-width is approximate (about
+  13 px per unit, ~43 px per task cell at 90 tasks): calibrate it with the
+  screenshots.
+- **Existing tests read Ranking.css** (cmstestsuite/unit_tests/cmsranking/
+  test_visibility.py): the maximum z-index must stay below 1000; the first
+  `#InnerFrame {`, `#SidePanel {` and `#UserDetail_bg {` blocks must keep their
+  `bottom` (do not merge them into selector lists); sticky z-index values must
+  stay below 400 (the overlays are 400/401/500; `#InnerFrame` creates no
+  stacking context). `FROZEN_ROUTES` is checked against top-level static files
+  only, so no new files means no problem.
+- **Docs:** no page describes the scoreboard columns: task 3 is "no docs".
+
+### Calls of the author (a builder may refine them)
+- Scope the sticky and opaque rules to `#Scoreboard.expanded`, so the 10-task
+  look stays and the UserDetail navigator (also `td.name`) is not hit.
+- The name text is `trim(first + " " + last)` in one helper shared by
+  `make_row` and `update_user`.
+- Collapsing while `sort_key` is `t_*` switches to the global total if it is
+  shown, else to the last contest.
+- Sticky name cells get `z-index: 1` (`td.score` has opacity and would paint
+  over them), a flat `#F6F6F6` background and about `#E6E6E6` on hover; the
+  separate-borders table lets scrolled rows show through the sticky header and
+  name: fix with a box-shadow or `border-spacing: 0` in the expanded state only.
+- Toggle button: `aria-expanded` and `aria-controls`.
+- Phone block additions: `#InnerFrame` and `#SidePanel` become `static` (the
+  banner `bottom` rules shift `position: relative` elements); the fixed staff
+  banner covers the end of the page, so `body { padding-bottom:
+  var(--rws-banner, 0px) }` (find how the banner sets its height and use it);
+  the overlays (`#UserDetail_bg`, `#TeamSearch_bg`) become `position: fixed`
+  because the page now scrolls; `#SidePanel` needs an explicit `height`
+  (`#Overview { height: 100% }` would collapse and Raphael would get 0); the
+  close buttons (`right: -10px`) move inside so they do not cause horizontal
+  page scroll; `.item { width: 25% }` becomes 50 % or 100 %;
+  `#UserDetail_header { flex-direction: column }` and the navigator
+  `width: auto`; `#UserDetail_submissions { overflow-x: auto }`;
+  `#TeamSearch_input` is `fixed` inside the top bar with `font-size: 16px`
+  (no iOS zoom). The sticky header does not work on a phone (the page scrolls,
+  not the frame): accepted; `scroll_into_view` becomes a no-op there.
+- Risks to cover in the plan: `generate()` is not idempotent; 20 tasks with
+  `score_precision` 2 ("100.00") overflow ~43 px cells; the sticky stacking
+  artifacts; a rebuild loses the scroll position, `selected` row classes and
+  running animations (restore what is cheap, say what is not); the visible
+  changes to rankings of 20 tasks or fewer are only the Name column, the 13em
+  username and the `#InnerFrame`/`#Scoreboard` margin/padding (verify the
+  right-edge gap is unchanged); the CSS rules for `f_name`/`l_name` (hover,
+  bold) must all move to `name`.
+
+### Open points for the owner (defaults used if not answered)
+1. At 412 px the 3em margins plus the fixed columns leave ~80 px for the
+   auto units, so even a 10-task table is unusable. Default: below 800 px every
+   ranking gets the expanded min-width and horizontal scroll (this contradicts
+   "20 tasks or fewer: no min widths" only on phones).
+2. A 20-unit Name (at least 300 px) cannot be sticky at 412 px. Default: no
+   sticky Name below 800 px.
+3. Charts in the user detail scale by CSS (the 10 px labels become ~4 px).
+   Default: CSS only; the alternative is redrawing with the real canvas width.
+4. Collapsed with a single contest: Name takes 20 of 24 units (~830 px) beside
+   a ~200 px total. Default: accept.
