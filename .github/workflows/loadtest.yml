@@ -25,6 +25,18 @@ name: loadtest
 # run the fork only (the omi one also needs LOAD_USERS_B "0"). "compare"
 # puts the metrics of every run side by side.
 #
+# Header A/B: with LOAD_AB_HEADER set to a header name, each pair job runs
+# the fork twice instead of the fork and upstream, with that request time
+# header on and then off, or off and then on, so that the shared runner
+# cancels the runner-to-runner variation (the question of issue #47). The
+# order alternates like the one above (on first in odd repeats, off first
+# in even ones: 2 and 2). The upstream image is not built. The runs are
+# named ci-<repeat>-fork-on and ci-<repeat>-fork-off, and "compare" groups
+# the medians by the header setting (off, or the header name) instead of by
+# target. It needs the portable profile and an empty LOAD_REQUEST_TIME_HEADER
+# (the A/B sets the header itself). Same cost as the pair above: 4 pair
+# jobs, two runs each, about 1.5 h.
+#
 # Cost: standard runners are free on this public repository; the 4 pair
 # jobs take 4 of the 20 concurrent jobs GitHub Free allows. Duration:
 # about 30 min with the README's smoke values (measured); about 1.5 h
@@ -58,6 +70,9 @@ env:
   # each submit (the fork's CWS reads it, upstream ignores it with a
   # warning); empty leaves the option off.
   LOAD_REQUEST_TIME_HEADER: ""
+  # A header name turns the pair jobs into a same-runner A/B of that header
+  # on and off (the fork only, see the header comment); empty leaves it off.
+  LOAD_AB_HEADER: ""
   # Longest delay in seconds between two status polls of a submission, as
   # the fork's page caps it. The driver emulates the browser, so it applies
   # to both targets; empty leaves the option off (no limit, like upstream's
@@ -106,7 +121,22 @@ jobs:
 
       - name: Record the runner and the run order
         run: |
-          if [[ $LOAD_PROFILE != portable ]]; then
+          if [[ -n $LOAD_AB_HEADER && -n $LOAD_REQUEST_TIME_HEADER ]]; then
+            echo "::error::LOAD_AB_HEADER and LOAD_REQUEST_TIME_HEADER" \
+                "are mutually exclusive: the A/B sets the header itself"
+            exit 1
+          fi
+          if [[ -n $LOAD_AB_HEADER && $LOAD_PROFILE != portable ]]; then
+            echo "::error::LOAD_AB_HEADER needs LOAD_PROFILE portable"
+            exit 1
+          fi
+          if [[ -n $LOAD_AB_HEADER ]]; then
+            if ((REPEAT % 2)); then
+              order="fork-on fork-off"
+            else
+              order="fork-off fork-on"
+            fi
+          elif [[ $LOAD_PROFILE != portable ]]; then
             order=fork
           elif ((REPEAT % 2)); then
             order="fork upstream"
@@ -129,12 +159,14 @@ jobs:
         run: ./build.sh fork HEAD
 
       - name: Build the upstream image
-        if: env.LOAD_PROFILE == 'portable'
+        if: env.LOAD_PROFILE == 'portable' && env.LOAD_AB_HEADER == ''
         run: ./build.sh upstream "$UPSTREAM_REF"
 
-      # One target after the other, with a teardown in between: run.sh
-      # refuses to start while another target's stack is up. A failed run
-      # does not stop the other one.
+      # One run after the other, with a teardown in between: run.sh refuses
+      # to start while another stack is up. A failed run does not stop the
+      # other one. In the A/B, "fork-on" and "fork-off" are runs of the fork
+      # (the part before the dash is the target), the first with
+      # LOAD_AB_HEADER as its request time header.
       - name: Run ${{ env.ORDER }}
         timeout-minutes: 240
         run: |
@@ -149,8 +181,13 @@ jobs:
           if [[ -n $LOAD_CPUS ]]; then
             extra+=(--cpus "$LOAD_CPUS")
           fi
-          for target in $ORDER; do
-            name=ci-$REPEAT-$target
+          for run in $ORDER; do
+            target=${run%%-*}
+            name=ci-$REPEAT-$run
+            header=()
+            if [[ $run == *-on ]]; then
+              header=(--request-time-header "$LOAD_AB_HEADER")
+            fi
             echo "::group::$name"
             began=$(date -u +%FT%TZ)
             rc=0
@@ -162,7 +199,7 @@ jobs:
                 --rate "$LOAD_RATE" \
                 --end-burst-factor "$LOAD_END_BURST_FACTOR" \
                 --workers "$LOAD_WORKERS" --cws "$LOAD_CWS" \
-                "${extra[@]}" 2>&1 |
+                "${extra[@]}" "${header[@]}" 2>&1 |
               tee "out/run-$name.log" || rc=$?
             disk=$(df -h --output=used,avail / | tail -1)
             ./teardown.sh "$target" 2>&1 | tee -a "out/run-$name.log" || rc=$?
@@ -246,14 +283,20 @@ jobs:
           pattern: loadtest-*
           path: results
 
-      # --median groups by target only: every run here has the same
-      # profile, LOAD_PROFILE.
+      # --median groups by target, or by the header setting in the A/B,
+      # and never by profile: every run here has the same profile,
+      # LOAD_PROFILE.
       - name: Compare the runs
         run: |
           shopt -s nullglob
+          group=target
+          if [[ -n $LOAD_AB_HEADER ]]; then
+            group=request_time_header
+          fi
           runs=()
           missing=()
-          for dir in results/*/ci-*-fork results/*/ci-*-upstream; do
+          for dir in results/*/ci-*-fork results/*/ci-*-upstream \
+              results/*/ci-*-fork-on results/*/ci-*-fork-off; do
             if [[ -f $dir/metrics.json ]]; then
               runs+=("$dir")
             else
@@ -269,9 +312,10 @@ jobs:
             echo "Pair jobs: $PAIR_RESULT; runs with a metrics.json:" \
                 "${#runs[@]}."
             echo
-            echo "## Median per target, profile $LOAD_PROFILE"
+            echo "## Median per $group, profile $LOAD_PROFILE"
             echo
-            python3 cmstestsuite/loadtest/compare.py "${runs[@]}" --median
+            python3 cmstestsuite/loadtest/compare.py "${runs[@]}" --median \
+                --group-by "$group"
             echo
             echo "## Every run"
             echo
