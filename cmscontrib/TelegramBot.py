@@ -23,7 +23,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
-from telegram.error import BadRequest, RetryAfter
+from telegram.error import BadRequest, InvalidToken, RetryAfter
 
 from cms.db.base import Base
 
@@ -61,6 +61,11 @@ from telegram.ext import (
 
 
 logger = logging.getLogger(__name__)
+
+# How long the bot waits after Telegram rejects its token, before it exits
+# and supervisord starts it again. Fixing the token needs the container to
+# be recreated, so a quick restart loop can only fill the log.
+REJECTED_TOKEN_RETRY_SECONDS = 3600
 
 HELP_MESSAGE = """
 Bot to interact with the questions and announcements of all the CMS \
@@ -406,15 +411,31 @@ class TelegramBot:
             )
 
     async def run(self):
-        async with self.application:
-            try:
-                await self.application.start()
-                await self.application.bot.set_my_commands(())
-                await self.application.updater.start_polling()
-                await self.db_loop()
-            finally:
-                await self.application.updater.stop()
-                await self.application.stop()
+        try:
+            async with self.application:
+                try:
+                    await self.application.start()
+                    await self.application.bot.set_my_commands(())
+                    await self.application.updater.start_polling()
+                    await self.db_loop()
+                finally:
+                    await self.application.updater.stop()
+                    await self.application.stop()
+        except InvalidToken:
+            # The exception text holds the token: log a fixed message, no
+            # traceback. Exit with 1 because the bot failed; supervisord
+            # restarts it after any exit status.
+            # shortcut: an InvalidToken raised after start() is masked by the
+            # RuntimeError of updater.stop() in the finally above; it cannot
+            # happen right after initialize() accepted the token, so fix the
+            # finally if a revoked token is ever seen there.
+            logger.error(
+                "The Telegram bot token was rejected by Telegram: check "
+                "CMS_TELEGRAM_BOT_TOKEN in .env, then recreate the cms "
+                "container (./up.sh, option 1). The bot will try again in "
+                "%d seconds.", REJECTED_TOKEN_RETRY_SECONDS)
+            await asyncio.sleep(REJECTED_TOKEN_RETRY_SECONDS)
+            raise SystemExit(1) from None
 
     async def _store(
         self,

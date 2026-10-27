@@ -34,7 +34,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import yaml
 from sqlalchemy import event
-from telegram.error import BadRequest, RetryAfter
+from telegram.error import BadRequest, InvalidToken, RetryAfter
 
 from cms import config
 from cms.db import Announcement, engine
@@ -703,6 +703,72 @@ class TestStoreRobustness(unittest.TestCase):
             self.question(1), self.bot.question_callback))
 
         self.sleep.assert_awaited_once_with(3)
+
+
+class TestRejectedToken(unittest.TestCase):
+
+    TOKEN = "123456:SECRET-token-text"
+
+    def setUp(self):
+        self.bot = TelegramBot.__new__(TelegramBot)
+        self.bot.application = MagicMock()
+        self.sleep = AsyncMock()
+        for target, replacement in (
+                ("cmscontrib.TelegramBot.asyncio.sleep", self.sleep),
+                ("cmscontrib.TelegramBot.REJECTED_TOKEN_RETRY_SECONDS", 7)):
+            patcher = patch(target, replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def rejected(self):
+        # What python-telegram-bot raises in Application.initialize().
+        return InvalidToken(
+            f"The token `{self.TOKEN}` was rejected by the server.")
+
+    def run_and_exit(self):
+        """Run the bot, which must log one ERROR and then exit with 1."""
+        with self.assertLogs("cmscontrib.TelegramBot", "ERROR") as logs, \
+                self.assertRaises(SystemExit) as stop:
+            run(self.bot.run())
+        self.assertEqual(stop.exception.code, 1)
+        self.sleep.assert_awaited_once_with(7)
+        self.assertEqual(len(logs.records), 1)
+        record = logs.records[0]
+        self.assertIsNone(record.exc_info)
+        # The formatted output holds the message and any traceback.
+        output = "\n".join(logs.output)
+        self.assertNotIn(self.TOKEN, output)
+        self.assertNotIn("rejected by the server", output)
+        self.assertIn("CMS_TELEGRAM_BOT_TOKEN", record.getMessage())
+
+    def test_rejected_token_at_startup_is_logged_once_without_the_token(self):
+        self.bot.application.__aenter__ = AsyncMock(
+            side_effect=self.rejected())
+
+        self.run_and_exit()
+
+    def test_rejected_token_after_startup_still_shuts_down(self):
+        application = self.bot.application
+        application.start = AsyncMock()
+        application.bot.set_my_commands = AsyncMock(
+            side_effect=self.rejected())
+        application.updater.stop = AsyncMock()
+        application.stop = AsyncMock()
+
+        self.run_and_exit()
+
+        application.updater.stop.assert_awaited_once()
+        application.stop.assert_awaited_once()
+        application.__aexit__.assert_awaited_once()
+
+    def test_another_error_still_propagates(self):
+        self.bot.application.__aenter__ = AsyncMock(
+            side_effect=RuntimeError("boom"))
+
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            run(self.bot.run())
+
+        self.sleep.assert_not_awaited()
 
 
 if __name__ == "__main__":
