@@ -85,7 +85,9 @@ abbr {
     right: 0;
     bottom: 0;
     margin: 2px 0 0 2px;
-    padding: 0 3em;
+    /* No padding, so that a sticky cell with left: 0 sticks at the very edge
+       of the frame (the 3em live in the margin of #Scoreboard). */
+    padding: 0;
     overflow-y: scroll;
 }
 
@@ -381,9 +383,62 @@ abbr {
 
 
 #Scoreboard {
-    width: 100%;
+    width: calc(100% - 6em);
     table-layout: fixed;
-    margin: 20px 0;
+    margin: 20px 3em;
+}
+
+#Scoreboard_tasks_toggle {
+    margin: 12px 3em 0;
+    padding: 0.3em 1em;
+    border: 1px #D0D0D2 solid;
+    border-radius: 4px;
+    background-color: #ECECEF;
+    cursor: pointer;
+}
+
+#Scoreboard_tasks_toggle:hover {
+    background-color: #E2E2E6;
+}
+
+/* With the task columns shown (only in a ranking with many tasks, see
+   COLLAPSE_TASKS in Scoreboard.js) every column keeps a minimum width and the
+   frame scrolls sideways. --cols is the number of <col/> elements; each one
+   needs about 13px plus its 2px of border-spacing. The header and the name
+   stay in view; their backgrounds are opaque and the shadows cover the gaps
+   between cells, or the cells scrolled underneath would show through. */
+#Scoreboard.expanded {
+    min-width: calc(var(--cols) * 15px + 240px);
+}
+
+#Scoreboard.expanded thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    box-shadow: 0 2px 0 #F6F6F6, 0 0 2px 0 #D2D2D4 inset;
+}
+
+#Scoreboard.expanded th.name,
+#Scoreboard.expanded td.name {
+    position: sticky;
+    left: 0;
+}
+
+#Scoreboard.expanded th.name {
+    z-index: 3;
+    box-shadow: 2px 2px 0 #F6F6F6, 0 0 2px 0 #D2D2D4 inset;
+}
+
+/* z-index 1: td.score has an opacity, which would paint it over the name. */
+#Scoreboard.expanded td.name {
+    z-index: 1;
+    background-color: #F6F6F6;
+    box-shadow: 2px 0 0 #F6F6F6;
+}
+
+#Scoreboard.expanded tr:hover td.name {
+    background-color: #E6E6E6;
+    box-shadow: 2px 0 0 #E6E6E6;
 }
 
 #Scoreboard_cols col.sel {
@@ -395,7 +450,7 @@ abbr {
 }
 
 #Scoreboard_cols col.user_id {
-    width: 8em;
+    width: 13em;
 }
 
 #Scoreboard_cols col.team {
@@ -448,8 +503,7 @@ abbr {
 }
 
 #Scoreboard_body tr td.user_id,
-#Scoreboard_body tr td.f_name,
-#Scoreboard_body tr td.l_name {
+#Scoreboard_body tr td.name {
     text-align: left;
     padding: 0 0.5em;
     cursor: pointer;
@@ -457,7 +511,8 @@ abbr {
 
 /* Long usernames have no spaces, so let them break anywhere instead of
    overflowing into the neighbouring cells. */
-#Scoreboard_body tr td.user_id {
+#Scoreboard_body tr td.user_id,
+#Scoreboard_body tr td.name {
     overflow-wrap: break-word;
 }
 
@@ -472,16 +527,14 @@ abbr {
 }
 
 #Scoreboard_body tr:hover td.user_id,
-#Scoreboard_body tr:hover td.f_name,
-#Scoreboard_body tr:hover td.l_name,
+#Scoreboard_body tr:hover td.name,
 #Scoreboard_body tr:hover td.team {
     background-color: rgba(200,200,200,0.35);
     border-radius: 5px;
 }
 
 #Scoreboard_body tr.selected td.user_id,
-#Scoreboard_body tr.selected td.f_name,
-#Scoreboard_body tr.selected td.l_name {
+#Scoreboard_body tr.selected td.name {
     font-weight: bold;
 }
 
@@ -960,6 +1013,9 @@ abbr {
 
 #UserDetail_navigator {
     width: 450px;
+    /* A ranking with many tasks has a row for each of them. */
+    max-height: 60vh;
+    overflow-y: auto;
 }
 
 #UserDetail_navigator table {
