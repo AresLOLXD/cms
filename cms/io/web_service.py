@@ -30,7 +30,7 @@ import tornado.web
 from tornado.log import access_log
 
 from cms.db.filecacher import FileCacher
-from cms.server.util import Url
+from cms.server.util import CommonRequestHandler, Url
 from .async_service import AsyncService
 from .static_handler import MultiLocationStaticFileHandler
 
@@ -88,11 +88,22 @@ def log_request(handler: tornado.web.RequestHandler) -> None:
     does: the same logger, levels and format, which the load-test
     analysis parses.
 
+    A handler that is not a CommonRequestHandler (Tornado's 404 for a
+    URL no route matches, the static files) has not resolved the client
+    address from behind the trusted proxies, so it is resolved here, to
+    log the client and not the proxy. (The RPC handler resolves it in
+    post(); doing it again gives the same address.)
+
     handler: the handler that served the request.
 
     """
     status = handler.get_status()
     request = handler.request
+    if not isinstance(handler, CommonRequestHandler):
+        service = getattr(handler.application, "service", None)
+        request.remote_ip = resolve_remote_ip(
+            request.headers.get("X-Forwarded-For"), request.remote_ip,
+            getattr(service, "num_proxies_used", 0))
     if status < 400:
         if getattr(handler, "quiet_access_log", False) or (
                 request.method == "GET" and request.path == PROBE_PATH):
