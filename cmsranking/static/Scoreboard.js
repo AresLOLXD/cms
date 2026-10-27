@@ -57,8 +57,9 @@ var Scoreboard = new function () {
         self.tbody_el = $('#Scoreboard_body');
         self.toggle_el = $('#Scoreboard_tasks_toggle');
 
-        // Decided once, like the rest of the table: tasks created while the
-        // page is open are ignored until it is reloaded.
+        // Decided once: a task created while the page is open does not make
+        // the ranking start collapsed, but a toggle redraws from DataStore
+        // and shows it.
         self.many_tasks = DataStore.task_count > COLLAPSE_TASKS;
         self.tasks_collapsed = self.many_tasks;
         if (self.many_tasks) {
