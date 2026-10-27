@@ -194,10 +194,10 @@ Common problems:
   minutes, about 15 minutes for a full batch of 25 evaluations with a 1 s
   time limit and about 30 minutes with a 10 s one. The worker is told to
   quit; when it has restarted and reconnects it is enabled again by itself
-  (the log says "enabling it again"). Press **Enable** on its row of
-  **Workers status** only for a worker that stays disabled, for example one
-  disabled with the **Disable** button; a worker that stays disabled after
-  a timeout is stuck, so restart it first (see above).
+  (the log says "enabling it again"). Press **Enable** only for a worker
+  you disabled with the **Disable** button. A worker that stays disabled
+  after a timeout has not restarted: restart it (see above) and it enables
+  itself when it reconnects; do not press **Enable** for it.
 
 - **`QueuePool limit … reached` in the logs:** the Contest Web Server ran
   out of database connections (see [Troubleshooting](Troubleshooting.rst)).
