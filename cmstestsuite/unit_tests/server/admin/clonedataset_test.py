@@ -94,6 +94,16 @@ class TestCloneDatasetValidation(unittest.TestCase):
         handler.application.service.add_notification.assert_not_called()
         handler.redirect.assert_called_once_with("/task/None")
 
+    def test_a_valid_regex_clone_is_committed(self):
+        # The regexes name the testcases, which exist only after clone_from():
+        # validating before it would refuse this clone.
+        handler = self.post([{"max_score": 40, "testcases": "^a"},
+                             {"max_score": 60, "testcases": "^b"}])
+
+        handler.try_commit.assert_called_once_with()
+        handler.application.service.add_notification.assert_not_called()
+        handler.redirect.assert_called_once_with("/task/None")
+
 
 if __name__ == "__main__":
     unittest.main()

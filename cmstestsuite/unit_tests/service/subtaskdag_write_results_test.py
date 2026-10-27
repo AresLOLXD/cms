@@ -543,8 +543,8 @@ class TestAlignedDagNeverHoldsItself(
     SCORE_TYPE_PARAMETERS = ALIGNED_PARAMETERS
     TESTCASE_CODENAMES = ALIGNED_CODENAMES
 
-    @patch.object(config.global_, "two_phase_evaluation", True)
-    async def test_the_gates_always_release_something_until_done(self):
+    async def _drive_to_the_end(self, failing):
+        """Answer what the gates release, "0.0" for the failing codenames."""
         service = self._build_service()
         with patch.object(service, "_enqueue_sync",
                           return_value=True) as enqueue, \
@@ -561,10 +561,23 @@ class TestAlignedDagNeverHoldsItself(
                 enqueue.reset_mock()
                 self.assertTrue(released, "the gates hold every testcase left")
                 result = await self._write_with(
-                    service, dict.fromkeys(sorted(released), "1.0"))
+                    service, {c: "0.0" if c in failing else "1.0"
+                              for c in sorted(released)})
         self.assertEqual(_fallback_warnings(logs.records), [])
         self.assertEqual({e.codename for e in result.evaluations},
                          set(ALIGNED_CODENAMES))
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_the_gates_always_release_something_until_done(self):
+        await self._drive_to_the_end(failing=())
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_a_failing_screening_testcase_still_ends_evaluated(self):
+        await self._drive_to_the_end(failing={"s1-01-scr-wa"})
+
+    @patch.object(config.global_, "two_phase_evaluation", True)
+    async def test_a_failing_screening_after_a_pass_still_ends_evaluated(self):
+        await self._drive_to_the_end(failing={"s2-01-scr-wa"})
 
 
 class TestDependencySkipIsNotAScreeningFailure(

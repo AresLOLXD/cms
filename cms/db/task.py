@@ -528,6 +528,9 @@ class Dataset(Base):
         try:
             self.score_type_object
         except (AssertionError, ValueError) as error:
+            # AssertionError is defensive: ScoreType.__init__ already wraps
+            # whatever max_scores() raises as ValueError, so it can only come
+            # from a custom score type's own __init__.
             raise ValueError(str(error)) from error
 
     def clone_from(self, old_dataset: "Dataset", clone_managers: bool = True,
