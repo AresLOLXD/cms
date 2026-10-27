@@ -1385,6 +1385,24 @@ class TestStreamsAcrossTransitions(TestRealEventStream):
         data = self.get_events("/olim/events", old_id, self.staff_cookie())
         self.assertIn(b"event:reload\ndata:\n\n", data)
 
+    def test_public_reconnect_to_a_hidden_group_is_told_to_reload(self):
+        # A browser does not reconnect after an error, so a 403 would
+        # leave the old scoreboard on the page.
+        self.put_contest("/olim")
+        old_id = "%x" % int((time.time() - 60) * 1_000_000)
+        newer_id = "%x" % int((time.time() + 60) * 1_000_000)
+        self.put_visibility("olim", True)
+        data = self.get_events("/olim/events", old_id)
+        self.assertEqual(data.split(b"\r\n\r\n", 1)[1],
+                         b"event:reload\ndata:\n\n")
+        self.assertNotIn(b"Day 1", data)
+        # Only a reconnection that missed the change is told to reload.
+        for headers in [{}, {"Last-Event-ID": "not-hex"},
+                        {"Last-Event-ID": newer_id}]:
+            with self.subTest(headers=headers):
+                response = self.client.get("/olim/events", headers=headers)
+                self.assertEqual(response.status_code, 403)
+
     def test_a_first_connection_older_than_a_change_is_told_to_reload(self):
         # The page's first connection sends the ID in the query, and only
         # the browser's reconnections send it in a header.
