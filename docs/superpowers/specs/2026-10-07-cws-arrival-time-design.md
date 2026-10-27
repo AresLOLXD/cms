@@ -139,6 +139,8 @@ The production change (`.env` plus Caddy) is the operator's decision and is
 not made by this work. Until it is, behaviour matches today's, except that
 Tornado's start time applies.
 
+*Superseded by Revision 1, point 1: no Tornado start time applies.*
+
 ### 3. Visible refusal
 
 - **Web submits refused by the phase check:** `actual_phase_required` gains

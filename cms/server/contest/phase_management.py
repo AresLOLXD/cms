@@ -229,6 +229,8 @@ def actual_phase_required(
     refusal_subject: the untranslated subject of the error notification
         shown to the contestant when a non-API request is refused; if
         None, the contestant is redirected without any notification.
+        A notification needs an authenticated user: apply the decorator
+        below @tornado.web.authenticated.
 
     return: the decorator.
 
