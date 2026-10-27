@@ -1231,3 +1231,177 @@ abbr {
     cursor: pointer;
     text-decoration: underline;
 }
+
+
+/******************************************************************************\
+|                                                                              |
+|                                    Phones                                    |
+|                                    ------                                    |
+\******************************************************************************/
+
+
+/* Up to 800px wide the page is one column that scrolls as a whole (the panels are
+   no longer pinned to the sides and bottom of the window), and the table
+   scrolls sideways inside #InnerFrame. Keep this the last block of the file,
+   and nothing above 800px depends on it. The staff bar of visibility.py puts
+   a `bottom` on #InnerFrame and #SidePanel that moves positioned elements, so
+   they are static here, and leaves the room for itself in --rws-banner. */
+@media (max-width: 800px) {
+    body {
+        padding-bottom: var(--rws-banner, 0px);
+    }
+
+    #OuterFrame {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* The status bar stays on top, whatever its place in the markup, and in
+       view while the page scrolls, because the search box is fixed inside it. */
+    #UpperPanel {
+        order: -1;
+        position: sticky;
+        top: 0;
+        border-radius: 0;
+    }
+
+    #LogoPanel {
+        position: static;
+        width: auto;
+        margin: 8px 0 0;
+        text-align: center;
+    }
+
+    #LogoPanel img {
+        width: 100px;
+        margin-left: 0;
+    }
+
+    #TimeView {
+        position: static;
+        width: auto;
+    }
+
+    /* An explicit height: #Overview takes 100% of it and Overview.js sizes
+       its canvas from that (a height that depends on the content is 0). The
+       margin keeps the "Powered by" line, which hangs under the panel. */
+    #SidePanel {
+        position: static;
+        width: auto;
+        height: 180px;
+        margin: 0 1em 30px;
+        border-width: 2px;
+        border-radius: 10px;
+    }
+
+    #InnerFrame {
+        position: static;
+        margin: 0;
+        overflow: auto;
+    }
+
+    #Scoreboard_tasks_toggle {
+        margin: 12px 1em 0;
+    }
+
+    /* Every ranking, not only those with many tasks, keeps a minimum width
+       per column and scrolls sideways. */
+    #Scoreboard {
+        width: calc(100% - 2em);
+        min-width: calc(var(--cols) * 15px + 240px);
+        margin: 20px 1em;
+    }
+
+    /* The page scrolls here, not the frame, and a name this wide cannot stay
+       in view anyway: no sticky header or name, so back to the plain cells. */
+    #Scoreboard.expanded thead th,
+    #Scoreboard.expanded th.name {
+        position: static;
+        box-shadow: 0 0 2px 0 #D2D2D4 inset;
+    }
+
+    #Scoreboard.expanded td.name {
+        position: static;
+        background-color: transparent;
+        box-shadow: none;
+    }
+
+    #Scoreboard.expanded tr:hover td.name {
+        background-color: rgba(200,200,200,0.35);
+        box-shadow: none;
+    }
+
+    #TeamSearch_input {
+        position: fixed;
+        left: 0;
+        margin: 4px 8px;
+        font-size: 16px; /* anything smaller makes iOS zoom in on focus */
+    }
+
+    /* The page scrolls now, so the overlays follow the window. */
+    #TeamSearch_bg,
+    #UserDetail_bg {
+        position: fixed;
+    }
+
+    #TeamSearch {
+        width: auto;
+        margin: 56px 8px 24px;
+    }
+
+    #TeamSearch_close,
+    #UserDetail_close {
+        top: 6px;
+        right: 6px;
+    }
+
+    #TeamSearch_body {
+        top: 36px;
+    }
+
+    #TeamSearch_body div.item {
+        width: 50%;
+    }
+
+    #UserDetail {
+        position: relative;
+        width: auto;
+        margin: 24px 8px;
+        padding: 36px 12px 12px;
+    }
+
+    #UserDetail_header {
+        flex-direction: column;
+    }
+
+    #UserDetail_navigator {
+        width: auto;
+    }
+
+    /* Room for a score like 4481.25 in the narrower table (60/12/12/14). */
+    #UserDetail_navigator col.name {
+        width: 56%;
+    }
+
+    #UserDetail_navigator col.score,
+    #UserDetail_navigator col.show {
+        width: 16%;
+    }
+
+    /* shortcut: the charts only scale (their 10px labels become about 4px),
+       redraw them with the real canvas width if that is not readable enough. */
+    #UserDetail_charts canvas {
+        max-width: 100%;
+        height: auto;
+    }
+
+    #UserDetail_submissions {
+        overflow-x: auto;
+    }
+
+    /* With the columns sized by their content the table only overflows (and
+       scrolls) when a task has many extra columns. */
+    #UserDetail_submissions table {
+        table-layout: auto;
+    }
+}
