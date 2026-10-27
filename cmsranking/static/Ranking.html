@@ -2,6 +2,7 @@
 <html lang="en">
     <head>
         <meta charset='utf-8'/>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="shortcut icon" href="img/favicon.ico" />
         <link rel='stylesheet' href='Ranking.css'>
         <script src="//ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
@@ -56,6 +57,7 @@ if (!("EventSource" in window)) {
                 </div>
             </div>
             <div id="InnerFrame">
+                <button id="Scoreboard_tasks_toggle" type="button" aria-controls="Scoreboard" aria-expanded="false" hidden>Show tasks</button>
                 <table id="Scoreboard">
                     <colgroup id="Scoreboard_cols"></colgroup>
                     <thead id="Scoreboard_head"></thead>

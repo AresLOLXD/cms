@@ -43,13 +43,28 @@ var decodeUsername = function(key) {
     });
 };
 
+// A ranking with more tasks than this starts showing only the contest totals;
+// a button shows the task columns (see Scoreboard.render).
+var COLLAPSE_TASKS = 20;
+
 var Scoreboard = new function () {
     var self = this;
 
     self.init = function () {
+        self.table_el = $('#Scoreboard');
         self.tcols_el = $('#Scoreboard_cols');
         self.thead_el = $('#Scoreboard_head');
         self.tbody_el = $('#Scoreboard_body');
+        self.toggle_el = $('#Scoreboard_tasks_toggle');
+
+        // Decided once: a task created while the page is open does not make
+        // the ranking start collapsed, but a toggle redraws from DataStore
+        // and shows it.
+        self.many_tasks = DataStore.task_count > COLLAPSE_TASKS;
+        self.tasks_collapsed = self.many_tasks;
+        if (self.many_tasks) {
+            self.toggle_el.prop("hidden", false).on("click", self.toggle_tasks);
+        }
 
         self.generate();
 
@@ -63,10 +78,8 @@ var Scoreboard = new function () {
     };
 
 
+    // Bind the delegated callbacks (once) and draw the table.
     self.generate = function () {
-        self.tcols_el.html(self.make_cols());
-        self.thead_el.html(self.make_head());
-
         // Create callbacks for sorting
         self.thead_el.on("click", "th.score", function () {
             $("col[data-sort_key=" + self.sort_key + "]", self.tcols_el).removeClass("sort_key");
@@ -90,21 +103,13 @@ var Scoreboard = new function () {
             $("tr td[data-sort_key=" + self.sort_key + "]", self.tbody_el).addClass("sort_key");
         });
 
-        self.sort_key = "global";
-        self.make_body();
-
-        // Set initial style
-        $("col[data-sort_key=" + self.sort_key + "]", self.tcols_el).addClass("sort_key");
-        $("tr td[data-sort_key=" + self.sort_key + "]", self.thead_el).addClass("sort_key");
-        $("tr td[data-sort_key=" + self.sort_key + "]", self.tbody_el).addClass("sort_key");
-
         // Create callbacks for selection
         self.tbody_el.on("click", "td.sel", function () {
             DataStore.toggle_selected($(this).parent().data("user"));
         });
 
         // Create callbacks for UserPanel
-        self.tbody_el.on("click", "td.f_name, td.l_name, td.user_id", function () {
+        self.tbody_el.on("click", "td.name, td.user_id", function () {
             UserDetail.show($(this).parent().data("user"));
         });
 
@@ -117,6 +122,51 @@ var Scoreboard = new function () {
         self.tbody_el.on('webkitAnimationEnd', 'tr', function(event) {
             $(this).removeClass("score_up score_down");
         });
+
+        self.sort_key = "global";
+        self.render();
+    };
+
+
+    // (Re)draw columns, head and rows from the DataStore. Safe to call again:
+    // the delegated callbacks live on the table sections, not on the cells.
+    // The rows are new, so a running score animation stops; the selection
+    // colors, the sort column and the vertical scroll are put back.
+    self.render = function () {
+        var scroll = $("#InnerFrame").scrollTop();
+
+        self.tcols_el.html(self.make_cols());
+        self.thead_el.html(self.make_head());
+        self.table_el[0].style.setProperty("--cols", self.tcols_el.children().length);
+        self.table_el.toggleClass("expanded", self.many_tasks && !self.tasks_collapsed);
+
+        // The task columns are gone: sort by a total that is still there.
+        if (self.tasks_collapsed && self.sort_key.indexOf("t_") == 0) {
+            var contests = DataStore.contest_list;
+            self.sort_key = self.show_global_score ? "global" :
+                "c_" + contests[contests.length - 1]["key"];
+        }
+
+        self.tbody_el.empty();
+        self.user_list = new Array();
+        self.make_body();
+
+        // Set initial style
+        $("col[data-sort_key=" + self.sort_key + "]", self.tcols_el).addClass("sort_key");
+        $("tr td[data-sort_key=" + self.sort_key + "]", self.thead_el).addClass("sort_key");
+        $("tr td[data-sort_key=" + self.sort_key + "]", self.tbody_el).addClass("sort_key");
+
+        if (self.many_tasks) {
+            self.toggle_el.text(self.tasks_collapsed ? "Show tasks" : "Totals only")
+                .attr("aria-expanded", !self.tasks_collapsed);
+        }
+        $("#InnerFrame").scrollTop(scroll);
+    };
+
+
+    self.toggle_tasks = function () {
+        self.tasks_collapsed = !self.tasks_collapsed;
+        self.render();
     };
 
 
@@ -156,15 +206,15 @@ var Scoreboard = new function () {
         // global cells to 5, etc. This way, since all <col/>s with a width of
         // 'auto' get the same computed width, we keep the 3:4:5 ratio and are
         // able to scale well at each screen size, while keeping the constant
-        // width columns constant. (Note: we gave the first_ and last_name
-        // columns a "width" of 10 <col/> elements.)
+        // width columns constant. (Note: we gave the name column a
+        // "width" of 20 <col/> elements.)
         // Suggestion on other solution that get the same result and don't mess
         // this much with JS and HTML are extremely welcome!
         var result = " \
 <col class=\"sel\"/> \
 <col class=\"rank\"/> \
-<col class=\"f_name\"/> <col/><col/><col/><col/><col/><col/><col/><col/><col/> \
-<col class=\"l_name\"/> <col/><col/><col/><col/><col/><col/><col/><col/><col/>" +
+<col class=\"name\"/> <col/><col/><col/><col/><col/><col/><col/><col/><col/> \
+<col/><col/><col/><col/><col/><col/><col/><col/><col/><col/>" +
             (PublicConfig.show_id_column ? "<col class=\"user_id\"/>" : "") +
             "<col class=\"team\"/>";
 
@@ -173,7 +223,7 @@ var Scoreboard = new function () {
             var contest = contests[i];
             var c_id = contest["key"];
 
-            var tasks = contest["tasks"];
+            var tasks = self.tasks_collapsed ? [] : contest["tasks"];
             for (var j in tasks) {
                 var task = tasks[j];
                 var t_id = task["key"];
@@ -203,8 +253,7 @@ var Scoreboard = new function () {
 <tr> \
     <th class=\"sel\"></th> \
     <th class=\"rank\">Rank</th> \
-    <th colspan=\"10\" class=\"f_name\">First Name</th> \
-    <th colspan=\"10\" class=\"l_name\">Last Name</th>" +
+    <th colspan=\"20\" class=\"name\">Name</th>" +
             (PublicConfig.show_id_column ? "<th class=\"user_id\">Username</th>" : "") +
             "<th class=\"team\">Team</th>";
 
@@ -213,7 +262,7 @@ var Scoreboard = new function () {
             var contest = contests[i];
             var c_id = contest["key"];
 
-            var tasks = contest["tasks"];
+            var tasks = self.tasks_collapsed ? [] : contest["tasks"];
             for (var j in tasks) {
                 var task = tasks[j];
                 var t_id = task["key"];
@@ -253,8 +302,7 @@ var Scoreboard = new function () {
 <tr class=\"user" + (user["selected"] > 0 ? " selected color" + user["selected"] : "") + "\" data-user=\"" + user["key"] + "\"> \
     <td class=\"sel\"></td> \
     <td class=\"rank\">" + user["rank"] + "</td> \
-    <td colspan=\"10\" class=\"f_name\">" + escapeHTML(user["f_name"]) + "</td> \
-    <td colspan=\"10\" class=\"l_name\">" + escapeHTML(user["l_name"]) + "</td>" +
+    <td colspan=\"20\" class=\"name\">" + escapeHTML(self.full_name(user)) + "</td>" +
             (PublicConfig.show_id_column ? "<td class=\"user_id\">" + escapeHTML(decodeUsername(user["key"])) + "</td>" : "");
 
         if (user['team']) {
@@ -270,7 +318,7 @@ var Scoreboard = new function () {
             var contest = contests[i];
             var c_id = contest["key"];
 
-            var tasks = contest["tasks"];
+            var tasks = self.tasks_collapsed ? [] : contest["tasks"];
             for (var j in tasks) {
                 var task = tasks[j];
                 var t_id = task["key"];
@@ -293,6 +341,12 @@ var Scoreboard = new function () {
         }
 
         return result;
+    };
+
+
+    // The one name column shows first and last name together.
+    self.full_name = function (user) {
+        return (user["f_name"] + " " + user["l_name"]).trim();
     };
 
 
@@ -414,7 +468,7 @@ var Scoreboard = new function () {
 
 
     // This callback is called by the DataStore when a user is updated.
-    // It updates only its basic information (first name, last name and team).
+    // It updates only its basic information (name and team).
     self.update_user = function (u_id, old_user, user) {
         var $row = $(old_user["row"]);
 
@@ -424,8 +478,7 @@ var Scoreboard = new function () {
         delete old_user["row"];
         delete old_user["index"];
 
-        $row.children("td.f_name").text(user["f_name"]);
-        $row.children("td.l_name").text(user["l_name"]);
+        $row.children("td.name").text(self.full_name(user));
 
         if (user["team"]) {
             $row.children(".team").html("<img src=\"" + Config.get_flag_url(user["team"]) + "\" title=\"" + DataStore.teams[user["team"]]["name"] + "\" />");
