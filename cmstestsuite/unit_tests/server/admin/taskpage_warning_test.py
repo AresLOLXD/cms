@@ -19,12 +19,14 @@
 """Tests for the invalid score parameters warning of the task page."""
 
 import unittest
-from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import cms.server.admin
 from cms.db import Dataset, Task, Testcase
+from cms.grading.scoretypes import SCORE_TYPES
+from cms.grading.tasktypes import TASK_TYPES
 from cms.server.admin.handlers.task import TaskHandler
+from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 
 
 class TestTaskPageScoreTypeWarning(unittest.TestCase):
@@ -33,7 +35,7 @@ class TestTaskPageScoreTypeWarning(unittest.TestCase):
         self.task = Task(name="task", title="Task")
         # Datasets 1 and 3 name existing testcases; dataset 2 does not.
         self.datasets = {}
-        for dataset_id, regex in ((1, "^a"), (2, "^z"), (3, "^b")):
+        for dataset_id, regex in ((1, "^a"), (2, "^<z&"), (3, "^b")):
             dataset = Dataset(
                 task=self.task, description=str(dataset_id),
                 task_type="Batch", task_type_parameters=[],
@@ -45,17 +47,35 @@ class TestTaskPageScoreTypeWarning(unittest.TestCase):
                          input="input", output="output")
             self.datasets[dataset_id] = dataset
 
-    def get(self):
-        """Run the task page and return the warnings it renders with."""
+    def page_params(self):
+        """Run the task page and return the parameters it renders with."""
         handler = TaskHandler.__new__(TaskHandler)
         handler.safe_get_item = MagicMock(return_value=self.task)
         handler.sql_session = MagicMock()
+        handler.sql_session.execute.return_value.scalars.return_value \
+            .all.return_value = []
         handler.render_params = MagicMock(return_value={})
         handler.render = MagicMock()
         handler._get_sync("5")
         handler.render.assert_called_once()
         self.assertEqual(handler.render.call_args.args, ("task.html",))
-        return handler.render.call_args.kwargs["score_type_warnings"]
+        return handler.render.call_args.kwargs
+
+    def get(self):
+        """Run the task page and return the warnings it renders with."""
+        return self.page_params()["score_type_warnings"]
+
+    def render_core(self):
+        """Render the core block of the real template with the page params."""
+        template = AWS_ENVIRONMENT.get_template("task.html")
+        # The context that the base handler adds to every page.
+        params = dict(
+            self.page_params(), rtd_version="latest", timestamp=None,
+            url=lambda *parts: "/" + "/".join(str(p) for p in parts),
+            admin=SimpleNamespace(permission_all=True),
+            SCORE_TYPES=SCORE_TYPES, TASK_TYPES=TASK_TYPES,
+            xsrf_form_html="")
+        return "".join(template.blocks["core"](template.new_context(params)))
 
     def test_only_the_invalid_dataset_gets_its_message(self):
         warnings = self.get()
@@ -72,12 +92,23 @@ class TestTaskPageScoreTypeWarning(unittest.TestCase):
         self.assertNotIn("secret detail", warnings[1])
         self.assertIn("could not be checked", warnings[1])
 
-    def test_the_template_shows_the_message(self):
-        html = Path(cms.server.admin.__file__).parent.joinpath(
-            "templates", "task.html").read_text(encoding="utf-8")
+    def test_the_template_shows_the_message_of_the_invalid_dataset_only(self):
+        html = self.render_core()
 
-        self.assertIn(
-            "Currently invalid: {{ score_type_warnings[dataset.id] }}", html)
+        # Datasets 1 and 3 are valid; the message of dataset 2 is escaped.
+        self.assertEqual(html.count('<p class="score-type-warning"'), 1)
+        self.assertIn("Currently invalid: ", html)
+        self.assertIn("the regexp &#39;^&lt;z&amp;&#39;.</strong></p>", html)
+
+    def test_the_template_shows_nothing_for_valid_datasets(self):
+        self.task.datasets.remove(self.datasets[2])
+
+        self.assertNotIn("score-type-warning", self.render_core())
+
+    def test_the_template_renders_a_task_without_datasets(self):
+        self.task.datasets.clear()
+
+        self.assertNotIn("score-type-warning", self.render_core())
 
 
 if __name__ == "__main__":
