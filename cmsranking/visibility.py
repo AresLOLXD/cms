@@ -788,7 +788,6 @@ class VisibilityGuard:
             # a hidden or frozen group is private, whatever this says.)
             start_response = _cache_control(start_response, REVALIDATE)
         if path == "/events" and request.method == "GET" \
-                and (staff or not hidden) \
                 and self._missed_a_change(request, now):
             return Response(RELOAD_EVENT, status=200,
                             mimetype="text/event-stream",
