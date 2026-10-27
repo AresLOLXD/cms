@@ -102,6 +102,29 @@ plain HTTP. You can change all port numbers in `.env`.
 | `8889` | Admin Web Server (contest administration) |
 | `8890` | Ranking Web Server (public scoreboard) |
 
+## Client addresses behind a reverse proxy
+
+CMS records the address of each request (the participants' activity, the
+IP-based login restriction, the access log) after skipping the reverse proxies
+you tell it about. Set `CMS_NUM_PROXIES_USED` in `.env` to the number of
+trusted proxies in front of CMS: `1` for a single Caddy or nginx, `0` (the
+default) for none. CMS then takes that many entries from the right of the
+`X-Forwarded-For` header, the last one for `1`, and ignores `X-Real-Ip`. With
+`0`, or when the header has fewer entries, it uses the address of the
+connection, which behind a proxy is the proxy's.
+
+The entries a client writes itself are on the left of the proxy's, so they
+cannot change the recorded address behind one trusted hop. Caddy replaces the
+`X-Forwarded-For` of a client by default; it keeps it only for the clients
+you list in `trusted_proxies`, so do not list the public internet there. Do
+not set a number higher than the real number of proxies: a client could then
+choose the recorded address.
+
+The access log shows the same resolved address for every request, including
+the ones CMS does not route, such as the probes of scanners for URLs that do
+not exist. They used to show the address of the proxy (for Docker, the
+gateway of the bridge, such as `172.19.0.1`).
+
 ## Submissions at the contest stop
 
 The Contest Web Server decides whether a submission is on time by the time it
