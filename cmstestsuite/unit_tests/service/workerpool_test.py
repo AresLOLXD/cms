@@ -103,29 +103,42 @@ class TestDispatchToWorker(unittest.IsolatedAsyncioTestCase):
             {"jobs": []}, 0, None, dispatch_id=None)
 
 
+def _pool(workers: int = 1) -> WorkerPool:
+    """Return a pool with connected workers and nothing dispatched."""
+    service = MagicMock()
+    service._loop = None
+    service.contest_id = None
+    # Nothing is dispatched for real: drop the spawned coroutines.
+    service._spawn.side_effect = lambda coroutine: coroutine.close()
+    service.connect_to.side_effect = \
+        lambda coord, on_connect: MagicMock(connected=True)
+    pool = WorkerPool(service)
+    for shard in range(workers):
+        pool.add_worker(ServiceCoord("Worker", shard))
+    return pool
+
+
+def _operation(testcase_codename: str) -> ESOperation:
+    return ESOperation(ESOperation.EVALUATION, 42, 7, testcase_codename)
+
+
+def _busy_for(pool: WorkerPool, shard: int, seconds: float) -> None:
+    """Make a worker look acquired and dispatched `seconds` ago."""
+    started = make_datetime() - timedelta(seconds=seconds)
+    pool._start_time[shard] = started
+    pool._dispatched_at[shard] = started
+
+
 class TestDuplicateOperation(unittest.TestCase):
     """The same operation assigned to two workers at once."""
 
     def setUp(self):
-        service = MagicMock()
-        service._loop = None
-        service.contest_id = None
-        # Nothing is dispatched for real: drop the dispatch coroutine.
-        service._spawn.side_effect = lambda coroutine: coroutine.close()
-        service.connect_to.side_effect = \
-            lambda coord, on_connect: MagicMock(connected=True)
-        self.pool = WorkerPool(service)
-        for shard in range(2):
-            self.pool.add_worker(ServiceCoord("Worker", shard))
-
-    @staticmethod
-    def _operation(testcase_codename: str) -> ESOperation:
-        return ESOperation(ESOperation.EVALUATION, 42, 7, testcase_codename)
+        self.pool = _pool(2)
 
     def test_releasing_both_workers_forgets_every_operation(self):
-        duplicate = self._operation("001")
-        only_first = self._operation("002")
-        only_second = self._operation("003")
+        duplicate = _operation("001")
+        only_first = _operation("002")
+        only_second = _operation("003")
         first = self.pool.acquire_worker([duplicate, only_first])
         second = self.pool.acquire_worker([duplicate, only_second])
         self.assertNotEqual(first, second)
@@ -212,29 +225,11 @@ class TestDispatchIdOfTheAnswer(unittest.IsolatedAsyncioTestCase):
             {"jobs": []}, 0, None, dispatch_id=5)
 
 
-def _single_worker_pool() -> WorkerPool:
-    """Return a pool with one connected worker and nothing dispatched."""
-    service = MagicMock()
-    service._loop = None
-    service.contest_id = None
-    # Nothing is dispatched for real: drop the spawned coroutines.
-    service._spawn.side_effect = lambda coroutine: coroutine.close()
-    service.connect_to.side_effect = \
-        lambda coord, on_connect: MagicMock(connected=True)
-    pool = WorkerPool(service)
-    pool.add_worker(ServiceCoord("Worker", 0))
-    return pool
-
-
-def _operation(testcase_codename: str) -> ESOperation:
-    return ESOperation(ESOperation.EVALUATION, 42, 7, testcase_codename)
-
-
 class TestDispatchingTheJobGroup(unittest.IsolatedAsyncioTestCase):
     """The two places where dispatching feeds check_timeouts."""
 
     def setUp(self):
-        self.pool = _single_worker_pool()
+        self.pool = _pool()
         self.operations = [_operation("001")]
         self.shard = self.pool.acquire_worker(self.operations)
         self.dispatch = self.pool._current_dispatch[self.shard]
@@ -274,7 +269,7 @@ class TestDispatchIds(unittest.TestCase):
     """Each job group has an id; an answer with another id is stale."""
 
     def setUp(self):
-        self.pool = _single_worker_pool()
+        self.pool = _pool()
 
     def test_each_job_group_gets_a_new_id(self):
         shard = self.pool.acquire_worker([_operation("001")])
@@ -340,14 +335,10 @@ class TestTimeouts(unittest.TestCase):
     """When check_timeouts gives up on a worker."""
 
     def setUp(self):
-        self.pool = _single_worker_pool()
+        self.pool = _pool()
         self.operation = _operation("001")
         self.shard = self.pool.acquire_worker([self.operation])
         self.dispatch = self.pool._current_dispatch[self.shard]
-
-    def _busy_for(self, seconds: float):
-        self.pool._start_time[self.shard] = \
-            make_datetime() - timedelta(seconds=seconds)
 
     def _set_ten_second_timeout(self, dispatch_id: int | None):
         with patch("cms.service.workerpool.config") as config:
@@ -357,7 +348,7 @@ class TestTimeouts(unittest.TestCase):
                 self.shard, dispatch_id, TEN_SECOND_EVALUATIONS)
 
     def test_a_worker_past_its_timeout_is_disabled(self):
-        self._busy_for(601)
+        _busy_for(self.pool, self.shard, 601)
 
         with self.assertLogs("cms.service.workerpool", level="ERROR") as logs:
             lost = self.pool.check_timeouts()
@@ -372,11 +363,11 @@ class TestTimeouts(unittest.TestCase):
         self.assertEqual(self.pool._timeout[self.shard],
                          timedelta(seconds=1825))
 
-        self._busy_for(1000)
+        _busy_for(self.pool, self.shard, 1000)
         self.assertEqual(self.pool.check_timeouts(), [])
         self.assertEqual(self.pool._operations[self.shard], [self.operation])
 
-        self._busy_for(1826)
+        _busy_for(self.pool, self.shard, 1826)
         with self.assertLogs(
                 "cms.service.workerpool", level="ERROR") as logs:
             self.assertEqual(self.pool.check_timeouts(), [self.operation])
@@ -394,7 +385,7 @@ class TestTimeouts(unittest.TestCase):
                          WorkerPool.WORKER_TIMEOUT)
 
     def test_an_answered_worker_is_not_timed_out(self):
-        self._busy_for(10_000)
+        _busy_for(self.pool, self.shard, 10_000)
         self.pool._mark_answered(self.shard, self.dispatch)
 
         self.assertIsNotNone(self.pool._answered_at[self.shard])
@@ -430,17 +421,86 @@ class TestTimeouts(unittest.TestCase):
         self.assertIsNone(self.pool._answered_at[self.shard])
 
 
+class TestTheClockStartsAtDispatch(unittest.TestCase):
+    """A worker is timed from the moment its job group is sent."""
+
+    def setUp(self):
+        self.now = make_datetime()
+        patcher = patch("cms.service.workerpool.make_datetime",
+                        side_effect=lambda: self.now)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.pool = _pool()
+        self.operation = _operation("001")
+        self.shard = self.pool.acquire_worker([self.operation])
+        self.dispatch = self.pool._current_dispatch[self.shard]
+
+    def _advance(self, seconds: float):
+        self.now += timedelta(seconds=seconds)
+
+    def test_an_undispatched_worker_gets_the_longer_bound(self):
+        # Its job group may be waiting for an executor thread: not its
+        # fault, but not for ever either.
+        self.assertIsNone(self.pool._dispatched_at[self.shard])
+
+        self._advance(601)
+        self.assertEqual(self.pool.check_timeouts(), [])
+
+        self._advance(WorkerPool.ANSWER_HANDLING_TIMEOUT.total_seconds())
+        with self.assertLogs("cms.service.workerpool", level="ERROR") as logs:
+            self.assertEqual(self.pool.check_timeouts(), [self.operation])
+        self.assertIn("(timeout 0:30:00)", logs.output[0])
+
+    def test_a_dispatched_worker_is_timed_from_the_dispatch(self):
+        self._advance(700)
+        self.pool._set_timeout(self.shard, self.dispatch, {"jobs": []})
+
+        # 1299 s after the acquire, 599 s after the dispatch.
+        self._advance(599)
+        self.assertEqual(self.pool.check_timeouts(), [])
+
+        self._advance(2)
+        with self.assertLogs("cms.service.workerpool", level="ERROR") as logs:
+            self.assertEqual(self.pool.check_timeouts(), [self.operation])
+        self.assertIn("(timeout 0:10:00)", logs.output[0])
+
+    def test_setting_the_timeout_starts_the_clock(self):
+        self._advance(5)
+        self.pool._set_timeout(self.shard, self.dispatch, {"jobs": []})
+
+        self.assertEqual(self.pool._dispatched_at[self.shard], self.now)
+        # The Overview's start time is still the acquire.
+        self.assertEqual(self.pool._start_time[self.shard],
+                         self.now - timedelta(seconds=5))
+
+    def test_the_clock_starts_even_if_the_timeout_cannot_be_computed(self):
+        with self.assertLogs("cms.service.workerpool", level="ERROR"):
+            self.pool._set_timeout(self.shard, self.dispatch, {"no": "jobs"})
+
+        self.assertEqual(self.pool._dispatched_at[self.shard], self.now)
+        self.assertEqual(self.pool._timeout[self.shard],
+                         WorkerPool.WORKER_TIMEOUT)
+
+    def test_a_stale_dispatch_does_not_start_the_clock(self):
+        self.pool._set_timeout(self.shard, self.dispatch + 1, {"jobs": []})
+        self.assertIsNone(self.pool._dispatched_at[self.shard])
+
+    def test_the_release_stops_the_clock(self):
+        self.pool._set_timeout(self.shard, self.dispatch, {"jobs": []})
+        self.pool.release_worker(self.shard, self.dispatch)
+        self.assertIsNone(self.pool._dispatched_at[self.shard])
+
+
 class TestReenableOnReconnect(unittest.TestCase):
     """A worker the timeout disabled comes back when it reconnects."""
 
     def setUp(self):
-        self.pool = _single_worker_pool()
+        self.pool = _pool()
         self.coord = ServiceCoord("Worker", 0)
 
     def _time_out(self) -> int:
         shard = self.pool.acquire_worker([_operation("001")])
-        self.pool._start_time[shard] = \
-            make_datetime() - timedelta(seconds=601)
+        _busy_for(self.pool, shard, 601)
         with self.assertLogs("cms.service.workerpool", level="ERROR"):
             self.pool.check_timeouts()
         self.assertEqual(self.pool._operations[shard],
@@ -464,8 +524,7 @@ class TestReenableOnReconnect(unittest.TestCase):
             self):
         shard = self.pool.acquire_worker([_operation("001")])
         old_dispatch = self.pool._current_dispatch[shard]
-        self.pool._start_time[shard] = \
-            make_datetime() - timedelta(seconds=601)
+        _busy_for(self.pool, shard, 601)
         with self.assertLogs("cms.service.workerpool", level="ERROR"):
             self.pool.check_timeouts()
         self.assertEqual(self.pool._operations[shard],
@@ -508,6 +567,20 @@ class TestReenableOnReconnect(unittest.TestCase):
         self.assertEqual(self.pool._operations[0], WorkerPool.WORKER_DISABLED)
         self.assertFalse(self.pool._disabled_by_timeout[0])
 
+    def test_disabling_a_worker_the_timeout_disabled_keeps_it_disabled(self):
+        # An operator presses Disable on a stale page.
+        shard = self._time_out()
+
+        with self.assertLogs("cms.service.workerpool", level="WARNING"):
+            with self.assertRaises(ValueError):
+                self.pool.disable_worker(shard)
+        self.pool.on_worker_connected(self.coord)
+
+        self.assertEqual(self.pool._operations[shard],
+                         WorkerPool.WORKER_DISABLED)
+        self.assertFalse(self.pool._disabled_by_timeout[shard])
+        self.assertIsNone(self.pool._disabled_at[shard])
+
     def test_enabling_by_hand_clears_the_mark(self):
         shard = self._time_out()
         self.pool.enable_worker(shard)
@@ -523,13 +596,12 @@ class TestStatusOfDisabledWorkers(unittest.TestCase):
     """The fields cmsWatchdog (#38) reads from workers_status."""
 
     def setUp(self):
-        self.pool = _single_worker_pool()
+        self.pool = _pool()
         self.coord = ServiceCoord("Worker", 0)
 
     def _time_out(self) -> int:
         shard = self.pool.acquire_worker([_operation("001")])
-        self.pool._start_time[shard] = \
-            make_datetime() - timedelta(seconds=601)
+        _busy_for(self.pool, shard, 601)
         with self.assertLogs("cms.service.workerpool", level="ERROR"):
             self.pool.check_timeouts()
         return shard
