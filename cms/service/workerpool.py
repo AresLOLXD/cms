@@ -157,8 +157,11 @@ class WorkerPool:
         self._current_dispatch: dict[int, int | None] = {}
         self._last_dispatch_id = 0
         # When each worker answered its current job group (None while it
-        # works on it), and how long it may take on it.
+        # works on it), when its job group was sent to it (None until
+        # then; _start_time is when it was acquired) and how long it may
+        # take on it, counted from that moment.
         self._answered_at: dict[int, datetime | None] = {}
+        self._dispatched_at: dict[int, datetime | None] = {}
         self._timeout: dict[int, timedelta] = {}
         # Whether each disabled worker was disabled by check_timeouts
         # (then it is enabled again when it reconnects) rather than by
@@ -269,6 +272,7 @@ class WorkerPool:
         self._start_time[shard] = None
         self._current_dispatch[shard] = None
         self._answered_at[shard] = None
+        self._dispatched_at[shard] = None
         self._timeout[shard] = WorkerPool.WORKER_TIMEOUT
         self._schedule_disabling[shard] = False
         self._ignore[shard] = False
@@ -303,11 +307,12 @@ class WorkerPool:
                 self._fire_and_forget(
                     self._worker[shard].precache_files(
                         contest_id=self._service.contest_id)))
-        # We don't requeue the operation, because a connection lost
-        # does not invalidate a potential result given by the worker
-        # (as the problem was the connection and not the machine on
-        # which the worker is). But the worker could have been idling,
-        # so we wake up the consumers.
+        # We don't requeue anything here: check_connections already
+        # released the worker and re-queued its operations when the
+        # connection dropped, and an answer that arrives after that
+        # carries an old dispatch id, so release_worker ignores it as
+        # stale. But the worker could have been idling, so we wake up
+        # the consumers.
         self._threadsafe_set_workers_available()
 
     @staticmethod
@@ -364,6 +369,7 @@ class WorkerPool:
             logger.debug("Worker %s acquired.", shard)
             self._start_time[shard] = make_datetime()
             self._answered_at[shard] = None
+            self._dispatched_at[shard] = None
             self._timeout[shard] = WorkerPool.WORKER_TIMEOUT
             self._last_dispatch_id += 1
             dispatch_id = self._last_dispatch_id
@@ -490,12 +496,15 @@ class WorkerPool:
                      job_group_dict: dict) -> None:
         """Set how long a worker may take on the job group it was given.
 
+        This is also where the worker's clock starts (see
+        check_timeouts): the job group is about to be sent.
+
         Assumes that ES and the workers read the same [sandbox] limits,
         as in the Docker deployment, which generates one cms.toml.
 
         shard (int): the worker.
         dispatch_id (int|None): the job group, or None if unknown (then
-            the default stays).
+            the default stays and the clock does not start).
         job_group_dict (dict): the job group, exported to dict.
 
         """
@@ -511,10 +520,11 @@ class WorkerPool:
             logger.error("Cannot compute the timeout of the job group of "
                          "worker %s; it gets %s.", shard,
                          WorkerPool.WORKER_TIMEOUT, exc_info=True)
-            return
+            timeout = WorkerPool.WORKER_TIMEOUT
         with self._operation_lock:
             if self._current_dispatch.get(shard) == dispatch_id:
                 self._timeout[shard] = timeout
+                self._dispatched_at[shard] = make_datetime()
 
     def release_worker(
         self, shard: int, dispatch_id: int | None = None
@@ -560,6 +570,7 @@ class WorkerPool:
             self._start_time[shard] = None
             self._current_dispatch[shard] = None
             self._answered_at[shard] = None
+            self._dispatched_at[shard] = None
             self._ignore[shard] = False
             if self._schedule_disabling[shard]:
                 self._remove_operations(shard, WorkerPool.WORKER_DISABLED)
@@ -661,9 +672,12 @@ class WorkerPool:
         we send it a message trying to shut it down.
 
         The time a worker may take is the one of its job group (see
-        _set_timeout). A worker that answered gets
-        ANSWER_HANDLING_TIMEOUT instead: its answer only waits for ES,
-        and the worker is not to blame for that.
+        _set_timeout), counted from the moment the job group was sent.
+        A worker that was acquired but not sent one yet, and one that
+        answered, get ANSWER_HANDLING_TIMEOUT instead: they only wait
+        for ES (to build the job group, or to handle the answer), and
+        the worker is not to blame for that. The bound is still finite,
+        so a wedged executor does not hold a worker for ever.
 
         return: list of operations assigned to the worker
             that timed out.
@@ -686,15 +700,20 @@ class WorkerPool:
                                  WorkerPool.ANSWER_HANDLING_TIMEOUT)
                     reason = "Result not handled in %s." % waiting_for
                 else:
-                    active_for = now - self._start_time[shard]
-                    if active_for <= self._timeout[shard]:
+                    dispatched_at = self._dispatched_at[shard]
+                    if dispatched_at is None:
+                        active_for = now - self._start_time[shard]
+                        allowed = WorkerPool.ANSWER_HANDLING_TIMEOUT
+                    else:
+                        active_for = now - dispatched_at
+                        allowed = self._timeout[shard]
+                    if active_for <= allowed:
                         continue
                     # Here shard is a working worker with no sign of
                     # intelligent life for too much time.
                     logger.error("Disabling and shutting down worker %d "
                                  "because of no response in %s (timeout "
-                                 "%s).", shard, active_for,
-                                 self._timeout[shard])
+                                 "%s).", shard, active_for, allowed)
                     reason = "No response in %s." % active_for
                 is_busy = (self._operations[shard] !=
                            WorkerPool.WORKER_INACTIVE and

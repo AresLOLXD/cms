@@ -897,8 +897,8 @@ class EvaluationServiceTest(
         operation.side_data = (
             PriorityQueue.PRIORITY_HIGH, submission.timestamp)
         pool._add_operations(0, [operation])
-        pool._start_time[0] = make_datetime() - WorkerPool.WORKER_TIMEOUT \
-            - timedelta(seconds=1)
+        pool._start_time[0] = pool._dispatched_at[0] = \
+            make_datetime() - WorkerPool.WORKER_TIMEOUT - timedelta(seconds=1)
 
         # Pause release_worker (on its executor thread) right after it
         # starts reading the worker state, so check_timeouts runs in the
@@ -960,8 +960,8 @@ class EvaluationServiceTest(
         # Simulate a worker that has been unresponsive for far longer
         # than WorkerPool.WORKER_TIMEOUT, instead of waiting 600 real
         # seconds.
-        pool._start_time[0] = make_datetime() - WorkerPool.WORKER_TIMEOUT \
-            - timedelta(seconds=1)
+        pool._start_time[0] = pool._dispatched_at[0] = \
+            make_datetime() - WorkerPool.WORKER_TIMEOUT - timedelta(seconds=1)
 
         await self.service.check_workers_timeout()
 
