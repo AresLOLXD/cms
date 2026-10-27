@@ -411,6 +411,7 @@ class TelegramBot:
             )
 
     async def run(self):
+        rejected = False
         try:
             async with self.application:
                 try:
@@ -434,8 +435,12 @@ class TelegramBot:
                 "CMS_TELEGRAM_BOT_TOKEN in .env, then recreate the cms "
                 "container (./up.sh, option 1). The bot will try again in "
                 "%d seconds.", REJECTED_TOKEN_RETRY_SECONDS)
+            rejected = True
+        if rejected:
+            # Outside the except block: a cancel or an exit raised here
+            # would otherwise be chained to the InvalidToken and print it.
             await asyncio.sleep(REJECTED_TOKEN_RETRY_SECONDS)
-            raise SystemExit(1) from None
+            raise SystemExit(1)
 
     async def _store(
         self,

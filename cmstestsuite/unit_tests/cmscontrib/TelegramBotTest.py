@@ -25,8 +25,10 @@ with run(), which only works for coroutines that never wait.
 
 """
 
+import asyncio
 import os
 import tempfile
+import traceback
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -725,12 +727,24 @@ class TestRejectedToken(unittest.TestCase):
         return InvalidToken(
             f"The token `{self.TOKEN}` was rejected by the server.")
 
+    def assert_chain_has_no_token(self, exception):
+        """Check that nothing printing this exception can show the token."""
+        # format_exception follows __cause__ and __context__, as the
+        # default excepthook does; an exception raised while handling
+        # InvalidToken would drag its message along.
+        self.assertIsNone(exception.__context__)
+        self.assertIsNone(exception.__cause__)
+        output = "".join(traceback.format_exception(exception))
+        self.assertNotIn(self.TOKEN, output)
+        self.assertNotIn("rejected by the server", output)
+
     def run_and_exit(self):
         """Run the bot, which must log one ERROR and then exit with 1."""
         with self.assertLogs("cmscontrib.TelegramBot", "ERROR") as logs, \
                 self.assertRaises(SystemExit) as stop:
             run(self.bot.run())
         self.assertEqual(stop.exception.code, 1)
+        self.assert_chain_has_no_token(stop.exception)
         self.sleep.assert_awaited_once_with(7)
         self.assertEqual(len(logs.records), 1)
         record = logs.records[0]
@@ -760,6 +774,19 @@ class TestRejectedToken(unittest.TestCase):
         application.updater.stop.assert_awaited_once()
         application.stop.assert_awaited_once()
         application.__aexit__.assert_awaited_once()
+
+    def test_cancel_while_waiting_does_not_carry_the_token(self):
+        # Ctrl-C or SIGTERM during the wait cancels the task; the
+        # CancelledError must not be chained to the InvalidToken.
+        self.sleep.side_effect = asyncio.CancelledError
+        self.bot.application.__aenter__ = AsyncMock(
+            side_effect=self.rejected())
+
+        with self.assertLogs("cmscontrib.TelegramBot", "ERROR"), \
+                self.assertRaises(asyncio.CancelledError) as cancelled:
+            run(self.bot.run())
+
+        self.assert_chain_has_no_token(cancelled.exception)
 
     def test_another_error_still_propagates(self):
         self.bot.application.__aenter__ = AsyncMock(
