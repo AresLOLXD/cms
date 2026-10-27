@@ -59,8 +59,9 @@ devel = [
     "pytest-cov",
 ]
 contrib = [
-    # Only for cmscontrib scripts that process images
-    "Pillow>=10",
+    # Only for cmscontrib scripts that process images. Versions before
+    # 13.0.0 have known CVEs (image decode/encode, EPS/Ghostscript).
+    "Pillow>=13",
 ]
 
 [build-system]
