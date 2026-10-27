@@ -20,7 +20,8 @@
 
 Stdlib only. Each run directory (out/<run>) must hold the metrics.json
 written by analyze.py. The output is a markdown table with one column per
-run, or with --median one column per target (the median of its runs).
+run, or with --median one column per target (the median of its runs), or
+per value of another key with --group-by.
 The per-container CPU and memory dicts are not compared: their keys are
 container names, which differ between targets.
 """
@@ -146,14 +147,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--median", action="store_true",
                         help="one column per target, with the median of "
                         "its runs, instead of one column per run")
+    parser.add_argument("--group-by", default="target", metavar="KEY",
+                        help="with --median, the metrics.json key whose "
+                        "value gives the columns (default: target); an "
+                        "empty value is shown as off, as for "
+                        "request_time_header")
     cli = parser.parse_args(argv)
     try:
         runs = load(cli.run_dirs)
     except (OSError, ValueError) as error:
         parser.error(str(error))
     if cli.median:
-        rows = summarize(runs)
-        print(table([dict(row, run=row["target"]) for row in rows],
+        rows = summarize(runs, cli.group_by)
+        print(table([dict(row, run="off" if row[cli.group_by] == ""
+                          else row[cli.group_by]) for row in rows],
                     ["runs"] + list(DEFAULT_KEYS)))
     else:
         print(table(runs, list(DEFAULT_KEYS)))

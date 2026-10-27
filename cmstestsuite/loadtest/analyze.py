@@ -27,8 +27,8 @@ SPREAD_MIN_RUNS = 5
 SPREAD_MIN_TIME_S = 0.1
 
 METRIC_KEYS = (
-    "run", "target", "profile", "users", "poll_cap", "submissions_sent",
-    "submissions_rejected", "submissions_rejected_in_time",
+    "run", "target", "profile", "users", "poll_cap", "request_time_header",
+    "submissions_sent", "submissions_rejected", "submissions_rejected_in_time",
     "login_failures", "http_errors", "score_mismatches", "rws_pairs",
     "rws_mismatches", "login_p50", "login_p95", "submit_p50", "submit_p95",
     "submit_end_p95", "scored_p50", "scored_p95", "scored_max",
@@ -221,6 +221,8 @@ def main(run_dir: str, project_prefix: str = "cmsload-") -> None:
     # run.sh records it in users.json; null for a run without a cap, and for
     # a run from before it was recorded.
     metrics["poll_cap"] = users.get("poll_cap")
+    # Likewise: "" for a run without the header, null for an older run.
+    metrics["request_time_header"] = users.get("request_time_header")
 
     w("# Run %s\n" % metrics["run"])
     w("Target %s, profile %s." % (metrics["target"], metrics["profile"]))

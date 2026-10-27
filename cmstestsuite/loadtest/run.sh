@@ -356,20 +356,22 @@ done
 compose exec -T cms python3 /loadtest/setup_contest.py --profile "$PROFILE" \
   --start-in $((LOGIN + 45)) --duration "$CONTEST" \
   --users-a "$UA" --users-b "$UB" --out "/loadtest/out/$NAME/users.json"
-# Record the target and the poll cap (null when there is none) in users.json,
-# which analyze.py reads. The file belongs to the container's user, so it is
-# replaced rather than edited.
+# Record the target, the poll cap (null when there is none) and the request
+# time header ("" when there is none) in users.json, which analyze.py reads.
+# The file belongs to the container's user, so it is replaced rather than
+# edited.
 python3 -c '
 import json, os, sys
-path, target, poll_cap = sys.argv[1:]
+path, target, poll_cap, request_time_header = sys.argv[1:]
 with open(path) as f:
     data = json.load(f)
 data["target"] = target
 data["poll_cap"] = float(poll_cap) if poll_cap else None
+data["request_time_header"] = request_time_header
 with open(path + ".tmp", "w") as f:
     json.dump(data, f)
 os.replace(path + ".tmp", path)
-' "$OUT/users.json" "$TARGET" "$POLL_CAP"
+' "$OUT/users.json" "$TARGET" "$POLL_CAP" "$REQUEST_TIME_HEADER"
 
 # The watchdog starts before ProxyService, so that its status history
 # covers the whole run; watchdogstats.py lets ProxyService appear late.
