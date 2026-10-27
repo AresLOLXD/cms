@@ -61,6 +61,24 @@ class TestConstruction(unittest.TestCase):
         self.assertEqual(http_server.max_buffer_size, MAX_BODY_SIZE)
         self.assertEqual(http_server.conn_params.body_timeout, BODY_TIMEOUT)
 
+    def test_warns_about_an_invalid_request_time_header_name(self):
+        for name in ("X Y", "-X", "X_Y"):
+            with self.subTest(name=name), \
+                    patch.object(config.contest_web_server,
+                                 "request_time_header", name), \
+                    self.assertLogs("cms.server.contest.server",
+                                    "WARNING") as logs:
+                ContestWebServer(0)
+            self.assertIn(repr(name), logs.output[0])
+
+        # Off (the default, empty) and a valid name must stay silent.
+        for name in ("", "X-Request-Start"):
+            with self.subTest(name=name), \
+                    patch.object(config.contest_web_server,
+                                 "request_time_header", name), \
+                    self.assertNoLogs("cms.server.contest.server", "WARNING"):
+                ContestWebServer(0)
+
 
 class TestActivityFlush(unittest.IsolatedAsyncioTestCase):
     """The activity log is flushed periodically and at shutdown."""

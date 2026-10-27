@@ -220,6 +220,7 @@ def test_cms_toml_cookie_duration_invalid(monkeypatch, capsys, value):
 
 
 def test_request_time_header_default_is_off(monkeypatch):
+    monkeypatch.delenv("CMS_CWS_REQUEST_TIME_HEADER", raising=False)
     _set(monkeypatch, {})
     cws = tomllib.loads(gc.generate_cms_toml())["contest_web_server"]
     assert cws["request_time_header"] == ""
@@ -231,7 +232,9 @@ def test_request_time_header_custom(monkeypatch):
     assert cws["request_time_header"] == "X-Request-Start"
 
 
-@pytest.mark.parametrize("value", ["X Request", "X-Request:", "a\"b", "é"])
+@pytest.mark.parametrize(
+    "value", ["X Request", "X-Request:", "a\"b", "é", " X", "X ", "X\n",
+              "X_Y", "-X"])
 def test_request_time_header_invalid(monkeypatch, capsys, value):
     _set(monkeypatch, {"CMS_CWS_REQUEST_TIME_HEADER": value})
     with pytest.raises(SystemExit):

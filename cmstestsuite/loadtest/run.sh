@@ -81,8 +81,8 @@ done
   { echo "--profile must be portable, full or omi" >&2; exit 2; }
 [[ $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   { echo "--name is required: letters, digits, dot, dash and underscore, starting with a letter or digit" >&2; exit 2; }
-[[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9-]+$ ]] ||
-  { echo "--request-time-header must be a header name: letters, digits and dashes" >&2; exit 2; }
+[[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] ||
+  { echo "--request-time-header must be a header name: letters, digits and dashes, starting with a letter or digit" >&2; exit 2; }
 # A number with a non-zero digit, so that it is greater than 0.
 [[ -z $POLL_CAP || ($POLL_CAP =~ ^[0-9]+(\.[0-9]+)?$ && $POLL_CAP =~ [1-9]) ]] ||
   { echo "--poll-cap must be a number of seconds greater than 0" >&2; exit 2; }
@@ -356,20 +356,22 @@ done
 compose exec -T cms python3 /loadtest/setup_contest.py --profile "$PROFILE" \
   --start-in $((LOGIN + 45)) --duration "$CONTEST" \
   --users-a "$UA" --users-b "$UB" --out "/loadtest/out/$NAME/users.json"
-# Record the target and the poll cap (null when there is none) in users.json,
-# which analyze.py reads. The file belongs to the container's user, so it is
-# replaced rather than edited.
+# Record the target, the poll cap (null when there is none) and the request
+# time header ("" when there is none) in users.json, which analyze.py reads.
+# The file belongs to the container's user, so it is replaced rather than
+# edited.
 python3 -c '
 import json, os, sys
-path, target, poll_cap = sys.argv[1:]
+path, target, poll_cap, request_time_header = sys.argv[1:]
 with open(path) as f:
     data = json.load(f)
 data["target"] = target
 data["poll_cap"] = float(poll_cap) if poll_cap else None
+data["request_time_header"] = request_time_header
 with open(path + ".tmp", "w") as f:
     json.dump(data, f)
 os.replace(path + ".tmp", path)
-' "$OUT/users.json" "$TARGET" "$POLL_CAP"
+' "$OUT/users.json" "$TARGET" "$POLL_CAP" "$REQUEST_TIME_HEADER"
 
 # The watchdog starts before ProxyService, so that its status history
 # covers the whole run; watchdogstats.py lets ProxyService appear late.

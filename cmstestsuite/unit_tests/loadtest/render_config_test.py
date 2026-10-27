@@ -83,7 +83,7 @@ class RenderTest(unittest.TestCase):
                          "X-Request-Start")
 
     def test_request_time_header_name_is_validated(self):
-        for bad in ('X"Evil', "X Y", "X\nY", "a=b"):
+        for bad in ('X"Evil', "X Y", "X\nY", "a=b", "-X", "X_Y"):
             with self.assertRaises(ValueError):
                 render_config.values(
                     db_url="u", secret_key="k", rws_password="p", workers=1,

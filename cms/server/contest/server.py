@@ -49,6 +49,7 @@ from cms.io import WebService
 from cms.io.static_handler import MultiLocationStaticFileHandler
 from cms.locale import get_translations
 from cms.server.contest.jinja2_toolbox import CWS_ENVIRONMENT
+from cms.server.request_time import HEADER_NAME
 from cmscommon.binary import hex_to_bin
 from .activity import ActivityRecorder
 from .handlers import HANDLERS
@@ -184,6 +185,14 @@ class ContestWebServer(WebService):
         # off.
         self.request_time_header: str = \
             config.contest_web_server.request_time_header
+        if self.request_time_header and not HEADER_NAME.fullmatch(
+                self.request_time_header):
+            logger.warning(
+                "contest_web_server.request_time_header %r is not a valid "
+                "header name (a letter or digit, then letters, digits and "
+                "'-'), so the header is probably ignored: late submissions are "
+                "then judged by the time the handler starts.",
+                self.request_time_header)
 
     async def _async_run(self) -> bool:
         try:

@@ -24,7 +24,8 @@ server; use them as a starting point, not as a limit.
   with 4, none (see "At the end" for why). With the request time header on
   (see "Submissions at the contest stop" in
   [docker-deployment.md](docker-deployment.md)), a busy server no longer
-  refuses a submission that reached the reverse proxy before the stop.
+  refuses a submission that reached the reverse proxy before the stop, as
+  long as the request is handled within 60 s of reaching the proxy.
   Without it, keep 4 processes.
 - **Ports:** process *i* listens on `CMS_CWS_HTTP_PORT` + *i*. Nothing checks
   that this range stays clear of `CMS_AWS_HTTP_PORT` and `CMS_RWS_HTTP_PORT`,

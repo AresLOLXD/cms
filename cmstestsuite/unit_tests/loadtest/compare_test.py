@@ -115,9 +115,22 @@ class CompareTest(unittest.TestCase):
         self.assertEqual({r["profile"]: r["users"] for r in rows},
                          {"portable": 10, "full": 30})
 
+    def test_summarize_groups_the_runs_by_the_request_time_header(self):
+        runs = [{"run": "ci-1-fork-on", "request_time_header": "X-Start",
+                 "submit_end_p95": 12.0},
+                {"run": "ci-1-fork-off", "request_time_header": "",
+                 "submit_end_p95": 3.0},
+                {"run": "ci-2-fork-off", "request_time_header": "",
+                 "submit_end_p95": 5.0}]
+        rows = compare.summarize(runs, group_by="request_time_header")
+        self.assertEqual(
+            {r["request_time_header"]: (r["runs"], r["submit_end_p95"])
+             for r in rows},
+            {"X-Start": (1, 12.0), "": (2, 4.0)})
+
     def test_default_keys_are_the_analyzer_metrics_in_order(self):
-        skipped = {"run", "target", "profile", "cpu_mean_by_container",
-                   "mem_last_by_container"}
+        skipped = {"run", "target", "profile", "request_time_header",
+                   "cpu_mean_by_container", "mem_last_by_container"}
         self.assertEqual(
             list(compare.DEFAULT_KEYS),
             [k for k in analyze.METRIC_KEYS if k not in skipped])
@@ -173,6 +186,18 @@ class CompareFilesTest(unittest.TestCase):
         self.assertIn("| metric | fork | upstream |", text)
         self.assertIn("| runs | 2 | 1 |", text)
         self.assertIn("| login_p95 | 0.3 | 1.5 |", text)
+
+    def test_cli_median_can_group_by_the_request_time_header(self):
+        runs = [("a", "X-Start", 12.0), ("b", "", 3.0), ("c", "", 5.0)]
+        dirs = [self.make_run(name, {"run": name, "target": "fork",
+                                     "request_time_header": header,
+                                     "submit_end_p95": p95})
+                for name, header, p95 in runs]
+        text = self.run_cli(*dirs, "--median", "--group-by",
+                            "request_time_header")
+        self.assertIn("| metric | X-Start | off |", text)
+        self.assertIn("| runs | 1 | 2 |", text)
+        self.assertIn("| submit_end_p95 | 12 | 4 |", text)
 
 
 if __name__ == "__main__":

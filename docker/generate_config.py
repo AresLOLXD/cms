@@ -129,9 +129,10 @@ def generate_cms_toml() -> str:
 
     request_time_header = _get("CMS_CWS_REQUEST_TIME_HEADER", "")
     if request_time_header and not re.fullmatch(
-            r"[A-Za-z0-9-]+", request_time_header):
+            r"[A-Za-z0-9][A-Za-z0-9-]*", request_time_header):
         print(f"ERROR: CMS_CWS_REQUEST_TIME_HEADER must be a header name "
-              f"(letters, digits and '-'), got {request_time_header!r}.",
+              f"(a letter or digit, then letters, digits and '-'), "
+              f"got {request_time_header!r}.",
               file=sys.stderr)
         sys.exit(1)
 

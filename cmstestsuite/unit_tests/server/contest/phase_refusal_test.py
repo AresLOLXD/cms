@@ -21,10 +21,13 @@
 import unittest
 from unittest.mock import MagicMock
 
+import tornado.web
+
 from cms.server.contest.handlers.api import ApiSubmitHandler
 from cms.server.contest.handlers.tasksubmission import SubmitHandler
 from cms.server.contest.handlers.taskusertest import UserTestHandler
-from cms.server.contest.phase_management import phase_refusal_text
+from cms.server.contest.phase_management import (
+    actual_phase_required, phase_refusal_text)
 
 
 def make_handler(cls, actual_phase, api=False, allow_unofficial=False):
@@ -54,6 +57,34 @@ class PhaseRefusalTextTest(unittest.TestCase):
         for phase in (1, 2, 3, 4):
             self.assertEqual(phase_refusal_text(phase),
                              "The contest has already ended.")
+
+
+class PhaseGateTest(unittest.TestCase):
+
+    def test_no_refusal_subject_redirects_without_a_notification(self):
+        # About 15 handlers rely on this default.
+        handler = make_handler(SubmitHandler, 4)
+        actual_phase_required(0)(MagicMock())(handler)
+        handler.redirect.assert_called_once_with("/")
+        handler.notify_error.assert_not_called()
+
+    def test_phases_that_reach_the_handler(self):
+        # A submit that gets past the gate asks for its task: a 404 here.
+        for phase, unrestricted, refused in (
+                (1, False, True), (2, False, True),
+                (3, False, False), (4, True, False)):
+            with self.subTest(phase=phase, unrestricted=unrestricted):
+                handler = make_handler(SubmitHandler, phase)
+                handler._current_user.unrestricted = unrestricted
+                handler.get_task = MagicMock(return_value=None)
+                if refused:
+                    handler.post("task")
+                    handler.redirect.assert_called_once_with("/")
+                    handler.get_task.assert_not_called()
+                else:
+                    with self.assertRaises(tornado.web.HTTPError) as raised:
+                        handler.post("task")
+                    self.assertEqual(raised.exception.status_code, 404)
 
 
 class SubmitRefusalTest(unittest.TestCase):

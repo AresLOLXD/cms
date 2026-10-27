@@ -39,6 +39,11 @@ MAX_SKEW = timedelta(seconds=60)
 # A header value at or above this is in milliseconds, below it in seconds.
 _MILLISECONDS_THRESHOLD = 10 ** 11
 
+# A header name that the deployment's validators accept: a letter or digit,
+# then letters, digits and hyphens. Keep docker/generate_config.py and
+# cmstestsuite/loadtest/render_config.py and run.sh in step with it.
+HEADER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")
+
 _HEADER_VALUE = re.compile(r"^\s*(?:t=)?([0-9]+(?:\.[0-9]+)?)\s*$")
 
 
