@@ -130,6 +130,20 @@ class TaskHandler(BaseHandler):
             .join(Task).filter(Task.id == task_id)
             .order_by(Submission.timestamp.desc())
         ).scalars().all()
+        # Datasets whose score parameters do not build a score type now
+        # (the testcases may have changed since they were checked).
+        self.r_params["score_type_warnings"] = {}
+        for dataset in task.datasets:
+            try:
+                dataset.validate_score_type()
+            except ValueError as error:
+                self.r_params["score_type_warnings"][dataset.id] = str(error)
+            except Exception:
+                # The page must always load, whatever the validation does.
+                logger.warning("Cannot check the score parameters of "
+                               "dataset %s.", dataset.id, exc_info=True)
+                self.r_params["score_type_warnings"][dataset.id] = \
+                    "the score parameters could not be checked."
         self.render("task.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
