@@ -755,14 +755,17 @@ class WorkerPool:
 
         """
         with self._operation_lock:
+            # Also for a worker the timeout already disabled (a stale
+            # Overview page): the operator's Disable wins, so it stays
+            # disabled when it reconnects.
+            self._disabled_by_timeout[shard] = False
+            self._disabled_at[shard] = None
             if self._operations[shard] == WorkerPool.WORKER_DISABLED:
                 err_msg = \
                     "Trying to disable already disabled worker %s." % shard
                 logger.warning(err_msg)
                 raise ValueError(err_msg)
 
-            self._disabled_by_timeout[shard] = False
-            self._disabled_at[shard] = None
             lost_operations = []
             if self._operations[shard] == WorkerPool.WORKER_INACTIVE:
                 self._operations[shard] = WorkerPool.WORKER_DISABLED

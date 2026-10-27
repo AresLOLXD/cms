@@ -567,6 +567,20 @@ class TestReenableOnReconnect(unittest.TestCase):
         self.assertEqual(self.pool._operations[0], WorkerPool.WORKER_DISABLED)
         self.assertFalse(self.pool._disabled_by_timeout[0])
 
+    def test_disabling_a_worker_the_timeout_disabled_keeps_it_disabled(self):
+        # An operator presses Disable on a stale page.
+        shard = self._time_out()
+
+        with self.assertLogs("cms.service.workerpool", level="WARNING"):
+            with self.assertRaises(ValueError):
+                self.pool.disable_worker(shard)
+        self.pool.on_worker_connected(self.coord)
+
+        self.assertEqual(self.pool._operations[shard],
+                         WorkerPool.WORKER_DISABLED)
+        self.assertFalse(self.pool._disabled_by_timeout[shard])
+        self.assertIsNone(self.pool._disabled_at[shard])
+
     def test_enabling_by_hand_clears_the_mark(self):
         shard = self._time_out()
         self.pool.enable_worker(shard)
