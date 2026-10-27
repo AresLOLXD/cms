@@ -25,7 +25,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKER = re.compile(r"@([A-Z_]+)@")
-HEADER_NAME = re.compile(r"[A-Za-z0-9-]+")
+HEADER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")
 
 
 def render(template: str, values: dict[str, str]) -> str:
@@ -76,7 +76,7 @@ def values(db_url: str, secret_key: str, rws_password: str, workers: int,
     return: the replacement text of each marker.
 
     raise (ValueError): if request_time_header is not a plain header name
-        (letters, digits and hyphens).
+        (a letter or digit, then letters, digits and hyphens).
 
     """
     if request_time_header and not HEADER_NAME.fullmatch(request_time_header):

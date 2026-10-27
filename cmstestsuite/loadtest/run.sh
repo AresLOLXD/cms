@@ -81,8 +81,8 @@ done
   { echo "--profile must be portable, full or omi" >&2; exit 2; }
 [[ $NAME =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   { echo "--name is required: letters, digits, dot, dash and underscore, starting with a letter or digit" >&2; exit 2; }
-[[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9-]+$ ]] ||
-  { echo "--request-time-header must be a header name: letters, digits and dashes" >&2; exit 2; }
+[[ -z $REQUEST_TIME_HEADER || $REQUEST_TIME_HEADER =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] ||
+  { echo "--request-time-header must be a header name: letters, digits and dashes, starting with a letter or digit" >&2; exit 2; }
 # A number with a non-zero digit, so that it is greater than 0.
 [[ -z $POLL_CAP || ($POLL_CAP =~ ^[0-9]+(\.[0-9]+)?$ && $POLL_CAP =~ [1-9]) ]] ||
   { echo "--poll-cap must be a number of seconds greater than 0" >&2; exit 2; }
