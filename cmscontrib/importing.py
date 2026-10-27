@@ -88,7 +88,7 @@ def task_from_db(task_name: str | None, session: Session) -> Task | None:
 def validate_dataset(dataset: Dataset) -> None:
     """Check that the score type parameters of the dataset are valid
 
-    dataset: the dataset, as built by a loader, still tied to its task.
+    dataset: the dataset, tied to its task.
 
     raise (ImportDataError): if the score type parameters do not build a
         score type; the message names the task and the dataset.

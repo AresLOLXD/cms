@@ -327,12 +327,11 @@ expression:
 ```
 
 The `italy_yaml` loader names the testcases `000`, `001`, …, so an import with
-these regular expressions or with lists of codenames is refused (for a regular
-expression: "No testcase matches against the regexp ..."). Import with the
-count form (`"testcases": 3`), rename the testcases to the
-`sN-nn-…` codenames (see "Getting these codenames" in
-[Two-phase grading](two-phase-grading.md)), then write the regular expressions
-in **Score Parameters** and press **Update**.
+these regular expressions is refused (for a regular expression: "No testcase
+matches against the regexp ..."). Import with the count form (`"testcases": 3`),
+rename the testcases to the `sN-nn-…` codenames (see "Getting these codenames"
+in [Two-phase grading](two-phase-grading.md)), then write the regular
+expressions in **Score Parameters** and press **Update**.
 
 ### When a dataset breaks the alignment rule
 
