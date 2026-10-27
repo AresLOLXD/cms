@@ -218,7 +218,7 @@ Python, Java and isolate versions of the image. Each build takes about
 | `--end-burst-factor` | 1.0 | multiplies the 1-3 submissions per user of the end burst |
 | `--workers` | 8 | Worker shards |
 | `--cws` | 2 | ContestWebServer shards (HTTP ports 8888 and up) |
-| `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning |
+| `--request-time-header` | (none) | simulates a front proxy that stamps the arrival time of each submit: the driver sends `NAME: t=<ms since epoch>` and the fork's CWS is configured with `request_time_header = "NAME"`; the upstream target ignores the key with a warning. `run.sh` records the name in `users.json` (`""` when there is none) |
 | `--poll-cap` | (none) | longest delay in seconds between two status polls of a submission; the driver applies it after each multiplication of the backoff, like the fork's `task_submissions.html`, which caps it at 10 s (`PAGE_POLL_CAP_S` in `driver.py`; a test keeps it equal to the page's). Each submission caps at the value times (0.9 + hash * 0.2), the hash that staggers its backoff, so the capped polls of a burst of submissions do not line up in waves. Without the option the backoff has no limit, like upstream's page. The driver emulates the browser, so it applies to both targets. Must be a finite number greater than 0. `run.sh` records it in `users.json` |
 | `--cpus` | (no limit) | limits the `cms` container (every service and sandbox in it) to this many CPUs, which may be fractional, to emulate a smaller host on a bigger one; a number greater than 0 and not above the host's CPUs. See "Limiting the CPUs" |
 | `--watchdog` | off | also runs `cmsWatchdog` in observe mode with the `/proc` source in the `cms` container, and `watchdogstats.py` at the end (fork target only; see "Watchdog runs") |
@@ -317,7 +317,7 @@ Everything goes to `out/<name>/` (git-ignored):
 
 | file | written by | content |
 |---|---|---|
-| `users.json` | `setup_contest.py`, `run.sh` | target, poll cap (null when there is none), profile, ranked contests and their RWS paths, contest ids, start and stop, usernames and plaintext passwords |
+| `users.json` | `setup_contest.py`, `run.sh` | target, poll cap (null when there is none), request time header (`""` when there is none), profile, ranked contests and their RWS paths, contest ids, start and stop, usernames and plaintext passwords |
 | `requests.jsonl` | driver | one line per HTTP request: time, kind, phase, duration, status, ok, user, shard, error or body excerpt when it failed |
 | `submissions.jsonl` | driver | one line per submission: user, task, solution kind, phase, accepted, opaque id, expected score, final status and score seen, polls (final status `poll_failed`, with the HTTP status in `poll_status`, when a 4xx stopped the poll); also one `login_failed` line per user who gave up logging in |
 | `ranking.jsonl` | driver | every change of a (user, task) score seen on RWS |
@@ -415,13 +415,15 @@ samples is `null`. The counts taken from the driver's files
 `login_failures`, `http_errors`, `status_polls`) are 0, not `null`, when
 the file is missing. `compare.py` shows "-" for a key that an older
 `metrics.json` does not have (`submissions_rejected_in_time` was added
-later, and so were the `perceived_*` keys, `status_polls` and `poll_cap`).
+later, and so were the `perceived_*` keys, `status_polls`, `poll_cap` and
+`request_time_header`).
 
 | key | meaning |
 |---|---|
 | `run`, `target`, `profile` | run name, target and profile |
 | `users` | users in both contests |
 | `poll_cap` | the `--poll-cap` of the run in seconds, as `run.sh` recorded it in `users.json`; `null` when the run had no cap (the driver run by hand does not record it) |
+| `request_time_header` | the `--request-time-header` of the run, as `run.sh` recorded it in `users.json`; `""` when the run had none, `null` in a run from before it was recorded. A label like `target`: `compare.py` does not show it as a metric, but `--group-by request_time_header` makes it the column |
 | `submissions_sent` | submissions the driver sent |
 | `submissions_rejected` | submissions CWS did not accept (no `submission_id` in the redirect) |
 | `submissions_rejected_in_time` | the rejected submissions whose POST was created before the contest stop (`t_submit` < stop); these are the ones that point at the server |
@@ -457,10 +459,14 @@ prints a markdown table of the `metrics.json` keys, one column per run;
 with `--median`, one column per target, the median of its runs. Give it
 the runs of both targets, for example
 `python3 compare.py out/full-fork-portable-* out/full-upstream-* --median`.
-`--median` groups by target only, not by profile: pass the runs of one
+`--median` groups by target, not by profile: pass the runs of one
 profile at a time, and never mix `full` runs into a `portable`
 comparison (`out/smoke-* --median` would blend the fork's `portable` and
 `full` smoke runs into one column).
+
+`--median --group-by KEY` makes the columns the values of another
+`metrics.json` key instead of the target; an empty value is labelled
+`off`. The header A/B (below) uses `--group-by request_time_header`.
 
 ## Teardown
 
@@ -490,11 +496,12 @@ git push origin --delete loadtest/<topic>
   `run.sh` options (`LOAD_USERS_A`, `LOAD_USERS_B`, `LOAD_LOGIN_WINDOW`,
   `LOAD_CONTEST`, `LOAD_END_BURST`, `LOAD_RATE`,
   `LOAD_END_BURST_FACTOR`, `LOAD_WORKERS`, `LOAD_CWS`, `LOAD_PROFILE`,
-  `LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP`, `LOAD_CPUS`)
-  and `UPSTREAM_REF`; change them in the commit you push. The values in
-  the file are the `run.sh` defaults, except 4 CWS shards instead of 2
-  (`LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP` and `LOAD_CPUS` are empty,
-  which leaves those options off).
+  `LOAD_REQUEST_TIME_HEADER`, `LOAD_POLL_CAP`, `LOAD_CPUS`),
+  `LOAD_AB_HEADER` (see "Header A/B" below) and `UPSTREAM_REF`; change
+  them in the commit you push. The values in the file are the `run.sh`
+  defaults, except 4 CWS shards instead of 2 (`LOAD_REQUEST_TIME_HEADER`,
+  `LOAD_AB_HEADER`, `LOAD_POLL_CAP` and `LOAD_CPUS` are empty, which
+  leaves those options off).
 - **Jobs:** four `pair` jobs, repeats 1 to 4, each on its own runner
   (`ubuntu-24.04`: 4 vCPUs and 16 GB, a quarter of the cores the
   full-size run asks for). Each one builds both images
@@ -526,6 +533,34 @@ git push origin --delete loadtest/<topic>
   takes about 30 minutes with the smoke values, the two image builds
   about 5 minutes of that. With the defaults it takes about 1.5 hours,
   an estimate from the local runs, not yet measured on a runner.
+
+### Header A/B
+
+Does the request time header slow the fork down, or is a slower run the
+runner's doing? Set `LOAD_AB_HEADER` to a header name in the commit you
+push, for example `LOAD_AB_HEADER: "X-Request-Start"`, and push it to a
+`loadtest/ab-<topic>` branch as above. Each `pair` job then runs the fork
+twice instead of the fork and upstream, with that header on
+(`--request-time-header`) and off, and no upstream image is built. The
+order alternates by repeat: on first in repeats 1 and 3, off first in 2
+and 4. The runs are `ci-<repeat>-fork-on` and `ci-<repeat>-fork-off`, so
+both settings of a repeat share a runner. The `portable` profile only, and
+`LOAD_REQUEST_TIME_HEADER` must stay empty: the step "Record the runner
+and the run order" fails otherwise.
+
+Read `compare.md` (artifact `loadtest-compare`, or the summary of
+`compare`): its first table is `compare.py --median --group-by
+request_time_header`, one column per setting (`off`, or the header name)
+with the median of its 4 runs; compare `submit_end_p95` in it (the other
+rows are the usual metrics). The CWS echo maximum and the CPU of the
+containers are not in `metrics.json`: they are in each run's
+`summary.md`, in the artifact `loadtest-<repeat>` (the echo table and
+"Containers"). With 4 repeats the medians say whether the gap is larger
+than the spread between runs of the same setting (the "Every run" table);
+there is no statistical test.
+
+Cost: the 4 `pair` jobs with two fork runs each, so about the 1.5 hours
+of the defaults, minus the upstream image build.
 
 ## Fault runs
 
