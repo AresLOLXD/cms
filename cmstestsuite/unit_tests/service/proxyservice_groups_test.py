@@ -2257,5 +2257,66 @@ class TestSkipArchivedEvents(ArchiveTrafficTestCase):
         self.assertEqual(self.groups_of(operations), {None})
 
 
+class TestSkipArchivedSweep(ArchiveTrafficTestCase):
+
+    async def test_the_sweep_skips_an_archived_group(self):
+        # Scenario: The sweep skips an archived group: nothing for it
+        # (not even its visibility), and the other group still gets its
+        # visibility, its contest data and its scores.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._missing_operations_sync()
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+        self.assertEqual(
+            {operation.type_ for operation in operations},
+            {ProxyExecutor.VISIBILITY_TYPE, ProxyExecutor.SUBMISSION_TYPE,
+             ProxyExecutor.SUBCHANGE_TYPE})
+
+    async def test_initialize_skips_an_archived_group(self):
+        # Scenario: Initialize and reinitialize leave an archived group
+        # alone (initialize half): no visibility and no contest data.
+        service = self.build_service()
+        operations = self.spy(service)
+        service.initialize()
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+        self.assertIn(ProxyExecutor.VISIBILITY_TYPE,
+                      {operation.type_ for operation in operations})
+
+    async def test_the_visibility_of_a_named_archived_group(self):
+        # Scenario: The sweep skips an archived group (a Regenerate or
+        # any other caller asking for the visibility of one group).
+        service = self.build_service()
+        operations: list[ProxyOperation] = []
+        with SessionGen() as session:
+            service._enqueue_visibility(
+                session, self.group_a.name, enqueue=operations.append)
+            self.assertEqual(operations, [])
+            service._enqueue_visibility(
+                session, self.group_b.name, enqueue=operations.append)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_contests_to_send_can_include_archived_groups(self):
+        service = self.build_service()
+        with SessionGen() as session:
+            self.assertEqual(
+                [c.id for c in service._contests_to_send(session)],
+                [self.contest_b.id])
+            self.assertEqual(
+                {c.id for c in service._contests_to_send(
+                    session, include_archived=True)},
+                {self.contest_a.id, self.contest_b.id})
+
+    async def test_legacy_mode_ignores_the_archive(self):
+        # Legacy single-contest mode behaves as before.
+        service = self.build_service(self.contest_a.id)
+        operations = self.spy(service)
+        with SessionGen() as session:
+            self.assertEqual(
+                [c.id for c in service._contests_to_send(session)],
+                [self.contest_a.id])
+        service.initialize()
+        self.assertEqual(self.groups_of(operations), {None})
+
+
 if __name__ == "__main__":
     unittest.main()

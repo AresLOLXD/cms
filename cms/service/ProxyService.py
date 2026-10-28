@@ -1237,8 +1237,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             return None
         return contest.ranking_group.name
 
-    def _contests_to_send(self, session: Session) -> list[Contest]:
+    def _contests_to_send(
+        self, session: Session, include_archived: bool = False,
+    ) -> list[Contest]:
         """Return the contests whose data goes to the rankings.
+
+        In group mode, the contests of the archived ranking groups go
+        nowhere: they are left out unless include_archived.
+
+        include_archived: whether to count the contests of the archived
+            ranking groups too (ignored in legacy mode).
 
         raise (KeyError): in legacy mode, if the contest does not exist.
 
@@ -1250,11 +1258,13 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                              "id %s.", self.contest_id)
                 raise KeyError("Contest not found.")
             return [contest]
-        return session.execute(
+        contests = session.execute(
             select(Contest)
             .filter(Contest.ranking_group_id.isnot(None))
             .order_by(Contest.id)
         ).scalars().all()
+        return [contest for contest in contests if include_archived
+                or not self._is_archived(contest.ranking_group)]
 
     def _compute_group_contests(self, session: Session) -> dict[str, set[int]]:
         """Return the current mapping from group name to contest IDs."""
@@ -1465,7 +1475,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
     ) -> None:
         """Enqueue the visibility settings of the ranking groups.
 
-        Only in group mode: legacy mode has no groups.
+        Only in group mode: legacy mode has no groups. The archived
+        groups are skipped.
 
         session: the session to read the groups with.
         group: only this group, or None for every group.
@@ -1481,6 +1492,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         if group is not None:
             query = query.filter(RankingGroup.name == group)
         for ranking_group in session.execute(query).scalars().all():
+            if self._is_archived(ranking_group):
+                continue
             enqueue(ProxyOperation(
                 ProxyExecutor.VISIBILITY_TYPE,
                 {"hide_at": _unix_start(ranking_group.hide_at),
