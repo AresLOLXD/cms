@@ -36,4 +36,4 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 
 ## 7. Verify
 
-- [ ] 7.1 Run `openspec validate archive-ranking-groups`, the ProxyService group tests, the db tests, `schema_diff_test` and `pyflakes` (see CLAUDE.md "Testing" and "Linting"), then the Scenario <-> test check for `ranking-group-archiving`
+- [x] 7.1 Run `openspec validate archive-ranking-groups`, the ProxyService group tests, the db tests, `schema_diff_test` and `pyflakes` (see CLAUDE.md "Testing" and "Linting"), then the Scenario <-> test check for `ranking-group-archiving`
