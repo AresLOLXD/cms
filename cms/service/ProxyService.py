@@ -1202,8 +1202,19 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         else:
             self._loop.call_soon_threadsafe(enqueue_all)
 
+    def _is_archived(self, ranking_group: RankingGroup | None) -> bool:
+        """Return whether ranking_group is archived now.
+
+        ranking_group: a ranking group, or None for a contest in none.
+
+        """
+        return ranking_group is not None and \
+            ranking_group.is_archived_at(make_datetime())
+
     def _is_sent(self, contest: Contest | None) -> bool:
         """Return whether the data of contest goes to a ranking.
+
+        In group mode, nothing goes to an archived ranking group.
 
         contest: a contest, or None for what is in no contest (a task
             that is not assigned to one, and the submissions to it).
@@ -1213,7 +1224,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             return False
         if self.contest_id is not None:
             return contest.id == self.contest_id
-        return contest.ranking_group is not None
+        return contest.ranking_group is not None and \
+            not self._is_archived(contest.ranking_group)
 
     def _group_of(self, contest: Contest) -> str | None:
         """Return the namespace contest is sent to (None is the root).

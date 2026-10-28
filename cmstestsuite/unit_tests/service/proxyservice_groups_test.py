@@ -2123,5 +2123,139 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
         self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
 
 
+class ArchiveTrafficTestCase(ArchiveSweepTestCase):
+    """Ranking groups with scored submissions, and a spy on what is queued.
+
+    The clock is NOW; group_a is archived, group_b is not (its
+    archive_at is in the future).
+    """
+
+    def setUp(self):
+        super().setUp()
+        score_type = MagicMock()
+        score_type.max_score = 100
+        score_type.ranking_headers = ["100"]
+        for target, new in (
+                ("cms.db.Dataset.score_type_object",
+                 property(lambda dataset: score_type)),
+                ("cms.service.ProxyService.make_datetime",
+                 MagicMock(return_value=NOW))):
+            patcher = patch(target, new)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.user = self.add_user()
+        self.group_a, self.contest_a, self.sub_a = \
+            self.add_group_with_submission(archive_at=NOW - timedelta(days=1))
+        self.group_b, self.contest_b, self.sub_b = \
+            self.add_group_with_submission(archive_at=NOW + timedelta(days=1))
+
+    def add_group_with_submission(self, **kwargs):
+        """Add and commit a group with a contest and a scored submission."""
+        group = RankingGroup(
+            name=unique_unicode_id(), description="D", **kwargs)
+        self.session.add(group)
+        contest, submission = \
+            TestProxyServiceGroups.add_contest_with_submission(self, group)
+        self.session.commit()
+        return group, contest, submission
+
+    def spy(self, service: ProxyService) -> list[ProxyOperation]:
+        """Return the list the operations the service enqueues go to."""
+        operations: list[ProxyOperation] = []
+        service._threadsafe_enqueue = operations.append
+        service._threadsafe_enqueue_all = operations.extend
+        return operations
+
+    @staticmethod
+    def groups_of(operations: list[ProxyOperation]) -> set[str | None]:
+        return {operation.group for operation in operations}
+
+
+class TestSkipArchivedEvents(ArchiveTrafficTestCase):
+
+    async def test_a_score_event_for_an_archived_group(self):
+        # Scenario: A score event for an archived group (and, for group_b,
+        # Correction during the grace period: its archive_at is in the
+        # future and the new score is enqueued).
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(self.sub_a.id)
+        self.assertEqual(operations, [])
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_token_event_for_an_archived_group(self):
+        # Scenario: A token event for an archived group.
+        self.add_token(submission=self.sub_a)
+        self.add_token(submission=self.sub_b)
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_tokened_sync(self.sub_a.id)
+        self.assertEqual(operations, [])
+        service._submission_tokened_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_dataset_update_for_an_archived_group(self):
+        # Scenario: A dataset update for an archived group.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._dataset_updated_sync(self.contest_a.tasks[0].id)
+        self.assertEqual(operations, [])
+
+    async def test_a_contest_added_to_an_archived_group(self):
+        # Scenario: A contest added to an archived group: a contest of no
+        # group is moved into it, and its score event sends nothing.
+        group_c, contest_c, sub_c = self.add_group_with_submission()
+        contest_c.ranking_group = self.group_a
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(sub_c.id)
+        self.assertEqual(operations, [])
+
+    async def test_the_archive_boundary(self):
+        # Scenario: At and after archive_at: archived exactly at now, and
+        # not one microsecond before.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.group_b.archive_at = NOW
+        self.session.commit()
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(operations, [])
+        self.group_b.archive_at = NOW + timedelta(microseconds=1)
+        self.session.commit()
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_group_with_no_archive_at_still_sends(self):
+        # Scenario: No archive_at: never archived.
+        self.group_b.archive_at = None
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_contest_of_no_group_is_still_ignored(self):
+        # A contest with ranking_group None keeps its old behavior.
+        _, contest_c, sub_c = self.add_group_with_submission()
+        contest_c.ranking_group = None
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(sub_c.id)
+        self.assertEqual(operations, [])
+
+    async def test_legacy_mode_is_unchanged(self):
+        # Legacy single-contest mode ignores ranking groups, archived or
+        # not.
+        service = self.build_service(self.contest_a.id)
+        operations = self.spy(service)
+        self.assertTrue(service._is_sent(self.contest_a))
+        service._submission_scored_sync(self.sub_a.id)
+        self.assertEqual(self.groups_of(operations), {None})
+
+
 if __name__ == "__main__":
     unittest.main()
