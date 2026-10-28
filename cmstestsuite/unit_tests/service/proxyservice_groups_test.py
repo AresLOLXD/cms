@@ -6,17 +6,19 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
 import requests.exceptions
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, OperationalError, \
     PendingRollbackError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import object_session
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.testidgenerator import unique_unicode_id
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
 from cmstestsuite.unit_tests.service.proxyexecutor_test import \
@@ -24,7 +26,7 @@ from cmstestsuite.unit_tests.service.proxyexecutor_test import \
 
 from cms import config
 from cms.conf import Address
-from cms.db import Dataset, RankingGroup
+from cms.db import Contest, Dataset, RankingGroup, SessionGen
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
     ProxyService, RefusedEntity, _is_database_error, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
@@ -1916,6 +1918,857 @@ class TestProxyServiceGroups(
         self.assertEqual(
             [subchange["score"] for subchange in
              self.put_payload(url("omips/subchanges/")).values()], [70])
+
+
+class ArchiveSweepTestCase(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
+    """A ProxyService over a DB of ranking groups with no submissions."""
+
+    def setUp(self):
+        super().setUp()
+        for method, status in (("put", 200), ("delete", 204)):
+            patcher = patch("cms.service.ProxyService.requests." + method)
+            patcher.start().return_value.status_code = status
+            self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        # Group mode sends every grouped contest in the DB, and group
+        # names are unique: start each test from an empty DB.
+        self.delete_data()
+        super().tearDown()
+
+    def build_service(self, contest_id: int | None = None) -> ProxyService:
+        """Build a ProxyService (group mode unless contest_id is given)."""
+        for target in ("cms.io.async_service.get_service_address",
+                       "cms.io.async_rpc.get_service_address"):
+            patcher = patch(target, return_value=Address("127.0.0.1", 0))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        with patch.object(
+                ProxyService, "start_sweeper", lambda self, timeout: None):
+            service = ProxyService(0, contest_id)
+        service._loop = asyncio.get_running_loop()
+        self.addCleanup(service._disconnect_all)
+        return service
+
+    def add_ranking_group(self, *contest_stops: list[datetime],
+                          **kwargs) -> RankingGroup:
+        """Add and commit a ranking group.
+
+        contest_stops: one list for each contest of the group, with the
+            stop of each participation group of that contest.
+
+        """
+        ranking_group = RankingGroup(
+            name=unique_unicode_id(), description="D", **kwargs)
+        self.session.add(ranking_group)
+        for stops in contest_stops:
+            self.add_contest(
+                ranking_group=ranking_group,
+                groups=[self.get_group(**({} if stop is None else {"stop": stop}))
+                        for stop in stops])
+        self.session.commit()
+        return ranking_group
+
+
+class TestDefaultArchiveAt(ArchiveSweepTestCase):
+
+    async def test_the_last_contest_decides(self):
+        # Scenario: The last contest decides.
+        # The first contest has two participation groups: the larger of
+        # all the stops wins, and the first contest ends after the
+        # second one's group that ends first.
+        group = self.add_ranking_group(
+            [datetime(2030, 1, 1, 12), datetime(2030, 1, 3, 12)],
+            [datetime(2030, 1, 2, 12), datetime(2030, 1, 5, 6)])
+        service = self.build_service()
+        self.assertEqual(service._default_archive_at(self.session, group),
+                         datetime(2030, 1, 6, 6))
+
+    async def test_a_group_with_no_contests(self):
+        # Scenario: A group with no contests.
+        group = self.add_ranking_group()
+        service = self.build_service()
+        self.assertIsNone(service._default_archive_at(self.session, group))
+
+    async def test_a_contest_with_the_default_stop_gives_2100(self):
+        # "No end" is 2100-01-01: the group is archived in 2100, not now.
+        group = self.add_ranking_group([None])
+        service = self.build_service()
+        self.assertEqual(service._default_archive_at(self.session, group),
+                         datetime(2100, 1, 2))
+
+
+NOW = datetime(2030, 1, 10, 12)
+
+
+class TestFillArchiveDefaults(ArchiveSweepTestCase):
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("cms.service.ProxyService.make_datetime",
+                        return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fill(self, service: ProxyService):
+        with SessionGen() as session:
+            service._fill_archive_defaults(session)
+
+    def archive_at(self, ranking_group: RankingGroup) -> datetime | None:
+        """Read the archive_at stored in the DB, with a session of its own."""
+        with SessionGen() as session:
+            return session.get(RankingGroup, ranking_group.id).archive_at
+
+    async def test_a_group_with_a_contest_that_has_not_ended_gets_the_default(
+        self,
+    ):
+        # Scenario: A group with a contest that has not ended gets the
+        # default (and it is committed: it is read back by another session).
+        end = NOW + timedelta(hours=1)
+        group = self.add_ranking_group([end])
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
+
+    async def test_a_past_archive_at_is_kept(self):
+        # Scenario: A past archive_at is kept, even if a later default
+        # could be computed (the group stays archived).
+        in_the_past = self.add_ranking_group(
+            [NOW + timedelta(days=30)], archive_at=datetime(2020, 1, 1))
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(in_the_past), datetime(2020, 1, 1))
+
+    async def test_a_contest_added_later_postpones_a_future_archive_at(self):
+        # Scenario: A contest added later postpones a future archive_at:
+        # the stored value was the default of the first contest alone.
+        first_end = NOW + timedelta(hours=1)
+        second_end = NOW + timedelta(hours=5)
+        group = self.add_ranking_group(
+            [first_end], [second_end],
+            archive_at=first_end + timedelta(hours=24))
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group),
+                         second_end + timedelta(hours=24))
+
+    async def test_a_later_archive_at_is_not_moved_earlier(self):
+        # Scenario: A later archive_at is not moved earlier: a stored value
+        # later than the default, and exactly equal to it, stay as they are.
+        end = NOW + timedelta(hours=1)
+        default = end + timedelta(hours=24)
+        later = self.add_ranking_group(
+            [end], archive_at=default + timedelta(days=3))
+        equal = self.add_ranking_group([end], archive_at=default)
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(later), default + timedelta(days=3))
+        self.assertEqual(self.archive_at(equal), default)
+
+    async def test_contests_that_already_ended_do_not_archive_a_group_by_surprise(
+        self,
+    ):
+        # Scenario: Contests that already ended do not archive a group by
+        # surprise: the end plus 24 hours in the past, and exactly now.
+        long_ago = self.add_ranking_group([NOW - timedelta(days=5)])
+        exactly_now = self.add_ranking_group([NOW - timedelta(hours=24)])
+        service = self.build_service()
+        self.fill(service)
+        self.assertIsNone(self.archive_at(long_ago))
+        self.assertIsNone(self.archive_at(exactly_now))
+
+    async def test_a_group_with_no_contests_stays_empty(self):
+        # Scenario: A group with no contests.
+        group = self.add_ranking_group()
+        service = self.build_service()
+        self.fill(service)
+        self.assertIsNone(self.archive_at(group))
+
+    async def test_legacy_mode_does_nothing(self):
+        # Legacy single-contest mode has no ranking groups to archive.
+        group = self.add_ranking_group([NOW + timedelta(hours=1)])
+        contest_id = self.session.execute(
+            select(Contest.id).where(Contest.ranking_group_id == group.id)
+        ).scalar()
+        service = self.build_service(contest_id)
+        self.fill(service)
+        self.assertIsNone(self.archive_at(group))
+
+    async def test_a_database_error_does_not_stop_the_sweep(self):
+        # Scenario: A group with a contest that has not ended gets the
+        # default, even when the first commit fails: the session is rolled
+        # back, the sweep goes on, and the next sweep fills it.
+        end = NOW + timedelta(hours=1)
+        group = self.add_ranking_group([end])
+        service = self.build_service()
+        events: list[str] = []
+        service._threadsafe_enqueue = lambda operation: events.append(
+            "enqueue %d" % operation.type_)
+
+        @contextmanager
+        def failing_commit_once():
+            with SessionGen() as session:
+                real_commit = session.commit
+                real_rollback = session.rollback
+
+                def commit():
+                    session.commit = real_commit
+                    session.flush()
+                    raise OperationalError(
+                        "COMMIT", {}, Exception("timeout"))
+
+                def rollback():
+                    events.append("rollback")
+                    real_rollback()
+
+                session.commit = commit
+                session.rollback = rollback
+                yield session
+
+        with patch("cms.service.ProxyService.SessionGen",
+                   failing_commit_once), \
+                self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._missing_operations_sync()
+
+        self.assertEqual(
+            len([line for line in logs.output
+                 if "default archive_at" in line]), 1)
+        self.assertIsNone(self.archive_at(group))
+        self.assertEqual(events[0], "rollback")
+        self.assertIn("enqueue %d" % ProxyExecutor.VISIBILITY_TYPE, events)
+
+        service._missing_operations_sync()
+        self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
+
+    async def test_a_failing_update_inside_the_fill_is_handled(self):
+        # Scenario: A group with a contest that has not ended gets the
+        # default, even when the UPDATE of the first of two groups fails
+        # (it used to fail at the autoflush of the read of the second,
+        # outside the error handling): one WARNING, a rollback, the
+        # sweep goes on, and the next sweep stores both defaults.
+        end = NOW + timedelta(hours=1)
+        groups = [self.add_ranking_group([end]) for _ in range(2)]
+        service = self.build_service()
+        events: list[str] = []
+        service._threadsafe_enqueue = lambda operation: events.append(
+            "enqueue %d" % operation.type_)
+
+        @contextmanager
+        def failing_update_once():
+            with SessionGen() as session:
+                real_flush = session.flush
+
+                def flush(*args, **kwargs):
+                    if session.dirty:
+                        session.flush = real_flush
+                        raise OperationalError(
+                            "UPDATE", {}, Exception("timeout"))
+                    real_flush(*args, **kwargs)
+
+                session.flush = flush
+                yield session
+
+        with patch("cms.service.ProxyService.SessionGen",
+                   failing_update_once), \
+                self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._missing_operations_sync()
+
+        self.assertEqual(
+            len([line for line in logs.output
+                 if "default archive_at" in line]), 1)
+        self.assertEqual([self.archive_at(group) for group in groups],
+                         [None, None])
+        self.assertIn("enqueue %d" % ProxyExecutor.VISIBILITY_TYPE, events)
+
+        service._missing_operations_sync()
+        self.assertEqual([self.archive_at(group) for group in groups],
+                         [end + timedelta(hours=24)] * 2)
+
+
+class ArchiveTrafficTestCase(ArchiveSweepTestCase):
+    """Ranking groups with scored submissions, and a spy on what is queued.
+
+    The clock is NOW; group_a is archived, group_b is not (its
+    archive_at is in the future).
+    """
+
+    def setUp(self):
+        super().setUp()
+        score_type = MagicMock()
+        score_type.max_score = 100
+        score_type.ranking_headers = ["100"]
+        for target, new in (
+                ("cms.db.Dataset.score_type_object",
+                 property(lambda dataset: score_type)),
+                ("cms.service.ProxyService.make_datetime",
+                 MagicMock(return_value=NOW))):
+            patcher = patch(target, new)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.user = self.add_user()
+        self.group_a, self.contest_a, self.sub_a = \
+            self.add_group_with_submission(archive_at=NOW - timedelta(days=1))
+        self.group_b, self.contest_b, self.sub_b = \
+            self.add_group_with_submission(archive_at=NOW + timedelta(days=1))
+
+    def add_group_with_submission(self, **kwargs):
+        """Add and commit a group with a contest and a scored submission."""
+        group = RankingGroup(
+            name=unique_unicode_id(), description="D", **kwargs)
+        self.session.add(group)
+        contest, submission = \
+            TestProxyServiceGroups.add_contest_with_submission(self, group)
+        self.session.commit()
+        return group, contest, submission
+
+    def spy(self, service: ProxyService) -> list[ProxyOperation]:
+        """Return the list the operations the service enqueues go to."""
+        operations: list[ProxyOperation] = []
+        service._threadsafe_enqueue = operations.append
+        service._threadsafe_enqueue_all = operations.extend
+        return operations
+
+    @staticmethod
+    def groups_of(operations: list[ProxyOperation]) -> set[str | None]:
+        return {operation.group for operation in operations}
+
+
+class TestSkipArchivedEvents(ArchiveTrafficTestCase):
+
+    async def test_a_score_event_for_an_archived_group(self):
+        # Scenario: A score event for an archived group (and, for group_b,
+        # Correction during the grace period: its archive_at is in the
+        # future and the new score is enqueued).
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(self.sub_a.id)
+        self.assertEqual(operations, [])
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_token_event_for_an_archived_group(self):
+        # Scenario: A token event for an archived group.
+        self.add_token(submission=self.sub_a)
+        self.add_token(submission=self.sub_b)
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_tokened_sync(self.sub_a.id)
+        self.assertEqual(operations, [])
+        service._submission_tokened_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_dataset_update_for_an_archived_group(self):
+        # Scenario: A dataset update for an archived group.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._dataset_updated_sync(self.contest_a.tasks[0].id)
+        self.assertEqual(operations, [])
+
+    async def test_a_contest_added_to_an_archived_group(self):
+        # Scenario: A contest added to an archived group: a contest of no
+        # group is moved into it, and its score event sends nothing.
+        group_c, contest_c, sub_c = self.add_group_with_submission()
+        contest_c.ranking_group = self.group_a
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(sub_c.id)
+        self.assertEqual(operations, [])
+
+    async def test_the_archive_boundary(self):
+        # Scenario: At and after archive_at: archived exactly at now, and
+        # not one microsecond before.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.group_b.archive_at = NOW
+        self.session.commit()
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(operations, [])
+        self.group_b.archive_at = NOW + timedelta(microseconds=1)
+        self.session.commit()
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_group_with_no_archive_at_still_sends(self):
+        # Scenario: No archive_at: never archived.
+        self.group_b.archive_at = None
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(self.sub_b.id)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_a_contest_of_no_group_is_still_ignored(self):
+        # A contest with ranking_group None keeps its old behavior.
+        _, contest_c, sub_c = self.add_group_with_submission()
+        contest_c.ranking_group = None
+        self.session.commit()
+        service = self.build_service()
+        operations = self.spy(service)
+        service._submission_scored_sync(sub_c.id)
+        self.assertEqual(operations, [])
+
+    async def test_legacy_mode_is_unchanged(self):
+        # Legacy single-contest mode ignores ranking groups, archived or
+        # not.
+        service = self.build_service(self.contest_a.id)
+        operations = self.spy(service)
+        self.assertTrue(service._is_sent(self.contest_a))
+        service._submission_scored_sync(self.sub_a.id)
+        self.assertEqual(self.groups_of(operations), {None})
+
+
+class TestSkipArchivedSweep(ArchiveTrafficTestCase):
+
+    async def test_the_sweep_skips_an_archived_group(self):
+        # Scenario: The sweep skips an archived group: nothing for it
+        # (its final visibility went out when the service was built),
+        # and the other group still gets its visibility, its contest
+        # data and its scores.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._missing_operations_sync()
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+        self.assertEqual(
+            {operation.type_ for operation in operations},
+            {ProxyExecutor.VISIBILITY_TYPE, ProxyExecutor.SUBMISSION_TYPE,
+             ProxyExecutor.SUBCHANGE_TYPE})
+
+    async def test_initialize_skips_an_archived_group(self):
+        # Scenario: Initialize and reinitialize leave an archived group
+        # alone (initialize half): no contest data, and no visibility
+        # beyond the final one that the service sent when it was built.
+        service = self.build_service()
+        operations = self.spy(service)
+        service.initialize()
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+        self.assertIn(ProxyExecutor.VISIBILITY_TYPE,
+                      {operation.type_ for operation in operations})
+
+    async def test_the_visibility_of_a_named_archived_group(self):
+        # Scenario: The sweep skips an archived group (a Regenerate or
+        # any other caller asking for the visibility of one group): the
+        # final visibility already went out when the service was built.
+        service = self.build_service()
+        operations: list[ProxyOperation] = []
+        with SessionGen() as session:
+            service._enqueue_visibility(
+                session, self.group_a.name, enqueue=operations.append)
+            self.assertEqual(operations, [])
+            service._enqueue_visibility(
+                session, self.group_b.name, enqueue=operations.append)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+
+    async def test_contests_to_send_can_include_archived_groups(self):
+        service = self.build_service()
+        with SessionGen() as session:
+            self.assertEqual(
+                [c.id for c in service._contests_to_send(session)],
+                [self.contest_b.id])
+            self.assertEqual(
+                {c.id for c in service._contests_to_send(
+                    session, include_archived=True)},
+                {self.contest_a.id, self.contest_b.id})
+
+    async def test_legacy_mode_ignores_the_archive(self):
+        # Legacy single-contest mode behaves as before.
+        service = self.build_service(self.contest_a.id)
+        operations = self.spy(service)
+        with SessionGen() as session:
+            self.assertEqual(
+                [c.id for c in service._contests_to_send(session)],
+                [self.contest_a.id])
+        service.initialize()
+        self.assertEqual(self.groups_of(operations), {None})
+
+
+class TestArchivedGroupsAndReinitialize(ArchiveTrafficTestCase):
+
+    def operation_types(self, operations: list[ProxyOperation],
+                        group: str) -> list[int]:
+        return [operation.type_ for operation in operations
+                if operation.group == group]
+
+    async def test_a_group_archived_after_the_mapping_is_not_reset(self):
+        # Scenario: Group archived while the ranking holds its data, and
+        # Initialize and reinitialize leave an archived group alone: the
+        # service knew the group when it was open; it is archived now.
+        # A different group that really lost its contest is still reset.
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        group_c, contest_c, _ = self.add_group_with_submission()
+        service = self.build_service()
+        self.group_a.archive_at = NOW - timedelta(days=1)
+        contest_c.ranking_group = None
+        self.session.commit()
+        operations = self.spy(service)
+
+        service._reinitialize_sync()
+        service._missing_operations_sync()
+
+        types_c = self.operation_types(operations, group_c.name)
+        self.assertEqual(types_c.count(ProxyExecutor.RESET_TYPE), 1)
+        # Only the final visibility: it is sent once, when the service
+        # first finds the group archived (here, at the reinitialize).
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [ProxyExecutor.VISIBILITY_TYPE])
+        self.assertIn(self.group_b.name, self.groups_of(operations))
+
+    async def test_a_group_that_lost_a_contest_while_archived_is_not_reset(
+        self,
+    ):
+        # Scenario: Group archived while the ranking holds its data: the
+        # contest leaves the archived group, and its namespace keeps the
+        # final standings.
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        self.session.commit()
+        service = self.build_service()
+        self.group_a.archive_at = NOW - timedelta(days=1)
+        self.contest_a.ranking_group = self.group_b
+        self.session.commit()
+        operations = self.spy(service)
+
+        service._reinitialize_sync()
+
+        # No reset: only the final visibility, as the group was found
+        # archived now.
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [ProxyExecutor.VISIBILITY_TYPE])
+        self.assertEqual(service._group_contests,
+                         {self.group_b.name: {self.contest_a.id,
+                                              self.contest_b.id}})
+
+    async def test_the_initial_mapping_includes_an_archived_group(self):
+        # Scenario: Initialize and reinitialize leave an archived group
+        # alone (the mapping built by __init__ keeps the archived group).
+        service = self.build_service()
+        self.assertEqual(service._group_contests,
+                         {self.group_a.name: {self.contest_a.id},
+                          self.group_b.name: {self.contest_b.id}})
+
+    async def test_a_contest_assigned_to_an_archived_group_sends_nothing(
+        self,
+    ):
+        # Scenario: A contest added to an archived group, through a
+        # reinitialize: neither its data nor its submissions.
+        group_c, contest_c, _ = self.add_group_with_submission()
+        contest_c.ranking_group = None
+        self.session.commit()
+        service = self.build_service()
+        contest_c.ranking_group = self.group_a
+        self.session.commit()
+        operations = self.spy(service)
+
+        service._reinitialize_sync()
+
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [])
+        self.assertEqual(service._group_contests[self.group_a.name],
+                         {self.contest_a.id, contest_c.id})
+
+    async def test_unarchiving_resumes_the_sending(self):
+        # Scenario: Unarchiving resumes the sending: archive_at moved to
+        # the future, and the next sweep sends the visibility and what
+        # the group misses.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._missing_operations_sync()
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [])
+
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        self.session.commit()
+        service._missing_operations_sync()
+
+        types = self.operation_types(operations, self.group_a.name)
+        self.assertEqual(types[0], ProxyExecutor.VISIBILITY_TYPE)
+        self.assertIn(ProxyExecutor.SUBMISSION_TYPE, types)
+
+
+class TestFinalVisibility(ArchiveTrafficTestCase):
+
+    NO_WINDOWS = {"hide_at": None, "show_at": None,
+                  "freeze_at": None, "unfreeze_at": None}
+
+    def build_spied_service(self) -> tuple[ProxyService, list[ProxyOperation]]:
+        """Build a service whose spy also sees the initialize of __init__."""
+        operations: list[ProxyOperation] = []
+        with patch.object(ProxyService, "_threadsafe_enqueue",
+                          lambda service, operation:
+                          operations.append(operation)):
+            service = self.build_service()
+        service._threadsafe_enqueue = operations.append
+        service._threadsafe_enqueue_all = operations.extend
+        return service, operations
+
+    def visibilities(self, operations: list[ProxyOperation],
+                     group: RankingGroup) -> list[ProxyOperation]:
+        return [operation for operation in operations
+                if operation.group == group.name
+                and operation.type_ == ProxyExecutor.VISIBILITY_TYPE]
+
+    async def test_a_hidden_group_is_archived(self):
+        # Scenario: A hidden group is archived: one visibility with no
+        # window, and the stored staff password.
+        self.group_a.hide_at = NOW - timedelta(days=2)
+        self.group_a.staff_password = "secret"
+        self.session.commit()
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        (final,) = self.visibilities(operations, self.group_a)
+        self.assertEqual(
+            final.data, {**self.NO_WINDOWS, "staff_password": "secret"})
+        # Nothing else goes to the archived group.
+        self.assertEqual(
+            [operation for operation in operations
+             if operation.group == self.group_a.name], [final])
+
+    async def test_a_frozen_group_is_archived(self):
+        # Scenario: A frozen group is archived: one visibility with no
+        # window, also when the group is hidden and frozen at once.
+        self.group_a.hide_at = NOW - timedelta(days=3)
+        self.group_a.show_at = NOW + timedelta(days=3)
+        self.group_a.freeze_at = NOW - timedelta(days=2)
+        self.group_a.unfreeze_at = NOW + timedelta(days=2)
+        self.session.commit()
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        (final,) = self.visibilities(operations, self.group_a)
+        self.assertEqual(
+            final.data, {**self.NO_WINDOWS, "staff_password": None})
+
+    async def test_the_final_visibility_is_sent_once(self):
+        # Scenario: The final visibility is sent once: two sweeps and an
+        # initialize while the group stays archived.
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        service._missing_operations_sync()
+        service.initialize()
+        self.assertEqual(len(self.visibilities(operations, self.group_a)), 1)
+
+    async def test_unarchiving_forgets_the_final_visibility(self):
+        # Scenario: Unarchiving forgets the final visibility (and
+        # Unarchiving resumes the sending): archived, then unarchived
+        # (the normal windows go out), then archived again.
+        self.group_a.freeze_at = NOW - timedelta(days=2)
+        self.session.commit()
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        self.assertEqual(len(self.visibilities(operations, self.group_a)), 1)
+
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        self.session.commit()
+        service._missing_operations_sync()
+        normal = self.visibilities(operations, self.group_a)[1]
+        self.assertIsNotNone(normal.data["freeze_at"])
+
+        self.group_a.archive_at = NOW - timedelta(days=1)
+        self.session.commit()
+        service._missing_operations_sync()
+        service._missing_operations_sync()
+        visibilities = self.visibilities(operations, self.group_a)
+        self.assertEqual(len(visibilities), 3)
+        self.assertIsNone(visibilities[2].data["freeze_at"])
+
+    async def test_a_new_service_sends_it_once_more(self):
+        # Scenario: The final visibility is sent once, per ProxyService
+        # run: the mark is in memory, a restart sends it again.
+        first, operations = self.build_spied_service()
+        first._missing_operations_sync()
+        second, operations_2 = self.build_spied_service()
+        second._missing_operations_sync()
+        self.assertEqual(len(self.visibilities(operations, self.group_a)), 1)
+        self.assertEqual(len(self.visibilities(operations_2, self.group_a)), 1)
+
+
+class TestRegenerateArchivedSafetyNet(ArchiveTrafficTestCase):
+
+    async def test_regenerate_on_an_archived_group_enqueues_nothing(self):
+        # Scenario: Regenerate on an archived group (the safety net: no
+        # reset and no data; the WARNING is tested below).
+        service = self.build_service()
+        operations = self.spy(service)
+        service._regenerate_ranking_sync(self.group_a.name)
+        self.assertEqual(operations, [])
+
+    async def test_regenerate_on_a_group_that_is_not_archived(self):
+        # Scenario: Regenerate on a group that is not archived: the reset
+        # comes first, then its visibility and data.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+        self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
+        self.assertIn(ProxyExecutor.SUBMISSION_TYPE,
+                      {operation.type_ for operation in operations})
+
+
+class TestRegenerateArchivedWarning(ArchiveTrafficTestCase):
+
+    async def test_regenerate_on_an_archived_group(self):
+        # Scenario: Regenerate on an archived group: no operation, and
+        # one WARNING that names the group and its archive_at.
+        service = self.build_service()
+        operations = self.spy(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._regenerate_ranking_sync(self.group_a.name)
+        self.assertEqual(operations, [])
+        (record,) = logs.records
+        message = record.getMessage()
+        self.assertIn(self.group_a.name, message)
+        self.assertIn(str(self.group_a.archive_at), message)
+        self.assertIn("archived", message)
+
+    async def test_regenerate_on_a_group_that_is_not_archived(self):
+        # Scenario: Regenerate on a group that is not archived: it
+        # regenerates and logs no warning.
+        service = self.build_service()
+        operations = self.spy(service)
+        with self.assertNoLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
+        self.assertIn(ProxyExecutor.SUBMISSION_TYPE,
+                      {operation.type_ for operation in operations})
+
+    async def test_regenerate_of_the_root_and_of_an_unknown_group(self):
+        # Scenario: Regenerate on a group that is not archived (the root
+        # namespace and a name that is no group): as before, a reset and
+        # no warning or exception.
+        service = self.build_service()
+        for group in (None, "no-such-group"):
+            operations = self.spy(service)
+            with self.assertNoLogs("cms.service.ProxyService", "WARNING"):
+                service._regenerate_ranking_sync(group)
+            self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
+            self.assertEqual(operations[0].group, group)
+
+
+class TestRegenerateArchivedWhileBuilding(ArchiveTrafficTestCase):
+    """The group is open at the early check and archived afterwards.
+
+    The clock is NOW until a test starts counting (clock_reads = 0),
+    then NOW for the first reading (the early check) and later than
+    group_b's archive_at for all the following ones.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.clock_reads = None
+
+        def make_datetime():
+            if self.clock_reads is None:
+                return NOW
+            self.clock_reads += 1
+            return NOW if self.clock_reads == 1 else NOW + timedelta(days=2)
+
+        patcher = patch("cms.service.ProxyService.make_datetime",
+                        side_effect=make_datetime)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def test_a_group_archived_while_the_build_runs_gets_no_reset(self):
+        # Scenario: Regenerate on an archived group, when the group
+        # becomes archived after the early check: no operation (no reset,
+        # no visibility, no data) and one WARNING that names the group.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.clock_reads = 0  # start counting after building the service
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(operations, [])
+        (record,) = logs.records
+        message = record.getMessage()
+        self.assertIn(self.group_b.name, message)
+        self.assertIn("archived", message)
+
+    async def test_the_final_visibility_mark_is_not_left_set(self):
+        # Scenario: Regenerate on an archived group (race): nothing was
+        # sent, so the final visibility is not marked as sent, and the
+        # next sweep sends it.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.clock_reads = 0  # start counting after building the service
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertNotIn(self.group_b.name, service._final_visibility_sent)
+        service._missing_operations_sync()
+        self.assertEqual(
+            [operation.type_ for operation in operations
+             if operation.group == self.group_b.name],
+            [ProxyExecutor.VISIBILITY_TYPE])
+
+    def archive_group_b_after_the_build_reads(self, service):
+        """Make another session archive group_b once the build read it.
+
+        The clock stays at NOW (clock_reads is not started): only the
+        committed archive_at tells that the group is archived now.
+
+        return: a dict that gets the scores and tokens sent and the
+            broken contests as the build left them, when the commit is
+            made.
+
+        """
+        original = service._enqueue_submissions
+        seen = {}
+
+        def enqueue_submissions(*args, **kwargs):
+            result = original(*args, **kwargs)
+            seen["scores"] = set(service.scores_sent_to_rankings)
+            seen["tokens"] = set(service.tokens_sent_to_rankings)
+            seen["broken"] = set(service._broken_contests)
+            self.group_b.archive_at = NOW - timedelta(days=1)
+            self.session.commit()
+            return result
+
+        service._enqueue_submissions = enqueue_submissions
+        return seen
+
+    async def test_the_late_check_sees_a_change_committed_by_another_session(
+            self):
+        # Scenario: Regenerate on an archived group (race): the build
+        # session already holds the group as open when another session
+        # commits an archive_at in the past; the late check reads it
+        # again and nothing goes out.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.archive_group_b_after_the_build_reads(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(operations, [])
+
+    async def test_a_dropped_regenerate_undoes_the_sent_sets(self):
+        # Scenario: Regenerate on an archived group (race): the scores
+        # and tokens the build marked as sent never went, so they leave
+        # the sets of what was sent.
+        self.add_token(submission=self.sub_b)
+        self.session.commit()
+        service = self.build_service()
+        self.spy(service)
+        scores_before = set(service.scores_sent_to_rankings)
+        tokens_before = set(service.tokens_sent_to_rankings)
+        seen = self.archive_group_b_after_the_build_reads(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        # The build did mark them (otherwise the undo has nothing to do).
+        self.assertIn(self.sub_b.id, seen["scores"])
+        self.assertIn(self.sub_b.id, seen["tokens"])
+        self.assertEqual(service.scores_sent_to_rankings, scores_before)
+        self.assertEqual(service.tokens_sent_to_rankings, tokens_before)
+
+    async def test_a_dropped_regenerate_restores_the_broken_contests(self):
+        # Scenario: Regenerate on an archived group (race): a contest the
+        # build took out of the broken ones goes back into them.
+        service = self.build_service()
+        self.spy(service)
+        service._broken_contests.add(self.contest_b.id)
+        seen = self.archive_group_b_after_the_build_reads(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(seen["broken"], set())
+        self.assertEqual(service._broken_contests, {self.contest_b.id})
 
 
 if __name__ == "__main__":

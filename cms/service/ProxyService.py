@@ -28,7 +28,7 @@
 
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import enum
 import json
@@ -43,20 +43,20 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 import requests.exceptions
-from sqlalchemy import not_, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.exc import DBAPIError, PendingRollbackError, \
     TimeoutError as PoolTimeoutError
 
 from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
-    RankingGroup, Submission, get_submissions
+    Group, RankingGroup, Submission, get_submissions
 from cms.db.connect_options import describe_error
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.health import BusyTracker
 from cms.io.priorityqueue import QueueEntry
 from cms.io.rpc import rpc_method
-from cmscommon.datetime import make_timestamp
+from cmscommon.datetime import make_datetime, make_timestamp
 from cmscommon.ranking_groups import is_valid_group_name
 
 
@@ -68,6 +68,10 @@ logger = logging.getLogger(__name__)
 # would block the thread sending to it forever.
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 120
+
+# How long after the end of its last contest a ranking group is
+# archived by default (see _default_archive_at).
+ARCHIVE_GRACE = timedelta(hours=24)
 
 
 class CannotSendError(Exception):
@@ -1094,6 +1098,13 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         self._regenerate_record: \
             tuple[int, set[int], set[int]] | None = None
 
+        # Names of the archived ranking groups whose final visibility
+        # was enqueued in this run (see _enqueue_visibility).
+        # shortcut: touched from executor threads with no lock, worst
+        # case the same operation is enqueued twice; add a lock if that
+        # ever matters.
+        self._final_visibility_sent: set[str] = set()
+
         # Last known mapping from ranking group name to the IDs of its
         # contests (always empty in legacy mode), used by reinitialize
         # to find groups that lost contests and must be reset.
@@ -1198,8 +1209,19 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         else:
             self._loop.call_soon_threadsafe(enqueue_all)
 
+    def _is_archived(self, ranking_group: RankingGroup | None) -> bool:
+        """Return whether ranking_group is archived now.
+
+        ranking_group: a ranking group, or None for a contest in none.
+
+        """
+        return ranking_group is not None and \
+            ranking_group.is_archived_at(make_datetime())
+
     def _is_sent(self, contest: Contest | None) -> bool:
         """Return whether the data of contest goes to a ranking.
+
+        In group mode, nothing goes to an archived ranking group.
 
         contest: a contest, or None for what is in no contest (a task
             that is not assigned to one, and the submissions to it).
@@ -1209,7 +1231,8 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             return False
         if self.contest_id is not None:
             return contest.id == self.contest_id
-        return contest.ranking_group is not None
+        return contest.ranking_group is not None and \
+            not self._is_archived(contest.ranking_group)
 
     def _group_of(self, contest: Contest) -> str | None:
         """Return the namespace contest is sent to (None is the root).
@@ -1221,8 +1244,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             return None
         return contest.ranking_group.name
 
-    def _contests_to_send(self, session: Session) -> list[Contest]:
+    def _contests_to_send(
+        self, session: Session, include_archived: bool = False,
+    ) -> list[Contest]:
         """Return the contests whose data goes to the rankings.
+
+        In group mode, the contests of the archived ranking groups go
+        nowhere: they are left out unless include_archived.
+
+        include_archived: whether to count the contests of the archived
+            ranking groups too (ignored in legacy mode).
 
         raise (KeyError): in legacy mode, if the contest does not exist.
 
@@ -1234,20 +1265,95 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                              "id %s.", self.contest_id)
                 raise KeyError("Contest not found.")
             return [contest]
-        return session.execute(
+        contests = session.execute(
             select(Contest)
             .filter(Contest.ranking_group_id.isnot(None))
             .order_by(Contest.id)
         ).scalars().all()
+        return [contest for contest in contests if include_archived
+                or not self._is_archived(contest.ranking_group)]
 
     def _compute_group_contests(self, session: Session) -> dict[str, set[int]]:
-        """Return the current mapping from group name to contest IDs."""
+        """Return the current mapping from group name to contest IDs.
+
+        It counts the contests of the archived groups too: otherwise
+        _reinitialize_sync would see them as lost and reset them.
+
+        """
         mapping: dict[str, set[int]] = dict()
         if self.contest_id is None:
-            for contest in self._contests_to_send(session):
+            for contest in self._contests_to_send(
+                    session, include_archived=True):
                 mapping.setdefault(
                     contest.ranking_group.name, set()).add(contest.id)
         return mapping
+
+    def _default_archive_at(
+        self, session: Session, ranking_group: RankingGroup,
+    ) -> datetime | None:
+        """Return the default archive_at of a ranking group.
+
+        It is ARCHIVE_GRACE after the latest stop of the participation
+        groups of all the contests of the ranking group (the analysis
+        mode is not counted).
+
+        session: the session to read with.
+        ranking_group: the group to compute it for.
+
+        return: the instant (naive UTC), or None if the group has no
+            contests.
+
+        """
+        latest = session.execute(
+            select(func.max(Group.stop))
+            .join(Contest, Group.contest_id == Contest.id)
+            .where(Contest.ranking_group_id == ranking_group.id)
+        ).scalar()
+        return None if latest is None else latest + ARCHIVE_GRACE
+
+    def _fill_archive_defaults(self, session: Session) -> None:
+        """Store the default archive_at in the groups that lack one.
+
+        Only in group mode. A group gets it only if it has contests and
+        the instant is still in the future (see _default_archive_at):
+        an old group is not archived by surprise. A group whose
+        archive_at is still in the future gets it too when it is
+        later (a contest was added or extended): archive_at is only
+        postponed, never moved earlier, and an archive_at in the past
+        is never touched. A database error (in the reads or in the
+        UPDATE, which only happens at the commit) is logged and rolled
+        back, so the sweep goes on and the next one tries again.
+
+        session: the session to read and write the groups with.
+
+        """
+        if self.contest_id is not None:
+            return
+        now = make_datetime()
+        changed = False
+        try:
+            # No autoflush: the UPDATE must happen at the commit, inside
+            # this try, and not at the read of the next group.
+            with session.no_autoflush:
+                for ranking_group in session.execute(
+                        select(RankingGroup).filter(or_(
+                            RankingGroup.archive_at.is_(None),
+                            RankingGroup.archive_at > now))
+                ).scalars().all():
+                    default = self._default_archive_at(session, ranking_group)
+                    if default is not None and default > now and (
+                            ranking_group.archive_at is None
+                            or default > ranking_group.archive_at):
+                        ranking_group.archive_at = default
+                        changed = True
+            if changed:
+                session.commit()
+        except (DBAPIError, PoolTimeoutError) as error:
+            session.rollback()
+            logger.warning(
+                "Cannot store the default archive_at of the ranking "
+                "groups (%s); the next sweep tries again.",
+                describe_error(error))
 
     def _enqueue_submissions(
         self, session: Session, contest: Contest, only_missing: bool,
@@ -1313,8 +1419,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         again, so a user or task the ranking lacks arrives before the
         scores sent again after it.
 
-        In group mode, send again the visibility settings of every
-        ranking group first (they are not counted). Nothing else would
+        In group mode, store the default archive_at of the ranking
+        groups that lack one (see _fill_archive_defaults), then send
+        again the visibility settings of every ranking group before
+        anything else (they are not counted). Nothing else would
         repair a ranking that lost them, or got a reinitialize that
         never arrived, until someone saves the group in AWS: a hidden
         group could stay public. It also lets a group whose settings
@@ -1327,6 +1435,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         counter = 0
         try:
             with SessionGen() as session:
+                self._fill_archive_defaults(session)
                 self._enqueue_visibility(session)
                 for contest in self._contests_to_send(session):
                     only_missing = True
@@ -1389,7 +1498,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
     ) -> None:
         """Enqueue the visibility settings of the ranking groups.
 
-        Only in group mode: legacy mode has no groups.
+        Only in group mode: legacy mode has no groups. An archived
+        group gets one final visibility, shown and not frozen, and no
+        more while it stays archived.
 
         session: the session to read the groups with.
         group: only this group, or None for every group.
@@ -1405,6 +1516,19 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         if group is not None:
             query = query.filter(RankingGroup.name == group)
         for ranking_group in session.execute(query).scalars().all():
+            name = ranking_group.name
+            if self._is_archived(ranking_group):
+                if name in self._final_visibility_sent:
+                    continue
+                self._final_visibility_sent.add(name)
+                enqueue(ProxyOperation(
+                    ProxyExecutor.VISIBILITY_TYPE,
+                    {"hide_at": None, "show_at": None,
+                     "freeze_at": None, "unfreeze_at": None,
+                     "staff_password": ranking_group.staff_password},
+                    name))
+                continue
+            self._final_visibility_sent.discard(name)
             enqueue(ProxyOperation(
                 ProxyExecutor.VISIBILITY_TYPE,
                 {"hide_at": _unix_start(ranking_group.hide_at),
@@ -1412,7 +1536,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                  "freeze_at": _unix_start(ranking_group.freeze_at),
                  "unfreeze_at": _unix_end(ranking_group.unfreeze_at),
                  "staff_password": ranking_group.staff_password},
-                ranking_group.name))
+                name))
 
     def _enqueue_contest_data(
         self, contest: Contest,
@@ -1643,9 +1767,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         logger.info("Reinitializing rankings.")
         with SessionGen() as session:
             new_mapping = self._compute_group_contests(session)
+            archived = {
+                ranking_group.name for ranking_group in session.execute(
+                    select(RankingGroup)).scalars().all()
+                if self._is_archived(ranking_group)}
+        # An archived group is never reset, whatever it lost: its
+        # namespace keeps the final standings.
         lost = sorted(
             group for group, contest_ids in self._group_contests.items()
-            if not contest_ids <= new_mapping.get(group, set()))
+            if group not in archived
+            and not contest_ids <= new_mapping.get(group, set()))
         # Contests new to their group: their submissions may have been
         # sent already, but to another namespace (or not at all).
         gained = {
@@ -1716,6 +1847,29 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._regenerate_ranking_sync, group)
 
+    def _regenerate_ignored(self, session: Session, group: str) -> bool:
+        """Return whether a regenerate of group must do nothing.
+
+        It must when the group is archived now; then it logs a WARNING.
+        The group is read again, even if the session already holds it.
+
+        session: the session to read the group with.
+        group: the name of the ranking group.
+
+        """
+        ranking_group = session.execute(
+            select(RankingGroup).filter(RankingGroup.name == group)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not self._is_archived(ranking_group):
+            return False
+        logger.warning(
+            "Ranking group %s is archived (archive_at %s): "
+            "regenerate ignored. Move archive_at to the "
+            "future or clear it to publish a correction.",
+            group, ranking_group.archive_at)
+        return True
+
     def _regenerate_ranking_sync(self, group: str | None):
         """Do the work of regenerate_ranking(), synchronously.
 
@@ -1742,11 +1896,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         """
         name = group if group is not None else "(root)"
+        if group is not None:
+            with SessionGen() as session:
+                if self._regenerate_ignored(session, group):
+                    return
         with self._regenerate_lock:
             logger.info("Regenerating ranking %s.", name)
             broken_before = self._broken_contests.copy()
             sent_before = (self.scores_sent_to_rankings.copy(),
                            self.tokens_sent_to_rankings.copy())
+            had_final_visibility = group in self._final_visibility_sent
             operations = [ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group)]
             record = (threading.get_ident(), set(), set())
             self._regenerate_record = record
@@ -1762,6 +1921,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                             self._enqueue_submissions(
                                 session, contest, only_missing=False,
                                 enqueue=operations.append)
+                    # The group may have been archived while the data
+                    # was read: the reset would wipe its final standings.
+                    if group is not None and self._regenerate_ignored(
+                            session, group):
+                        if not had_final_visibility:
+                            self._final_visibility_sent.discard(group)
+                        # Nothing is enqueued: undo what the build noted.
+                        self._broken_contests.update(broken_before)
+                        self._forget_sent_since(sent_before)
+                        return
                 self._threadsafe_enqueue_all(operations)
                 # Only after the reset is scheduled: whatever the other
                 # threads noted up to now was queued ahead of it (or

@@ -35,6 +35,8 @@ from cmscontrib.updaters.fork_activity_intervals import \
     apply_fork_activity_intervals_update
 from cmscontrib.updaters.fork_submission_limits import \
     apply_fork_submission_limits_update
+from cmscontrib.updaters.fork_ranking_group_archive import \
+    apply_fork_ranking_group_archive_update
 from cmscontrib.updaters.fork_ddl import SchemaLockTimeout
 
 logger = logging.getLogger(__name__)
@@ -171,6 +173,7 @@ def setup_db() -> bool:
         apply_fork_multi_contest_update()
         apply_fork_activity_intervals_update()
         apply_fork_submission_limits_update()
+        apply_fork_ranking_group_archive_update()
     except SchemaLockTimeout as error:
         # One line for the operator, no traceback; scripts/cmsSetupDB
         # exits 1 on False.

@@ -81,6 +81,14 @@ class RankingGroup(Base):
     freeze_at: datetime | None = Column(DateTime, nullable=True)
     unfreeze_at: datetime | None = Column(DateTime, nullable=True)
 
+    # Naive UTC; None means never archived: see the ranking-group-archiving
+    # spec.
+    archive_at: datetime | None = Column(DateTime, nullable=True)
+
+    def is_archived_at(self, now: datetime) -> bool:
+        """Tell whether the group is archived at now (naive UTC)."""
+        return self.archive_at is not None and self.archive_at <= now
+
     def is_hidden_at(self, now: datetime) -> bool:
         """Tell whether the group is hidden at now (naive UTC)."""
         return window_is_open(self.hide_at, self.show_at, now)
