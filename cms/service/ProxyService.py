@@ -1844,6 +1844,15 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         """
         name = group if group is not None else "(root)"
+        if group is not None:
+            with SessionGen() as session:
+                ranking_group = session.execute(
+                    select(RankingGroup).filter(RankingGroup.name == group)
+                ).scalar_one_or_none()
+                # The reset would wipe its final standings. Group 5 of
+                # archive-ranking-groups adds a WARNING here.
+                if self._is_archived(ranking_group):
+                    return
         with self._regenerate_lock:
             logger.info("Regenerating ranking %s.", name)
             broken_before = self._broken_contests.copy()

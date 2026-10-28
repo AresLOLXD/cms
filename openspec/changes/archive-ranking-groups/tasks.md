@@ -19,7 +19,7 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 - [x] 3.1 Make `_is_sent` and the event paths skip archived groups, with tests for the score, token and dataset scenarios and for "A contest added to an archived group"
 - [x] 3.2 Make the sweep and `initialize` skip archived groups, with tests for the sweep scenario and the "other groups still get their data" case
 - [x] 3.3 Keep archived groups in the group mapping used by `_reinitialize_sync`, with tests that reinitialize sends no reset, delete or put to an archived namespace and that unarchiving resumes the sending
-- [ ] 3.4 Safety net: `_regenerate_ranking_sync` returns before its reset for an archived group (silently; group 5 adds the WARNING and its scenarios), with a test that no reset is enqueued
+- [x] 3.4 Safety net: `_regenerate_ranking_sync` returns before its reset for an archived group (silently; group 5 adds the WARNING and its scenarios), with a test that no reset is enqueued
 
 ## 4. The final visibility
 

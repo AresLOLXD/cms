@@ -2416,5 +2416,27 @@ class TestArchivedGroupsAndReinitialize(ArchiveTrafficTestCase):
         self.assertIn(ProxyExecutor.SUBMISSION_TYPE, types)
 
 
+class TestRegenerateArchivedSafetyNet(ArchiveTrafficTestCase):
+
+    async def test_regenerate_on_an_archived_group_enqueues_nothing(self):
+        # Scenario: Regenerate on an archived group (the safety net: no
+        # reset and no data; the WARNING is added by group 5).
+        service = self.build_service()
+        operations = self.spy(service)
+        service._regenerate_ranking_sync(self.group_a.name)
+        self.assertEqual(operations, [])
+
+    async def test_regenerate_on_a_group_that_is_not_archived(self):
+        # Scenario: Regenerate on a group that is not archived: the reset
+        # comes first, then its visibility and data.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(self.groups_of(operations), {self.group_b.name})
+        self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
+        self.assertIn(ProxyExecutor.SUBMISSION_TYPE,
+                      {operation.type_ for operation in operations})
+
+
 if __name__ == "__main__":
     unittest.main()
