@@ -6,12 +6,13 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from urllib.parse import urljoin
 
 import requests.exceptions
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, OperationalError, \
     PendingRollbackError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import object_session
@@ -25,7 +26,7 @@ from cmstestsuite.unit_tests.service.proxyexecutor_test import \
 
 from cms import config
 from cms.conf import Address
-from cms.db import Dataset, RankingGroup
+from cms.db import Contest, Dataset, RankingGroup, SessionGen
 from cms.service.ProxyService import ProxyExecutor, ProxyOperation, \
     ProxyService, RefusedEntity, _is_database_error, encode_id
 from cmscommon.constants import SCORE_MODE_MAX
@@ -1998,6 +1999,128 @@ class TestDefaultArchiveAt(ArchiveSweepTestCase):
         service = self.build_service()
         self.assertEqual(service._default_archive_at(self.session, group),
                          datetime(2100, 1, 2))
+
+
+NOW = datetime(2030, 1, 10, 12)
+
+
+class TestFillArchiveDefaults(ArchiveSweepTestCase):
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("cms.service.ProxyService.make_datetime",
+                        return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fill(self, service: ProxyService):
+        with SessionGen() as session:
+            service._fill_archive_defaults(session)
+
+    def archive_at(self, ranking_group: RankingGroup) -> datetime | None:
+        """Read the archive_at stored in the DB, with a session of its own."""
+        with SessionGen() as session:
+            return session.get(RankingGroup, ranking_group.id).archive_at
+
+    async def test_a_group_with_a_contest_that_has_not_ended_gets_the_default(
+        self,
+    ):
+        # Scenario: A group with a contest that has not ended gets the
+        # default (and it is committed: it is read back by another session).
+        end = NOW + timedelta(hours=1)
+        group = self.add_ranking_group([end])
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
+
+    async def test_a_set_archive_at_is_kept(self):
+        # Scenario: A set archive_at is kept (in the future, and in the
+        # past: the group stays archived).
+        later = NOW + timedelta(days=30)
+        in_the_future = self.add_ranking_group(
+            [later], archive_at=NOW + timedelta(days=2))
+        in_the_past = self.add_ranking_group(
+            [later], archive_at=datetime(2020, 1, 1))
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(in_the_future),
+                         NOW + timedelta(days=2))
+        self.assertEqual(self.archive_at(in_the_past), datetime(2020, 1, 1))
+
+    async def test_contests_that_already_ended_do_not_archive_a_group_by_surprise(
+        self,
+    ):
+        # Scenario: Contests that already ended do not archive a group by
+        # surprise: the end plus 24 hours in the past, and exactly now.
+        long_ago = self.add_ranking_group([NOW - timedelta(days=5)])
+        exactly_now = self.add_ranking_group([NOW - timedelta(hours=24)])
+        service = self.build_service()
+        self.fill(service)
+        self.assertIsNone(self.archive_at(long_ago))
+        self.assertIsNone(self.archive_at(exactly_now))
+
+    async def test_a_group_with_no_contests_stays_empty(self):
+        # Scenario: A group with no contests.
+        group = self.add_ranking_group()
+        service = self.build_service()
+        self.fill(service)
+        self.assertIsNone(self.archive_at(group))
+
+    async def test_legacy_mode_does_nothing(self):
+        # Legacy single-contest mode has no ranking groups to archive.
+        group = self.add_ranking_group([NOW + timedelta(hours=1)])
+        contest_id = self.session.execute(
+            select(Contest.id).where(Contest.ranking_group_id == group.id)
+        ).scalar()
+        service = self.build_service(contest_id)
+        self.fill(service)
+        self.assertIsNone(self.archive_at(group))
+
+    async def test_a_database_error_does_not_stop_the_sweep(self):
+        # Scenario: A group with a contest that has not ended gets the
+        # default, even when the first commit fails: the session is rolled
+        # back, the sweep goes on, and the next sweep fills it.
+        end = NOW + timedelta(hours=1)
+        group = self.add_ranking_group([end])
+        service = self.build_service()
+        events: list[str] = []
+        service._threadsafe_enqueue = lambda operation: events.append(
+            "enqueue %d" % operation.type_)
+
+        @contextmanager
+        def failing_commit_once():
+            with SessionGen() as session:
+                real_commit = session.commit
+                real_rollback = session.rollback
+
+                def commit():
+                    session.commit = real_commit
+                    session.flush()
+                    raise OperationalError(
+                        "COMMIT", {}, Exception("timeout"))
+
+                def rollback():
+                    events.append("rollback")
+                    real_rollback()
+
+                session.commit = commit
+                session.rollback = rollback
+                yield session
+
+        with patch("cms.service.ProxyService.SessionGen",
+                   failing_commit_once), \
+                self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._missing_operations_sync()
+
+        self.assertEqual(
+            len([line for line in logs.output
+                 if "default archive_at" in line]), 1)
+        self.assertIsNone(self.archive_at(group))
+        self.assertEqual(events[0], "rollback")
+        self.assertIn("enqueue %d" % ProxyExecutor.VISIBILITY_TYPE, events)
+
+        service._missing_operations_sync()
+        self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
 
 
 if __name__ == "__main__":

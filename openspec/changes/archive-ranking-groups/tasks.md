@@ -12,7 +12,7 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 ## 2. The default archive_at
 
 - [x] 2.1 Add the computation of a group's last contest end (latest `stop` of the participation groups of its contests) plus the 24 hour constant, with tests for "The last contest decides" and "A group with no contests"
-- [ ] 2.2 Make the sweep fill an empty `archive_at` only when the instant is in the future, with its own session commit and a log-and-retry on a database error, with tests for "A group with a contest that has not ended gets the default", "A set archive_at is kept" and "Contests that already ended do not archive a group by surprise"
+- [x] 2.2 Make the sweep fill an empty `archive_at` only when the instant is in the future, with its own session commit and a log-and-retry on a database error, with tests for "A group with a contest that has not ended gets the default", "A set archive_at is kept" and "Contests that already ended do not archive a group by surprise"
 
 ## 3. ProxyService stops sending to archived groups
 

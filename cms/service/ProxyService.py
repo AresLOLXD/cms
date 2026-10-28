@@ -56,7 +56,7 @@ from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.health import BusyTracker
 from cms.io.priorityqueue import QueueEntry
 from cms.io.rpc import rpc_method
-from cmscommon.datetime import make_timestamp
+from cmscommon.datetime import make_datetime, make_timestamp
 from cmscommon.ranking_groups import is_valid_group_name
 
 
@@ -1276,6 +1276,40 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         ).scalar()
         return None if latest is None else latest + ARCHIVE_GRACE
 
+    def _fill_archive_defaults(self, session: Session) -> None:
+        """Store the default archive_at in the groups that lack one.
+
+        Only in group mode. A group gets it only if it has contests and
+        the instant is still in the future (see _default_archive_at):
+        an old group is not archived by surprise. A database error is
+        logged and rolled back, so the sweep goes on and the next one
+        tries again.
+
+        session: the session to read and write the groups with.
+
+        """
+        if self.contest_id is not None:
+            return
+        now = make_datetime()
+        changed = False
+        for ranking_group in session.execute(
+                select(RankingGroup).filter(RankingGroup.archive_at.is_(None))
+        ).scalars().all():
+            default = self._default_archive_at(session, ranking_group)
+            if default is not None and default > now:
+                ranking_group.archive_at = default
+                changed = True
+        if not changed:
+            return
+        try:
+            session.commit()
+        except (DBAPIError, PoolTimeoutError) as error:
+            session.rollback()
+            logger.warning(
+                "Cannot store the default archive_at of the ranking "
+                "groups (%s); the next sweep tries again.",
+                describe_error(error))
+
     def _enqueue_submissions(
         self, session: Session, contest: Contest, only_missing: bool,
         enqueue: Callable[[ProxyOperation], None] | None = None,
@@ -1340,8 +1374,10 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         again, so a user or task the ranking lacks arrives before the
         scores sent again after it.
 
-        In group mode, send again the visibility settings of every
-        ranking group first (they are not counted). Nothing else would
+        In group mode, store the default archive_at of the ranking
+        groups that lack one (see _fill_archive_defaults), then send
+        again the visibility settings of every ranking group before
+        anything else (they are not counted). Nothing else would
         repair a ranking that lost them, or got a reinitialize that
         never arrived, until someone saves the group in AWS: a hidden
         group could stay public. It also lets a group whose settings
@@ -1354,6 +1390,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         counter = 0
         try:
             with SessionGen() as session:
+                self._fill_archive_defaults(session)
                 self._enqueue_visibility(session)
                 for contest in self._contests_to_send(session):
                     only_missing = True
