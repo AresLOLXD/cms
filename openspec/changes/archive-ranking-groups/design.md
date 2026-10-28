@@ -81,22 +81,26 @@ Observed in the code (not assumed):
 5. **Migration.** A new `fork_ranking_group_archive.py` guarded by an
    `information_schema` lookup, same pattern as `fork_submission_limits.py`.
    It adds the column empty and never fills it.
-6. **Default `archive_at` (author's call).** The end of a group's last contest
-   is the latest `stop` of all the participation groups of all its contests
-   (analysis mode is not counted); the grace period is a constant of 24
-   hours, not an option. ProxyService fills the field in its sweep, in the
-   same pass that already reads the groups, when ALL of these hold: the field
-   is empty, the group has at least one contest, and the computed instant is
-   in the future at that moment. Reasons: one place, no AWS code (the owner
-   kept the AWS UI out of this slice); a group whose contests already ended
-   before this ships, such as one that finished before the deploy, keeps an
-   empty field and is never archived by surprise, until the operator sets it.
-   It never overwrites a value that is set. This is the first column
-   ProxyService writes, so it needs its own session commit and a test that a
-   database error there does not stop the sweep (it logs and tries again at
-   the next sweep). Alternative rejected for this slice: filling it in the AWS
-   save handlers (three handlers, AWS code, and the field would be stale if
-   an import changes the times).
+6. **Default `archive_at` (author's call, extended by the owner).** The end
+   of a group's last contest is the latest `stop` of all the participation
+   groups of all its contests (analysis mode is not counted); the grace period
+   is a constant of 24 hours, not an option. ProxyService stores the default
+   in its sweep, in the same pass that already reads the groups: it fills an
+   EMPTY field when the group has at least one contest and the computed
+   instant is in the future at that moment, and it POSTPONES a stored
+   `archive_at` that is still in the future when the computed default is later
+   (owner's decision after the final review: a contest added to the group, or
+   times corrected, after the first fill must not leave the group archived
+   during a live contest). It never moves an `archive_at` earlier and never
+   touches one that is already in the past. Reasons: one place, no AWS code (the
+   owner kept the AWS UI out of this slice); a group whose contests already
+   ended before this ships keeps an empty field and is never archived by
+   surprise, until the operator sets it. This is the first column ProxyService
+   writes, so it needs its own session commit and a test that a database error
+   there does not stop the sweep (it logs and tries again at the next sweep;
+   the autoflush of the update must be inside that protection). Alternative
+   rejected for this slice: filling it in the AWS save handlers (three
+   handlers, AWS code).
 7. **Final visibility (author's call; confirm).** The first time a sweep or
    an initialize finds a group archived, ProxyService enqueues ONE visibility
    operation for it with every window empty (shown, not frozen) and the
@@ -128,12 +132,21 @@ Observed in the code (not assumed):
   `archive_at` arrives. It follows the owner's answer; to be confirmed. The
   way to keep a group hidden is to leave `archive_at` empty or move it far
   into the future.
-- **A stale default after a contest is extended** (Decision 6). The default
-  is stored once. If an admin later moves a contest's `stop` past
-  `archive_at`, the group is archived while that contest is still running:
-  ProxyService stops sending it. Mitigations are for the AWS change (move
-  `archive_at` when the times are saved, show it next to the times); until
-  then an operator who extends a contest must move `archive_at` by hand.
+- **A stale default** (Decision 6). The sweep postpones a future `archive_at`
+  when a later default appears, so adding a contest or extending one follows
+  automatically. What remains: if the stored `archive_at` is already in the
+  past when the contest is added or extended, the group is archived as
+  scheduled and nothing is sent for that contest; and an `archive_at` set by
+  hand that is earlier than the default but still in the future is pushed to
+  the default by the next sweep (there is no AWS page yet; set it by SQL after
+  the sweep, or leave it empty until the AWS change).
+- **Renaming (or deleting) an archived group** (found by the final review).
+  The AWS save reinitializes the rankings; the old name is no longer in the
+  set of archived groups, so it gets a RESET, and the new name only gets the
+  final visibility: the public scoreboard is empty. Deleting an archived group
+  resets its namespace, as deleting any group does. Accepted for this slice
+  (owner's decision): unarchive before renaming; the AWS change will refuse or
+  warn about renaming an archived group.
 - **Archive is not a lock on the data.** The ranking keeps what it had; the
   database can still change. Until the AWS warning change exists, an
   operator can change scores in AWS and the public ranking will silently not

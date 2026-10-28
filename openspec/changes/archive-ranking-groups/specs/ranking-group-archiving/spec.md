@@ -21,7 +21,7 @@ A ranking group SHALL have an optional `archive_at` instant (naive UTC). The gro
 - **THEN** the group is never archived
 
 ### Requirement: archive_at gets a visible default
-When a group has no `archive_at`, has at least one contest, and 24 hours after the latest `stop` of the participation groups of its contests is in the future, ProxyService SHALL store that instant in the group's `archive_at`. It SHALL NOT overwrite an `archive_at` that is set, and SHALL leave it empty in every other case. Updating an existing database SHALL leave `archive_at` empty for every existing group.
+When a group has no `archive_at`, has at least one contest, and 24 hours after the latest `stop` of the participation groups of its contests is in the future, ProxyService SHALL store that instant in the group's `archive_at`. When a group has an `archive_at` that is still in the future and that computed instant is later, ProxyService SHALL move `archive_at` to it. It SHALL NOT move an `archive_at` earlier, SHALL NOT change an `archive_at` that is already in the past, and SHALL leave it empty in every other case. Updating an existing database SHALL leave `archive_at` empty for every existing group.
 
 #### Scenario: A group with a contest that has not ended gets the default
 - **WHEN** a group has no `archive_at` and its contests end at T, with T plus 24 hours in the future
@@ -31,8 +31,16 @@ When a group has no `archive_at`, has at least one contest, and 24 hours after t
 - **WHEN** a group has two contests, and the second ends later than the first
 - **THEN** its `archive_at` is the end of the second plus 24 hours
 
-#### Scenario: A set archive_at is kept
-- **WHEN** a group already has an `archive_at`
+#### Scenario: A past archive_at is kept
+- **WHEN** a group has an `archive_at` that is already in the past
+- **THEN** ProxyService does not change it, even if a later default could be computed
+
+#### Scenario: A contest added later postpones a future archive_at
+- **WHEN** a group has an `archive_at` in the future and a contest is added to it, or the times of a contest are moved, so that the computed default is later
+- **THEN** ProxyService moves `archive_at` to the later default
+
+#### Scenario: A later archive_at is not moved earlier
+- **WHEN** a group has an `archive_at` in the future that is later than the computed default
 - **THEN** ProxyService does not change it
 
 #### Scenario: Contests that already ended do not archive a group by surprise
