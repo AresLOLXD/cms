@@ -2318,5 +2318,103 @@ class TestSkipArchivedSweep(ArchiveTrafficTestCase):
         self.assertEqual(self.groups_of(operations), {None})
 
 
+class TestArchivedGroupsAndReinitialize(ArchiveTrafficTestCase):
+
+    def operation_types(self, operations: list[ProxyOperation],
+                        group: str) -> list[int]:
+        return [operation.type_ for operation in operations
+                if operation.group == group]
+
+    async def test_a_group_archived_after_the_mapping_is_not_reset(self):
+        # Scenario: Group archived while the ranking holds its data, and
+        # Initialize and reinitialize leave an archived group alone: the
+        # service knew the group when it was open; it is archived now.
+        # A different group that really lost its contest is still reset.
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        group_c, contest_c, _ = self.add_group_with_submission()
+        service = self.build_service()
+        self.group_a.archive_at = NOW - timedelta(days=1)
+        contest_c.ranking_group = None
+        self.session.commit()
+        operations = self.spy(service)
+
+        service._reinitialize_sync()
+        service._missing_operations_sync()
+
+        types_c = self.operation_types(operations, group_c.name)
+        self.assertEqual(types_c.count(ProxyExecutor.RESET_TYPE), 1)
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [])
+        self.assertIn(self.group_b.name, self.groups_of(operations))
+
+    async def test_a_group_that_lost_a_contest_while_archived_is_not_reset(
+        self,
+    ):
+        # Scenario: Group archived while the ranking holds its data: the
+        # contest leaves the archived group, and its namespace keeps the
+        # final standings.
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        self.session.commit()
+        service = self.build_service()
+        self.group_a.archive_at = NOW - timedelta(days=1)
+        self.contest_a.ranking_group = self.group_b
+        self.session.commit()
+        operations = self.spy(service)
+
+        service._reinitialize_sync()
+
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [])
+        self.assertEqual(service._group_contests,
+                         {self.group_b.name: {self.contest_a.id,
+                                              self.contest_b.id}})
+
+    async def test_the_initial_mapping_includes_an_archived_group(self):
+        # Scenario: Initialize and reinitialize leave an archived group
+        # alone (the mapping built by __init__ keeps the archived group).
+        service = self.build_service()
+        self.assertEqual(service._group_contests,
+                         {self.group_a.name: {self.contest_a.id},
+                          self.group_b.name: {self.contest_b.id}})
+
+    async def test_a_contest_assigned_to_an_archived_group_sends_nothing(
+        self,
+    ):
+        # Scenario: A contest added to an archived group, through a
+        # reinitialize: neither its data nor its submissions.
+        group_c, contest_c, _ = self.add_group_with_submission()
+        contest_c.ranking_group = None
+        self.session.commit()
+        service = self.build_service()
+        contest_c.ranking_group = self.group_a
+        self.session.commit()
+        operations = self.spy(service)
+
+        service._reinitialize_sync()
+
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [])
+        self.assertEqual(service._group_contests[self.group_a.name],
+                         {self.contest_a.id, contest_c.id})
+
+    async def test_unarchiving_resumes_the_sending(self):
+        # Scenario: Unarchiving resumes the sending: archive_at moved to
+        # the future, and the next sweep sends the visibility and what
+        # the group misses.
+        service = self.build_service()
+        operations = self.spy(service)
+        service._missing_operations_sync()
+        self.assertEqual(self.operation_types(operations, self.group_a.name),
+                         [])
+
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        self.session.commit()
+        service._missing_operations_sync()
+
+        types = self.operation_types(operations, self.group_a.name)
+        self.assertEqual(types[0], ProxyExecutor.VISIBILITY_TYPE)
+        self.assertIn(ProxyExecutor.SUBMISSION_TYPE, types)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1267,10 +1267,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                 or not self._is_archived(contest.ranking_group)]
 
     def _compute_group_contests(self, session: Session) -> dict[str, set[int]]:
-        """Return the current mapping from group name to contest IDs."""
+        """Return the current mapping from group name to contest IDs.
+
+        It counts the contests of the archived groups too: otherwise
+        _reinitialize_sync would see them as lost and reset them.
+
+        """
         mapping: dict[str, set[int]] = dict()
         if self.contest_id is None:
-            for contest in self._contests_to_send(session):
+            for contest in self._contests_to_send(
+                    session, include_archived=True):
                 mapping.setdefault(
                     contest.ranking_group.name, set()).add(contest.id)
         return mapping
@@ -1732,9 +1738,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         logger.info("Reinitializing rankings.")
         with SessionGen() as session:
             new_mapping = self._compute_group_contests(session)
+            archived = {
+                ranking_group.name for ranking_group in session.execute(
+                    select(RankingGroup)).scalars().all()
+                if self._is_archived(ranking_group)}
+        # An archived group is never reset, whatever it lost: its
+        # namespace keeps the final standings.
         lost = sorted(
             group for group, contest_ids in self._group_contests.items()
-            if not contest_ids <= new_mapping.get(group, set()))
+            if group not in archived
+            and not contest_ids <= new_mapping.get(group, set()))
         # Contests new to their group: their submissions may have been
         # sent already, but to another namespace (or not at all).
         gained = {
