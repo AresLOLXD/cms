@@ -22,3 +22,4 @@ backups/
 .superpowers/
 .worktrees/
 graphify-out/
+.claude/worktrees/
