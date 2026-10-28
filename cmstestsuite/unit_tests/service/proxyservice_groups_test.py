@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError, \
 from sqlalchemy.orm import object_session
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.testidgenerator import unique_unicode_id
 from cmstestsuite.unit_tests.servicelogmixin import \
     ServiceLoggingIsolationMixin
 from cmstestsuite.unit_tests.service.proxyexecutor_test import \
@@ -1916,6 +1917,87 @@ class TestProxyServiceGroups(
         self.assertEqual(
             [subchange["score"] for subchange in
              self.put_payload(url("omips/subchanges/")).values()], [70])
+
+
+class ArchiveSweepTestCase(
+    ServiceLoggingIsolationMixin, DatabaseMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
+    """A ProxyService over a DB of ranking groups with no submissions."""
+
+    def setUp(self):
+        super().setUp()
+        for method, status in (("put", 200), ("delete", 204)):
+            patcher = patch("cms.service.ProxyService.requests." + method)
+            patcher.start().return_value.status_code = status
+            self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        # Group mode sends every grouped contest in the DB, and group
+        # names are unique: start each test from an empty DB.
+        self.delete_data()
+        super().tearDown()
+
+    def build_service(self, contest_id: int | None = None) -> ProxyService:
+        """Build a ProxyService (group mode unless contest_id is given)."""
+        for target in ("cms.io.async_service.get_service_address",
+                       "cms.io.async_rpc.get_service_address"):
+            patcher = patch(target, return_value=Address("127.0.0.1", 0))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        with patch.object(
+                ProxyService, "start_sweeper", lambda self, timeout: None):
+            service = ProxyService(0, contest_id)
+        service._loop = asyncio.get_running_loop()
+        self.addCleanup(service._disconnect_all)
+        return service
+
+    def add_ranking_group(self, *contest_stops: list[datetime],
+                          **kwargs) -> RankingGroup:
+        """Add and commit a ranking group.
+
+        contest_stops: one list for each contest of the group, with the
+            stop of each participation group of that contest.
+
+        """
+        ranking_group = RankingGroup(
+            name=unique_unicode_id(), description="D", **kwargs)
+        self.session.add(ranking_group)
+        for stops in contest_stops:
+            self.add_contest(
+                ranking_group=ranking_group,
+                groups=[self.get_group(**({} if stop is None else {"stop": stop}))
+                        for stop in stops])
+        self.session.commit()
+        return ranking_group
+
+
+class TestDefaultArchiveAt(ArchiveSweepTestCase):
+
+    async def test_the_last_contest_decides(self):
+        # Scenario: The last contest decides.
+        # The first contest has two participation groups: the larger of
+        # all the stops wins, and the first contest ends after the
+        # second one's group that ends first.
+        group = self.add_ranking_group(
+            [datetime(2030, 1, 1, 12), datetime(2030, 1, 3, 12)],
+            [datetime(2030, 1, 2, 12), datetime(2030, 1, 5, 6)])
+        service = self.build_service()
+        self.assertEqual(service._default_archive_at(self.session, group),
+                         datetime(2030, 1, 6, 6))
+
+    async def test_a_group_with_no_contests(self):
+        # Scenario: A group with no contests.
+        group = self.add_ranking_group()
+        service = self.build_service()
+        self.assertIsNone(service._default_archive_at(self.session, group))
+
+    async def test_a_contest_with_the_default_stop_gives_2100(self):
+        # "No end" is 2100-01-01: the group is archived in 2100, not now.
+        group = self.add_ranking_group([None])
+        service = self.build_service()
+        self.assertEqual(service._default_archive_at(self.session, group),
+                         datetime(2100, 1, 2))
 
 
 if __name__ == "__main__":

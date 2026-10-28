@@ -28,7 +28,7 @@
 
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import enum
 import json
@@ -43,13 +43,13 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 import requests.exceptions
-from sqlalchemy import not_, select
+from sqlalchemy import func, not_, select
 from sqlalchemy.exc import DBAPIError, PendingRollbackError, \
     TimeoutError as PoolTimeoutError
 
 from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
-    RankingGroup, Submission, get_submissions
+    Group, RankingGroup, Submission, get_submissions
 from cms.db.connect_options import describe_error
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
@@ -68,6 +68,10 @@ logger = logging.getLogger(__name__)
 # would block the thread sending to it forever.
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 120
+
+# How long after the end of its last contest a ranking group is
+# archived by default (see _default_archive_at).
+ARCHIVE_GRACE = timedelta(hours=24)
 
 
 class CannotSendError(Exception):
@@ -1248,6 +1252,29 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                 mapping.setdefault(
                     contest.ranking_group.name, set()).add(contest.id)
         return mapping
+
+    def _default_archive_at(
+        self, session: Session, ranking_group: RankingGroup,
+    ) -> datetime | None:
+        """Return the default archive_at of a ranking group.
+
+        It is ARCHIVE_GRACE after the latest stop of the participation
+        groups of all the contests of the ranking group (the analysis
+        mode is not counted).
+
+        session: the session to read with.
+        ranking_group: the group to compute it for.
+
+        return: the instant (naive UTC), or None if the group has no
+            contests.
+
+        """
+        latest = session.execute(
+            select(func.max(Group.stop))
+            .join(Contest, Group.contest_id == Contest.id)
+            .where(Contest.ranking_group_id == ranking_group.id)
+        ).scalar()
+        return None if latest is None else latest + ARCHIVE_GRACE
 
     def _enqueue_submissions(
         self, session: Session, contest: Contest, only_missing: bool,
