@@ -1,32 +1,29 @@
 schema: spec-driven
 
-# Project context (optional)
-# Add only constraints that should guide OpenSpec artifacts and workflows.
-# Include constraints an agent cannot infer by reading the code.
-# Keep general project documentation and discoverable codebase facts out.
-# Example:
-#   context: |
-#     Designs and tasks must cover Windows, macOS, and Linux
-#     Write all artifacts in Spanish
+context: |
+  Fork (OMI) of the Contest Management System: Python >=3.11 (3.12 in dev/CI),
+  PostgreSQL only, asyncio services plus gevent in Worker/cmsranking/some cmscontrib.
+  Write every OpenSpec artifact in English. Code, comments and commit messages too.
+  Specs describe behavior seen by contestants (CWS), admins (AWS), the ranking (RWS),
+  importers and grading, not internals.
+  Tests are pytest. Never run a bare pytest over the whole suite: the gevent and
+  asyncio groups need separate processes (see CLAUDE.md, "Testing").
+  Lint is `pyflakes cms cmscommon cmscontrib cmsranking cmstaskenv cmstestsuite`,
+  plus eslint for JS under cms/server/*/static.
+  Every Scenario in a delta spec needs at least one test.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always state what is out of scope
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  tasks:
+    - Group tasks so each group can get its own Superpowers plan and be reviewed alone
+    - Put the test task next to the behavior task it covers
+  specs:
+    - Every Requirement has at least one Scenario
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - Tick the checkbox in tasks.md as each task is done
+      - If behavior diverges from the delta spec, stop and run /opsx:update or ask
+  archive:
+    guidance:
+      - Archive only after tests and verify pass
