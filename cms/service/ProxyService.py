@@ -43,7 +43,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 import requests.exceptions
-from sqlalchemy import func, not_, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.exc import DBAPIError, PendingRollbackError, \
     TimeoutError as PoolTimeoutError
 
@@ -1316,9 +1316,13 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
 
         Only in group mode. A group gets it only if it has contests and
         the instant is still in the future (see _default_archive_at):
-        an old group is not archived by surprise. A database error is
-        logged and rolled back, so the sweep goes on and the next one
-        tries again.
+        an old group is not archived by surprise. A group whose
+        archive_at is still in the future gets it too when it is
+        later (a contest was added or extended): archive_at is only
+        postponed, never moved earlier, and an archive_at in the past
+        is never touched. A database error (in the reads or in the
+        UPDATE, which only happens at the commit) is logged and rolled
+        back, so the sweep goes on and the next one tries again.
 
         session: the session to read and write the groups with.
 
@@ -1327,17 +1331,23 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
             return
         now = make_datetime()
         changed = False
-        for ranking_group in session.execute(
-                select(RankingGroup).filter(RankingGroup.archive_at.is_(None))
-        ).scalars().all():
-            default = self._default_archive_at(session, ranking_group)
-            if default is not None and default > now:
-                ranking_group.archive_at = default
-                changed = True
-        if not changed:
-            return
         try:
-            session.commit()
+            # No autoflush: the UPDATE must happen at the commit, inside
+            # this try, and not at the read of the next group.
+            with session.no_autoflush:
+                for ranking_group in session.execute(
+                        select(RankingGroup).filter(or_(
+                            RankingGroup.archive_at.is_(None),
+                            RankingGroup.archive_at > now))
+                ).scalars().all():
+                    default = self._default_archive_at(session, ranking_group)
+                    if default is not None and default > now and (
+                            ranking_group.archive_at is None
+                            or default > ranking_group.archive_at):
+                        ranking_group.archive_at = default
+                        changed = True
+            if changed:
+                session.commit()
         except (DBAPIError, PoolTimeoutError) as error:
             session.rollback()
             logger.warning(

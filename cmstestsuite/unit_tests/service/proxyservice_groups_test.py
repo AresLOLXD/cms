@@ -2033,19 +2033,40 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
         self.fill(service)
         self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
 
-    async def test_a_set_archive_at_is_kept(self):
-        # Scenario: A set archive_at is kept (in the future, and in the
-        # past: the group stays archived).
-        later = NOW + timedelta(days=30)
-        in_the_future = self.add_ranking_group(
-            [later], archive_at=NOW + timedelta(days=2))
+    async def test_a_past_archive_at_is_kept(self):
+        # Scenario: A past archive_at is kept, even if a later default
+        # could be computed (the group stays archived).
         in_the_past = self.add_ranking_group(
-            [later], archive_at=datetime(2020, 1, 1))
+            [NOW + timedelta(days=30)], archive_at=datetime(2020, 1, 1))
         service = self.build_service()
         self.fill(service)
-        self.assertEqual(self.archive_at(in_the_future),
-                         NOW + timedelta(days=2))
         self.assertEqual(self.archive_at(in_the_past), datetime(2020, 1, 1))
+
+    async def test_a_contest_added_later_postpones_a_future_archive_at(self):
+        # Scenario: A contest added later postpones a future archive_at:
+        # the stored value was the default of the first contest alone.
+        first_end = NOW + timedelta(hours=1)
+        second_end = NOW + timedelta(hours=5)
+        group = self.add_ranking_group(
+            [first_end], [second_end],
+            archive_at=first_end + timedelta(hours=24))
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group),
+                         second_end + timedelta(hours=24))
+
+    async def test_a_later_archive_at_is_not_moved_earlier(self):
+        # Scenario: A later archive_at is not moved earlier: a stored value
+        # later than the default, and exactly equal to it, stay as they are.
+        end = NOW + timedelta(hours=1)
+        default = end + timedelta(hours=24)
+        later = self.add_ranking_group(
+            [end], archive_at=default + timedelta(days=3))
+        equal = self.add_ranking_group([end], archive_at=default)
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(later), default + timedelta(days=3))
+        self.assertEqual(self.archive_at(equal), default)
 
     async def test_contests_that_already_ended_do_not_archive_a_group_by_surprise(
         self,
@@ -2121,6 +2142,50 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
 
         service._missing_operations_sync()
         self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
+
+    async def test_a_failing_update_inside_the_fill_is_handled(self):
+        # Scenario: A group with a contest that has not ended gets the
+        # default, even when the UPDATE of the first of two groups fails
+        # (it used to fail at the autoflush of the read of the second,
+        # outside the error handling): one WARNING, a rollback, the
+        # sweep goes on, and the next sweep stores both defaults.
+        end = NOW + timedelta(hours=1)
+        groups = [self.add_ranking_group([end]) for _ in range(2)]
+        service = self.build_service()
+        events: list[str] = []
+        service._threadsafe_enqueue = lambda operation: events.append(
+            "enqueue %d" % operation.type_)
+
+        @contextmanager
+        def failing_update_once():
+            with SessionGen() as session:
+                real_flush = session.flush
+
+                def flush(*args, **kwargs):
+                    if session.dirty:
+                        session.flush = real_flush
+                        raise OperationalError(
+                            "UPDATE", {}, Exception("timeout"))
+                    real_flush(*args, **kwargs)
+
+                session.flush = flush
+                yield session
+
+        with patch("cms.service.ProxyService.SessionGen",
+                   failing_update_once), \
+                self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._missing_operations_sync()
+
+        self.assertEqual(
+            len([line for line in logs.output
+                 if "default archive_at" in line]), 1)
+        self.assertEqual([self.archive_at(group) for group in groups],
+                         [None, None])
+        self.assertIn("enqueue %d" % ProxyExecutor.VISIBILITY_TYPE, events)
+
+        service._missing_operations_sync()
+        self.assertEqual([self.archive_at(group) for group in groups],
+                         [end + timedelta(hours=24)] * 2)
 
 
 class ArchiveTrafficTestCase(ArchiveSweepTestCase):
