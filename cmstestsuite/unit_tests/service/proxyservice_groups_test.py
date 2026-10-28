@@ -2261,8 +2261,9 @@ class TestSkipArchivedSweep(ArchiveTrafficTestCase):
 
     async def test_the_sweep_skips_an_archived_group(self):
         # Scenario: The sweep skips an archived group: nothing for it
-        # (not even its visibility), and the other group still gets its
-        # visibility, its contest data and its scores.
+        # (its final visibility went out when the service was built),
+        # and the other group still gets its visibility, its contest
+        # data and its scores.
         service = self.build_service()
         operations = self.spy(service)
         service._missing_operations_sync()
@@ -2274,7 +2275,8 @@ class TestSkipArchivedSweep(ArchiveTrafficTestCase):
 
     async def test_initialize_skips_an_archived_group(self):
         # Scenario: Initialize and reinitialize leave an archived group
-        # alone (initialize half): no visibility and no contest data.
+        # alone (initialize half): no contest data, and no visibility
+        # beyond the final one that the service sent when it was built.
         service = self.build_service()
         operations = self.spy(service)
         service.initialize()
@@ -2284,7 +2286,8 @@ class TestSkipArchivedSweep(ArchiveTrafficTestCase):
 
     async def test_the_visibility_of_a_named_archived_group(self):
         # Scenario: The sweep skips an archived group (a Regenerate or
-        # any other caller asking for the visibility of one group).
+        # any other caller asking for the visibility of one group): the
+        # final visibility already went out when the service was built.
         service = self.build_service()
         operations: list[ProxyOperation] = []
         with SessionGen() as session:
@@ -2343,8 +2346,10 @@ class TestArchivedGroupsAndReinitialize(ArchiveTrafficTestCase):
 
         types_c = self.operation_types(operations, group_c.name)
         self.assertEqual(types_c.count(ProxyExecutor.RESET_TYPE), 1)
+        # Only the final visibility: it is sent once, when the service
+        # first finds the group archived (here, at the reinitialize).
         self.assertEqual(self.operation_types(operations, self.group_a.name),
-                         [])
+                         [ProxyExecutor.VISIBILITY_TYPE])
         self.assertIn(self.group_b.name, self.groups_of(operations))
 
     async def test_a_group_that_lost_a_contest_while_archived_is_not_reset(
@@ -2363,8 +2368,10 @@ class TestArchivedGroupsAndReinitialize(ArchiveTrafficTestCase):
 
         service._reinitialize_sync()
 
+        # No reset: only the final visibility, as the group was found
+        # archived now.
         self.assertEqual(self.operation_types(operations, self.group_a.name),
-                         [])
+                         [ProxyExecutor.VISIBILITY_TYPE])
         self.assertEqual(service._group_contests,
                          {self.group_b.name: {self.contest_a.id,
                                               self.contest_b.id}})
@@ -2414,6 +2421,102 @@ class TestArchivedGroupsAndReinitialize(ArchiveTrafficTestCase):
         types = self.operation_types(operations, self.group_a.name)
         self.assertEqual(types[0], ProxyExecutor.VISIBILITY_TYPE)
         self.assertIn(ProxyExecutor.SUBMISSION_TYPE, types)
+
+
+class TestFinalVisibility(ArchiveTrafficTestCase):
+
+    NO_WINDOWS = {"hide_at": None, "show_at": None,
+                  "freeze_at": None, "unfreeze_at": None}
+
+    def build_spied_service(self) -> tuple[ProxyService, list[ProxyOperation]]:
+        """Build a service whose spy also sees the initialize of __init__."""
+        operations: list[ProxyOperation] = []
+        with patch.object(ProxyService, "_threadsafe_enqueue",
+                          lambda service, operation:
+                          operations.append(operation)):
+            service = self.build_service()
+        service._threadsafe_enqueue = operations.append
+        service._threadsafe_enqueue_all = operations.extend
+        return service, operations
+
+    def visibilities(self, operations: list[ProxyOperation],
+                     group: RankingGroup) -> list[ProxyOperation]:
+        return [operation for operation in operations
+                if operation.group == group.name
+                and operation.type_ == ProxyExecutor.VISIBILITY_TYPE]
+
+    async def test_a_hidden_group_is_archived(self):
+        # Scenario: A hidden group is archived: one visibility with no
+        # window, and the stored staff password.
+        self.group_a.hide_at = NOW - timedelta(days=2)
+        self.group_a.staff_password = "secret"
+        self.session.commit()
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        (final,) = self.visibilities(operations, self.group_a)
+        self.assertEqual(
+            final.data, {**self.NO_WINDOWS, "staff_password": "secret"})
+        # Nothing else goes to the archived group.
+        self.assertEqual(
+            [operation for operation in operations
+             if operation.group == self.group_a.name], [final])
+
+    async def test_a_frozen_group_is_archived(self):
+        # Scenario: A frozen group is archived: one visibility with no
+        # window, also when the group is hidden and frozen at once.
+        self.group_a.hide_at = NOW - timedelta(days=3)
+        self.group_a.show_at = NOW + timedelta(days=3)
+        self.group_a.freeze_at = NOW - timedelta(days=2)
+        self.group_a.unfreeze_at = NOW + timedelta(days=2)
+        self.session.commit()
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        (final,) = self.visibilities(operations, self.group_a)
+        self.assertEqual(
+            final.data, {**self.NO_WINDOWS, "staff_password": None})
+
+    async def test_the_final_visibility_is_sent_once(self):
+        # Scenario: The final visibility is sent once: two sweeps and an
+        # initialize while the group stays archived.
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        service._missing_operations_sync()
+        service.initialize()
+        self.assertEqual(len(self.visibilities(operations, self.group_a)), 1)
+
+    async def test_unarchiving_forgets_the_final_visibility(self):
+        # Scenario: Unarchiving forgets the final visibility (and
+        # Unarchiving resumes the sending): archived, then unarchived
+        # (the normal windows go out), then archived again.
+        self.group_a.freeze_at = NOW - timedelta(days=2)
+        self.session.commit()
+        service, operations = self.build_spied_service()
+        service._missing_operations_sync()
+        self.assertEqual(len(self.visibilities(operations, self.group_a)), 1)
+
+        self.group_a.archive_at = NOW + timedelta(days=1)
+        self.session.commit()
+        service._missing_operations_sync()
+        normal = self.visibilities(operations, self.group_a)[1]
+        self.assertIsNotNone(normal.data["freeze_at"])
+
+        self.group_a.archive_at = NOW - timedelta(days=1)
+        self.session.commit()
+        service._missing_operations_sync()
+        service._missing_operations_sync()
+        visibilities = self.visibilities(operations, self.group_a)
+        self.assertEqual(len(visibilities), 3)
+        self.assertIsNone(visibilities[2].data["freeze_at"])
+
+    async def test_a_new_service_sends_it_once_more(self):
+        # Scenario: The final visibility is sent once, per ProxyService
+        # run: the mark is in memory, a restart sends it again.
+        first, operations = self.build_spied_service()
+        first._missing_operations_sync()
+        second, operations_2 = self.build_spied_service()
+        second._missing_operations_sync()
+        self.assertEqual(len(self.visibilities(operations, self.group_a)), 1)
+        self.assertEqual(len(self.visibilities(operations_2, self.group_a)), 1)
 
 
 class TestRegenerateArchivedSafetyNet(ArchiveTrafficTestCase):

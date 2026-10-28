@@ -1098,6 +1098,13 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         self._regenerate_record: \
             tuple[int, set[int], set[int]] | None = None
 
+        # Names of the archived ranking groups whose final visibility
+        # was enqueued in this run (see _enqueue_visibility).
+        # shortcut: touched from executor threads with no lock, worst
+        # case the same operation is enqueued twice; add a lock if that
+        # ever matters.
+        self._final_visibility_sent: set[str] = set()
+
         # Last known mapping from ranking group name to the IDs of its
         # contests (always empty in legacy mode), used by reinitialize
         # to find groups that lost contests and must be reset.
@@ -1481,8 +1488,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
     ) -> None:
         """Enqueue the visibility settings of the ranking groups.
 
-        Only in group mode: legacy mode has no groups. The archived
-        groups are skipped.
+        Only in group mode: legacy mode has no groups. An archived
+        group gets one final visibility, shown and not frozen, and no
+        more while it stays archived.
 
         session: the session to read the groups with.
         group: only this group, or None for every group.
@@ -1498,8 +1506,19 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         if group is not None:
             query = query.filter(RankingGroup.name == group)
         for ranking_group in session.execute(query).scalars().all():
+            name = ranking_group.name
             if self._is_archived(ranking_group):
+                if name in self._final_visibility_sent:
+                    continue
+                self._final_visibility_sent.add(name)
+                enqueue(ProxyOperation(
+                    ProxyExecutor.VISIBILITY_TYPE,
+                    {"hide_at": None, "show_at": None,
+                     "freeze_at": None, "unfreeze_at": None,
+                     "staff_password": ranking_group.staff_password},
+                    name))
                 continue
+            self._final_visibility_sent.discard(name)
             enqueue(ProxyOperation(
                 ProxyExecutor.VISIBILITY_TYPE,
                 {"hide_at": _unix_start(ranking_group.hide_at),
@@ -1507,7 +1526,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                  "freeze_at": _unix_start(ranking_group.freeze_at),
                  "unfreeze_at": _unix_end(ranking_group.unfreeze_at),
                  "staff_password": ranking_group.staff_password},
-                ranking_group.name))
+                name))
 
     def _enqueue_contest_data(
         self, contest: Contest,

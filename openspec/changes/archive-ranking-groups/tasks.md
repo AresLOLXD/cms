@@ -23,7 +23,7 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 
 ## 4. The final visibility
 
-- [ ] 4.1 Send one visibility with no windows when a group is found archived, remember it in memory, and forget it on unarchive, with tests for the hidden and frozen scenarios, "The final visibility is sent once" and "Unarchiving forgets the final visibility"
+- [x] 4.1 Send one visibility with no windows when a group is found archived, remember it in memory, and forget it on unarchive, with tests for the hidden and frozen scenarios, "The final visibility is sent once" and "Unarchiving forgets the final visibility"
 
 ## 5. Regenerate
 
