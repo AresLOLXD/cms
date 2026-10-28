@@ -12,6 +12,8 @@ from cmscontrib.updaters.fork_activity_intervals import \
     FORK_ACTIVITY_INTERVALS_SQL
 from cmscontrib.updaters.fork_submission_limits import \
     FORK_SUBMISSION_LIMITS_SQL
+from cmscontrib.updaters.fork_ranking_group_archive import \
+    FORK_RANKING_GROUP_ARCHIVE_SQL
 
 """
 Compare the DB schema obtained from upgrading an older version's database using
@@ -163,7 +165,7 @@ def get_updated_schema(
     # The fork's updates run twice: cmsSetupDB applies them at every
     # start, so they must be idempotent.
     fork_sql = [FORK_MULTI_CONTEST_SQL, FORK_ACTIVITY_INTERVALS_SQL,
-                FORK_SUBMISSION_LIMITS_SQL]
+                FORK_SUBMISSION_LIMITS_SQL, FORK_RANKING_GROUP_ARCHIVE_SQL]
     for sql in [*steps, *fork_sql, *fork_sql]:
         conn = custom_psycopg2_connection()
         cursor = conn.cursor()

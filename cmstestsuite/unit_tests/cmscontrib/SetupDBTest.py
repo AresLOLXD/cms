@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,6 +35,8 @@ from cms.db import Admin, Contest, custom_psycopg2_connection
 from cmscommon.crypto import validate_password
 from cmscontrib.SetupDB import ensure_first_admin
 from cmscontrib.updaters.fork_ddl import SchemaLockTimeout, apply_fork_sql
+from cmscontrib.updaters.fork_ranking_group_archive import \
+    apply_fork_ranking_group_archive_update
 from cmscontrib.updaters.fork_submission_limits import \
     apply_fork_submission_limits_update
 
@@ -417,6 +420,95 @@ class TestForkSubmissionLimits(DatabaseMixin, unittest.TestCase):
         completed, _ = TestSchemaLockTimeout._run_setup_db()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(self._limits_schema(), expected)
+
+
+class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
+    """The fork adds ranking_groups.archive_at, empty and without a lock."""
+
+    DROP_COLUMN = "ALTER TABLE ranking_groups DROP COLUMN archive_at"
+
+    def setUp(self):
+        super().setUp()
+        # What the other tests of this class break, put back at the end.
+        self.addCleanup(self._run, "DELETE FROM ranking_groups")
+        self.addCleanup(apply_fork_ranking_group_archive_update)
+
+    @staticmethod
+    def _run(statement: str) -> None:
+        conn = custom_psycopg2_connection()
+        try:
+            conn.cursor().execute(statement)
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _query(statement: str) -> list:
+        conn = custom_psycopg2_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(statement)
+            return cursor.fetchall()
+        finally:
+            conn.close()
+
+    @classmethod
+    def _archive_schema(cls) -> list:
+        """Return the type, NOT NULL and default of archive_at, as stored."""
+        return cls._query(
+            "SELECT format_type(atttypid, atttypmod), attnotnull, "
+            "pg_get_expr(adbin, adrelid) FROM pg_attribute "
+            "LEFT JOIN pg_attrdef ON adrelid = attrelid AND adnum = attnum "
+            "WHERE attrelid = 'public.ranking_groups'::regclass "
+            "AND attname = 'archive_at' AND NOT attisdropped")
+
+    def test_adds_what_init_db_creates_and_a_second_run_changes_nothing(self):
+        expected = self._archive_schema()
+        # Pins the shape that cmsInitDB gives it, so that the comparison
+        # below cannot pass on two empty results.
+        self.assertEqual(
+            expected, [("timestamp without time zone", False, None)])
+
+        self._run(self.DROP_COLUMN)
+        self.assertEqual(self._archive_schema(), [])
+        apply_fork_ranking_group_archive_update()
+        self.assertEqual(self._archive_schema(), expected)
+        apply_fork_ranking_group_archive_update()
+        self.assertEqual(self._archive_schema(), expected)
+
+    def test_existing_groups_are_left_empty(self):
+        # Scenario "Updating an existing database".
+        self._run(
+            "INSERT INTO ranking_groups (name, description, hidden, "
+            "staff_password, hide_at) VALUES "
+            "('one', 'One', true, 'bcrypt:abc', '2026-10-10 12:00:00'), "
+            "('two', 'Two', false, NULL, NULL)")
+        self._run(self.DROP_COLUMN)
+        apply_fork_ranking_group_archive_update()
+        apply_fork_ranking_group_archive_update()
+        self.assertEqual(
+            self._query(
+                "SELECT name, hidden, staff_password, hide_at, archive_at "
+                "FROM ranking_groups ORDER BY name"),
+            [("one", True, "bcrypt:abc", datetime(2026, 10, 10, 12), None),
+             ("two", False, None, None, None)])
+
+    def test_takes_no_lock_on_ranking_groups_when_the_column_exists(self):
+        holder = custom_psycopg2_connection()
+        self.addCleanup(holder.close)
+        # The strongest lock: any statement on ranking_groups would wait
+        # for this session, an ALTER TABLE that changes nothing included,
+        # and give up with SchemaLockTimeout after 5 s.
+        holder.cursor().execute(
+            "LOCK TABLE ranking_groups IN ACCESS EXCLUSIVE MODE")
+        apply_fork_ranking_group_archive_update()
+
+    def test_setup_db_adds_the_column(self):
+        expected = self._archive_schema()
+        self._run(self.DROP_COLUMN)
+        completed, _ = TestSchemaLockTimeout._run_setup_db()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(self._archive_schema(), expected)
 
 
 if __name__ == "__main__":
