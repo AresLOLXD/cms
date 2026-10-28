@@ -117,6 +117,12 @@ Observed in the code (not assumed):
 - **Reset of an archived group** (Decision 3). The highest risk: one
   careless filter in `_contests_to_send` destroys a final ranking at the next
   reinitialize. Needs its own test.
+- **A contest moved out of an archived group** (found while implementing
+  group 3). `_reinitialize_sync` would see the group as having `lost` a
+  contest and reset its namespace, wiping the final standings, so archived
+  groups are excluded from `lost` as well as kept in the mapping. The cost:
+  the stale data of that contest stays in the archived namespace, and
+  unarchiving does not clean it; a Regenerate of the group does.
 - **The final visibility reveals a hidden group** (Decision 7). A group that
   was hidden on purpose, with a staff password, becomes public when its
   `archive_at` arrives. It follows the owner's answer; to be confirmed. The
