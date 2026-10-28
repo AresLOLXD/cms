@@ -138,3 +138,35 @@ Rules:
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 - A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.
+
+## OpenSpec + Superpowers
+
+OpenSpec owns the what/why. Superpowers owns the how.
+OpenSpec commands here: `/opsx:explore`, `/opsx:propose`, `/opsx:apply`,
+`/opsx:sync`, `/opsx:archive`, `/opsx:update`. There is no `/opsx:verify`.
+
+1. **When.** A change that alters visible behavior or a contract starts with
+   `/opsx:propose`, never with code. Small bugs, internal refactors and
+   changes with no behavior impact skip OpenSpec.
+2. **Ownership.** OpenSpec: proposal, delta specs, `design.md`, `tasks.md`.
+   Superpowers: interactive design, detailed plans, TDD, subagents, code review.
+3. **One task list.** `openspec/changes/<change>/tasks.md` is the only master
+   list. A `writing-plans` plan is the detail of one task group and is saved
+   in `openspec/changes/<change>/plans/YYYY-MM-DD-<group>.md` (overrides the
+   `docs/superpowers/plans/` default). The `brainstorming` design is folded
+   into `design.md`, not written to `docs/superpowers/specs/`.
+   `docs/superpowers/` stays as history.
+4. **Flow.** brainstorming or `/opsx:explore` -> `/opsx:propose` and my review
+   -> a plan per task group -> implement with TDD and subagents, ticking
+   `tasks.md` -> verify -> `finishing-a-development-branch` -> `/opsx:archive`.
+5. **Scenario <-> test.** Every Scenario has at least one test, named or
+   commented with the Scenario it covers. A test with no Scenario, or a
+   Scenario with no test, is reported in verify.
+6. **Verify** (no command exists): `openspec validate <change>`, the project
+   tests and `pyflakes` (see "Testing" and "Linting"), and the Scenario <-> test
+   check above, ending in a short report.
+7. **Archive.** Not before tests and verify pass. The archive is its own
+   commit, merged to `main` together with the code in the same merge (this
+   fork uses no pull requests).
+8. **Divergence.** If behavior drifts from the spec during implementation,
+   stop and run `/opsx:update` on the delta spec (or ask me) before going on.
