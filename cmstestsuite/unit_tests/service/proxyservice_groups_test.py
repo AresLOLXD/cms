@@ -2700,6 +2700,76 @@ class TestRegenerateArchivedWhileBuilding(ArchiveTrafficTestCase):
              if operation.group == self.group_b.name],
             [ProxyExecutor.VISIBILITY_TYPE])
 
+    def archive_group_b_after_the_build_reads(self, service):
+        """Make another session archive group_b once the build read it.
+
+        The clock stays at NOW (clock_reads is not started): only the
+        committed archive_at tells that the group is archived now.
+
+        return: a dict that gets the scores and tokens sent and the
+            broken contests as the build left them, when the commit is
+            made.
+
+        """
+        original = service._enqueue_submissions
+        seen = {}
+
+        def enqueue_submissions(*args, **kwargs):
+            result = original(*args, **kwargs)
+            seen["scores"] = set(service.scores_sent_to_rankings)
+            seen["tokens"] = set(service.tokens_sent_to_rankings)
+            seen["broken"] = set(service._broken_contests)
+            self.group_b.archive_at = NOW - timedelta(days=1)
+            self.session.commit()
+            return result
+
+        service._enqueue_submissions = enqueue_submissions
+        return seen
+
+    async def test_the_late_check_sees_a_change_committed_by_another_session(
+            self):
+        # Scenario: Regenerate on an archived group (race): the build
+        # session already holds the group as open when another session
+        # commits an archive_at in the past; the late check reads it
+        # again and nothing goes out.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.archive_group_b_after_the_build_reads(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(operations, [])
+
+    async def test_a_dropped_regenerate_undoes_the_sent_sets(self):
+        # Scenario: Regenerate on an archived group (race): the scores
+        # and tokens the build marked as sent never went, so they leave
+        # the sets of what was sent.
+        self.add_token(submission=self.sub_b)
+        self.session.commit()
+        service = self.build_service()
+        self.spy(service)
+        scores_before = set(service.scores_sent_to_rankings)
+        tokens_before = set(service.tokens_sent_to_rankings)
+        seen = self.archive_group_b_after_the_build_reads(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        # The build did mark them (otherwise the undo has nothing to do).
+        self.assertIn(self.sub_b.id, seen["scores"])
+        self.assertIn(self.sub_b.id, seen["tokens"])
+        self.assertEqual(service.scores_sent_to_rankings, scores_before)
+        self.assertEqual(service.tokens_sent_to_rankings, tokens_before)
+
+    async def test_a_dropped_regenerate_restores_the_broken_contests(self):
+        # Scenario: Regenerate on an archived group (race): a contest the
+        # build took out of the broken ones goes back into them.
+        service = self.build_service()
+        self.spy(service)
+        service._broken_contests.add(self.contest_b.id)
+        seen = self.archive_group_b_after_the_build_reads(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(seen["broken"], set())
+        self.assertEqual(service._broken_contests, {self.contest_b.id})
+
 
 if __name__ == "__main__":
     unittest.main()
