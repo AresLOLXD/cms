@@ -27,7 +27,7 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 
 ## 5. Regenerate
 
-- [ ] 5.1 Make the early return of `_regenerate_ranking_sync` for an archived group (added in 3.4) log a WARNING naming the group and `archive_at`, with tests for both Regenerate scenarios
+- [x] 5.1 Make the early return of `_regenerate_ranking_sync` for an archived group (added in 3.4) log a WARNING naming the group and `archive_at`, with tests for both Regenerate scenarios
 
 ## 6. Verify
 

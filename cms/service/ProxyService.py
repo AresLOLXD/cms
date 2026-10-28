@@ -1868,9 +1868,13 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                 ranking_group = session.execute(
                     select(RankingGroup).filter(RankingGroup.name == group)
                 ).scalar_one_or_none()
-                # The reset would wipe its final standings. Group 5 of
-                # archive-ranking-groups adds a WARNING here.
+                # The reset would wipe its final standings.
                 if self._is_archived(ranking_group):
+                    logger.warning(
+                        "Ranking group %s is archived (archive_at %s): "
+                        "regenerate ignored. Move archive_at to the "
+                        "future or clear it to publish a correction.",
+                        group, ranking_group.archive_at)
                     return
         with self._regenerate_lock:
             logger.info("Regenerating ranking %s.", name)

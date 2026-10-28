@@ -2523,7 +2523,7 @@ class TestRegenerateArchivedSafetyNet(ArchiveTrafficTestCase):
 
     async def test_regenerate_on_an_archived_group_enqueues_nothing(self):
         # Scenario: Regenerate on an archived group (the safety net: no
-        # reset and no data; the WARNING is added by group 5).
+        # reset and no data; the WARNING is tested below).
         service = self.build_service()
         operations = self.spy(service)
         service._regenerate_ranking_sync(self.group_a.name)
@@ -2539,6 +2539,46 @@ class TestRegenerateArchivedSafetyNet(ArchiveTrafficTestCase):
         self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
         self.assertIn(ProxyExecutor.SUBMISSION_TYPE,
                       {operation.type_ for operation in operations})
+
+
+class TestRegenerateArchivedWarning(ArchiveTrafficTestCase):
+
+    async def test_regenerate_on_an_archived_group(self):
+        # Scenario: Regenerate on an archived group: no operation, and
+        # one WARNING that names the group and its archive_at.
+        service = self.build_service()
+        operations = self.spy(service)
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._regenerate_ranking_sync(self.group_a.name)
+        self.assertEqual(operations, [])
+        (record,) = logs.records
+        message = record.getMessage()
+        self.assertIn(self.group_a.name, message)
+        self.assertIn(str(self.group_a.archive_at), message)
+        self.assertIn("archived", message)
+
+    async def test_regenerate_on_a_group_that_is_not_archived(self):
+        # Scenario: Regenerate on a group that is not archived: it
+        # regenerates and logs no warning.
+        service = self.build_service()
+        operations = self.spy(service)
+        with self.assertNoLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
+        self.assertIn(ProxyExecutor.SUBMISSION_TYPE,
+                      {operation.type_ for operation in operations})
+
+    async def test_regenerate_of_the_root_and_of_an_unknown_group(self):
+        # Scenario: Regenerate on a group that is not archived (the root
+        # namespace and a name that is no group): as before, a reset and
+        # no warning or exception.
+        service = self.build_service()
+        for group in (None, "no-such-group"):
+            operations = self.spy(service)
+            with self.assertNoLogs("cms.service.ProxyService", "WARNING"):
+                service._regenerate_ranking_sync(group)
+            self.assertEqual(operations[0].type_, ProxyExecutor.RESET_TYPE)
+            self.assertEqual(operations[0].group, group)
 
 
 if __name__ == "__main__":
