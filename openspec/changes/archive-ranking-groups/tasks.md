@@ -32,7 +32,7 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 ## 6. Fix wave of the final review
 
 - [x] 6.1 Postpone a stored future `archive_at` when a later default is computed (never earlier, never a past one), with tests for the three new Scenarios "A past archive_at is kept", "A contest added later postpones a future archive_at" and "A later archive_at is not moved earlier", and put the whole fill, including its autoflush, inside the error handling (`session.no_autoflush` or the `try` around the loop), with a test with two groups where the first UPDATE fails
-- [ ] 6.2 Make `_regenerate_ranking_sync` check that the group is archived INSIDE `_regenerate_lock`, in the session that builds the data and with one `now`, with a test that a group archived between the early check and the build gets no RESET and does not keep its final-visibility mark when nothing was sent
+- [x] 6.2 Make `_regenerate_ranking_sync` check that the group is archived INSIDE `_regenerate_lock`, in the session that builds the data and with one `now`, with a test that a group archived between the early check and the build gets no RESET and does not keep its final-visibility mark when nothing was sent
 
 ## 7. Verify
 

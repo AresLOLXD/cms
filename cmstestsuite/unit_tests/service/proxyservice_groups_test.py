@@ -2646,5 +2646,60 @@ class TestRegenerateArchivedWarning(ArchiveTrafficTestCase):
             self.assertEqual(operations[0].group, group)
 
 
+class TestRegenerateArchivedWhileBuilding(ArchiveTrafficTestCase):
+    """The group is open at the early check and archived afterwards.
+
+    The clock is NOW until a test starts counting (clock_reads = 0),
+    then NOW for the first reading (the early check) and later than
+    group_b's archive_at for all the following ones.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.clock_reads = None
+
+        def make_datetime():
+            if self.clock_reads is None:
+                return NOW
+            self.clock_reads += 1
+            return NOW if self.clock_reads == 1 else NOW + timedelta(days=2)
+
+        patcher = patch("cms.service.ProxyService.make_datetime",
+                        side_effect=make_datetime)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def test_a_group_archived_while_the_build_runs_gets_no_reset(self):
+        # Scenario: Regenerate on an archived group, when the group
+        # becomes archived after the early check: no operation (no reset,
+        # no visibility, no data) and one WARNING that names the group.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.clock_reads = 0  # start counting after building the service
+        with self.assertLogs("cms.service.ProxyService", "WARNING") as logs:
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertEqual(operations, [])
+        (record,) = logs.records
+        message = record.getMessage()
+        self.assertIn(self.group_b.name, message)
+        self.assertIn("archived", message)
+
+    async def test_the_final_visibility_mark_is_not_left_set(self):
+        # Scenario: Regenerate on an archived group (race): nothing was
+        # sent, so the final visibility is not marked as sent, and the
+        # next sweep sends it.
+        service = self.build_service()
+        operations = self.spy(service)
+        self.clock_reads = 0  # start counting after building the service
+        with self.assertLogs("cms.service.ProxyService", "WARNING"):
+            service._regenerate_ranking_sync(self.group_b.name)
+        self.assertNotIn(self.group_b.name, service._final_visibility_sent)
+        service._missing_operations_sync()
+        self.assertEqual(
+            [operation.type_ for operation in operations
+             if operation.group == self.group_b.name],
+            [ProxyExecutor.VISIBILITY_TYPE])
+
+
 if __name__ == "__main__":
     unittest.main()

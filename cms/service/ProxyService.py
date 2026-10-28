@@ -1847,6 +1847,29 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._regenerate_ranking_sync, group)
 
+    def _regenerate_ignored(self, session: Session, group: str) -> bool:
+        """Return whether a regenerate of group must do nothing.
+
+        It must when the group is archived now; then it logs a WARNING.
+        The group is read again, even if the session already holds it.
+
+        session: the session to read the group with.
+        group: the name of the ranking group.
+
+        """
+        ranking_group = session.execute(
+            select(RankingGroup).filter(RankingGroup.name == group)
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not self._is_archived(ranking_group):
+            return False
+        logger.warning(
+            "Ranking group %s is archived (archive_at %s): "
+            "regenerate ignored. Move archive_at to the "
+            "future or clear it to publish a correction.",
+            group, ranking_group.archive_at)
+        return True
+
     def _regenerate_ranking_sync(self, group: str | None):
         """Do the work of regenerate_ranking(), synchronously.
 
@@ -1875,22 +1898,14 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         name = group if group is not None else "(root)"
         if group is not None:
             with SessionGen() as session:
-                ranking_group = session.execute(
-                    select(RankingGroup).filter(RankingGroup.name == group)
-                ).scalar_one_or_none()
-                # The reset would wipe its final standings.
-                if self._is_archived(ranking_group):
-                    logger.warning(
-                        "Ranking group %s is archived (archive_at %s): "
-                        "regenerate ignored. Move archive_at to the "
-                        "future or clear it to publish a correction.",
-                        group, ranking_group.archive_at)
+                if self._regenerate_ignored(session, group):
                     return
         with self._regenerate_lock:
             logger.info("Regenerating ranking %s.", name)
             broken_before = self._broken_contests.copy()
             sent_before = (self.scores_sent_to_rankings.copy(),
                            self.tokens_sent_to_rankings.copy())
+            had_final_visibility = group in self._final_visibility_sent
             operations = [ProxyOperation(ProxyExecutor.RESET_TYPE, {}, group)]
             record = (threading.get_ident(), set(), set())
             self._regenerate_record = record
@@ -1906,6 +1921,16 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                             self._enqueue_submissions(
                                 session, contest, only_missing=False,
                                 enqueue=operations.append)
+                    # The group may have been archived while the data
+                    # was read: the reset would wipe its final standings.
+                    if group is not None and self._regenerate_ignored(
+                            session, group):
+                        if not had_final_visibility:
+                            self._final_visibility_sent.discard(group)
+                        # Nothing is enqueued: undo what the build noted.
+                        self._broken_contests.update(broken_before)
+                        self._forget_sent_since(sent_before)
+                        return
                 self._threadsafe_enqueue_all(operations)
                 # Only after the reset is scheduled: whatever the other
                 # threads noted up to now was queued ahead of it (or
