@@ -6,7 +6,7 @@ reviewed alone. The groups run in order: 1, then 2 to 5.
 
 ## 1. Data model and migration
 
-- [ ] 1.1 Add `RankingGroup.archive_at` and `is_archived_at(now)`, with tests for the three "Archived from archive_at" scenarios (`cmstestsuite/unit_tests/db/`)
+- [x] 1.1 Add `RankingGroup.archive_at` and `is_archived_at(now)`, with tests for the three "Archived from archive_at" scenarios (`cmstestsuite/unit_tests/db/`)
 - [ ] 1.2 Add `cmscontrib/updaters/fork_ranking_group_archive.py`, call it from `cmscontrib/SetupDB.py`, and extend `schema_diff_test` and `SetupDBTest`, with a test for "Updating an existing database" (existing groups stay empty)
 
 ## 2. The default archive_at
