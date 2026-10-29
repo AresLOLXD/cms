@@ -86,6 +86,13 @@ class RPCHandler(tornado.web.RequestHandler):
         self, rpc_auth: Callable[["RPCHandler", str, int, str], bool] | None = None
     ):
         self._rpc_auth = rpc_auth
+        # Resolve the real client address now, not in post(): a request
+        # can be refused before post() (the XSRF token) and Tornado logs
+        # that refusal with request.remote_ip.
+        self.request.remote_ip = resolve_remote_ip(
+            self.request.headers.get("X-Forwarded-For"),
+            self.request.remote_ip,
+            getattr(self.application.service, "num_proxies_used", 0))
 
     def write_error(self, status_code: int, **kwargs) -> None:
         # Keep the same {"data": ..., "error": ...} envelope on the
@@ -96,11 +103,6 @@ class RPCHandler(tornado.web.RequestHandler):
         self.finish(json.dumps({"data": None, "error": self._reason}))
 
     async def post(self, service_name: str, shard: str, method: str):
-        self.request.remote_ip = resolve_remote_ip(
-            self.request.headers.get("X-Forwarded-For"),
-            self.request.remote_ip,
-            getattr(self.application.service, "num_proxies_used", 0))
-
         try:
             shard_int = int(shard)
         except ValueError:

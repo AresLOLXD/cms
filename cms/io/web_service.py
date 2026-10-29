@@ -89,10 +89,11 @@ def log_request(handler: tornado.web.RequestHandler) -> None:
     analysis parses.
 
     A handler that is not a CommonRequestHandler (Tornado's 404 for a
-    URL no route matches, the static files) has not resolved the client
-    address from behind the trusted proxies, so it is resolved here, to
-    log the client and not the proxy. (The RPC handler resolves it in
-    post(); doing it again gives the same address.)
+    URL no route matches, the static files) may not have resolved the
+    client address from behind the trusted proxies, so it is resolved
+    here, to log the client and not the proxy. (The static file handler
+    and the RPC handler resolve it when they are created; doing it
+    again gives the same address.)
 
     handler: the handler that served the request.
 

@@ -51,6 +51,18 @@ class MultiLocationStaticFileHandler(tornado.web.StaticFileHandler):
         # is where we actually set it to the matching location; give it
         # a placeholder so that first read doesn't raise AttributeError.
         self.root = ""
+        # Resolve the real client address from behind the trusted proxies
+        # now, not in log_request: a refused path makes Tornado log a
+        # warning with this address (HTTPError with a log message) before
+        # log_request runs, and the peer would be the proxy. Resolving
+        # again in log_request gives the same address. Imported here
+        # because web_service imports this module.
+        from cms.io.web_service import resolve_remote_ip
+        service = getattr(self.application, "service", None)
+        self.request.remote_ip = resolve_remote_ip(
+            self.request.headers.get("X-Forwarded-For"),
+            self.request.remote_ip,
+            getattr(service, "num_proxies_used", 0))
 
     def get_absolute_path(self, root: str, path: str) -> str:
         # Note: StaticFileHandler.get_absolute_path is a classmethod in
