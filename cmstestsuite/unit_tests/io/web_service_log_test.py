@@ -57,7 +57,8 @@ class TestRequestLog(
         self.service = WebService(
             listen_port=0,
             handlers=[(r"/", HelloHandler), (r"/quiet", QuietHandler)],
-            parameters={"static_files": [("cms.server", "static")]},
+            parameters={"static_files": [("cms.server", "static")],
+                        "rpc_enabled": True, "xsrf_cookies": True},
             shard=0, listen_address="127.0.0.1")
         self.run_task = asyncio.create_task(self.service._async_run())
         await asyncio.sleep(0.05)
@@ -70,11 +71,17 @@ class TestRequestLog(
 
     async def _request(
         self, method: str, path: str, forwarded_for: str | None = None,
+        logger: str = "tornado.access", level: str = "DEBUG",
     ) -> logging.LogRecord:
-        """Send one request; return the access log record it produced."""
+        """Send one request; return the record it produced in the log.
+
+        By default it is the access log record; logger and level pick
+        another log, such as the warning Tornado writes on an HTTPError.
+
+        """
         header = ("X-Forwarded-For: %s\r\n" % forwarded_for
                   if forwarded_for else "")
-        with self.assertLogs("tornado.access", level="DEBUG") as logs:
+        with self.assertLogs(logger, level=level) as logs:
             reader, writer = await asyncio.open_connection(
                 "127.0.0.1", self.port)
             try:
@@ -141,6 +148,44 @@ class TestRequestLog(
             "GET", "/static/favicon.ico", "10.9.9.9, 203.0.113.7")
         self.assertRegex(record.getMessage(), r"\(203\.0\.113\.7\) ")
 
+    async def _refused_static_warning(self, forwarded_for: str) -> str:
+        # A path out of the static directory: Tornado refuses it with an
+        # HTTPError that has a log message, so it logs a warning of its own
+        # before the access log line.
+        record = await self._request(
+            "GET", "/static/..%2f__init__.py", forwarded_for,
+            logger="tornado.general", level="WARNING")
+        self.assertIn("is not in root static directory", record.getMessage())
+        return record.getMessage()
+
+    async def test_a_refused_static_file_warning_has_the_resolved_address(
+            self):
+        self.service.num_proxies_used = 1
+        message = await self._refused_static_warning("10.9.9.9, 203.0.113.7")
+        self.assertIn("(203.0.113.7)", message)
+        self.assertNotIn("127.0.0.1", message)
+
+    async def test_a_refused_static_file_warning_keeps_the_peer_without_a_proxy(
+            self):
+        message = await self._refused_static_warning("10.9.9.9, 203.0.113.7")
+        self.assertIn("(127.0.0.1)", message)
+
+    async def test_a_refused_static_file_with_a_service_without_proxies(self):
+        # No num_proxies_used on the service: the peer is kept, no crash.
+        del self.service.num_proxies_used
+        message = await self._refused_static_warning("10.9.9.9, 203.0.113.7")
+        self.assertIn("(127.0.0.1)", message)
+
+    async def test_a_refused_rpc_warning_has_the_resolved_address(self):
+        # With xsrf_cookies (as the admin and contest servers have), Tornado
+        # refuses a POST without a token before RPCHandler.post() runs.
+        self.service.num_proxies_used = 1
+        record = await self._request(
+            "POST", "/rpc/EvaluationService/0/foo", "10.9.9.9, 203.0.113.7",
+            logger="tornado.general", level="WARNING")
+        self.assertIn("_xsrf", record.getMessage())
+        self.assertIn("(203.0.113.7)", record.getMessage())
+
     async def test_an_unrouted_request_keeps_the_peer_without_a_proxy(self):
         # With no trusted proxy the header is not believed at all.
         record = await self._request(
@@ -206,9 +251,9 @@ class TestLogRequestResolution(
             self.assertEqual(self.logged_address(handler), "172.19.0.1")
 
     def test_resolving_twice_gives_the_same_address(self):
-        # The RPC endpoint resolves the address itself, in post(), and the
-        # log resolves it again; that is harmless because both read the
-        # header, not the address the other left.
+        # The RPC and static file handlers resolve the address themselves,
+        # and the log resolves it again; that is harmless because both read
+        # the header, not the address the other left.
         for header, num_proxies_used in (
                 ("9.9.9.9, 5.6.7.8", 1), ("9.9.9.9", 2), ("", 1)):
             once = resolve_remote_ip(header, "172.19.0.1", num_proxies_used)
