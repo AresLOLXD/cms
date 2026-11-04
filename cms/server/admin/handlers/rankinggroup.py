@@ -96,8 +96,9 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
     add form has no _shown fields, and attrs has no current time there:
     its times always count. The visibility_action buttons set a time to
     now; archive_now and unarchive set archive_at, the second one to
-    ARCHIVE_GRACE from now. The hidden column is always derived from the windows again,
-    whatever the form says, for rollbacks to MC-2 minimal.
+    ARCHIVE_GRACE from now. The hidden column is always derived from
+    the windows again, whatever the form says, for rollbacks to MC-2
+    minimal.
 
     Whenever this changes attrs["archive_at"] from its value on entry,
     attrs["archive_at_manual"] is set: ProxyService then leaves the time

@@ -169,7 +169,6 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
         self.assertEqual(contest.name, "before")
         self.assertEqual(contest.ranking_group_id, self.group_id)
 
-
     def archive(self, group_id: int):
         """Archive the group with the given id, in the past."""
         self.session.get(RankingGroup, group_id).archive_at = \

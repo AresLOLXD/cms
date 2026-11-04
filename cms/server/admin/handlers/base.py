@@ -551,11 +551,6 @@ class BaseHandler(CommonRequestHandler):
         params = self._base_render_params(self.contest)
         if self.current_user is not None:
             params["admin"] = self.current_user
-        # The group of the contest, when archived: base.html warns that
-        # a change on the page will not reach the public ranking.
-        group = None if self.contest is None else self.contest.ranking_group
-        params["archived_group"] = group if group is not None \
-            and group.is_archived_at(params["timestamp"]) else None
         if self.contest is not None:
             params["unanswered"] = self.sql_session.execute(
                 select(func.count()).select_from(Question)
@@ -576,6 +571,13 @@ class BaseHandler(CommonRequestHandler):
             select(Team).order_by(Team.name)).scalars().all()
         params["ranking_group_list"] = self.sql_session.execute(
             select(RankingGroup).order_by(RankingGroup.name)).scalars().all()
+        # The group of the contest, when archived: base.html warns that
+        # a change on the page will not reach the public ranking. After
+        # the query above, so that contest.ranking_group is already in
+        # the session and loading it costs no extra SELECT.
+        group = None if self.contest is None else self.contest.ranking_group
+        params["archived_group"] = group if group is not None \
+            and group.is_archived_at(params["timestamp"]) else None
         return params
 
     def finish(self, chunk=None):

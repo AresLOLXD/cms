@@ -7,6 +7,8 @@ from html.parser import HTMLParser
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+
 from cms.db import RankingGroup
 from cms.server.admin.handlers.rankinggroup import \
     WINDOW_FIELDS, AddRankingGroupHandler, RankingGroupHandler, \
@@ -107,6 +109,35 @@ class TestRegenerateRankingHandler(unittest.TestCase):
         self.assertEqual(title, "Ranking regeneration ignored")
         self.assertIn("olim is archived", text)
         self.assertIn("nothing was sent", text)
+
+
+class TestRegenerateLooksUpTheGroupByName(DatabaseMixin, unittest.TestCase):
+    """The mocked tests above cannot tell name from description."""
+
+    def tearDown(self):
+        self.delete_data()
+        super().tearDown()
+
+    def regenerate(self, group_arg: str) -> MagicMock:
+        handler = RegenerateRankingHandler.__new__(RegenerateRankingHandler)
+        handler.application = MagicMock()
+        handler.sql_session = self.session
+        handler.get_argument = MagicMock(return_value=group_arg)
+        handler.redirect = MagicMock()
+        handler.url = MagicMock(return_value="/ranking_groups")
+        handler.schedule_rpc = MagicMock()
+        handler._post_sync()
+        return handler
+
+    def test_the_group_is_found_by_name_not_by_description(self):
+        # Scenario: Regenerate on an archived group (and on one that is
+        # not archived), with a description that is another group's name.
+        self.session.add(RankingGroup(
+            name="olim", description="x", archive_at=datetime(2020, 1, 1)))
+        self.session.commit()
+
+        self.regenerate("olim").schedule_rpc.assert_not_called()
+        self.regenerate("x").schedule_rpc.assert_called_once()
 
 
 NOW = datetime(2026, 10, 10, 18, 0)
