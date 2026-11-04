@@ -24,10 +24,12 @@ review. Only the tokens are checked: nothing here renders a page.
 """
 
 import colorsys
+import importlib.resources
+import re
 import unittest
 
 from cmstestsuite.unit_tests.server.themecss import AWS_CSS, CWS_CSS, \
-    dark_set, light_set
+    RWS_CSS, dark_set, light_set
 
 
 MIN_RATIO = 4.5
@@ -238,6 +240,150 @@ class TestCwsContrast(unittest.TestCase):
                         check(theme, "text on %s at %s over %s" % (
                             hue, opacity, base), tokens["score-text"],
                             blend(tokens[hue], tokens[opacity], tokens[base]))
+        self.assertEqual(failures, [])
+
+
+# RWS: foreground token, background token, what it is. "@page" is the body,
+# a gradient from page-grad-top to page-grad-bottom over page-bg: the pair is
+# checked against the three. The scoreboard text sits on the page, whose
+# tints are not tokens of their own.
+RWS_PAGE = ("page-bg", "page-grad-top", "page-grad-bottom")
+RWS_PAIRS = [
+    ("text", "@page", "body text, names, time"),
+    ("text", "panel-bg", "upper panel, side panel, open time selector"),
+    ("option-text", "panel-bg", "options of the time selector"),
+    ("text", "option-selected-bg", "selected option"),
+    ("text", "option-hover-bg", "hovered option"),
+    ("field-text", "field-bg", "search box"),
+    ("text", "dialog-bg", "team search and user detail"),
+    ("text", "strong-bg", "team items, global rows, submissions header"),
+    ("text", "mid-bg", "contest rows, even rows, buttons"),
+    ("text", "odd-bg", "odd submission rows"),
+    ("text", "button-active-bg", "pressed button"),
+    ("text", "cell-bg", "scoreboard header, tasks toggle"),
+    ("text", "cell-hover-bg", "hovered tasks toggle"),
+    ("text", "name-hover-bg", "hovered name of a sticky column"),
+    ("footer-text", "@page", "Powered by (it hangs under the side panel)"),
+    ("link", "@page", "link of the footer"),
+    ("status-ok-text", "status-ok-bg", "connected"),
+    ("status-wait-text", "status-wait-bg", "reconnecting"),
+    ("status-bad-text", "status-bad-bg", "disconnected, outdated, error"),
+    ("chart-text", "chart-bg", "user detail charts"),
+    ("chart-text", "overview-bg", "overview"),
+    ("banner-text", "banner-bg", "staff and public banner"),
+]
+RWS_SCORE_CLASSES = ("score-0-10", "score-10-20", "score-20-30",
+                     "score-30-40", "score-40-50", "score-50-60",
+                     "score-60-70", "score-70-80", "score-80-90",
+                     "score-90-100", "score-100")
+# td.score has opacity 0.75, except hovered, in a selected row and the sort
+# column. The animations draw on td.rank, up to 0.6 and, in a selected row, 1.
+RWS_SCORE_OPACITY = 0.75
+RWS_ANIMATION_PEAKS = (0.6, 1)
+# The notice pages of visibility.py carry their own tokens.
+RWS_NOTICE_PAIRS = [
+    ("text", "page-bg", "text on the page"),
+    ("text", "card-bg", "text on the card"),
+    ("error", "card-bg", "wrong password"),
+]
+NOTICE_SOURCE = importlib.resources.files("cmsranking").joinpath(
+    "visibility.py")
+
+
+def composite(color: str, alpha: float, base: str) -> str:
+    """Return the #rrggbb of a #rrggbb color at an opacity over a base."""
+    return "#" + "".join(
+        "%02x" % round(alpha * int(color[i:i + 2], 16)
+                       + (1 - alpha) * int(base[i:i + 2], 16))
+        for i in (1, 3, 5))
+
+
+def rgba_over(value: str, base: str) -> str:
+    """Return a rgba(r, g, b, a) token composited over a #rrggbb base."""
+    red, green, blue, alpha = re.fullmatch(
+        r"rgba\((\d+), (\d+), (\d+), ([\d.]+)\)", value).groups()
+    return composite("#%02x%02x%02x" % (int(red), int(green), int(blue)),
+                     float(alpha), base)
+
+
+def hsl_hex(value: str) -> str:
+    """Return the #rrggbb of an hsl(H, S%, L%) token."""
+    return blend(re.fullmatch(r"hsl\((.*)\)", value).group(1), "1", "#000000")
+
+
+def rgb_hex(channels: str) -> str:
+    """Return the #rrggbb of the "r, g, b" of the up and down tokens."""
+    return "#%02x%02x%02x" % tuple(int(c) for c in channels.split(","))
+
+
+class TestRwsContrast(unittest.TestCase):
+
+    def setUp(self):
+        css = RWS_CSS.read_text(encoding="utf-8")
+        self.sets = {"light": light_set(css), "dark": dark_set(css)}
+
+    def test_light_and_dark_define_the_same_tokens(self):
+        # Not a Scenario of its own: a token missing from one set would make
+        # the contrast check below meaningless for it.
+        self.assertEqual(set(self.sets["light"]), set(self.sets["dark"]))
+        self.assertGreater(len(self.sets["light"]), 0)
+
+    def test_every_pair_passes_in_both_themes(self):
+        # Scenario: Contrast in every theme (RWS)
+        failures = []
+
+        def check(theme, what, foreground, background):
+            ratio = contrast(foreground, background)
+            if ratio < MIN_RATIO:
+                failures.append("%s: %s is %.2f" % (theme, what, ratio))
+
+        for theme, tokens in self.sets.items():
+            pages = [tokens[name] for name in RWS_PAGE]
+            for foreground, background, what in RWS_PAIRS:
+                for name in (RWS_PAGE if background == "@page"
+                             else (background,)):
+                    check(theme, "%s (%s on %s)" % (what, foreground, name),
+                          tokens[foreground], tokens[name])
+            for page in pages:
+                # Hovered rows tint the cells of the name and the user.
+                check(theme, "text on a hovered row over %s" % page,
+                      tokens["text"], rgba_over(tokens["row-hover"], page))
+                # Zero scores and score cells, at the opacity of td.score.
+                text = composite(tokens["text"], RWS_SCORE_OPACITY, page)
+                check(theme, "zero score over %s" % page, composite(
+                    tokens["score-zero"], RWS_SCORE_OPACITY, page),
+                    composite(page, RWS_SCORE_OPACITY, page))
+                check(theme, "zero score, full opacity, over %s" % page,
+                      tokens["score-zero"], page)
+                for name in RWS_SCORE_CLASSES:
+                    cell = hsl_hex(tokens[name])
+                    check(theme, "text on %s over %s" % (name, page), text,
+                          composite(cell, RWS_SCORE_OPACITY, page))
+                    check(theme, "text on %s, full opacity" % name,
+                          tokens["text"], cell)
+                for name in ("up", "down"):
+                    color = rgb_hex(tokens[name])
+                    for peak in RWS_ANIMATION_PEAKS:
+                        check(theme, "text on the %s animation at %s over %s"
+                              % (name, peak, page), tokens["text"],
+                              composite(color, peak, page))
+        self.assertEqual(failures, [])
+
+    def test_the_notice_pages_pass_in_both_themes(self):
+        # Scenario: Contrast in every theme (RWS notice pages)
+        # (their tokens are in a constant of visibility.py: a hidden group
+        # serves no stylesheet)
+        style = re.search(r'(?s)NOTICE_THEME = """(.*?)"""',
+                          NOTICE_SOURCE.read_text(encoding="utf-8")).group(1)
+        sets = {"light": light_set(style), "dark": dark_set(style)}
+        self.assertEqual(set(sets["light"]), set(sets["dark"]))
+        failures = []
+        for theme, tokens in sets.items():
+            for foreground, background, what in RWS_NOTICE_PAIRS:
+                ratio = contrast(tokens[foreground], tokens[background])
+                if ratio < MIN_RATIO:
+                    failures.append("%s: %s (%s on %s) is %.2f" % (
+                        theme, what, foreground, background, ratio))
         self.assertEqual(failures, [])
 
 

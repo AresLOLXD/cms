@@ -44,7 +44,7 @@
     --selected-border: rgba(0, 0, 0, 0.2);
     --up: 130, 215, 48;
     --down: 239, 41, 41;
-    --score-zero: #666666;
+    --score-zero: #3c3c3c;
     --score-0-10: hsl(120, 30%, 87%);
     --score-10-20: hsl(120, 30%, 84%);
     --score-20-30: hsl(120, 30%, 81%);
@@ -60,10 +60,10 @@
     --status-ok-text: #008000;
     --status-wait-bg: #FFFF00;
     --status-wait-text: #000000;
-    --status-bad-bg: #FF0000;
+    --status-bad-bg: #D00000;
     --status-bad-text: #FFFFFF;
-    --footer-text: #999999;
-    --link: #00A3DA;
+    --footer-text: #595959;
+    --link: #00699b;
     --chart-bg: #FFFFFF;
     --overview-bg: #EAEAEC;
     --chart-text: #000000;

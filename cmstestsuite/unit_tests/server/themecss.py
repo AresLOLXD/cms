@@ -25,6 +25,8 @@ AWS_CSS = importlib.resources.files("cms.server.admin").joinpath(
     "static", "aws_style.css")
 CWS_STATIC = importlib.resources.files("cms.server.contest").joinpath("static")
 CWS_CSS = CWS_STATIC.joinpath("cws_style.css")
+RWS_CSS = importlib.resources.files("cmsranking").joinpath(
+    "static", "Ranking.css")
 
 DARK_MEDIA = ':root:not([data-theme="light"])'
 DARK_ATTRIBUTE = ':root[data-theme="dark"]'

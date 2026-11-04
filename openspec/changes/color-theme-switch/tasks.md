@@ -13,7 +13,7 @@
 
 - [x] 3.1 RWS: copy of `theme.js` in `cmsranking/static/` listed in `FROZEN_ROUTES`, identical-copy test, tokens and dark sets in `Ranking.css` (score classes and the 8 keyframes included), the switch in the top bar, the footer inline colors, tick/close icons, the light panel behind the charts; the existing `Ranking.css` tests stay green
 - [x] 3.2 `cmsranking/visibility.py`: the hidden notice, staff login and staff banner follow the theme; tests for "The ranking built-in pages" and "Score cells keep their meaning"
-- [ ] 3.3 Contrast pairs for RWS (score cells, banners, footer) in the contrast test; scenario "Contrast in every theme" for RWS
+- [x] 3.3 Contrast pairs for RWS (score cells, banners, footer) in the contrast test; scenario "Contrast in every theme" for RWS
 
 ## 4. Docs
 
