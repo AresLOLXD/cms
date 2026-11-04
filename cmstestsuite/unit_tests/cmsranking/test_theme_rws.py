@@ -318,6 +318,13 @@ class TestRwsBuiltInPages(test_visibility.VisibilityTestCase):
                 self.assertEqual(json.loads(result.stdout), expected,
                                  (name, stored, throws))
 
+    def test_the_pages_have_no_switch(self):
+        # Scenario: The ranking built-in pages have no switch
+        # (the pages only show the saved theme, see the early apply above)
+        for name, html in self.pages().items():
+            self.assertNotIn("<select", html, name)
+            self.assertNotIn('id="theme"', html, name)
+
     def test_the_banners_use_tokens_not_literal_colors(self):
         # Scenario: The ranking built-in pages
         # (the banner is inserted into Ranking.html, whose stylesheet has
