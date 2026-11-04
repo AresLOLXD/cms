@@ -897,6 +897,55 @@ class TestUnarchiveRegenerates(unittest.TestCase):
         handler.schedule_rpc.assert_not_called()
 
 
+class TestRenameArchivedGroup(unittest.TestCase):
+
+    def setUp(self):
+        patcher = patch(
+            "cms.server.admin.handlers.rankinggroup.make_datetime",
+            return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def rename(self, **stored) -> tuple[RankingGroup, MagicMock]:
+        group = RankingGroup(name="olim", description="OLIM",
+                             staff_password=None, **stored)
+        handler = make_form_handler(
+            RankingGroupHandler, {"name": "new", "description": "OLIM"})
+        handler.safe_get_item = MagicMock(return_value=group)
+        handler._post_sync("1")
+        return group, handler
+
+    def test_renaming_an_archived_group_is_refused(self):
+        # Scenario: Renaming an archived group
+        group, handler = self.rename(archive_at=NOW - timedelta(hours=1))
+        self.assertEqual(group.name, "olim")
+        handler.try_commit.assert_not_called()
+        handler.service.add_notification.assert_called_once()
+        self.assertIn("unarchive it before renaming",
+                      handler.service.add_notification.call_args.args[2])
+
+    def test_renaming_a_group_that_is_not_archived(self):
+        # Scenario: Renaming a group that is not archived
+        for archive_at in (None, NOW + timedelta(hours=1)):
+            group, handler = self.rename(archive_at=archive_at)
+            self.assertEqual(group.name, "new")
+            handler.try_commit.assert_called_once()
+
+    def test_unarchiving_and_renaming_in_one_save_is_refused(self):
+        # Design decision 6: the state is the stored one, before the edit.
+        group = RankingGroup(name="olim", description="OLIM",
+                             staff_password=None,
+                             archive_at=NOW - timedelta(hours=1))
+        handler = make_form_handler(
+            RankingGroupHandler,
+            {"name": "new", "description": "OLIM",
+             "visibility_action": "unarchive"})
+        handler.safe_get_item = MagicMock(return_value=group)
+        handler._post_sync("1")
+        self.assertEqual(group.name, "olim")
+        handler.try_commit.assert_not_called()
+
+
 class TestRankingGroupTemplates(unittest.TestCase):
     """The visibility fields of the pages, and that the password stays out.
 

@@ -7,7 +7,7 @@
 
 ## 2. Refusals
 
-- [ ] 2.1 Refuse renaming an archived group and refuse assigning a contest to an archived group (not when it stays in its own archived group); tests for the four Scenarios of "AWS refuses changes that an archived group would swallow"
+- [x] 2.1 Refuse renaming an archived group and refuse assigning a contest to an archived group (not when it stays in its own archived group); tests for the four Scenarios of "AWS refuses changes that an archived group would swallow"
 
 ## 3. Banner and regenerate notification
 

@@ -345,6 +345,12 @@ class RankingGroupHandler(BaseHandler):
         try:
             attrs = group.get_attrs()
             read_ranking_group_attrs(self, attrs)
+            # An archived group is not sent, so a rename would move
+            # nothing: the new namespace would stay empty.
+            if was_archived and attrs["name"] != group.name:
+                raise ValueError(
+                    "Ranking group %r is archived: unarchive it before "
+                    "renaming it." % group.name)
             read_ranking_group_visibility(self, attrs, now)
             group.set_attrs(attrs)
 
