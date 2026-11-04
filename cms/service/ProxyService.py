@@ -1317,7 +1317,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         archive_at is still in the future gets it too when it is
         later (a contest was added or extended): archive_at is only
         postponed, never moved earlier, and an archive_at in the past
-        is never touched. A database error (in the reads or in the
+        is never touched. A group whose archive_at an operator wrote in
+        AWS (archive_at_manual) is skipped, also when it was cleared.
+        A database error (in the reads or in the
         UPDATE, which only happens at the commit) is logged and rolled
         back, so the sweep goes on and the next one tries again.
 
@@ -1331,11 +1333,15 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         try:
             # No autoflush: the UPDATE must happen at the commit, inside
             # this try, and not at the read of the next group.
+            # shortcut: a group that AWS marks between this SELECT and the
+            # commit is still overwritten (no row lock, to keep the
+            # sweep from blocking AWS); lock with FOR UPDATE if it bites.
             with session.no_autoflush:
                 for ranking_group in session.execute(
-                        select(RankingGroup).filter(or_(
-                            RankingGroup.archive_at.is_(None),
-                            RankingGroup.archive_at > now))
+                        select(RankingGroup).filter(
+                            RankingGroup.archive_at_manual.is_(False),
+                            or_(RankingGroup.archive_at.is_(None),
+                                RankingGroup.archive_at > now))
                 ).scalars().all():
                     default = self._default_archive_at(session, ranking_group)
                     if default is not None and default > now and (

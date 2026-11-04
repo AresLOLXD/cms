@@ -18,7 +18,7 @@
 
 - [x] 5.1 Add `RankingGroup.archive_at_manual` (Boolean, NOT NULL, default false) with a `fork_*.py` updater run by `cmsSetupDB`, idempotent, covered by `schema_diff_test` and `SetupDBTest`; test the Scenario "Updating an existing database"
 - [x] 5.2 AWS sets the mark on every save that changes `archive_at`; tests for the three Scenarios of "A time written in AWS is not changed by ProxyService"
-- [ ] 5.3 `_fill_archive_defaults` skips marked groups; tests for "A time written by the operator is kept" and "An archive_at cleared by the operator stays empty", and that unmarked groups still postpone
+- [x] 5.3 `_fill_archive_defaults` skips marked groups; tests for "A time written by the operator is kept" and "An archive_at cleared by the operator stays empty", and that unmarked groups still postpone
 - [ ] 5.4 **Archive now** asks for confirmation only while the group is hidden or frozen now; the contest refusal says "before assigning a contest to it"; the Unarchive tooltip mentions pressing Regenerate if ProxyService was down; tests for the two confirmation Scenarios
 
 ## 4. Docs

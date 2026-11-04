@@ -2090,6 +2090,37 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
         self.assertIsNone(self.archive_at(long_ago))
         self.assertIsNone(self.archive_at(exactly_now))
 
+    async def test_a_time_written_by_the_operator_is_kept(self):
+        # Scenario: A time written by the operator is kept: earlier than
+        # the default, so an unmarked group would be postponed.
+        written = NOW + timedelta(hours=2)
+        group = self.add_ranking_group(
+            [NOW + timedelta(hours=10)], archive_at=written,
+            archive_at_manual=True)
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group), written)
+
+    async def test_an_archive_at_cleared_by_the_operator_stays_empty(self):
+        # Scenario: An archive_at cleared by the operator stays empty,
+        # while the computed default is in the future.
+        group = self.add_ranking_group(
+            [NOW + timedelta(hours=1)], archive_at_manual=True)
+        service = self.build_service()
+        self.fill(service)
+        self.assertIsNone(self.archive_at(group))
+
+    async def test_an_unmarked_group_is_still_postponed(self):
+        # The same group as in "A time written by the operator is kept",
+        # without the mark: Scenario: A contest added later postpones a
+        # future archive_at.
+        end = NOW + timedelta(hours=10)
+        group = self.add_ranking_group(
+            [end], archive_at=NOW + timedelta(hours=2))
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
+
     async def test_a_group_with_no_contests_stays_empty(self):
         # Scenario: A group with no contests.
         group = self.add_ranking_group()
