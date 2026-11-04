@@ -35,9 +35,8 @@ from unittest.mock import patch
 from cmsranking.visibility import FROZEN_ROUTES, STAFF_BANNER, \
     STAFF_FROZEN_BANNER, public_frozen_banner
 from cmstestsuite.unit_tests.cmsranking import test_visibility
-from cmstestsuite.unit_tests.server.theme_contrast_test import contrast
 from cmstestsuite.unit_tests.server.themecss import DARK_ATTRIBUTE, \
-    DARK_MEDIA, LITERAL_COLOR, dark_set, light_set, read_block
+    DARK_MEDIA, LITERAL_COLOR, contrast, dark_set, light_set, read_block
 
 
 STATIC = importlib.resources.files("cmsranking").joinpath("static")

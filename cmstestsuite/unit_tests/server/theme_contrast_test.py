@@ -26,28 +26,15 @@ review. Only the tokens are checked: nothing here renders a page.
 import colorsys
 import importlib.resources
 import re
+import subprocess
+import sys
 import unittest
 
 from cmstestsuite.unit_tests.server.themecss import AWS_CSS, CWS_CSS, \
-    RWS_CSS, dark_set, light_set
+    RWS_CSS, contrast, dark_set, light_set
 
 
 MIN_RATIO = 4.5
-
-
-def luminance(color: str) -> float:
-    """Return the WCAG relative luminance of a #rrggbb color."""
-    channels = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
-    red, green, blue = (
-        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-        for c in channels)
-    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
-
-
-def contrast(first: str, second: str) -> float:
-    lighter, darker = sorted((luminance(first), luminance(second)),
-                             reverse=True)
-    return (lighter + 0.05) / (darker + 0.05)
 
 
 # AWS: (foreground token, background token, what it is). Borders and
@@ -109,6 +96,19 @@ def blend(hsl_components: str, opacity: str, base: str) -> str:
         "%02x" % round(255 * (alpha * c + (1 - alpha) * int(base[i:i + 2], 16)
                               / 255))
         for c, i in zip(color, (1, 3, 5)))
+
+
+class TestThemeCssImports(unittest.TestCase):
+
+    def test_themecss_does_not_import_the_web_servers(self):
+        # The ranking tests (gevent) import themecss: it must not pull
+        # cms.server.admin (tornado, asyncio) into their process.
+        subprocess.run(
+            [sys.executable, "-c",
+             "import sys; "
+             "import cmstestsuite.unit_tests.server.themecss; "
+             "sys.exit('cms.server.admin' in sys.modules)"],
+            check=True)
 
 
 class TestAwsContrast(unittest.TestCase):

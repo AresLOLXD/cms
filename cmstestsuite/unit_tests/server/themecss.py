@@ -21,9 +21,12 @@ import importlib.resources
 import re
 
 
-AWS_CSS = importlib.resources.files("cms.server.admin").joinpath(
-    "static", "aws_style.css")
-CWS_STATIC = importlib.resources.files("cms.server.contest").joinpath("static")
+# Resolved from the "cms" package: naming cms.server.admin here would import
+# it (and tornado, asyncio...) into the gevent process of the ranking tests.
+AWS_CSS = importlib.resources.files("cms").joinpath(
+    "server", "admin", "static", "aws_style.css")
+CWS_STATIC = importlib.resources.files("cms").joinpath(
+    "server", "contest", "static")
 CWS_CSS = CWS_STATIC.joinpath("cws_style.css")
 RWS_CSS = importlib.resources.files("cmsranking").joinpath(
     "static", "Ranking.css")
@@ -61,3 +64,18 @@ def light_set(css: str) -> dict[str, str]:
 
 def dark_set(css: str) -> dict[str, str]:
     return read_block(css, ':root[data-theme="dark"]')
+
+
+def luminance(color: str) -> float:
+    """Return the WCAG relative luminance of a #rrggbb color."""
+    channels = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    red, green, blue = (
+        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        for c in channels)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast(first: str, second: str) -> float:
+    lighter, darker = sorted((luminance(first), luminance(second)),
+                             reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
