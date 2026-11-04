@@ -58,7 +58,7 @@
       </tr>
       <tr>
         <td>
-          <span class="info" title="Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. Times are UTC; the local time is shown next to each."></span>
+          <span class="info" title="Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. If ProxyService was down when you pressed Unarchive, press Regenerate for this group. Times are UTC; the local time is shown next to each."></span>
           Archive
         </td>
         <td><strong>{{ view.archive_summary }}</strong></td>
@@ -76,7 +76,7 @@
           {% if view.archived_now %}
           <button type="submit" name="visibility_action" value="unarchive" onclick="return confirm('The whole group will be sent to the public ranking again. Continue?');">Desarchivar</button>
           {% else %}
-          <button type="submit" name="visibility_action" value="archive_now">Archivar ahora</button>
+          <button type="submit" name="visibility_action" value="archive_now"{% if view.hidden_now or view.frozen_now %} onclick="return confirm('This ranking is hidden or frozen now: archiving it will show it in full to the public. Continue?');"{% endif %}>Archivar ahora</button>
           {% endif %}
         </td>
       </tr>

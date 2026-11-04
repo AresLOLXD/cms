@@ -1183,6 +1183,29 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assertNotIn("Ocultar ahora", html)
         self.assertNotIn('value="hide_now"', html)
 
+    def archive_now_button(self, html: str) -> str:
+        (tag,) = re.findall(
+            r'<button[^>]*value="archive_now"[^>]*>', html)
+        return tag
+
+    def test_archive_now_asks_first_on_a_hidden_or_frozen_group(self):
+        # Scenario: Archive now on a hidden or frozen group asks first
+        for windows in ({"hide_at": NOW - self.HOUR},
+                        {"freeze_at": NOW - self.HOUR}):
+            with self.subTest(windows):
+                tag = self.archive_now_button(self.render_group(**windows))
+                self.assertIn("onclick=\"return confirm(", tag)
+                self.assertIn("hidden or frozen", tag)
+
+    def test_archive_now_does_not_ask_on_a_visible_group(self):
+        # Scenario: Archive now on a visible group does not ask
+        self.assertNotIn(
+            "confirm", self.archive_now_button(self.render_group()))
+
+    def test_unarchive_tooltip_says_to_regenerate_if_proxy_was_down(self):
+        self.assertIn("press Regenerate for this group",
+                      self.render_group(archive_at=NOW + self.HOUR))
+
     def test_enter_in_a_field_submits_update_not_a_now_button(self):
         # Implicit submission uses the first submit button of the form.
         html = self.render_group()

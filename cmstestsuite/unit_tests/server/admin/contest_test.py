@@ -185,6 +185,8 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
         self.assertEqual(self._notifications(handler), ["Invalid field(s)."])
         self.assertIn("'other' is archived",
                       handler.service.add_notification.call_args.args[2])
+        self.assertIn("before assigning a contest to it",
+                      handler.service.add_notification.call_args.args[2])
         handler.schedule_rpc.assert_not_called()
         contest = self._reload_contest()
         self.assertEqual(contest.name, "before")

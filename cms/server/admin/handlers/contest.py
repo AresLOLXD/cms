@@ -142,7 +142,8 @@ class ContestHandler(SimpleContestHandler("contest.html")):
                             and ranking_group.is_archived_at(make_datetime()):
                         raise ValueError(
                             "Ranking group %r is archived: unarchive it "
-                            "before adding a contest." % ranking_group.name)
+                            "before assigning a contest to it."
+                            % ranking_group.name)
                     attrs["ranking_group"] = ranking_group
 
             self.get_string(attrs, "token_mode")
