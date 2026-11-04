@@ -223,7 +223,8 @@ def _banner(text_html: str) -> bytes:
         '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
         'box-sizing:border-box;height:var(--rws-banner);overflow:hidden;'
         'padding:0.5rem;font:0.85rem/1.25rem sans-serif;'
-        'background:var(--banner-bg);color:var(--banner-text);'
+        'background:var(--banner-bg,#b00020);'
+        'color:var(--banner-text,#fff);'
         'text-align:center;">'
         + text_html + '</div>').encode("utf-8")
 

@@ -326,9 +326,12 @@ class TestRwsBuiltInPages(test_visibility.VisibilityTestCase):
                    public_frozen_banner(1_700_000_000)]
         for banner in banners:
             text = banner.decode("utf-8")
-            self.assertEqual(LITERAL_COLOR.findall(text), [])
-            self.assertIn("background:var(--banner-bg)", text)
-            self.assertIn("color:var(--banner-text)", text)
+            # a literal is allowed only as the fallback inside var(): a
+            # cached older Ranking.css has no banner tokens
+            self.assertEqual(LITERAL_COLOR.findall(
+                re.sub(r"var\([^)]*\)", "", text)), [])
+            self.assertIn("background:var(--banner-bg,#b00020)", text)
+            self.assertIn("color:var(--banner-text,#fff)", text)
         self.assertNotEqual(light_set(css)["banner-bg"],
                             dark_set(css)["banner-bg"])
 
