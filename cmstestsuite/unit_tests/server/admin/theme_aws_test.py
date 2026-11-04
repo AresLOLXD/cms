@@ -30,22 +30,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
-from cmstestsuite.unit_tests.server.themecss import AWS_CSS, light_set, \
-    read_block
+from cmstestsuite.unit_tests.server.themecss import AWS_CSS, DARK_ATTRIBUTE, \
+    DARK_MEDIA, LITERAL_COLOR, light_set, read_block
 
 
 ADMIN_DIR = importlib.resources.files("cms.server.admin")
 PRISM_CSS = ADMIN_DIR.joinpath("static", "prism.css")
-
-DARK_MEDIA = ':root:not([data-theme="light"])'
-DARK_ATTRIBUTE = ':root[data-theme="dark"]'
-
-# A color written as a literal: hex, a color name, or a color function.
-LITERAL_COLOR = re.compile(
-    r"#[0-9a-fA-F]{3,8}\b"
-    r"|\b(?:white|black|red|green|blue|grey|gray|yellow|orange|purple)"
-    r"(?![-\w])"
-    r"|\b(?:rgb|rgba|hsl|hsla)\(")
 
 
 def render_page(page: str, **params) -> str:

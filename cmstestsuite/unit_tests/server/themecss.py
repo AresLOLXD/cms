@@ -23,6 +23,18 @@ import re
 
 AWS_CSS = importlib.resources.files("cms.server.admin").joinpath(
     "static", "aws_style.css")
+CWS_STATIC = importlib.resources.files("cms.server.contest").joinpath("static")
+CWS_CSS = CWS_STATIC.joinpath("cws_style.css")
+
+DARK_MEDIA = ':root:not([data-theme="light"])'
+DARK_ATTRIBUTE = ':root[data-theme="dark"]'
+
+# A color written as a literal: hex, a color name, or a color function.
+LITERAL_COLOR = re.compile(
+    r"#[0-9a-fA-F]{3,8}\b"
+    r"|\b(?:white|black|red|green|blue|grey|gray|yellow|orange|purple)"
+    r"(?![-\w])"
+    r"|\b(?:rgb|rgba|hsl|hsla)\(")
 
 
 def read_block(css: str, selector: str) -> dict[str, str]:

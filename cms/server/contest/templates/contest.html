@@ -46,11 +46,16 @@ $(document).ready(function () {
     </script>
 {% endblock js %}
 
+{% block theme_switch %}{% endblock theme_switch %}
+
 {% block body %}
         <div id="navigation_bar" class="navbar navbar-fixed-top">
             <div class="navbar-inner">
                 <div class="container">
                     <a class="brand" href="{{ contest_url() }}">{{ contest.description }}</a>
+                    <p class="navbar-text pull-right">
+                        {% include "macro/theme_switch.html" %}
+                    </p>
 {% if available_translations|length > 1 %}
                     <p class="navbar-text pull-right">
                         <select id="lang" class="form-control btn btn-info" onchange="utils.switch_lang()">

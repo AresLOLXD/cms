@@ -6,7 +6,7 @@
 
 ## 2. CWS
 
-- [ ] 2.1 CWS: tokens in `cws_style.css`, the new `cws_dark.css` overlay, the switch in the navbar outside the language condition, the script in `<head>`, chevrons visible in dark, the `#adadad` link fixed; tests for "CWS with a single language", the switch scenarios, "CWS chevrons and RWS ticks" (CWS half)
+- [x] 2.1 CWS: tokens in `cws_style.css`, the new `cws_dark.css` overlay, the switch in the navbar outside the language condition, the script in `<head>`, chevrons visible in dark, the `#adadad` link fixed; tests for "CWS with a single language", the switch scenarios, "CWS chevrons and RWS ticks" (CWS half)
 - [ ] 2.2 Contrast pairs for CWS in the contrast test; scenario "Contrast in every theme" for CWS
 
 ## 3. RWS

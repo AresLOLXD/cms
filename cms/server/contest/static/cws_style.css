@@ -1,3 +1,189 @@
+/* THEME TOKENS: the colors of this file are custom properties. The light
+   set is on :root; the dark set is declared twice (system preference, and
+   data-theme="dark" set by theme.js), identical. Keep both in step.
+   The dark- tokens exist only in the dark sets: they are the colors of
+   cws_dark.css, whose rules apply only in dark, over bootstrap.css (which
+   keeps its own light colors, so those are not tokens and are not checked).
+   shortcut: native form controls have no token; color-scheme darkens them,
+   so their contrast is not checked. Give them tokens if a browser shows
+   them unreadable. */
+:root {
+    color-scheme: light dark;
+    --surface: #ffffff;
+    --text: #333333;
+    --border-soft: #e5e5e5;
+    --hover-bg: #e3e3e3;
+    --muted: #aaaaaa;
+    --hint: #666666;
+    --ended-link: #adadad;
+    --emboss: rgba(255, 255, 255, 0.5);
+    --announce-text: #3a87ad;
+    --announce-bg: #d9edf7;
+    --announce-border: #bcd8f1;
+    --score-0: 0, 100%, 50%;
+    --score-0-100: 60, 100%, 50%;
+    --score-100: 120, 100%, 50%;
+    --alpha-public: 0.4;
+    --alpha-public-hover: 0.5;
+    --alpha-total: 0.7;
+    --alpha-total-hover: 0.8;
+    --outcome-undefined-bg: #babdb6;
+    --outcome-undefined-text: #ffffff;
+    --outcome-correct-bg: #4e9a06;
+    --outcome-correct-text: #ffffff;
+    --outcome-notcorrect-bg: #cc0000;
+    --outcome-notcorrect-text: #ffffff;
+    --outcome-partial-bg: #edd400;
+    --outcome-partial-text: #ffffff;
+    --outcome-skipped-bg: #707070;
+    --outcome-skipped-text: #ffffff;
+    --subtask-bg: #e0e0e0;
+    --subtask-shadow: #d0d0d0;
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --surface: #1b1e22;
+        --text: #dde1e6;
+        --border-soft: #3a3f46;
+        --hover-bg: #2a2f35;
+        --muted: #9aa1a9;
+        --hint: #aab0b7;
+        --ended-link: #8a919a;
+        --emboss: transparent;
+        --announce-text: #8cc8e8;
+        --announce-bg: #1d3342;
+        --announce-border: #2f5470;
+        --score-0: 0, 100%, 30%;
+        --score-0-100: 50, 100%, 25%;
+        --score-100: 125, 100%, 22%;
+        --alpha-public: 0.4;
+        --alpha-public-hover: 0.5;
+        --alpha-total: 0.7;
+        --alpha-total-hover: 0.8;
+        --outcome-undefined-bg: #babdb6;
+        --outcome-undefined-text: #ffffff;
+        --outcome-correct-bg: #4e9a06;
+        --outcome-correct-text: #ffffff;
+        --outcome-notcorrect-bg: #cc0000;
+        --outcome-notcorrect-text: #ffffff;
+        --outcome-partial-bg: #edd400;
+        --outcome-partial-text: #ffffff;
+        --outcome-skipped-bg: #707070;
+        --outcome-skipped-text: #ffffff;
+        --subtask-bg: #3a3f45;
+        --subtask-shadow: #2c3035;
+        --dark-link: #6cb6ff;
+        --dark-link-hover: #9ccfff;
+        --dark-stripe: #20242a;
+        --dark-panel: #23272d;
+        --dark-navbar-bg: #0f1114;
+        --dark-navbar-text: #b4bac1;
+        --dark-field-bg: #14171a;
+        --dark-field-text: #d5d9de;
+        --dark-field-border: #4a5058;
+        --dark-field-off: #24282d;
+        --dark-placeholder: #8d949c;
+        --dark-btn-bg: #30363d;
+        --dark-btn-hover: #3b424a;
+        --dark-btn-text: #ffffff;
+        --dark-primary: #1a5fb4;
+        --dark-primary-hover: #164e94;
+        --dark-info: #0f6d85;
+        --dark-info-hover: #0c566a;
+        --dark-warning: #8f5e00;
+        --dark-warning-hover: #744c00;
+        --dark-danger: #b02f2f;
+        --dark-danger-hover: #8f2626;
+        --dark-success: #2e7d32;
+        --dark-success-hover: #256428;
+        --dark-warn-text: #e8cd85;
+        --dark-warn-bg: #3b3220;
+        --dark-warn-border: #5c4d27;
+        --dark-error-text: #ff9d97;
+        --dark-error-bg: #3f2422;
+        --dark-error-border: #6b3a37;
+        --dark-success-text: #8fd9a8;
+        --dark-success-bg: #1f3326;
+        --dark-success-border: #35573f;
+        --dark-code-text: #ff9fb3;
+    }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface: #1b1e22;
+    --text: #dde1e6;
+    --border-soft: #3a3f46;
+    --hover-bg: #2a2f35;
+    --muted: #9aa1a9;
+    --hint: #aab0b7;
+    --ended-link: #8a919a;
+    --emboss: transparent;
+    --announce-text: #8cc8e8;
+    --announce-bg: #1d3342;
+    --announce-border: #2f5470;
+    --score-0: 0, 100%, 30%;
+    --score-0-100: 50, 100%, 25%;
+    --score-100: 125, 100%, 22%;
+    --alpha-public: 0.4;
+    --alpha-public-hover: 0.5;
+    --alpha-total: 0.7;
+    --alpha-total-hover: 0.8;
+    --outcome-undefined-bg: #babdb6;
+    --outcome-undefined-text: #ffffff;
+    --outcome-correct-bg: #4e9a06;
+    --outcome-correct-text: #ffffff;
+    --outcome-notcorrect-bg: #cc0000;
+    --outcome-notcorrect-text: #ffffff;
+    --outcome-partial-bg: #edd400;
+    --outcome-partial-text: #ffffff;
+    --outcome-skipped-bg: #707070;
+    --outcome-skipped-text: #ffffff;
+    --subtask-bg: #3a3f45;
+    --subtask-shadow: #2c3035;
+    --dark-link: #6cb6ff;
+    --dark-link-hover: #9ccfff;
+    --dark-stripe: #20242a;
+    --dark-panel: #23272d;
+    --dark-navbar-bg: #0f1114;
+    --dark-navbar-text: #b4bac1;
+    --dark-field-bg: #14171a;
+    --dark-field-text: #d5d9de;
+    --dark-field-border: #4a5058;
+    --dark-field-off: #24282d;
+    --dark-placeholder: #8d949c;
+    --dark-btn-bg: #30363d;
+    --dark-btn-hover: #3b424a;
+    --dark-btn-text: #ffffff;
+    --dark-primary: #1a5fb4;
+    --dark-primary-hover: #164e94;
+    --dark-info: #0f6d85;
+    --dark-info-hover: #0c566a;
+    --dark-warning: #8f5e00;
+    --dark-warning-hover: #744c00;
+    --dark-danger: #b02f2f;
+    --dark-danger-hover: #8f2626;
+    --dark-success: #2e7d32;
+    --dark-success-hover: #256428;
+    --dark-warn-text: #e8cd85;
+    --dark-warn-bg: #3b3220;
+    --dark-warn-border: #5c4d27;
+    --dark-error-text: #ff9d97;
+    --dark-error-bg: #3f2422;
+    --dark-error-border: #6b3a37;
+    --dark-success-text: #8fd9a8;
+    --dark-success-bg: #1f3326;
+    --dark-success-border: #35573f;
+    --dark-code-text: #ff9fb3;
+}
+
+
 /* Always show the scrollbar */
 
 body {
@@ -35,10 +221,10 @@ div.message_list div.message {
     border-radius: 4px;
     min-height: 18px;
     margin-bottom: 18px;
-    text-shadow: 0 1px 0 rgba(255,255,255,0.5);
-    color: #3A87AD;
-    border: 1px solid #BCD8F1;
-    background-color: #D9EDF7;
+    text-shadow: 0 1px 0 var(--emboss);
+    color: var(--announce-text);
+    border: 1px solid var(--announce-border);
+    background-color: var(--announce-bg);
 }
 
 div.question_list div.question {
@@ -451,15 +637,15 @@ td.token_rules p:last-child {
 }
 
 .task_score.score_0 {
-    background-color: hsla(0, 100%, 50%, 0.4);
+    background-color: hsla(var(--score-0), var(--alpha-public));
 }
 
 .task_score.score_0_100 {
-    background-color: hsla(60, 100%, 50%, 0.4);
+    background-color: hsla(var(--score-0-100), var(--alpha-public));
 }
 
 .task_score.score_100 {
-    background-color: hsla(120, 100%, 50%, 0.4);
+    background-color: hsla(var(--score-100), var(--alpha-public));
 }
 
 /*** Submit a solution */
@@ -556,59 +742,59 @@ td.token_rules p:last-child {
 }
 
 .submission_list td.public_score.undefined {
-    color: #AAA;
+    color: var(--muted);
 }
 
 .submission_list td.public_score.score_0 {
-    background-color: hsla(0, 100%, 50%, 0.4);
+    background-color: hsla(var(--score-0), var(--alpha-public));
 }
 
 .submission_list tr:hover td.public_score.score_0 {
-    background-color: hsla(0, 100%, 50%, 0.5);
+    background-color: hsla(var(--score-0), var(--alpha-public-hover));
 }
 
 .submission_list td.public_score.score_0_100 {
-    background-color: hsla(60, 100%, 50%, 0.4);
+    background-color: hsla(var(--score-0-100), var(--alpha-public));
 }
 
 .submission_list tr:hover td.public_score.score_0_100 {
-    background-color: hsla(60, 100%, 50%, 0.5);
+    background-color: hsla(var(--score-0-100), var(--alpha-public-hover));
 }
 
 .submission_list td.public_score.score_100 {
-    background-color: hsla(120, 100%, 50%, 0.4);
+    background-color: hsla(var(--score-100), var(--alpha-public));
 }
 
 .submission_list tr:hover td.public_score.score_100 {
-    background-color: hsla(120, 100%, 50%, 0.5);
+    background-color: hsla(var(--score-100), var(--alpha-public-hover));
 }
 
 .submission_list td.total_score.undefined {
-    color: #AAA;
+    color: var(--muted);
 }
 
 .submission_list td.total_score.score_0 {
-    background-color: hsla(0, 100%, 50%, 0.7);
+    background-color: hsla(var(--score-0), var(--alpha-total));
 }
 
 .submission_list tr:hover td.total_score.score_0 {
-    background-color: hsla(0, 100%, 50%, 0.8);
+    background-color: hsla(var(--score-0), var(--alpha-total-hover));
 }
 
 .submission_list td.total_score.score_0_100 {
-    background-color: hsla(60, 100%, 50%, 0.7);
+    background-color: hsla(var(--score-0-100), var(--alpha-total));
 }
 
 .submission_list tr:hover td.total_score.score_0_100 {
-    background-color: hsla(60, 100%, 50%, 0.8);
+    background-color: hsla(var(--score-0-100), var(--alpha-total-hover));
 }
 
 .submission_list td.total_score.score_100 {
-    background-color: hsla(120, 100%, 50%, 0.7);
+    background-color: hsla(var(--score-100), var(--alpha-total));
 }
 
 .submission_list tr:hover td.total_score.score_100 {
-    background-color: hsla(120, 100%, 50%, 0.8);
+    background-color: hsla(var(--score-100), var(--alpha-total-hover));
 }
 
 /*** Submission details */
@@ -657,12 +843,12 @@ td.token_rules p:last-child {
     line-height: 20px;
     border: none;
     border-radius: 5px;
-    background-color: #E0E0E0;
+    background-color: var(--subtask-bg);
     cursor: pointer;
     height: 20px;
     padding: 4px;
     margin-bottom: 10px;
-    box-shadow: 0 0 2px 2px #D0D0D0 inset;
+    box-shadow: 0 0 2px 2px var(--subtask-shadow) inset;
 }
 
 #submission_detail .subtask.open .subtask-head {
@@ -683,24 +869,27 @@ td.token_rules p:last-child {
     height: 24px;
     margin-top: -2px;
     margin-right: -2px;
-    color: white;
     line-height: 24px;
 }
 
 #submission_detail .subtask.undefined .subtask-head .score {
-    background-color: #babdb6;
+    background-color: var(--outcome-undefined-bg);
+    color: var(--outcome-undefined-text);
 }
 
 #submission_detail .subtask.correct .subtask-head .score {
-    background-color: #4e9a06;
+    background-color: var(--outcome-correct-bg);
+    color: var(--outcome-correct-text);
 }
 
 #submission_detail .subtask.notcorrect .subtask-head .score {
-    background-color: #cc0000;
+    background-color: var(--outcome-notcorrect-bg);
+    color: var(--outcome-notcorrect-text);
 }
 
 #submission_detail .subtask.partiallycorrect .subtask-head .score {
-    background-color: #edd400;
+    background-color: var(--outcome-partial-bg);
+    color: var(--outcome-partial-text);
 }
 
 #submission_detail .subtask:not(.open) .subtask-body {
@@ -708,7 +897,7 @@ td.token_rules p:last-child {
 }
 
 #submission_detail .subtask-dependency {
-    color: #666666;
+    color: var(--hint);
     font-size: 0.9em;
     font-style: italic;
     margin-bottom: 8px;
@@ -744,24 +933,27 @@ td.token_rules p:last-child {
     border-radius: 5px;
     -moz-box-sizing: border-box;
     box-sizing: border-box;
-    color: white;
     padding-left: 5px;
 }
 
 #submission_detail table.testcase-list tbody tr.correct td.outcome .outcome {
-    background-color: #4e9a06;
+    background-color: var(--outcome-correct-bg);
+    color: var(--outcome-correct-text);
 }
 
 #submission_detail table.testcase-list tbody tr.notcorrect td.outcome .outcome {
-    background-color: #cc0000;
+    background-color: var(--outcome-notcorrect-bg);
+    color: var(--outcome-notcorrect-text);
 }
 
 #submission_detail table.testcase-list tbody tr.partiallycorrect td.outcome .outcome {
-    background-color: #edd400;
+    background-color: var(--outcome-partial-bg);
+    color: var(--outcome-partial-text);
 }
 
 #submission_detail table.testcase-list tbody tr.skipped td.outcome .outcome {
-    background-color: #707070;
+    background-color: var(--outcome-skipped-bg);
+    color: var(--outcome-skipped-text);
 }
 
 
@@ -775,7 +967,7 @@ td.token_rules p:last-child {
 
 #countdown_box {
     text-align: center;
-    color: #333333;
+    color: var(--text);
     margin: 0 0 8px;
 }
 
@@ -784,19 +976,19 @@ td.token_rules p:last-child {
 }
 
 #countdown_label {
-    color: #999999;
+    color: var(--muted);
 }
 
 /*** Server time */
 
 #server_time_box {
     text-align: center;
-    color: #333333;
+    color: var(--text);
     margin: 0 0 8px;
 }
 
 #server_time_label {
-    color: #999999;
+    color: var(--muted);
 }
 
 /*** License notice */
@@ -846,7 +1038,7 @@ td.token_rules p:last-child {
 }
 
 #attachments ul li a:hover {
-    background-color: #E3E3E3;
+    background-color: var(--hover-bg);
 }
 
 #attachments ul li img {
@@ -981,7 +1173,7 @@ td.token_rules p:last-child {
 
 .user_test_list tbody tr td.time.undefined,
 .user_test_list tbody tr td.memory.undefined {
-    color: #AAA;
+    color: var(--muted);
     white-space: nowrap;
 }
 
@@ -1023,7 +1215,8 @@ td.token_rules p:last-child {
     margin: 0 auto 12px;
 }
 
-#lang {
+#lang,
+#theme {
     width: auto;
 }
 
@@ -1055,6 +1248,22 @@ td.token_rules p:last-child {
     display: block;
     margin: 0 0 -1px;
     padding: 8px 14px;
-    background-color: white;
-    border: 1px solid #e5e5e5;
+    background-color: var(--surface);
+    border: 1px solid var(--border-soft);
+}
+
+.contest-list li > a.ended {
+    color: var(--ended-link);
+}
+
+/* Theme switch on the pages without the contest navbar */
+
+.theme_switch_corner {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+}
+
+.theme_switch_corner #theme {
+    margin-bottom: 0;
 }
