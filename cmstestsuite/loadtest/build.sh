@@ -23,8 +23,7 @@
 #
 # The ranking web server runs from this same image in both targets
 # (cmsRankingWebServer is on its PATH), so the fork's docker/Dockerfile.ranking
-# is not built here: it repeats the whole CMS install for an image that
-# the compose file does not use.
+# is not built here: the compose file does not use that image.
 set -euo pipefail
 TARGET=${1:?target: fork or upstream} REF=${2:?git ref}
 [[ $TARGET == fork || $TARGET == upstream ]] || { echo "unknown target $TARGET" >&2; exit 2; }
