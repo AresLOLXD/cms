@@ -16,11 +16,11 @@
 """Schema update of this fork for archiving ranking groups.
 
 Adds ranking_groups.archive_at and archive_at_manual to an existing
-database, since cmsSetupDB
-applies the fork's updates at each start. The SQL is a Python constant
-because Docker installs CMS non-editable and setup.py does not package
-.sql files. It creates exactly what cmsInitDB creates for
-RankingGroup.archive_at (checked by schema_diff_test).
+database, since cmsSetupDB applies the fork's updates at each start. The
+SQL is a Python constant because Docker installs CMS non-editable and
+setup.py does not package .sql files. It creates exactly what cmsInitDB
+creates for RankingGroup.archive_at and RankingGroup.archive_at_manual
+(checked by schema_diff_test).
 
 archive_at is added EMPTY and never filled: an existing group must not
 be archived by surprise (see the ranking-group-archiving spec).

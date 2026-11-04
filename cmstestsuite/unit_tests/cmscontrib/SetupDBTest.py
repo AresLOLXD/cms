@@ -423,7 +423,7 @@ class TestForkSubmissionLimits(DatabaseMixin, unittest.TestCase):
 
 
 class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
-    """The fork adds ranking_groups.archive_at, empty and without a lock."""
+    """The fork adds the archive columns of ranking_groups, no lock."""
 
     DROP_COLUMN = "ALTER TABLE ranking_groups DROP COLUMN archive_at"
     DROP_MANUAL = "ALTER TABLE ranking_groups DROP COLUMN archive_at_manual"
@@ -527,7 +527,7 @@ class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
             "LOCK TABLE ranking_groups IN ACCESS EXCLUSIVE MODE")
         apply_fork_ranking_group_archive_update()
 
-    def test_setup_db_adds_the_column(self):
+    def test_setup_db_adds_the_columns(self):
         expected = self._archive_schema()
         expected_manual = self._archive_schema("archive_at_manual")
         self._run(self.DROP_COLUMN)
