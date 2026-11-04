@@ -365,6 +365,54 @@ class TestReadArchive(unittest.TestCase):
                           {"archive_at": archive_at})
 
 
+class TestArchiveMark(unittest.TestCase):
+    """Scenarios of "A time written in AWS is not changed by ProxyService"."""
+
+    STORED = datetime(2026, 10, 12, 6, 0)
+
+    def read(self, form):
+        attrs = {"archive_at": self.STORED, "archive_at_manual": False}
+        read_ranking_group_visibility(visibility_handler(form), attrs, NOW)
+        return attrs
+
+    def test_editing_marks_it(self):
+        # Scenario: Editing marks it (a new time, then an empty one)
+        for typed in ("2026-10-13 06:00:00", ""):
+            with self.subTest(typed):
+                attrs = self.read({"archive_at": typed,
+                                   "archive_at_shown": "2026-10-12 06:00:00"})
+                self.assertIs(attrs["archive_at_manual"], True)
+
+    def test_archive_now_and_unarchive_mark_it(self):
+        # Scenario: Archive now and Unarchive mark it
+        for action, stored in (("archive_now", self.STORED),
+                               ("unarchive", NOW - timedelta(hours=1))):
+            with self.subTest(action):
+                attrs = {"archive_at": stored, "archive_at_manual": False}
+                read_ranking_group_visibility(
+                    visibility_handler({"visibility_action": action}),
+                    attrs, NOW)
+                self.assertIs(attrs["archive_at_manual"], True)
+
+    def test_saving_without_touching_archive_at(self):
+        # Scenario: Saving without touching archive_at (a field that is
+        # unchanged, an absent one, and a stale page that kept the stored
+        # value)
+        for form in ({"archive_at": "2026-10-12 06:00:00",
+                      "archive_at_shown": "2026-10-12 06:00:00"},
+                     {},
+                     {"archive_at": "2026-10-11 06:00:00",
+                      "archive_at_shown": "2026-10-11 06:00:00"}):
+            with self.subTest(form):
+                self.assertIs(self.read(form)["archive_at_manual"], False)
+
+    def test_a_mark_that_was_set_stays_when_nothing_changes(self):
+        # Scenario: Saving without touching archive_at
+        attrs = {"archive_at": self.STORED, "archive_at_manual": True}
+        read_ranking_group_visibility(visibility_handler({}), attrs, NOW)
+        self.assertIs(attrs["archive_at_manual"], True)
+
+
 class TestReadStaffPassword(unittest.TestCase):
 
     def test_new_password_is_hashed_with_spaces_kept(self):
@@ -876,6 +924,8 @@ class TestUnarchiveRegenerates(unittest.TestCase):
                             archive_at=NOW - self.HOUR)
         self.assert_regenerated_once(handler)
         self.assertEqual(handler.group.archive_at, NOW + timedelta(hours=24))
+        # get_attrs/set_attrs carry the mark to the stored group.
+        self.assertIs(handler.group.archive_at_manual, True)
 
     def test_unarchiving_by_editing_archive_at(self):
         # Scenario: Unarchiving by editing archive_at (a future time, then

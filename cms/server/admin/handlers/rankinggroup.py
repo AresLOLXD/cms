@@ -99,6 +99,10 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
     ARCHIVE_GRACE from now. The hidden column is always derived from the windows again,
     whatever the form says, for rollbacks to MC-2 minimal.
 
+    Whenever this changes attrs["archive_at"] from its value on entry,
+    attrs["archive_at_manual"] is set: ProxyService then leaves the time
+    alone. A save that leaves it as it was does not touch the mark.
+
     An empty password field keeps attrs["staff_password"] as it is, so
     editing a group without retyping the password keeps it.
 
@@ -110,6 +114,7 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
         action that does not apply, or an invalid staff password.
 
     """
+    stored_archive_at = attrs.get("archive_at")
     for name, _label in WINDOW_FIELDS + (ARCHIVE_FIELD,):
         raw = handler.get_argument(name, None)
         if raw is None:
@@ -158,6 +163,11 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
         attrs["archive_at"] = now + ARCHIVE_GRACE
     elif action is not None:
         raise ValueError("Unknown action %r." % (action,))
+
+    # Compared with the stored value, not with what was typed: a stale
+    # field that keeps the stored value must not set the mark.
+    if attrs.get("archive_at") != stored_archive_at:
+        attrs["archive_at_manual"] = True
 
     check_window(attrs.get("hide_at"), attrs.get("show_at"), "hide")
     check_window(attrs.get("freeze_at"), attrs.get("unfreeze_at"),
