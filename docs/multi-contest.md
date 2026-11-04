@@ -692,12 +692,17 @@ Each group has an **Archive at** time in UTC (`archive_at`). The group is
 archived from that instant on, and stays archived until the time is moved to
 the future or cleared. An empty time means the group is never archived.
 
-A group that has contests and no archive time gets a default: 24 hours after
-the end of its last contest, that is, after the latest stop time of its
-contests. ProxyService fills it in while that instant is still in the future.
-While the time is still in the future, a contest added to the group, or moved
-later, postpones it. It is never moved earlier, and a time in the past is
-never changed.
+A group that has contests and whose archive time has never been set in AWS gets
+a default: 24 hours after the end of its last contest, that is, after the
+latest stop time of its contests. ProxyService fills it in while that instant
+is still in the future. While the time is still in the future, a contest added
+to the group, or moved later, postpones it. It is never moved earlier, and a
+time in the past is never changed.
+
+Once you change **Archive at** in AWS (by editing the field, clearing it,
+**Archivar ahora** or **Desarchivar**), ProxyService never fills, postpones or
+clears that group's time again. Clearing the field means the group is never
+archived: there is no way back to the automatic default in this version.
 
 A group whose contests all ended more than 24 hours ago gets no default, so
 its time stays empty and it is never archived by itself. The same holds for a
@@ -722,15 +727,19 @@ valid saves nothing and shows an "Invalid field(s)" notification. The field
 follows the stale-form rule, so only a change to it counts (see "Stale form").
 
 - **Archivar ahora** (shown while the group is not archived) sets **Archive
-  at** to the current time, so the group is archived at once. On an
-  out-of-date page, for a group that is already archived, nothing is saved and
-  the notification says "The group is already archived."
+  at** to the current time, so the group is archived at once. If the group is
+  hidden or frozen now, the button asks for confirmation first, because
+  archiving shows the ranking in full to the public. This cannot be undone from
+  the page: unarchiving restores the windows, but the scores were already seen.
+  On an out-of-date page, for a group that is already archived, nothing is
+  saved and the notification says "The group is already archived."
 - **Desarchivar** (shown while the group is archived) sets **Archive at** to
   the current time plus 24 hours. The whole group is sent again, and it
   archives itself again 24 hours later, unless you move the time. The button
-  asks for confirmation first. On an out-of-date page, for a group that is not
-  archived, nothing is saved and the notification says "The group is not
-  archived."
+  asks for confirmation first. If ProxyService was down when you pressed it,
+  the regenerate is lost: press **Regenerate** on the group. On an out-of-date
+  page, for a group that is not archived, nothing is saved and the notification
+  says "The group is not archived."
 
 **Any save that takes a group from archived to not archived** asks ProxyService
 to regenerate the whole group once, after the save is committed. That happens
@@ -744,8 +753,9 @@ it again, which can take minutes for a large group.
 AWS refuses the following, saves nothing, and shows an "Invalid field(s)"
 notification that names the group:
 
-- Assigning a contest to an archived group. A contest that is already in an
-  archived group can still be saved, as long as its group does not change.
+- Assigning a contest to an archived group. Unarchive the group first, then
+  assign the contest. A contest that is already in an archived group can still
+  be saved, as long as its group does not change.
 - Renaming an archived group. Unarchive it first. A save that unarchives and
   renames a group at once is refused too, so do the two in separate saves.
 

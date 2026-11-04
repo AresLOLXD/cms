@@ -23,4 +23,4 @@
 
 ## 4. Docs
 
-- [ ] 4.1 (needs a small update for the operator-written rule of group 5, the Archive now confirmation and the new refusal text) Document the page controls, the 24 h unarchive, the regenerate on unarchive, the refusals and the banner in `docs/multi-contest.md` and the contest-day runbook in `docs/contest-day.md`, with the Spanish `.po` and the docs check passing
+- [x] 4.1 (needs a small update for the operator-written rule of group 5, the Archive now confirmation and the new refusal text) Document the page controls, the 24 h unarchive, the regenerate on unarchive, the refusals and the banner in `docs/multi-contest.md` and the contest-day runbook in `docs/contest-day.md`, with the Spanish `.po` and the docs check passing
