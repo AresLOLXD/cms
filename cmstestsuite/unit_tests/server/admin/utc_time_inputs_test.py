@@ -63,7 +63,7 @@ class TestUtcTimeInputs(unittest.TestCase):
             delay_time=timedelta(0), extra_time=timedelta(0),
             questions=[], messages=[])
         names = [name for name, _label in WINDOW_FIELDS]
-        yield ("ranking_group.html", names, render_core(
+        yield ("ranking_group.html", names + ["archive_at"], render_core(
             "ranking_group.html", ranking_group=group, group_contests=[],
             view=visibility_view(group, NOW)))
         yield ("add_ranking_group.html", names, render_core(
