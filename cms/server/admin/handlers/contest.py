@@ -136,6 +136,14 @@ class ContestHandler(SimpleContestHandler("contest.html")):
                         ranking_group_id, self.sql_session)
                     if ranking_group is None:
                         raise ValueError("Unknown ranking group.")
+                    # An archived group is not sent: the contest would
+                    # reach no public ranking. Staying in it is fine.
+                    if ranking_group != contest.ranking_group \
+                            and ranking_group.is_archived_at(make_datetime()):
+                        raise ValueError(
+                            "Ranking group %r is archived: unarchive it "
+                            "before assigning a contest to it."
+                            % ranking_group.name)
                     attrs["ranking_group"] = ranking_group
 
             self.get_string(attrs, "token_mode")

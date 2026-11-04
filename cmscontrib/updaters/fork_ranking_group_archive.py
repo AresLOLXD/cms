@@ -15,18 +15,20 @@
 
 """Schema update of this fork for archiving ranking groups.
 
-Adds ranking_groups.archive_at to an existing database, since cmsSetupDB
-applies the fork's updates at each start. The SQL is a Python constant
-because Docker installs CMS non-editable and setup.py does not package
-.sql files. It creates exactly what cmsInitDB creates for
-RankingGroup.archive_at (checked by schema_diff_test).
+Adds ranking_groups.archive_at and archive_at_manual to an existing
+database, since cmsSetupDB applies the fork's updates at each start. The
+SQL is a Python constant because Docker installs CMS non-editable and
+setup.py does not package .sql files. It creates exactly what cmsInitDB
+creates for RankingGroup.archive_at and RankingGroup.archive_at_manual
+(checked by schema_diff_test).
 
-The column is added EMPTY and never filled: an existing group must not
+archive_at is added EMPTY and never filled: an existing group must not
 be archived by surprise (see the ranking-group-archiving spec).
+archive_at_manual is added false for every existing row.
 
-The change is guarded by a catalog lookup, because even an ALTER TABLE
+Each change is guarded by a catalog lookup, because even an ALTER TABLE
 ... ADD COLUMN IF NOT EXISTS that changes nothing takes an ACCESS
-EXCLUSIVE lock. Once the column exists, which is every start but the
+EXCLUSIVE lock. Once both columns exist, which is every start but the
 first, the update takes no lock on ranking_groups.
 
 """
@@ -45,6 +47,14 @@ BEGIN
         ALTER TABLE public.ranking_groups
             ADD COLUMN archive_at timestamp without time zone;
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'ranking_groups'
+            AND column_name = 'archive_at_manual'
+    ) THEN
+        ALTER TABLE public.ranking_groups
+            ADD COLUMN archive_at_manual boolean NOT NULL DEFAULT false;
+    END IF;
 END
 $$;
 """
@@ -53,10 +63,10 @@ $$;
 def apply_fork_ranking_group_archive_update() -> None:
     """Apply FORK_RANKING_GROUP_ARCHIVE_SQL to the configured database.
 
-    raise (SchemaLockTimeout): if the column is missing and another
+    raise (SchemaLockTimeout): if a column is missing and another
         session keeps ranking_groups locked for 5 s (the ALTER TABLE
         takes an ACCESS EXCLUSIVE lock); nothing is changed then. When
-        the column exists, the update takes no lock.
+        both columns exist, the update takes no lock.
 
     """
     apply_fork_sql(FORK_RANKING_GROUP_ARCHIVE_SQL, "ranking_groups")

@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, OperationalError, \
     PendingRollbackError, TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import object_session
+from sqlalchemy.sql.dml import Update
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.testidgenerator import unique_unicode_id
@@ -1973,6 +1974,16 @@ class ArchiveSweepTestCase(
         return ranking_group
 
 
+class TestArchiveGraceConstant(unittest.TestCase):
+
+    def test_the_grace_lives_in_the_db_package_and_is_24_hours(self):
+        # AWS reads the constant without importing the service.
+        import cms.service.ProxyService as proxy_module
+        from cms.db.rankinggroup import ARCHIVE_GRACE
+        self.assertEqual(ARCHIVE_GRACE, timedelta(hours=24))
+        self.assertEqual(proxy_module.ARCHIVE_GRACE, ARCHIVE_GRACE)
+
+
 class TestDefaultArchiveAt(ArchiveSweepTestCase):
 
     async def test_the_last_contest_decides(self):
@@ -2080,6 +2091,58 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
         self.assertIsNone(self.archive_at(long_ago))
         self.assertIsNone(self.archive_at(exactly_now))
 
+    async def test_a_time_written_by_the_operator_is_kept(self):
+        # Scenario: A time written by the operator is kept: earlier than
+        # the default, so an unmarked group would be postponed.
+        written = NOW + timedelta(hours=2)
+        group = self.add_ranking_group(
+            [NOW + timedelta(hours=10)], archive_at=written,
+            archive_at_manual=True)
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group), written)
+
+    async def test_a_time_written_during_the_sweep_is_kept(self):
+        # Scenario: A time written by the operator is kept, also when AWS
+        # writes it between the SELECT of the sweep and its UPDATE.
+        written = NOW + timedelta(hours=2)
+        group = self.add_ranking_group(
+            [NOW + timedelta(hours=10)], archive_at=written)
+        service = self.build_service()
+        real_default = service._default_archive_at
+
+        def default_after_aws_marks_the_group(session, ranking_group):
+            with SessionGen() as other:
+                other.get(RankingGroup, ranking_group.id).archive_at_manual \
+                    = True
+                other.commit()
+            return real_default(session, ranking_group)
+
+        with patch.object(service, "_default_archive_at",
+                          default_after_aws_marks_the_group):
+            self.fill(service)
+        self.assertEqual(self.archive_at(group), written)
+
+    async def test_an_archive_at_cleared_by_the_operator_stays_empty(self):
+        # Scenario: An archive_at cleared by the operator stays empty,
+        # while the computed default is in the future.
+        group = self.add_ranking_group(
+            [NOW + timedelta(hours=1)], archive_at_manual=True)
+        service = self.build_service()
+        self.fill(service)
+        self.assertIsNone(self.archive_at(group))
+
+    async def test_an_unmarked_group_is_still_postponed(self):
+        # The same group as in "A time written by the operator is kept",
+        # without the mark: Scenario: A contest added later postpones a
+        # future archive_at.
+        end = NOW + timedelta(hours=10)
+        group = self.add_ranking_group(
+            [end], archive_at=NOW + timedelta(hours=2))
+        service = self.build_service()
+        self.fill(service)
+        self.assertEqual(self.archive_at(group), end + timedelta(hours=24))
+
     async def test_a_group_with_no_contests_stays_empty(self):
         # Scenario: A group with no contests.
         group = self.add_ranking_group()
@@ -2145,10 +2208,9 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
 
     async def test_a_failing_update_inside_the_fill_is_handled(self):
         # Scenario: A group with a contest that has not ended gets the
-        # default, even when the UPDATE of the first of two groups fails
-        # (it used to fail at the autoflush of the read of the second,
-        # outside the error handling): one WARNING, a rollback, the
-        # sweep goes on, and the next sweep stores both defaults.
+        # default, even when the UPDATE of the first of two groups fails:
+        # one WARNING, a rollback, the sweep goes on, and the next sweep
+        # stores both defaults.
         end = NOW + timedelta(hours=1)
         groups = [self.add_ranking_group([end]) for _ in range(2)]
         service = self.build_service()
@@ -2159,16 +2221,16 @@ class TestFillArchiveDefaults(ArchiveSweepTestCase):
         @contextmanager
         def failing_update_once():
             with SessionGen() as session:
-                real_flush = session.flush
+                real_execute = session.execute
 
-                def flush(*args, **kwargs):
-                    if session.dirty:
-                        session.flush = real_flush
+                def execute(statement, *args, **kwargs):
+                    if isinstance(statement, Update):
+                        session.execute = real_execute
                         raise OperationalError(
                             "UPDATE", {}, Exception("timeout"))
-                    real_flush(*args, **kwargs)
+                    return real_execute(statement, *args, **kwargs)
 
-                session.flush = flush
+                session.execute = execute
                 yield session
 
         with patch("cms.service.ProxyService.SessionGen",

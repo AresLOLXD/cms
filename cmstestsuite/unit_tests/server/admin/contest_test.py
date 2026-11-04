@@ -27,6 +27,7 @@ contest's ranking group unchanged, like any other omitted field.
 """
 
 import unittest
+from datetime import datetime
 from unittest.mock import MagicMock
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -168,6 +169,41 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
         self.assertEqual(contest.name, "before")
         self.assertEqual(contest.ranking_group_id, self.group_id)
 
+    def archive(self, group_id: int):
+        """Archive the group with the given id, in the past."""
+        self.session.get(RankingGroup, group_id).archive_at = \
+            datetime(2020, 1, 1)
+        self.session.commit()
+
+    def test_assigning_a_contest_to_an_archived_group_is_refused(self):
+        # Scenario: Assigning a contest to an archived group
+        self.archive(self.other_group_id)
+
+        handler = self._post(ranking_group_id=str(self.other_group_id))
+
+        self.assertEqual(self._notifications(handler), ["Invalid field(s)."])
+        self.assertIn("'other' is archived",
+                      handler.service.add_notification.call_args.args[2])
+        self.assertIn("before assigning a contest to it",
+                      handler.service.add_notification.call_args.args[2])
+        handler.schedule_rpc.assert_not_called()
+        contest = self._reload_contest()
+        self.assertEqual(contest.name, "before")
+        self.assertEqual(contest.ranking_group_id, self.group_id)
+
+    def test_editing_a_contest_of_an_archived_group_is_allowed(self):
+        # Scenario: Editing a contest of an archived group
+        self.archive(self.group_id)
+
+        for form in ({}, {"ranking_group_id": str(self.group_id)}):
+            with self.subTest(form=form):
+                handler = self._post(**form)
+
+                self.assertEqual(self._notifications(handler),
+                                 ["Operation successful."])
+                contest = self._reload_contest()
+                self.assertEqual(contest.name, "after")
+                self.assertEqual(contest.ranking_group_id, self.group_id)
 
     def test_bad_timezone_is_rejected_without_commit(self):
         for name in ("America/Mexico_City/", "Foo/Bar", "America"):

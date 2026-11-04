@@ -524,6 +524,32 @@ right after switching `enforce` on.
 5. Untick **Active** on each contest to close it to the contestants. Its
    scoreboard stays published.
 
+## Publishing a late correction
+
+A ranking group whose archive time nobody has set in AWS archives itself 24
+hours after the end of its last contest (see "Archiving a ranking group" in
+[multi-contest.md](multi-contest.md)).
+Until it is archived, a correction, such as a score that changes after a late
+evaluation, reaches the public ranking as usual. After that, nothing reaches
+it until the group is unarchived. To publish a correction then:
+
+1. Open the group under **Ranking groups**. Its **Archive** row reads
+   "archivado desde …" (archived since …) when it is archived, and the red
+   banner on the contest's pages says so too.
+2. Press **Desarchivar** and confirm. The whole group is sent again, and the
+   group archives itself again 24 hours later. If ProxyService was down when
+   you pressed it, the regenerate is lost: press **Regenerate** on the group.
+3. Wait for the scoreboard to fill again; a large group can take minutes.
+   Compare it with the scores in the Admin Web Server. If they differ, press
+   **Regenerate**.
+4. If the group must stay open longer, set **Archive at (UTC)** to a later
+   time and save. To archive it at once, press **Archivar ahora**; if the
+   group is hidden or frozen now, it asks for confirmation, since the ranking
+   is then shown in full.
+
+Do not press **Regenerate** on an archived group first: it does nothing, and
+AWS says so.
+
 ## After the contest
 
 - Take a backup with `sudo ./backup.sh`, copy it off the server with the
@@ -579,3 +605,4 @@ right after switching `enforce` on.
 | `Watchdog: … held by H…` in the logs or in the **Logs** table | Follow the row of that hold in "The holds" | "When the watchdog alerts" (above) |
 | `Watchdog: restarted …` or `Watchdog: WOULD restart …` | Read the evidence; tell the contestants of a restarted Contest Web Server to check their submissions | "When the watchdog alerts" (above) |
 | `./status.sh` shows `no status file`, or a watchdog line whose last cycle is minutes old | The watchdog is not running: check its row (`cmswatchdog`) in `./status.sh` and read `./logs.sh cms` | "When the watchdog alerts" (above) |
+| A correction does not reach the public ranking after the contest | If its group is archived (the banner on the contest's pages says so), press **Desarchivar** on the group, and **Regenerate** on it if ProxyService was down then; see "Publishing a late correction" above | [multi-contest.md](multi-contest.md) |

@@ -28,7 +28,7 @@
 
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import asyncio
 import enum
 import json
@@ -43,7 +43,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 import requests.exceptions
-from sqlalchemy import func, not_, or_, select
+from sqlalchemy import func, not_, or_, select, update
 from sqlalchemy.exc import DBAPIError, PendingRollbackError, \
     TimeoutError as PoolTimeoutError
 
@@ -51,6 +51,7 @@ from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
     Group, RankingGroup, Submission, get_submissions
 from cms.db.connect_options import describe_error
+from cms.db.rankinggroup import ARCHIVE_GRACE
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.health import BusyTracker
@@ -68,10 +69,6 @@ logger = logging.getLogger(__name__)
 # would block the thread sending to it forever.
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 120
-
-# How long after the end of its last contest a ranking group is
-# archived by default (see _default_archive_at).
-ARCHIVE_GRACE = timedelta(hours=24)
 
 
 class CannotSendError(Exception):
@@ -1320,9 +1317,11 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         archive_at is still in the future gets it too when it is
         later (a contest was added or extended): archive_at is only
         postponed, never moved earlier, and an archive_at in the past
-        is never touched. A database error (in the reads or in the
-        UPDATE, which only happens at the commit) is logged and rolled
-        back, so the sweep goes on and the next one tries again.
+        is never touched. A group whose archive_at an operator wrote in
+        AWS (archive_at_manual) is skipped, also when it was cleared.
+        A database error (in the reads, in the UPDATE or in the commit)
+        is logged and rolled back, so the sweep goes on and the next one
+        tries again.
 
         session: the session to read and write the groups with.
 
@@ -1332,19 +1331,27 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         now = make_datetime()
         changed = False
         try:
-            # No autoflush: the UPDATE must happen at the commit, inside
-            # this try, and not at the read of the next group.
+            # No autoflush: the only write is the UPDATE below.
             with session.no_autoflush:
                 for ranking_group in session.execute(
-                        select(RankingGroup).filter(or_(
-                            RankingGroup.archive_at.is_(None),
-                            RankingGroup.archive_at > now))
+                        select(RankingGroup).filter(
+                            RankingGroup.archive_at_manual.is_(False),
+                            or_(RankingGroup.archive_at.is_(None),
+                                RankingGroup.archive_at > now))
                 ).scalars().all():
                     default = self._default_archive_at(session, ranking_group)
                     if default is not None and default > now and (
                             ranking_group.archive_at is None
                             or default > ranking_group.archive_at):
-                        ranking_group.archive_at = default
+                        # Conditional: AWS may mark the group meanwhile
+                        # (READ COMMITTED re-checks the WHERE after its
+                        # commit).
+                        session.execute(
+                            update(RankingGroup)
+                            .where(RankingGroup.id == ranking_group.id,
+                                   RankingGroup.archive_at_manual.is_(False))
+                            .values(archive_at=default)
+                            .execution_options(synchronize_session=False))
                         changed = True
             if changed:
                 session.commit()

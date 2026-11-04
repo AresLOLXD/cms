@@ -663,6 +663,120 @@ overwrite: if others are editing groups (for example during contest setup),
 at that moment plus any field you edited on that page, not on the schedule
 the page showed, so it can be refused with the messages above.
 
+## Archiving a ranking group
+
+Archiving a ranking group stops its public ranking from changing. From its
+archive time on, ProxyService sends the group nothing more, so the scoreboard
+keeps its final standings, and the group stops costing work. Until then it
+works as before, so a correction made during the grace period still reaches
+the scoreboard.
+
+### What archiving means
+
+- Nothing more is sent to the group's public ranking: no scores, tokens,
+  contest data or visibility settings. A sweep, an initialize or a
+  reinitialize skips the group, and a contest assigned to an archived group
+  sends nothing.
+- The public ranking keeps the scores, tokens and contest data it already
+  holds. Archiving removes and changes none of them.
+- The group is shown and not frozen. When it becomes archived, ProxyService
+  sends its visibility once, with no hide and no freeze window, even if the
+  group was hidden or frozen. It sends no visibility again while the group
+  stays archived.
+- **Regenerate** does nothing on an archived group. AWS says "Ranking
+  regeneration ignored" and that nothing was sent.
+
+### The archive time
+
+Each group has an **Archive at** time in UTC (`archive_at`). The group is
+archived from that instant on, and stays archived until the time is moved to
+the future or cleared. An empty time means the group is never archived.
+
+A group that has contests and whose archive time has never been set in AWS gets
+a default: 24 hours after the end of its last contest, that is, after the
+latest stop time of its contests. ProxyService fills it in while that instant
+is still in the future. While the time is still in the future, a contest added
+to the group, or moved later, postpones it. It is never moved earlier, and a
+time in the past is never changed.
+
+Once you change **Archive at** in AWS (by editing the field, clearing it,
+**Archivar ahora** or **Desarchivar**), ProxyService never fills, postpones or
+clears that group's time again. Clearing the field means the group is never
+archived: there is no way back to the automatic default in this version.
+
+A group whose contests all ended more than 24 hours ago gets no default, so
+its time stays empty and it is never archived by itself. The same holds for a
+group with no contests. Groups that existed before the upgrade start with an
+empty time.
+
+### Archiving in AWS
+
+The **Archive** row of the group page shows its state, in the wording the page
+uses:
+
+- "nunca se archiva" (never archived) when the group has no archive time;
+- "se archiva el …" (will be archived on …) while the time is in the future;
+- "archivado desde …" (archived since …) once it has passed.
+
+The two dated states show the time in UTC and in the local time, as the other
+times of the page do.
+
+Below it, the **Archive at (UTC)** field works like the other time fields:
+type `YYYY-MM-DD HH:MM:SS`, or clear it to remove the time. A time that is not
+valid saves nothing and shows an "Invalid field(s)" notification. The field
+follows the stale-form rule, so only a change to it counts (see "Stale form").
+
+- **Archivar ahora** (shown while the group is not archived) sets **Archive
+  at** to the current time, so the group is archived at once. If the group is
+  hidden or frozen now, the button asks for confirmation first, because
+  archiving shows the ranking in full to the public. This cannot be undone from
+  the page: unarchiving restores the windows, but the scores were already seen.
+  On an out-of-date page, for a group that is already archived, nothing is
+  saved and the notification says "The group is already archived."
+- **Desarchivar** (shown while the group is archived) sets **Archive at** to
+  the current time plus 24 hours. The whole group is sent again, and it
+  archives itself again 24 hours later, unless you move the time. The button
+  asks for confirmation first. If ProxyService was down when you pressed it,
+  the regenerate is lost: press **Regenerate** on the group. On an out-of-date
+  page, for a group that is not archived, nothing is saved and the notification
+  says "The group is not archived."
+
+**Any save that takes a group from archived to not archived** asks ProxyService
+to regenerate the whole group once, after the save is committed. That happens
+with **Desarchivar**, and with an edit that moves **Archive at** to the future
+or clears it. A save that leaves the group archived, or leaves it not archived,
+does not regenerate. A regenerate empties the group's public ranking and sends
+it again, which can take minutes for a large group.
+
+### Refusals
+
+AWS refuses the following, saves nothing, and shows an "Invalid field(s)"
+notification that names the group:
+
+- Assigning a contest to an archived group. Unarchive the group first, then
+  assign the contest. A contest that is already in an archived group can still
+  be saved, as long as its group does not change.
+- Renaming an archived group. Unarchive it first. A save that unarchives and
+  renames a group at once is refused too, so do the two in separate saves.
+
+### The banner
+
+On every page of a contest whose ranking group is archived, AWS shows a red
+banner above the content. It names the group, links to its page, and says
+that changes made there do not reach the public ranking until the group is
+unarchived. A contest with no group, or with a group that is not archived,
+shows no banner. Pages without a contest, such as the contest list and the
+ranking group pages, show none either; the group page shows the state itself.
+
+### Known limits
+
+- Moving a contest out of an archived group is allowed, and its data stays in
+  that group's public ranking.
+- AWS does not refuse to delete an archived group. Deleting it removes the
+  group as usual (see "Removing an old scoreboard").
+- There is no static snapshot of an archived group yet: its public ranking is
+  the data the Ranking Web Server already holds.
+
 ## Telegram bot
 
 With `CMS_CONTEST_ID=ALL`, if `CMS_TELEGRAM_BOT_TOKEN` and

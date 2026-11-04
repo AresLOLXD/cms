@@ -20,14 +20,20 @@
 
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.schema import Column
+from sqlalchemy.sql import expression
 from sqlalchemy.types import Boolean, DateTime, Integer, Unicode
 
 from cmscommon.ranking_groups import window_is_open
 
 from . import Base
+
+# How long after the end of its last contest a ranking group is archived
+# by default (see ProxyService._default_archive_at), and how long an
+# unarchived group stays open in AWS.
+ARCHIVE_GRACE = timedelta(hours=24)
 
 
 class RankingGroup(Base):
@@ -84,6 +90,16 @@ class RankingGroup(Base):
     # Naive UTC; None means never archived: see the ranking-group-archiving
     # spec.
     archive_at: datetime | None = Column(DateTime, nullable=True)
+
+    # True once an operator wrote archive_at in AWS (or pressed Archive
+    # now / Unarchive): ProxyService then leaves archive_at alone. See the
+    # ranking-group-archiving spec, "A time written in AWS is not changed
+    # by ProxyService".
+    archive_at_manual: bool = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=expression.false())
 
     def is_archived_at(self, now: datetime) -> bool:
         """Tell whether the group is archived at now (naive UTC)."""

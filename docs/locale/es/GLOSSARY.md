@@ -124,6 +124,7 @@ una competencia / Ejecutar una competencia / Referencia / Desarrollo.
 | contestant | concursante |
 | scoreboard, ranking | ranking |
 | ranking group | grupo de ranking |
+| archive / unarchive | archivar / desarchivar |
 | worker | worker |
 | queue | cola |
 | evaluation | evaluación |
