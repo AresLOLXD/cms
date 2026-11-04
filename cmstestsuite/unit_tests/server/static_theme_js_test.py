@@ -165,6 +165,12 @@ class TestThemeScriptFile(unittest.TestCase):
         for sender in ("cookie", "XMLHttpRequest", "fetch", "sendBeacon"):
             self.assertNotIn(sender, source)
 
+    def test_rws_has_an_identical_copy(self):
+        # RWS cannot reach cms/server/static, so it serves its own copy.
+        copy = importlib.resources.files("cmsranking").joinpath(
+            "static", "theme.js")
+        self.assertEqual(copy.read_bytes(), THEME_JS.read_bytes())
+
     def test_aws_serves_the_script(self):
         # The templates of AWS refer to it as static_url("static",
         # "theme.js"): AWS must search cms/server/static, where it lives.

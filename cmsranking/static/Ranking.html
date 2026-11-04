@@ -4,6 +4,7 @@
         <meta charset='utf-8'/>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="shortcut icon" href="img/favicon.ico" />
+        <script src="theme.js"></script>
         <link rel='stylesheet' href='Ranking.css'>
         <script src="//ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
         <script>
@@ -40,6 +41,11 @@ if (!("EventSource" in window)) {
                     <div id="ConnectionStatus_label">Status</div>
                     <div id="ConnectionStatus_text"></div>
                 </div>
+                <select id="theme" title="Tema" aria-label="Tema">
+                    <option value="system">Sistema</option>
+                    <option value="light">Claro</option>
+                    <option value="dark">Oscuro</option>
+                </select>
             </div>
             <div id="TimeView">
                 <div id="TimeView_name"></div>
@@ -52,8 +58,8 @@ if (!("EventSource" in window)) {
             </div>
             <div id="SidePanel">
                 <div id="Overview"></div>
-                <div style="color: #999; text-align: center; font-size: 12px; padding-top: 5px;">
-                    Powered by <a style="color: #00A3DA; text-decoration: none;" href="https://cms-dev.github.io/" target="_blank">CMS</a>
+                <div class="powered_by">
+                    Powered by <a href="https://cms-dev.github.io/" target="_blank">CMS</a>
                 </div>
             </div>
             <div id="InnerFrame">
