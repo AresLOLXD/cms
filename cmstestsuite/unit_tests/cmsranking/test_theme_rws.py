@@ -27,11 +27,15 @@ them apart from the asyncio ones.
 import importlib.resources
 import json
 import re
+import shutil
+import subprocess
 import unittest
 from unittest.mock import patch
 
-from cmsranking.visibility import FROZEN_ROUTES
+from cmsranking.visibility import FROZEN_ROUTES, STAFF_BANNER, \
+    STAFF_FROZEN_BANNER, public_frozen_banner
 from cmstestsuite.unit_tests.cmsranking import test_visibility
+from cmstestsuite.unit_tests.server.theme_contrast_test import contrast
 from cmstestsuite.unit_tests.server.themecss import DARK_ATTRIBUTE, \
     DARK_MEDIA, LITERAL_COLOR, dark_set, light_set, read_block
 
@@ -204,6 +208,179 @@ class TestRwsServesTheScript(test_visibility.VisibilityTestCase):
             self.assertEqual(response.status_code, 200, state)
             self.assertEqual(response.get_data(), THEME_JS.read_bytes(),
                              state)
+
+
+# Runs the early-apply snippet of a notice page (argv[1]) against stubs and
+# prints the data-theme it sets. Config (JSON, argv[2]): "stored" (the value
+# of cms.theme, or null), "throws" (reading local storage fails).
+EARLY_HARNESS = r"""
+const vm = require("vm");
+const cfg = JSON.parse(process.argv[2]);
+const attributes = {};
+const localStorage = {
+    getItem() {
+        if (cfg.throws) throw new Error("blocked");
+        return cfg.stored;
+    },
+};
+const document = {
+    documentElement: { setAttribute(name, value) { attributes[name] = value; } },
+};
+vm.runInNewContext(process.argv[1], { document, localStorage });
+console.log(JSON.stringify(attributes["data-theme"] || null));
+"""
+
+
+class TestRwsBuiltInPages(test_visibility.VisibilityTestCase):
+    """The notice and the staff login, as a hidden and a frozen group serve
+    them."""
+
+    def setUp(self):
+        super().setUp()
+        self.put_contest("/olim")
+
+    def hide(self):
+        self.put_visibility("olim", True)
+
+    def freeze(self):
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": None, "show_at": None, "freeze_at": 200,
+            "unfreeze_at": 400,
+            "staff_password": test_visibility.STAFF_HASH}),
+            content_type="application/json", headers=test_visibility.AUTH)
+
+    def pages(self) -> dict[str, str]:
+        """Return the html of the hidden notice, the staff login of a
+        frozen group and the notice that answers a failed login."""
+        self.hide()
+        pages = {"hidden notice": self.client.get("/olim/")}
+        with patch("cmsranking.visibility.gevent.sleep"):
+            pages["failed login"] = self.client.post(
+                "/olim/staff-login", data={"password": "wrong"})
+        self.put_visibility("olim", False)
+        self.freeze()
+        with patch("cmsranking.visibility.time.time", return_value=350):
+            pages["frozen login"] = self.client.get("/olim/staff-login")
+        for name, response in pages.items():
+            self.assertEqual(response.status_code,
+                             401 if name == "failed login" else 200, name)
+        return {name: r.get_data(as_text=True) for name, r in pages.items()}
+
+    def test_a_hidden_group_refuses_the_script(self):
+        # Why the notice pages inline the early apply: a hidden group
+        # answers 403 to everything but the notice, the login and the staff
+        # (and a frozen group's login page is the same page).
+        self.hide()
+        self.assertEqual(self.client.get("/olim/theme.js").status_code, 403)
+        for name, html in self.pages().items():
+            self.assertNotIn("theme.js", html, name)
+            self.assertNotIn("<script src", html, name)
+
+    def test_the_pages_have_the_dark_set_under_both_selectors(self):
+        # Scenario: The ranking built-in pages
+        # (the same tokens and values under both selectors, and different
+        # from the light set, so the pages do not stay light in dark)
+        for name, html in self.pages().items():
+            style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+            by_media = read_block(style, DARK_MEDIA)
+            self.assertGreater(len(by_media), 0, name)
+            self.assertEqual(by_media, read_block(style, DARK_ATTRIBUTE), name)
+            self.assertEqual(set(by_media), set(light_set(style)), name)
+            for token, value in by_media.items():
+                self.assertNotEqual(value, light_set(style)[token],
+                                    "%s %s" % (name, token))
+            self.assertRegex(style, r"(?m)^:root \{\s*color-scheme: light dark;")
+            self.assertRegex(style, r"(?s)%s \{\s*color-scheme: dark;" %
+                             re.escape(DARK_MEDIA))
+            self.assertRegex(
+                style, r'(?s)\[data-theme="dark"\] \{\s*color-scheme: dark;')
+            # Outside the token declarations, no literal color.
+            self.assertEqual(LITERAL_COLOR.findall(
+                re.sub(r"--[\w-]+:[^;]*;", "", style)), [], name)
+
+    @unittest.skipIf(shutil.which("node") is None, "node is not installed")
+    def test_the_pages_apply_the_saved_choice(self):
+        # Scenario: A saved dark choice with a light system
+        # Scenario: Local storage is unavailable
+        # (the snippet does what the early apply of theme.js does)
+        for name, html in self.pages().items():
+            script = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
+            self.assertIn("cms.theme", script)
+            for stored, throws, expected in [
+                    ("dark", False, "dark"), ("light", False, "light"),
+                    (None, False, None), ("system", False, None),
+                    ("garbage", False, None), (None, True, None)]:
+                result = subprocess.run(
+                    ["node", "-e", EARLY_HARNESS, script, json.dumps(
+                        {"stored": stored, "throws": throws})],
+                    capture_output=True, text=True, check=True)
+                self.assertEqual(json.loads(result.stdout), expected,
+                                 (name, stored, throws))
+
+    def test_the_banners_use_tokens_not_literal_colors(self):
+        # Scenario: The ranking built-in pages
+        # (the banner is inserted into Ranking.html, whose stylesheet has
+        # banner-bg and banner-text, with a dark value of its own for the bar)
+        css = CSS.read_text(encoding="utf-8")
+        banners = [STAFF_BANNER, STAFF_FROZEN_BANNER,
+                   public_frozen_banner(1_700_000_000)]
+        for banner in banners:
+            text = banner.decode("utf-8")
+            self.assertEqual(LITERAL_COLOR.findall(text), [])
+            self.assertIn("background:var(--banner-bg)", text)
+            self.assertIn("color:var(--banner-text)", text)
+        self.assertNotEqual(light_set(css)["banner-bg"],
+                            dark_set(css)["banner-bg"])
+
+
+def to_hex(channels: str) -> str:
+    """Return the #rrggbb of "r, g, b" (as the up and down tokens are)."""
+    return "#%02x%02x%02x" % tuple(int(c) for c in channels.split(","))
+
+
+class TestScoreCellsKeepTheirMeaning(unittest.TestCase):
+
+    # Scenario: Score cells keep their meaning
+    # The colors that tell the states of a score apart are zero (the text
+    # color of a score of 0), improved (up), worsened (down) and selected
+    # (the palette of the selection boxes, which is the same in both sets and
+    # is only checked in the dark set: in the light one it is the old
+    # palette, unchanged). Each must be told from the others (all different;
+    # up and down also by luminance, not only by hue) and from the page.
+    # 1.5:1 is the threshold: WCAG asks 3:1 only for the parts of a control,
+    # and these are transient or secondary marks next to text that has its
+    # own check (see theme_contrast_test); 1.5 keeps them from melting into
+    # the background.
+    MIN_RATIO = 1.5
+
+    def setUp(self):
+        self.css = CSS.read_text(encoding="utf-8")
+
+    def states(self, tokens: dict[str, str]) -> dict[str, str]:
+        return {"zero": tokens["score-zero"], "up": to_hex(tokens["up"]),
+                "down": to_hex(tokens["down"])}
+
+    def test_states_differ_from_each_other_and_from_the_page(self):
+        palette = [
+            "#%02x%02x%02x" % tuple(int(c) for c in match)
+            for match in re.findall(
+                r"tr\.color[1-8] td\.sel \{\s*background-color: "
+                r"rgb\((\d+),(\d+),(\d+)\)", self.css)]
+        self.assertEqual(len(palette), 8)
+        for theme, tokens in (("light", light_set(self.css)),
+                              ("dark", dark_set(self.css))):
+            states = self.states(tokens)
+            if theme == "dark":
+                states.update(
+                    ("selected %d" % n, c) for n, c in enumerate(palette, 1))
+            self.assertEqual(len(set(states.values())), len(states), theme)
+            for name, color in states.items():
+                for page in ("page-grad-top", "page-grad-bottom"):
+                    self.assertGreaterEqual(
+                        contrast(color, tokens[page]), self.MIN_RATIO,
+                        "%s: %s on %s" % (theme, name, page))
+            self.assertGreaterEqual(
+                contrast(states["up"], states["down"]), self.MIN_RATIO, theme)
 
 
 if __name__ == "__main__":

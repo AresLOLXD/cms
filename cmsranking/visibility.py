@@ -104,21 +104,65 @@ HIDDEN_MESSAGE = "Este ranking está oculto por ahora."
 FROZEN_LOGIN_TITLE = "Acceso staff"
 FROZEN_LOGIN_MESSAGE = "Acceso del staff al ranking en vivo."
 
+# The theme of the notice pages. A hidden group refuses every file but the
+# notice, so these pages carry their own colors and the early apply of
+# theme.js (same behavior: the saved choice of "cms.theme" becomes
+# data-theme, and System sets nothing) instead of loading them. The dark set
+# is declared twice, identical, as in Ranking.css; keep both in step.
+NOTICE_THEME = """<script>
+try {
+    var theme = localStorage.getItem("cms.theme");
+    if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+    }
+} catch (e) {}
+</script>
+<style>
+:root {
+    color-scheme: light dark;
+    --page-bg: #f4f4f4;
+    --text: #222222;
+    --card-bg: #ffffff;
+    --error: #b00020;
+    --shadow: rgba(0, 0, 0, 0.15);
+}
+:root[data-theme="light"] {
+    color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --page-bg: #16181c;
+        --text: #e6e8eb;
+        --card-bg: #1f2328;
+        --error: #ff8fa3;
+        --shadow: rgba(0, 0, 0, 0.6);
+    }
+}
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --page-bg: #16181c;
+    --text: #e6e8eb;
+    --card-bg: #1f2328;
+    --error: #ff8fa3;
+    --shadow: rgba(0, 0, 0, 0.6);
+}
+body { font-family: sans-serif; background: var(--page-bg);
+       color: var(--text); display: flex; min-height: 100vh; margin: 0;
+       align-items: center; justify-content: center; }
+main { background: var(--card-bg); padding: 2em; border-radius: 8px;
+       max-width: 26em; box-shadow: 0 1px 4px var(--shadow); }
+.error { color: var(--error); }
+</style>
+"""
+
 NOTICE_TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<style>
-body {{ font-family: sans-serif; background: #f4f4f4; color: #222;
-       display: flex; min-height: 100vh; margin: 0;
-       align-items: center; justify-content: center; }}
-main {{ background: #fff; padding: 2em; border-radius: 8px;
-       max-width: 26em; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }}
-.error {{ color: #b00020; }}
-</style>
-</head>
+{theme}</head>
 <body>
 <main>
 <h1>{group}</h1>
@@ -164,6 +208,8 @@ setInterval(function () {
 # is under it). The height of the bar and that room are one property:
 # 2.25rem is a line of 1.25rem and a padding of 0.5rem above and below,
 # and 3.5rem holds the two lines that the text takes on a narrow screen.
+# Its colors are the banner-* tokens of Ranking.css: the bar is only ever
+# inserted into that page, which also has the theme.
 def _banner(text_html: str) -> bytes:
     """Build a bottom bar with the given text (see STAFF_BANNER's CSS)."""
     return (
@@ -177,11 +223,12 @@ def _banner(text_html: str) -> bytes:
         '<div style="position:fixed;bottom:0;left:0;right:0;z-index:1000;'
         'box-sizing:border-box;height:var(--rws-banner);overflow:hidden;'
         'padding:0.5rem;font:0.85rem/1.25rem sans-serif;'
-        'background:#b00020;color:#fff;text-align:center;">'
+        'background:var(--banner-bg);color:var(--banner-text);'
+        'text-align:center;">'
         + text_html + '</div>').encode("utf-8")
 
 
-LINK = '<a style="color:#fff" href="%s">%s</a>'
+LINK = '<a style="color:inherit" href="%s">%s</a>'
 STAFF_BANNER = _banner("Vista staff: este ranking está oculto al público "
                        "&middot; " + LINK % ("staff-logout", "Salir"))
 STAFF_FROZEN_BANNER = _banner(
@@ -887,7 +934,7 @@ class VisibilityGuard:
             group=self._escaped_group(), message=message, title=title,
             error='<p class="error">Contraseña incorrecta.</p>'
                   if error else "",
-            script=NOTICE_POLL if poll else "")
+            script=NOTICE_POLL if poll else "", theme=NOTICE_THEME)
         return Response(body, status=status, mimetype="text/html",
                         headers=NO_STORE)
 
