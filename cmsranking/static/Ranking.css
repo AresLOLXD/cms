@@ -1,14 +1,219 @@
+/* THEME TOKENS: the colors of this file are custom properties. The light
+   set is on :root; the dark set is declared twice (system preference, and
+   data-theme="dark" set by theme.js), identical. Keep both in step.
+   The chart-bg, overview-bg and chart-text tokens are the same in both sets: the charts (Overview.js,
+   Chart.js) draw for a light background and keep a light panel in dark.
+   shortcut: the palette of the selection boxes (tr.colorN td.sel, the Tango
+   colors) is not tokenized: it is the same in both themes and must equal the
+   line colors of Overview.js and Chart.js, which this change does not touch.
+   shortcut: native form controls (the theme select) have no token;
+   color-scheme darkens them, so their contrast is not checked. */
+:root {
+    color-scheme: light dark;
+    --text: #000000;
+    --page-bg: #F6F6F6;
+    --page-grad-top: #FFFFFF;
+    --page-grad-bottom: #EDEDED;
+    --panel-bg: #EAEAEC;
+    --panel-border: #FAFAFA;
+    --shadow: #808080;
+    --caret: #AAAAAA;
+    --caret-active: #000000;
+    --option-text: #444444;
+    --option-selected-bg: #F2F2F3;
+    --option-hover-bg: #FAFAFA;
+    --field-bg: #FFFFFF;
+    --field-text: #000000;
+    --dialog-bg: #FFFFFF;
+    --overlay: rgba(0, 0, 0, 0.5);
+    --strong-bg: #DDDDDD;
+    --mid-bg: #EEEEEE;
+    --odd-bg: #F8F8F8;
+    --button-active-bg: #CCCCCC;
+    --button-border: #999999;
+    --cell-bg: #ECECEF;
+    --cell-hover-bg: #E2E2E6;
+    --cell-border: #D0D0D2;
+    --cell-inset: #D2D2D4;
+    --name-hover-bg: #E6E6E6;
+    --row-hover: rgba(200, 200, 200, 0.35);
+    --tick-icon: url('img/tick_black.png');
+    --icon-filter: none;
+    --sort-border: #777777;
+    --sort-inset: #FFFFFF;
+    --selected-border: rgba(0, 0, 0, 0.2);
+    --up: 130, 215, 48;
+    --down: 239, 41, 41;
+    --score-zero: #3c3c3c;
+    --score-0-10: hsl(120, 30%, 87%);
+    --score-10-20: hsl(120, 30%, 84%);
+    --score-20-30: hsl(120, 30%, 81%);
+    --score-30-40: hsl(120, 30%, 78%);
+    --score-40-50: hsl(120, 30%, 75%);
+    --score-50-60: hsl(120, 30%, 72%);
+    --score-60-70: hsl(120, 30%, 69%);
+    --score-70-80: hsl(120, 30%, 66%);
+    --score-80-90: hsl(120, 30%, 63%);
+    --score-90-100: hsl(120, 30%, 60%);
+    --score-100: hsl(120, 30%, 55%);
+    --status-ok-bg: #FFFFFF;
+    --status-ok-text: #008000;
+    --status-wait-bg: #FFFF00;
+    --status-wait-text: #000000;
+    --status-bad-bg: #D00000;
+    --status-bad-text: #FFFFFF;
+    --footer-text: #595959;
+    --link: #00699b;
+    --chart-bg: #FFFFFF;
+    --overview-bg: #EAEAEC;
+    --chart-text: #000000;
+    --banner-bg: #b00020;
+    --banner-text: #ffffff;
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --text: #e3e6ea;
+        --page-bg: #14161a;
+        --page-grad-top: #1b1e23;
+        --page-grad-bottom: #101215;
+        --panel-bg: #23272d;
+        --panel-border: #3a3f46;
+        --shadow: #000000;
+        --caret: #8a9099;
+        --caret-active: #ffffff;
+        --option-text: #b4bac1;
+        --option-selected-bg: #2f343b;
+        --option-hover-bg: #363c44;
+        --field-bg: #14171a;
+        --field-text: #e3e6ea;
+        --dialog-bg: #1b1e23;
+        --overlay: rgba(0, 0, 0, 0.6);
+        --strong-bg: #2d3239;
+        --mid-bg: #262a30;
+        --odd-bg: #20242a;
+        --button-active-bg: #3a4048;
+        --button-border: #5a616b;
+        --cell-bg: #2a2e35;
+        --cell-hover-bg: #343942;
+        --cell-border: #3d434b;
+        --cell-inset: #3a3f46;
+        --name-hover-bg: #2b3037;
+        --row-hover: rgba(255, 255, 255, 0.1);
+        --tick-icon: url('img/tick_white.png');
+        --icon-filter: invert(1);
+        --sort-border: #8a9099;
+        --sort-inset: #14161a;
+        --selected-border: rgba(255, 255, 255, 0.3);
+        --up: 42, 111, 46;
+        --down: 128, 24, 24;
+        --score-zero: #a8afb7;
+        --score-0-10: hsl(120, 30%, 10%);
+        --score-10-20: hsl(120, 30%, 12%);
+        --score-20-30: hsl(120, 30%, 14%);
+        --score-30-40: hsl(120, 30%, 16%);
+        --score-40-50: hsl(120, 30%, 18%);
+        --score-50-60: hsl(120, 30%, 20%);
+        --score-60-70: hsl(120, 30%, 22%);
+        --score-70-80: hsl(120, 30%, 24%);
+        --score-80-90: hsl(120, 30%, 26%);
+        --score-90-100: hsl(120, 30%, 28%);
+        --score-100: hsl(120, 55%, 24%);
+        --status-ok-bg: #14301a;
+        --status-ok-text: #7ee08a;
+        --status-wait-bg: #5c4b00;
+        --status-wait-text: #fff3b0;
+        --status-bad-bg: #a31a1a;
+        --status-bad-text: #ffffff;
+        --footer-text: #9aa1a9;
+        --link: #5fb8e6;
+        --chart-bg: #FFFFFF;
+        --overview-bg: #EAEAEC;
+        --chart-text: #000000;
+        --banner-bg: #8a0019;
+        --banner-text: #ffffff;
+    }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --text: #e3e6ea;
+    --page-bg: #14161a;
+    --page-grad-top: #1b1e23;
+    --page-grad-bottom: #101215;
+    --panel-bg: #23272d;
+    --panel-border: #3a3f46;
+    --shadow: #000000;
+    --caret: #8a9099;
+    --caret-active: #ffffff;
+    --option-text: #b4bac1;
+    --option-selected-bg: #2f343b;
+    --option-hover-bg: #363c44;
+    --field-bg: #14171a;
+    --field-text: #e3e6ea;
+    --dialog-bg: #1b1e23;
+    --overlay: rgba(0, 0, 0, 0.6);
+    --strong-bg: #2d3239;
+    --mid-bg: #262a30;
+    --odd-bg: #20242a;
+    --button-active-bg: #3a4048;
+    --button-border: #5a616b;
+    --cell-bg: #2a2e35;
+    --cell-hover-bg: #343942;
+    --cell-border: #3d434b;
+    --cell-inset: #3a3f46;
+    --name-hover-bg: #2b3037;
+    --row-hover: rgba(255, 255, 255, 0.1);
+    --tick-icon: url('img/tick_white.png');
+    --icon-filter: invert(1);
+    --sort-border: #8a9099;
+    --sort-inset: #14161a;
+    --selected-border: rgba(255, 255, 255, 0.3);
+    --up: 42, 111, 46;
+    --down: 128, 24, 24;
+    --score-zero: #a8afb7;
+    --score-0-10: hsl(120, 30%, 10%);
+    --score-10-20: hsl(120, 30%, 12%);
+    --score-20-30: hsl(120, 30%, 14%);
+    --score-30-40: hsl(120, 30%, 16%);
+    --score-40-50: hsl(120, 30%, 18%);
+    --score-50-60: hsl(120, 30%, 20%);
+    --score-60-70: hsl(120, 30%, 22%);
+    --score-70-80: hsl(120, 30%, 24%);
+    --score-80-90: hsl(120, 30%, 26%);
+    --score-90-100: hsl(120, 30%, 28%);
+    --score-100: hsl(120, 55%, 24%);
+    --status-ok-bg: #14301a;
+    --status-ok-text: #7ee08a;
+    --status-wait-bg: #5c4b00;
+    --status-wait-text: #fff3b0;
+    --status-bad-bg: #a31a1a;
+    --status-bad-text: #ffffff;
+    --footer-text: #9aa1a9;
+    --link: #5fb8e6;
+    --chart-bg: #FFFFFF;
+    --overview-bg: #EAEAEC;
+    --chart-text: #000000;
+    --banner-bg: #8a0019;
+    --banner-text: #ffffff;
+}
+
 body {
     /* FIXME: I'd suggest putting a 0.75em font-size */
     font: .85em/1.3em sans-serif;
 
-    color: black;
+    color: var(--text);
 
-    background-color: #F6F6F6;
-    background-image: -webkit-linear-gradient(#FFFFFF, #EDEDED);
-    background-image:    -moz-linear-gradient(#FFFFFF, #EDEDED);
-    background-image:      -o-linear-gradient(#FFFFFF, #EDEDED);
-    background-image:         linear-gradient(#FFFFFF, #EDEDED);
+    background-color: var(--page-bg);
+    background-image: -webkit-linear-gradient(var(--page-grad-top), var(--page-grad-bottom));
+    background-image:    -moz-linear-gradient(var(--page-grad-top), var(--page-grad-bottom));
+    background-image:      -o-linear-gradient(var(--page-grad-top), var(--page-grad-bottom));
+    background-image:         linear-gradient(var(--page-grad-top), var(--page-grad-bottom));
     background-attachment: fixed;
 
     margin: 0;
@@ -55,10 +260,10 @@ abbr {
     height: 3em;
     border-width: 0 0 2px 2px;
     border-style: solid;
-    border-color: #FAFAFA;
+    border-color: var(--panel-border);
     border-radius: 0 0 0 10px;
-    background-color: #EAEAEC;
-    box-shadow: 0 0 2px 0 gray;
+    background-color: var(--panel-bg);
+    box-shadow: 0 0 2px 0 var(--shadow);
     z-index: 100;
 }
 
@@ -70,10 +275,10 @@ abbr {
     width: 220px;
     border-width: 2px 2px 2px 0;
     border-style: solid;
-    border-color: #FAFAFA;
+    border-color: var(--panel-border);
     border-radius: 0 10px 10px 0;
-    background-color: #EAEAEC;
-    box-shadow: 0 0 2px 0 gray;
+    background-color: var(--panel-bg);
+    box-shadow: 0 0 2px 0 var(--shadow);
     z-index: 8;
     padding: 0;
 }
@@ -127,10 +332,10 @@ abbr {
 #TimeView.cont #TimeView_selector:hover,
 #TimeView_selector.open {
     margin: 2px;
-    background-color: #EAEAEC;
-    border: 2px solid #FAFAFA;
+    background-color: var(--panel-bg);
+    border: 2px solid var(--panel-border);
     border-radius: 4px;
-    box-shadow: 0 0 2px 0 gray;
+    box-shadow: 0 0 2px 0 var(--shadow);
 }
 
 #TimeView_selector.open {
@@ -162,14 +367,14 @@ abbr {
     width: 0;
     height: 0;
     vertical-align: middle;
-    border-top: 6px solid #AAAAAA;
+    border-top: 6px solid var(--caret);
     border-right: 4px solid transparent;
     border-left: 4px solid transparent;
     border-bottom: 0;
 }
 
 #TimeView_selector:hover .caret {
-    border-top-color: #000000;
+    border-top-color: var(--caret-active);
 }
 
 #TimeView_selector.open .caret {
@@ -177,7 +382,7 @@ abbr {
     border-top: 0;
     border-right: 4px solid transparent;
     border-left: 4px solid transparent;
-    border-bottom: 6px solid #000000;
+    border-bottom: 6px solid var(--caret-active);
 }
 
 #TimeView.post_cont #TimeView_time {
@@ -194,7 +399,7 @@ abbr {
     padding: 2px 4px;
     font-size: 0.875em;
     line-height: 1.4em;
-    color: #444444;
+    color: var(--option-text);
     cursor: pointer;
 }
 
@@ -207,15 +412,15 @@ abbr {
 #TimeView.elapsed #TimeView_selector_elapsed,
 #TimeView.remaining #TimeView_selector_remaining,
 #TimeView.current #TimeView_selector_current {
-    background-color: #F2F2F3;
-    color: #000000;
+    background-color: var(--option-selected-bg);
+    color: var(--text);
 }
 
 #TimeView_selector_elapsed:hover,
 #TimeView_selector_remaining:hover,
 #TimeView_selector_current:hover {
-    background-color: #FAFAFA !important;
-    color: #000000;
+    background-color: var(--option-hover-bg) !important;
+    color: var(--text);
 }
 
 #TimeView + #SidePanel {
@@ -239,6 +444,22 @@ abbr {
     position: relative;
     height: 100%;
     width: 100%;
+    border-radius: inherit;
+    /* The chart is drawn for a light background: it keeps its panel in dark. */
+    background-color: var(--overview-bg);
+    color: var(--chart-text);
+}
+
+.powered_by {
+    color: var(--footer-text);
+    text-align: center;
+    font-size: 12px;
+    padding-top: 5px;
+}
+
+.powered_by a {
+    color: var(--link);
+    text-decoration: none;
 }
 
 
@@ -263,7 +484,8 @@ abbr {
     border-radius: 0.5em;
     /* Needed to override WebKit's default font size for inputs */
     font: inherit;
-    background-color: #FFFFFF;
+    background-color: var(--field-bg);
+    color: var(--field-text);
     outline: 0;
 }
 
@@ -279,7 +501,7 @@ abbr {
     right: 0;
     bottom: 0;
     z-index: 400;
-    background-color: rgba(0,0,0,0.5);
+    background-color: var(--overlay);
     /* the following two lines are for IE */
     -ms-filter: "progid:DXImageTransform.Microsoft.gradient(startColorstr=#80000000, endColorstr=#80000000)";
     filter: progid:DXImageTransform.Microsoft.gradient(startColorstr=#80000000, endColorstr=#80000000);
@@ -298,10 +520,11 @@ abbr {
     width: 940px;
     margin: 64px auto 48px;
     border-radius: 12px;
-    background-color: white;
+    background-color: var(--dialog-bg);
 }
 
 #TeamSearch_close {
+    filter: var(--icon-filter);
     position: absolute;
     top: -10px;
     right: -10px;
@@ -332,9 +555,9 @@ abbr {
     width: 25%;
     height: 3em;
     padding: 0;
-    border: 0 solid white;
+    border: 0 solid var(--dialog-bg);
     border-width: 0.5em 10px;
-    background-color: #DDDDDD;
+    background-color: var(--strong-bg);
 
     -webkit-user-select: none;
      -khtml-user-select: none;
@@ -391,14 +614,15 @@ abbr {
 #Scoreboard_tasks_toggle {
     margin: 12px 3em 0;
     padding: 0.3em 1em;
-    border: 1px #D0D0D2 solid;
+    border: 1px var(--cell-border) solid;
+    color: var(--text);
     border-radius: 4px;
-    background-color: #ECECEF;
+    background-color: var(--cell-bg);
     cursor: pointer;
 }
 
 #Scoreboard_tasks_toggle:hover {
-    background-color: #E2E2E6;
+    background-color: var(--cell-hover-bg);
 }
 
 /* With the task columns shown (only in a ranking with many tasks, see
@@ -415,7 +639,7 @@ abbr {
     position: sticky;
     top: 0;
     z-index: 2;
-    box-shadow: 0 2px 0 #F6F6F6, 0 0 2px 0 #D2D2D4 inset;
+    box-shadow: 0 2px 0 var(--page-bg), 0 0 2px 0 var(--cell-inset) inset;
 }
 
 #Scoreboard.expanded th.name,
@@ -426,19 +650,19 @@ abbr {
 
 #Scoreboard.expanded th.name {
     z-index: 3;
-    box-shadow: 2px 2px 0 #F6F6F6, 0 0 2px 0 #D2D2D4 inset;
+    box-shadow: 2px 2px 0 var(--page-bg), 0 0 2px 0 var(--cell-inset) inset;
 }
 
 /* z-index 1: td.score has an opacity, which would paint it over the name. */
 #Scoreboard.expanded td.name {
     z-index: 1;
-    background-color: #F6F6F6;
-    box-shadow: 2px 0 0 #F6F6F6;
+    background-color: var(--page-bg);
+    box-shadow: 2px 0 0 var(--page-bg);
 }
 
 #Scoreboard.expanded tr:hover td.name {
-    background-color: #E6E6E6;
-    box-shadow: 2px 0 0 #E6E6E6;
+    background-color: var(--name-hover-bg);
+    box-shadow: 2px 0 0 var(--name-hover-bg);
 }
 
 #Scoreboard_cols col.sel {
@@ -476,10 +700,10 @@ abbr {
 }
 
 #Scoreboard_head tr th {
-    background-color: #ECECEF;
-    border: 1px #D0D0D2 solid;
+    background-color: var(--cell-bg);
+    border: 1px var(--cell-border) solid;
     border-radius: 4px;
-    box-shadow: 0 0 2px 0 #D2D2D4 inset;
+    box-shadow: 0 0 2px 0 var(--cell-inset) inset;
     height: 24px;
     overflow: hidden;
     white-space: nowrap;
@@ -517,7 +741,7 @@ abbr {
 }
 
 #Scoreboard_head tr th.sel {
-    background-image: url('img/tick_black.png');
+    background-image: var(--tick-icon);
     background-repeat: no-repeat;
     background-position: center;
 }
@@ -529,7 +753,7 @@ abbr {
 #Scoreboard_body tr:hover td.user_id,
 #Scoreboard_body tr:hover td.name,
 #Scoreboard_body tr:hover td.team {
-    background-color: rgba(200,200,200,0.35);
+    background-color: var(--row-hover);
     border-radius: 5px;
 }
 
@@ -550,7 +774,7 @@ abbr {
  */
 
 #Scoreboard_body tr td.sel {
-    background: url('img/tick_black.png') no-repeat center transparent;
+    background: var(--tick-icon) no-repeat center transparent;
     opacity: 0;
     -webkit-user-select: none;
        -moz-user-select: none;
@@ -569,7 +793,7 @@ abbr {
 
 #Scoreboard_body tr.selected td.sel {
     background: url('img/tick_white.png') no-repeat center transparent;
-    border: 1px solid rgba(0,0,0,0.2);
+    border: 1px solid var(--selected-border);
     border-radius: 4px;
     opacity: 1;
 }
@@ -732,51 +956,51 @@ abbr {
 }
 
 @-webkit-keyframes score_up {
-    from {background-color: rgba(138,226,52,0);}
-    10% {background-color: rgba(138,226,52,0.6);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    10% {background-color: rgba(var(--up), 0.6);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @-moz-keyframes score_up {
-    from {background-color: rgba(138,226,52,0);}
-    10% {background-color: rgba(138,226,52,0.6);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    10% {background-color: rgba(var(--up), 0.6);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @-o-keyframes score_up {
-    from {background-color: rgba(138,226,52,0);}
-    10% {background-color: rgba(138,226,52,0.6);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    10% {background-color: rgba(var(--up), 0.6);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @keyframes score_up {
-    from {background-color: rgba(138,226,52,0);}
-    10% {background-color: rgba(138,226,52,0.6);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    10% {background-color: rgba(var(--up), 0.6);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @-webkit-keyframes score_down {
-    from {background-color: rgba(239,41,41,0);}
-    10% {background-color: rgba(239,41,41,0.6);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    10% {background-color: rgba(var(--down), 0.6);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 @-moz-keyframes score_down {
-    from {background-color: rgba(239,41,41,0);}
-    10% {background-color: rgba(239,41,41,0.6);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    10% {background-color: rgba(var(--down), 0.6);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 @-o-keyframes score_down {
-    from {background-color: rgba(239,41,41,0);}
-    10% {background-color: rgba(239,41,41,0.6);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    10% {background-color: rgba(var(--down), 0.6);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 @keyframes score_down {
-    from {background-color: rgba(239,41,41,0);}
-    10% {background-color: rgba(239,41,41,0.6);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    10% {background-color: rgba(var(--down), 0.6);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 #Scoreboard_body tr.selected.score_up td.rank {
@@ -812,51 +1036,51 @@ abbr {
 }
 
 @-webkit-keyframes selected_score_up {
-    from {background-color: rgba(138,226,52,0);}
-    5% {background-color: rgba(138,226,52,1);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    5% {background-color: rgba(var(--up), 1);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @-moz-keyframes selected_score_up {
-    from {background-color: rgba(138,226,52,0);}
-    5% {background-color: rgba(138,226,52,1);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    5% {background-color: rgba(var(--up), 1);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @-o-keyframes selected_score_up {
-    from {background-color: rgba(138,226,52,0);}
-    5% {background-color: rgba(138,226,52,1);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    5% {background-color: rgba(var(--up), 1);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @keyframes selected_score_up {
-    from {background-color: rgba(138,226,52,0);}
-    5% {background-color: rgba(138,226,52,1);}
-    to {background-color: rgba(138,226,52,0);}
+    from {background-color: rgba(var(--up), 0);}
+    5% {background-color: rgba(var(--up), 1);}
+    to {background-color: rgba(var(--up), 0);}
 }
 
 @-webkit-keyframes selected_score_down {
-    from {background-color: rgba(239,41,41,0);}
-    5% {background-color: rgba(239,41,41,1);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    5% {background-color: rgba(var(--down), 1);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 @-moz-keyframes selected_score_down {
-    from {background-color: rgba(239,41,41,0);}
-    5% {background-color: rgba(239,41,41,1);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    5% {background-color: rgba(var(--down), 1);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 @-o-keyframes selected_score_down {
-    from {background-color: rgba(239,41,41,0);}
-    5% {background-color: rgba(239,41,41,1);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    5% {background-color: rgba(var(--down), 1);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 @keyframes selected_score_down {
-    from {background-color: rgba(239,41,41,0);}
-    5% {background-color: rgba(239,41,41,1);}
-    to {background-color: rgba(239,41,41,0);}
+    from {background-color: rgba(var(--down), 0);}
+    5% {background-color: rgba(var(--down), 1);}
+    to {background-color: rgba(var(--down), 0);}
 }
 
 /*
@@ -869,8 +1093,8 @@ abbr {
 }
 
 #Scoreboard_body tr td.score.sort_key {
-    border: 1px solid #777777;
-    box-shadow: 0 0 1px white inset;
+    border: 1px solid var(--sort-border);
+    box-shadow: 0 0 1px var(--sort-inset) inset;
 }
 
 #Scoreboard_body tr:hover td.score,
@@ -880,51 +1104,51 @@ abbr {
 }
 
 .score_0 {
-    color: #666;
+    color: var(--score-zero);
 }
 
 .score_0_10 {
-    background-color: hsl(120, 30%, 87%);
+    background-color: var(--score-0-10);
 }
 
 .score_10_20 {
-    background-color: hsl(120, 30%, 84%);
+    background-color: var(--score-10-20);
 }
 
 .score_20_30 {
-    background-color: hsl(120, 30%, 81%);
+    background-color: var(--score-20-30);
 }
 
 .score_30_40 {
-    background-color: hsl(120, 30%, 78%);
+    background-color: var(--score-30-40);
 }
 
 .score_40_50 {
-    background-color: hsl(120, 30%, 75%);
+    background-color: var(--score-40-50);
 }
 
 .score_50_60 {
-    background-color: hsl(120, 30%, 72%);
+    background-color: var(--score-50-60);
 }
 
 .score_60_70 {
-    background-color: hsl(120, 30%, 69%);
+    background-color: var(--score-60-70);
 }
 
 .score_70_80 {
-    background-color: hsl(120, 30%, 66%);
+    background-color: var(--score-70-80);
 }
 
 .score_80_90 {
-    background-color: hsl(120, 30%, 63%);
+    background-color: var(--score-80-90);
 }
 
 .score_90_100 {
-    background-color: hsl(120, 30%, 60%);
+    background-color: var(--score-90-100);
 }
 
 .score_100 {
-    background-color: hsl(120, 30%, 55%);
+    background-color: var(--score-100);
 }
 
 
@@ -943,7 +1167,7 @@ abbr {
     right: 0;
     bottom: 0;
     z-index: 500;
-    background-color: rgba(0,0,0,0.5);
+    background-color: var(--overlay);
     overflow-y: scroll;
     /* the following two lines are for IE */
     -ms-filter: "progid:DXImageTransform.Microsoft.gradient(startColorstr=#80000000, endColorstr=#80000000)";
@@ -963,10 +1187,11 @@ abbr {
     margin: 48px auto;
     padding: 20px;
     border-radius: 12px;
-    background-color: white;
+    background-color: var(--dialog-bg);
 }
 
 #UserDetail_close {
+    filter: var(--icon-filter);
     position: absolute;
     top: -10px;
     right: -10px;
@@ -1048,9 +1273,9 @@ abbr {
 
 #UserDetail_navigator tbody tr td.btn {
     text-align: center;
-    border: 1px solid #999999;
-    box-shadow: 0 0 2px gray;
-    background-color: #EEEEEE;
+    border: 1px solid var(--button-border);
+    box-shadow: 0 0 2px var(--shadow);
+    background-color: var(--mid-bg);
     border-radius: 3px;
     cursor: pointer;
     -webkit-user-select: none;
@@ -1061,15 +1286,15 @@ abbr {
 }
 
 #UserDetail_navigator tbody tr td.btn:hover {
-    background-color: #DDDDDD;
+    background-color: var(--strong-bg);
 }
 
 #UserDetail_navigator tbody tr td.btn:active {
-    background-color: #CCCCCC;
+    background-color: var(--button-active-bg);
 }
 
 #UserDetail_navigator tbody tr.active td.btn {
-    background-color: #EEEEEE;
+    background-color: var(--mid-bg);
     opacity: 0.4;
     cursor: default;
     /* the following two lines are for IE */
@@ -1078,15 +1303,15 @@ abbr {
 }
 
 #UserDetail_navigator tr.global {
-    background-color: #DDDDDD;
+    background-color: var(--strong-bg);
 }
 
 #UserDetail_navigator tr.contest {
-    background-color: #EEEEEE;
+    background-color: var(--mid-bg);
 }
 
 #UserDetail_navigator tr.task {
-    background-color: #FFFFFF;
+    background-color: var(--dialog-bg);
 }
 
 #UserDetail_navigator tr.global td.name {
@@ -1113,6 +1338,12 @@ abbr {
     width: 100%;
 }
 
+/* Same as #Overview: a light panel behind the chart, in both themes. */
+#UserDetail_charts canvas {
+    background-color: var(--chart-bg);
+    color: var(--chart-text);
+}
+
 #UserDetail_submissions {
     margin-top: 24px;
     width: 100%;
@@ -1133,15 +1364,15 @@ abbr {
 }
 
 #UserDetail_submissions thead {
-    background-color: #DDDDDD;
+    background-color: var(--strong-bg);
 }
 
 #UserDetail_submissions tbody tr:nth-child(even) {
-    background-color: #EEEEEE;
+    background-color: var(--mid-bg);
 }
 
 #UserDetail_submissions tbody tr:nth-child(odd) {
-    background-color: #F8F8F8;
+    background-color: var(--odd-bg);
 }
 
 #UserDetail_submissions tbody td[colspan] {
@@ -1151,6 +1382,15 @@ abbr {
 
 
 /* Style for the network status indicator */
+
+/* The theme switch (theme.js), in the top bar next to the status. */
+#theme {
+    float: right;
+    box-sizing: border-box;
+    height: calc(1.8em + 2px);
+    margin: 0.5em 0;
+    font: inherit;
+}
 
 #ConnectionStatus_box {
     display: inline-block;
@@ -1204,16 +1444,16 @@ abbr {
 
 #ConnectionStatus_box[data-status="connected"] #ConnectionStatus_label,
 #ConnectionStatus_box[data-status="connected"] #ConnectionStatus_text {
-    background-color: white;
-    color: green;
-    border-color: green;
+    background-color: var(--status-ok-bg);
+    color: var(--status-ok-text);
+    border-color: var(--status-ok-text);
 }
 
 #ConnectionStatus_box[data-status="reconnecting"] #ConnectionStatus_label,
 #ConnectionStatus_box[data-status="reconnecting"] #ConnectionStatus_text {
-    background-color: yellow;
-    color: black;
-    border-color: black;
+    background-color: var(--status-wait-bg);
+    color: var(--status-wait-text);
+    border-color: var(--status-wait-text);
 }
 
 #ConnectionStatus_box[data-status="disconnected"] #ConnectionStatus_label,
@@ -1222,12 +1462,13 @@ abbr {
 #ConnectionStatus_box[data-status="outdated"] #ConnectionStatus_text,
 #ConnectionStatus_box[data-status="init_error"] #ConnectionStatus_label,
 #ConnectionStatus_box[data-status="init_error"] #ConnectionStatus_text {
-    background-color: red;
-    color: white;
-    border-color: red;
+    background-color: var(--status-bad-bg);
+    color: var(--status-bad-text);
+    border-color: var(--status-bad-bg);
 }
 
 #ConnectionStatus_box a {
+    color: inherit;
     cursor: pointer;
     text-decoration: underline;
 }
@@ -1317,7 +1558,7 @@ abbr {
     #Scoreboard.expanded thead th,
     #Scoreboard.expanded th.name {
         position: static;
-        box-shadow: 0 0 2px 0 #D2D2D4 inset;
+        box-shadow: 0 0 2px 0 var(--cell-inset) inset;
     }
 
     #Scoreboard.expanded td.name {
@@ -1327,7 +1568,7 @@ abbr {
     }
 
     #Scoreboard.expanded tr:hover td.name {
-        background-color: rgba(200,200,200,0.35);
+        background-color: var(--row-hover);
         box-shadow: none;
     }
 

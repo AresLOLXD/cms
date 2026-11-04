@@ -7,15 +7,15 @@
 .export-box {
     margin: 1em 0;
     padding: 0.25em 1em;
-    border: 1px solid #8a94a6;
+    border: 1px solid var(--box-border);
     border-left-width: 5px;
-    background: #f2f4f8;
+    background: var(--box-bg);
 }
 p.export-box { padding: 0.75em 1em; }
 .export-box p { padding: 0.5em 0; }
-.export-error { border-color: #c0392b; background: #fdecea; }
-.export-warning { border-color: #d98e04; background: #fff6df; }
-.export-done { border-color: #2e8b57; background: #e8f6ee; }
+.export-error { border-color: var(--error-border); background: var(--error-bg); }
+.export-warning { border-color: var(--warn-border); background: var(--warn-bg); }
+.export-done { border-color: var(--done-border); background: var(--done-bg); }
 ul.export-list { list-style: disc; margin: 0 0 0.75em 1.5em; }
 </style>
 <div class="core_title">

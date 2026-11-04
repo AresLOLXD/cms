@@ -362,6 +362,73 @@ msgstr ""
 "del Contest Web Server verifica como máximo 4 a la vez, así que si todo "
 "un salón inicia sesión justo a la hora de inicio, todos esperan."
 
+msgid "Screens and the color theme"
+msgstr "Pantallas y tema de color"
+
+msgid ""
+"Each server has a switch with three options: **System**, **Light** and "
+"**Dark**, shown as «Sistema», «Claro» and «Oscuro». It is in the navbar of "
+"the Contest Web Server, in the sidebar of the Admin Web Server and in the "
+"top bar of the Ranking Web Server. The default is System, which follows the "
+"color scheme of the operating system. The hidden-ranking notice and the "
+"staff login pages follow the choice saved in the browser."
+msgstr ""
+"Cada servidor tiene un selector de tema con tres opciones: **Sistema**, "
+"**Claro** y **Oscuro**, que son las etiquetas que se muestran en la "
+"interfaz. Está en la barra de navegación del Contest Web Server, en la barra "
+"lateral del Admin Web Server y en la barra superior del Ranking Web Server. "
+"El valor por defecto es **Sistema**, que sigue el esquema de color del "
+"sistema operativo. El aviso de ranking oculto y las páginas de inicio de "
+"sesión del staff siguen la opción guardada en el navegador."
+
+msgid "Option"
+msgstr "Opción"
+
+msgid "Label"
+msgstr "Etiqueta"
+
+msgid "Result"
+msgstr "Resultado"
+
+msgid "**System**"
+msgstr "**Sistema**"
+
+msgid "«Sistema»"
+msgstr "«Sistema»"
+
+msgid "Dark if the system prefers dark, light otherwise"
+msgstr "Oscuro si el sistema prefiere el tema oscuro, claro en otro caso"
+
+msgid "**Light**"
+msgstr "**Claro**"
+
+msgid "«Claro»"
+msgstr "«Claro»"
+
+msgid "Light, whatever the system prefers"
+msgstr "Claro, sin importar lo que prefiera el sistema"
+
+msgid "**Dark**"
+msgstr "**Oscuro**"
+
+msgid "«Oscuro»"
+msgstr "«Oscuro»"
+
+msgid "Dark, whatever the system prefers"
+msgstr "Oscuro, sin importar lo que prefiera el sistema"
+
+msgid ""
+"The choice is kept in each browser, separately for each server, and is never "
+"sent to the server. A projector's browser therefore needs it set once, before "
+"the contest. Another browser, or the same one after its site data is cleared, "
+"starts again from System. The charts stay on a light panel in the dark theme."
+msgstr ""
+"La elección se guarda en cada navegador, por separado para cada servidor, y "
+"nunca se envía al servidor. Por eso, el navegador de un proyector necesita "
+"configurarla una sola vez, antes de la competencia. Otro navegador, o el "
+"mismo después de borrar los datos de su sitio, vuelve a empezar en "
+"**Sistema**. Los gráficos siguen en un panel claro con el tema oscuro."
+
 msgid "During the contest"
 msgstr "Durante la competencia"
 

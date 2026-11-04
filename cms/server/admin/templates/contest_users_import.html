@@ -7,24 +7,24 @@
 .import-box {
     margin: 1em 0;
     padding: 0.25em 1em;
-    border: 1px solid #8a94a6;
+    border: 1px solid var(--box-border);
     border-left-width: 5px;
-    background: #f2f4f8;
+    background: var(--box-bg);
 }
 p.import-box { padding: 0.75em 1em; }
 .import-box p { padding: 0.5em 0; }
 .import-box h3 { margin-left: 0; }
 .import-box ul { list-style: disc; margin: 0 0 0.75em 1.5em; }
-.import-error { border-color: #c0392b; background: #fdecea; }
-.import-warning { border-color: #d98e04; background: #fff6df; }
-.import-done { border-color: #2e8b57; background: #e8f6ee; }
+.import-error { border-color: var(--error-border); background: var(--error-bg); }
+.import-warning { border-color: var(--warn-border); background: var(--warn-bg); }
+.import-done { border-color: var(--done-border); background: var(--done-bg); }
 td.import-note {
     width: auto;
     max-width: 26em;
     padding-left: 1em;
     white-space: normal;
-    border-left: 3px solid #d98e04;
-    background: #fff6df;
+    border-left: 3px solid var(--warn-border);
+    background: var(--warn-bg);
 }
 </style>
 <div class="core_title">

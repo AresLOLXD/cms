@@ -69,21 +69,27 @@ class DatasetFormsTestCase(unittest.TestCase):
         aws = read_admin("static", "aws_style.css")
         cws = CONTEST_DIR.joinpath(
             "static", "cws_style.css").read_text(encoding="utf-8")
-        for css, selector in ((aws, ".hint"),
-                              (aws, ".subtask-dependency"),
-                              (cws, "#submission_detail .subtask-dependency")):
+        # AWS and CWS read their color from the --hint token (light set:
+        # #666666).
+        self.assertIn("--hint: #666666;", aws)
+        self.assertIn("--hint: #666666;", cws)
+        for css, selector, color in (
+                (aws, ".hint", "var(--hint)"),
+                (aws, ".subtask-dependency", "var(--hint)"),
+                (cws, "#submission_detail .subtask-dependency", "var(--hint)")):
             match = re.search(
                 r"^%s \{(.*?)\}" % re.escape(selector), css, re.M | re.S)
             self.assertIsNotNone(match, selector)
             self.assertIn("font-size: 0.9em", match.group(1), selector)
             # A lighter gray would be below the WCAG AA contrast on white.
-            self.assertIn("color: #666666;", match.group(1), selector)
+            self.assertIn("color: %s;" % color, match.group(1), selector)
 
     def test_skipped_row_pill_is_styled_in_cws_only(self):
         cws = CONTEST_DIR.joinpath(
             "static", "cws_style.css").read_text(encoding="utf-8")
+        self.assertIn("--outcome-skipped-bg: #707070;", cws)
         self.assertRegex(cws, r"tr\.skipped td\.outcome \.outcome \{[^}]*"
-                         r"background-color: #707070;")
+                         r"background-color: var\(--outcome-skipped-bg\);")
         # AWS draws no row colors for the testcase table.
         self.assertNotIn("tr.skipped", read_admin("static", "aws_style.css"))
 

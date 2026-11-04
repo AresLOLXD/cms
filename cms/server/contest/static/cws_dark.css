@@ -1,0 +1,804 @@
+/* Dark overlay for CWS, loaded after cws_style.css. Every rule applies only
+   in dark (the system preference unless the choice is Light, or the choice
+   Dark), and takes its colors from the tokens of cws_style.css. The two
+   halves below are identical; keep them in step. bootstrap.css is not
+   touched: the selectors repeat Bootstrap's own, so what wins in light wins
+   here too (:where() adds no specificity).
+   shortcut: only what the CWS templates use is covered (no navbar search,
+   popovers, tooltips, badges, progress bars or uneditable inputs); cover a
+   component here when a template starts to use it. The IE gradient filters
+   of bootstrap.css are not overridden. */
+
+@media (prefers-color-scheme: dark) {
+    :where(:root:not([data-theme="light"])) body {
+        color: var(--text);
+        background-color: var(--surface);
+    }
+
+    :where(:root:not([data-theme="light"])) a {
+        color: var(--dark-link);
+    }
+
+    :where(:root:not([data-theme="light"])) a:hover {
+        color: var(--dark-link-hover);
+    }
+
+    :where(:root:not([data-theme="light"])) a:focus,
+    :where(:root:not([data-theme="light"])) .btn:focus,
+    :where(:root:not([data-theme="light"])) select:focus,
+    :where(:root:not([data-theme="light"])) input[type="checkbox"]:focus,
+    :where(:root:not([data-theme="light"])) input[type="radio"]:focus,
+    :where(:root:not([data-theme="light"])) input[type="file"]:focus {
+        outline-color: var(--dark-link);
+    }
+
+    :where(:root:not([data-theme="light"])) h1 small,
+    :where(:root:not([data-theme="light"])) h2 small,
+    :where(:root:not([data-theme="light"])) h3 small,
+    :where(:root:not([data-theme="light"])) h4 small,
+    :where(:root:not([data-theme="light"])) h5 small,
+    :where(:root:not([data-theme="light"])) h6 small,
+    :where(:root:not([data-theme="light"])) .muted,
+    :where(:root:not([data-theme="light"])) legend small {
+        color: var(--muted);
+    }
+
+    :where(:root:not([data-theme="light"])) .page-header {
+        border-bottom-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) hr {
+        border-top-color: var(--border-soft);
+        border-bottom-color: transparent;
+    }
+
+    :where(:root:not([data-theme="light"])) legend {
+        color: var(--text);
+        border-bottom-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) code,
+    :where(:root:not([data-theme="light"])) pre {
+        color: var(--text);
+    }
+
+    :where(:root:not([data-theme="light"])) code {
+        color: var(--dark-code-text);
+        background-color: var(--dark-panel);
+        border-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) pre {
+        background-color: var(--dark-panel);
+        border-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) pre code {
+        color: inherit;
+        background-color: transparent;
+    }
+
+    :where(:root:not([data-theme="light"])) .navbar-inner {
+        background-color: var(--dark-navbar-bg);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .navbar {
+        color: var(--dark-navbar-text);
+    }
+
+    :where(:root:not([data-theme="light"])) .navbar .brand {
+        color: var(--dark-navbar-text);
+    }
+
+    :where(:root:not([data-theme="light"])) .table th,
+    :where(:root:not([data-theme="light"])) .table td {
+        border-top-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .table-bordered {
+        border-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .table-bordered th,
+    :where(:root:not([data-theme="light"])) .table-bordered td {
+        border-left-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .table-striped tbody tr:nth-child(odd) td,
+    :where(:root:not([data-theme="light"])) .table-striped tbody tr:nth-child(odd) th {
+        background-color: var(--dark-stripe);
+    }
+
+    :where(:root:not([data-theme="light"])) .table tbody tr:hover td,
+    :where(:root:not([data-theme="light"])) .table tbody tr:hover th {
+        background-color: var(--hover-bg);
+    }
+
+    :where(:root:not([data-theme="light"])) select,
+    :where(:root:not([data-theme="light"])) textarea,
+    :where(:root:not([data-theme="light"])) input[type="text"],
+    :where(:root:not([data-theme="light"])) input[type="password"] {
+        color: var(--dark-field-text);
+    }
+
+    :where(:root:not([data-theme="light"])) textarea,
+    :where(:root:not([data-theme="light"])) input[type="text"],
+    :where(:root:not([data-theme="light"])) input[type="password"] {
+        background-color: var(--dark-field-bg);
+        border-color: var(--dark-field-border);
+    }
+
+    :where(:root:not([data-theme="light"])) select {
+        background-color: var(--dark-field-bg);
+        border-color: var(--dark-field-border);
+    }
+
+    :where(:root:not([data-theme="light"])) input[disabled],
+    :where(:root:not([data-theme="light"])) select[disabled],
+    :where(:root:not([data-theme="light"])) textarea[disabled],
+    :where(:root:not([data-theme="light"])) input[readonly],
+    :where(:root:not([data-theme="light"])) select[readonly],
+    :where(:root:not([data-theme="light"])) textarea[readonly] {
+        background-color: var(--dark-field-off);
+        border-color: var(--dark-field-border);
+    }
+
+    :where(:root:not([data-theme="light"])) ::placeholder {
+        color: var(--dark-placeholder);
+    }
+
+    :where(:root:not([data-theme="light"])) .help-block,
+    :where(:root:not([data-theme="light"])) .help-inline {
+        color: var(--hint);
+    }
+
+    :where(:root:not([data-theme="light"])) .control-group.error > label,
+    :where(:root:not([data-theme="light"])) .control-group.error .help-block,
+    :where(:root:not([data-theme="light"])) .control-group.error .help-inline {
+        color: var(--dark-error-text);
+    }
+
+    :where(:root:not([data-theme="light"])) .control-group.error input,
+    :where(:root:not([data-theme="light"])) .control-group.error select,
+    :where(:root:not([data-theme="light"])) .control-group.error textarea {
+        color: var(--dark-error-text);
+        border-color: var(--dark-error-text);
+    }
+
+    :where(:root:not([data-theme="light"])) .btn {
+        color: var(--text);
+        background-color: var(--dark-btn-bg);
+        background-image: none;
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn:hover,
+    :where(:root:not([data-theme="light"])) .btn:active,
+    :where(:root:not([data-theme="light"])) .btn.active,
+    :where(:root:not([data-theme="light"])) .btn.disabled,
+    :where(:root:not([data-theme="light"])) .btn[disabled] {
+        color: var(--text);
+        background-color: var(--dark-btn-hover);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-primary {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-primary);
+        background-image: none;
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-primary:hover,
+    :where(:root:not([data-theme="light"])) .btn-primary:active,
+    :where(:root:not([data-theme="light"])) .btn-primary.active,
+    :where(:root:not([data-theme="light"])) .btn-primary.disabled,
+    :where(:root:not([data-theme="light"])) .btn-primary[disabled] {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-primary-hover);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-info {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-info);
+        background-image: none;
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-info:hover,
+    :where(:root:not([data-theme="light"])) .btn-info:active,
+    :where(:root:not([data-theme="light"])) .btn-info.active,
+    :where(:root:not([data-theme="light"])) .btn-info.disabled,
+    :where(:root:not([data-theme="light"])) .btn-info[disabled] {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-info-hover);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-warning {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-warning);
+        background-image: none;
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-warning:hover,
+    :where(:root:not([data-theme="light"])) .btn-warning:active,
+    :where(:root:not([data-theme="light"])) .btn-warning.active,
+    :where(:root:not([data-theme="light"])) .btn-warning.disabled,
+    :where(:root:not([data-theme="light"])) .btn-warning[disabled] {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-warning-hover);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-danger {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-danger);
+        background-image: none;
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-danger:hover,
+    :where(:root:not([data-theme="light"])) .btn-danger:active,
+    :where(:root:not([data-theme="light"])) .btn-danger.active,
+    :where(:root:not([data-theme="light"])) .btn-danger.disabled,
+    :where(:root:not([data-theme="light"])) .btn-danger[disabled] {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-danger-hover);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-success {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-success);
+        background-image: none;
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn-success:hover,
+    :where(:root:not([data-theme="light"])) .btn-success:active,
+    :where(:root:not([data-theme="light"])) .btn-success.active,
+    :where(:root:not([data-theme="light"])) .btn-success.disabled,
+    :where(:root:not([data-theme="light"])) .btn-success[disabled] {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-success-hover);
+        background-image: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .btn {
+        border-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .alert {
+        color: var(--dark-warn-text);
+        background-color: var(--dark-warn-bg);
+        border-color: var(--dark-warn-border);
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .alert-success {
+        color: var(--dark-success-text);
+        background-color: var(--dark-success-bg);
+        border-color: var(--dark-success-border);
+    }
+
+    :where(:root:not([data-theme="light"])) .alert-danger,
+    :where(:root:not([data-theme="light"])) .alert-error {
+        color: var(--dark-error-text);
+        background-color: var(--dark-error-bg);
+        border-color: var(--dark-error-border);
+    }
+
+    :where(:root:not([data-theme="light"])) .close,
+    :where(:root:not([data-theme="light"])) .close:hover {
+        color: var(--text);
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .well {
+        background-color: var(--dark-panel);
+        border-color: var(--border-soft);
+        box-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .hero-unit {
+        background-color: var(--dark-panel);
+    }
+
+    :where(:root:not([data-theme="light"])) .label {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-btn-bg);
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .label-warning {
+        background-color: var(--dark-warning);
+    }
+
+    :where(:root:not([data-theme="light"])) .nav > li > a:hover {
+        background-color: var(--hover-bg);
+    }
+
+    :where(:root:not([data-theme="light"])) .nav .nav-header,
+    :where(:root:not([data-theme="light"])) .nav-list .nav-header {
+        color: var(--muted);
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-list > li > a {
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-list > .active > a,
+    :where(:root:not([data-theme="light"])) .nav-list > .active > a:hover {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-primary);
+        text-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-list .divider {
+        background-color: var(--border-soft);
+        border-bottom-color: transparent;
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-tabs {
+        border-bottom-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-tabs > li > a:hover {
+        border-color: var(--border-soft) var(--border-soft) var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-tabs > .active > a,
+    :where(:root:not([data-theme="light"])) .nav-tabs > .active > a:hover {
+        color: var(--text);
+        background-color: var(--surface);
+        border-color: var(--border-soft);
+        border-bottom-color: transparent;
+    }
+
+    :where(:root:not([data-theme="light"])) .nav-pills > .active > a,
+    :where(:root:not([data-theme="light"])) .nav-pills > .active > a:hover {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-primary);
+    }
+
+    :where(:root:not([data-theme="light"])) .modal {
+        background-color: var(--surface);
+        border-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .modal-header {
+        border-bottom-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .modal-footer {
+        background-color: var(--dark-panel);
+        border-top-color: var(--border-soft);
+        box-shadow: none;
+    }
+
+    :where(:root:not([data-theme="light"])) .dropdown-menu {
+        background-color: var(--dark-panel);
+        border-color: var(--border-soft);
+    }
+
+    :where(:root:not([data-theme="light"])) .dropdown-menu a {
+        color: var(--text);
+    }
+
+    :where(:root:not([data-theme="light"])) .dropdown-menu li > a:hover,
+    :where(:root:not([data-theme="light"])) .dropdown-menu .active > a,
+    :where(:root:not([data-theme="light"])) .dropdown-menu .active > a:hover {
+        color: var(--dark-btn-text);
+        background-color: var(--dark-primary);
+    }
+
+    :where(:root:not([data-theme="light"])) .caret {
+        border-top-color: var(--text);
+    }
+
+    :where(:root:not([data-theme="light"])) .icon-chevron-right,
+    :where(:root:not([data-theme="light"])) .icon-chevron-down {
+        filter: invert(1);
+    }
+}
+
+:where(:root[data-theme="dark"]) body {
+    color: var(--text);
+    background-color: var(--surface);
+}
+
+:where(:root[data-theme="dark"]) a {
+    color: var(--dark-link);
+}
+
+:where(:root[data-theme="dark"]) a:hover {
+    color: var(--dark-link-hover);
+}
+
+:where(:root[data-theme="dark"]) a:focus,
+:where(:root[data-theme="dark"]) .btn:focus,
+:where(:root[data-theme="dark"]) select:focus,
+:where(:root[data-theme="dark"]) input[type="checkbox"]:focus,
+:where(:root[data-theme="dark"]) input[type="radio"]:focus,
+:where(:root[data-theme="dark"]) input[type="file"]:focus {
+    outline-color: var(--dark-link);
+}
+
+:where(:root[data-theme="dark"]) h1 small,
+:where(:root[data-theme="dark"]) h2 small,
+:where(:root[data-theme="dark"]) h3 small,
+:where(:root[data-theme="dark"]) h4 small,
+:where(:root[data-theme="dark"]) h5 small,
+:where(:root[data-theme="dark"]) h6 small,
+:where(:root[data-theme="dark"]) .muted,
+:where(:root[data-theme="dark"]) legend small {
+    color: var(--muted);
+}
+
+:where(:root[data-theme="dark"]) .page-header {
+    border-bottom-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) hr {
+    border-top-color: var(--border-soft);
+    border-bottom-color: transparent;
+}
+
+:where(:root[data-theme="dark"]) legend {
+    color: var(--text);
+    border-bottom-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) code,
+:where(:root[data-theme="dark"]) pre {
+    color: var(--text);
+}
+
+:where(:root[data-theme="dark"]) code {
+    color: var(--dark-code-text);
+    background-color: var(--dark-panel);
+    border-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) pre {
+    background-color: var(--dark-panel);
+    border-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) pre code {
+    color: inherit;
+    background-color: transparent;
+}
+
+:where(:root[data-theme="dark"]) .navbar-inner {
+    background-color: var(--dark-navbar-bg);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .navbar {
+    color: var(--dark-navbar-text);
+}
+
+:where(:root[data-theme="dark"]) .navbar .brand {
+    color: var(--dark-navbar-text);
+}
+
+:where(:root[data-theme="dark"]) .table th,
+:where(:root[data-theme="dark"]) .table td {
+    border-top-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .table-bordered {
+    border-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .table-bordered th,
+:where(:root[data-theme="dark"]) .table-bordered td {
+    border-left-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .table-striped tbody tr:nth-child(odd) td,
+:where(:root[data-theme="dark"]) .table-striped tbody tr:nth-child(odd) th {
+    background-color: var(--dark-stripe);
+}
+
+:where(:root[data-theme="dark"]) .table tbody tr:hover td,
+:where(:root[data-theme="dark"]) .table tbody tr:hover th {
+    background-color: var(--hover-bg);
+}
+
+:where(:root[data-theme="dark"]) select,
+:where(:root[data-theme="dark"]) textarea,
+:where(:root[data-theme="dark"]) input[type="text"],
+:where(:root[data-theme="dark"]) input[type="password"] {
+    color: var(--dark-field-text);
+}
+
+:where(:root[data-theme="dark"]) textarea,
+:where(:root[data-theme="dark"]) input[type="text"],
+:where(:root[data-theme="dark"]) input[type="password"] {
+    background-color: var(--dark-field-bg);
+    border-color: var(--dark-field-border);
+}
+
+:where(:root[data-theme="dark"]) select {
+    background-color: var(--dark-field-bg);
+    border-color: var(--dark-field-border);
+}
+
+:where(:root[data-theme="dark"]) input[disabled],
+:where(:root[data-theme="dark"]) select[disabled],
+:where(:root[data-theme="dark"]) textarea[disabled],
+:where(:root[data-theme="dark"]) input[readonly],
+:where(:root[data-theme="dark"]) select[readonly],
+:where(:root[data-theme="dark"]) textarea[readonly] {
+    background-color: var(--dark-field-off);
+    border-color: var(--dark-field-border);
+}
+
+:where(:root[data-theme="dark"]) ::placeholder {
+    color: var(--dark-placeholder);
+}
+
+:where(:root[data-theme="dark"]) .help-block,
+:where(:root[data-theme="dark"]) .help-inline {
+    color: var(--hint);
+}
+
+:where(:root[data-theme="dark"]) .control-group.error > label,
+:where(:root[data-theme="dark"]) .control-group.error .help-block,
+:where(:root[data-theme="dark"]) .control-group.error .help-inline {
+    color: var(--dark-error-text);
+}
+
+:where(:root[data-theme="dark"]) .control-group.error input,
+:where(:root[data-theme="dark"]) .control-group.error select,
+:where(:root[data-theme="dark"]) .control-group.error textarea {
+    color: var(--dark-error-text);
+    border-color: var(--dark-error-text);
+}
+
+:where(:root[data-theme="dark"]) .btn {
+    color: var(--text);
+    background-color: var(--dark-btn-bg);
+    background-image: none;
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .btn:hover,
+:where(:root[data-theme="dark"]) .btn:active,
+:where(:root[data-theme="dark"]) .btn.active,
+:where(:root[data-theme="dark"]) .btn.disabled,
+:where(:root[data-theme="dark"]) .btn[disabled] {
+    color: var(--text);
+    background-color: var(--dark-btn-hover);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-primary {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-primary);
+    background-image: none;
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-primary:hover,
+:where(:root[data-theme="dark"]) .btn-primary:active,
+:where(:root[data-theme="dark"]) .btn-primary.active,
+:where(:root[data-theme="dark"]) .btn-primary.disabled,
+:where(:root[data-theme="dark"]) .btn-primary[disabled] {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-primary-hover);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-info {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-info);
+    background-image: none;
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-info:hover,
+:where(:root[data-theme="dark"]) .btn-info:active,
+:where(:root[data-theme="dark"]) .btn-info.active,
+:where(:root[data-theme="dark"]) .btn-info.disabled,
+:where(:root[data-theme="dark"]) .btn-info[disabled] {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-info-hover);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-warning {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-warning);
+    background-image: none;
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-warning:hover,
+:where(:root[data-theme="dark"]) .btn-warning:active,
+:where(:root[data-theme="dark"]) .btn-warning.active,
+:where(:root[data-theme="dark"]) .btn-warning.disabled,
+:where(:root[data-theme="dark"]) .btn-warning[disabled] {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-warning-hover);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-danger {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-danger);
+    background-image: none;
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-danger:hover,
+:where(:root[data-theme="dark"]) .btn-danger:active,
+:where(:root[data-theme="dark"]) .btn-danger.active,
+:where(:root[data-theme="dark"]) .btn-danger.disabled,
+:where(:root[data-theme="dark"]) .btn-danger[disabled] {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-danger-hover);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-success {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-success);
+    background-image: none;
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .btn-success:hover,
+:where(:root[data-theme="dark"]) .btn-success:active,
+:where(:root[data-theme="dark"]) .btn-success.active,
+:where(:root[data-theme="dark"]) .btn-success.disabled,
+:where(:root[data-theme="dark"]) .btn-success[disabled] {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-success-hover);
+    background-image: none;
+}
+
+:where(:root[data-theme="dark"]) .btn {
+    border-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .alert {
+    color: var(--dark-warn-text);
+    background-color: var(--dark-warn-bg);
+    border-color: var(--dark-warn-border);
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .alert-success {
+    color: var(--dark-success-text);
+    background-color: var(--dark-success-bg);
+    border-color: var(--dark-success-border);
+}
+
+:where(:root[data-theme="dark"]) .alert-danger,
+:where(:root[data-theme="dark"]) .alert-error {
+    color: var(--dark-error-text);
+    background-color: var(--dark-error-bg);
+    border-color: var(--dark-error-border);
+}
+
+:where(:root[data-theme="dark"]) .close,
+:where(:root[data-theme="dark"]) .close:hover {
+    color: var(--text);
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .well {
+    background-color: var(--dark-panel);
+    border-color: var(--border-soft);
+    box-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .hero-unit {
+    background-color: var(--dark-panel);
+}
+
+:where(:root[data-theme="dark"]) .label {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-btn-bg);
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .label-warning {
+    background-color: var(--dark-warning);
+}
+
+:where(:root[data-theme="dark"]) .nav > li > a:hover {
+    background-color: var(--hover-bg);
+}
+
+:where(:root[data-theme="dark"]) .nav .nav-header,
+:where(:root[data-theme="dark"]) .nav-list .nav-header {
+    color: var(--muted);
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .nav-list > li > a {
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .nav-list > .active > a,
+:where(:root[data-theme="dark"]) .nav-list > .active > a:hover {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-primary);
+    text-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .nav-list .divider {
+    background-color: var(--border-soft);
+    border-bottom-color: transparent;
+}
+
+:where(:root[data-theme="dark"]) .nav-tabs {
+    border-bottom-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .nav-tabs > li > a:hover {
+    border-color: var(--border-soft) var(--border-soft) var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .nav-tabs > .active > a,
+:where(:root[data-theme="dark"]) .nav-tabs > .active > a:hover {
+    color: var(--text);
+    background-color: var(--surface);
+    border-color: var(--border-soft);
+    border-bottom-color: transparent;
+}
+
+:where(:root[data-theme="dark"]) .nav-pills > .active > a,
+:where(:root[data-theme="dark"]) .nav-pills > .active > a:hover {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-primary);
+}
+
+:where(:root[data-theme="dark"]) .modal {
+    background-color: var(--surface);
+    border-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .modal-header {
+    border-bottom-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .modal-footer {
+    background-color: var(--dark-panel);
+    border-top-color: var(--border-soft);
+    box-shadow: none;
+}
+
+:where(:root[data-theme="dark"]) .dropdown-menu {
+    background-color: var(--dark-panel);
+    border-color: var(--border-soft);
+}
+
+:where(:root[data-theme="dark"]) .dropdown-menu a {
+    color: var(--text);
+}
+
+:where(:root[data-theme="dark"]) .dropdown-menu li > a:hover,
+:where(:root[data-theme="dark"]) .dropdown-menu .active > a,
+:where(:root[data-theme="dark"]) .dropdown-menu .active > a:hover {
+    color: var(--dark-btn-text);
+    background-color: var(--dark-primary);
+}
+
+:where(:root[data-theme="dark"]) .caret {
+    border-top-color: var(--text);
+}
+
+:where(:root[data-theme="dark"]) .icon-chevron-right,
+:where(:root[data-theme="dark"]) .icon-chevron-down {
+    filter: invert(1);
+}

@@ -1849,7 +1849,7 @@ class TestPublicFrozenBanner(unittest.TestCase):
                 banner = public_frozen_banner(1_700_000_000).decode("utf-8")
                 self.assertIn("Ranking congelado desde las %s" % expected,
                               banner)
-                self.assertIn('<a style="color:#fff" href="staff-login">'
+                self.assertIn('<a style="color:inherit" href="staff-login">'
                               'Acceso staff</a>', banner)
 
 

@@ -444,7 +444,7 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
           <td>
             <textarea name="score_type_parameters_{{ dataset.id }}" rows="12">{{ dataset.score_type_parameters|tojson|forceescape }}</textarea>
             {% if dataset.id in score_type_warnings %}
-            <p class="score-type-warning" style="color: red;"><strong>Currently invalid: {{ score_type_warnings[dataset.id] }}</strong></p>
+            <p class="score-type-warning"><strong>Currently invalid: {{ score_type_warnings[dataset.id] }}</strong></p>
             {% endif %}
           </td>
         </tr>

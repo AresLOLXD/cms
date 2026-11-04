@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <script src="{{ static_url("static", "theme.js") }}"></script>
     <link rel="shortcut icon" href="{{ static_url("static", "favicon.ico") }}" />
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "reset.css") }}">
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "aws_style.css") }}">
@@ -10,6 +11,7 @@
   </head>
   <body class="admin">
     <div id="login-content">
+      {% include "fragments/theme_switch.html" %}
 
 {% if admin is undefined %}
 <h1>Welcome</h1>
