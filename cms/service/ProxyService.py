@@ -43,7 +43,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 import requests.exceptions
-from sqlalchemy import func, not_, or_, select
+from sqlalchemy import func, not_, or_, select, update
 from sqlalchemy.exc import DBAPIError, PendingRollbackError, \
     TimeoutError as PoolTimeoutError
 
@@ -1319,9 +1319,9 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         postponed, never moved earlier, and an archive_at in the past
         is never touched. A group whose archive_at an operator wrote in
         AWS (archive_at_manual) is skipped, also when it was cleared.
-        A database error (in the reads or in the
-        UPDATE, which only happens at the commit) is logged and rolled
-        back, so the sweep goes on and the next one tries again.
+        A database error (in the reads, in the UPDATE or in the commit)
+        is logged and rolled back, so the sweep goes on and the next one
+        tries again.
 
         session: the session to read and write the groups with.
 
@@ -1331,11 +1331,7 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
         now = make_datetime()
         changed = False
         try:
-            # No autoflush: the UPDATE must happen at the commit, inside
-            # this try, and not at the read of the next group.
-            # shortcut: a group that AWS marks between this SELECT and the
-            # commit is still overwritten (no row lock, to keep the
-            # sweep from blocking AWS); lock with FOR UPDATE if it bites.
+            # No autoflush: the only write is the UPDATE below.
             with session.no_autoflush:
                 for ranking_group in session.execute(
                         select(RankingGroup).filter(
@@ -1347,7 +1343,15 @@ class ProxyService(AsyncTriggeredService[ProxyOperation, ProxyExecutor]):
                     if default is not None and default > now and (
                             ranking_group.archive_at is None
                             or default > ranking_group.archive_at):
-                        ranking_group.archive_at = default
+                        # Conditional: AWS may mark the group meanwhile
+                        # (READ COMMITTED re-checks the WHERE after its
+                        # commit).
+                        session.execute(
+                            update(RankingGroup)
+                            .where(RankingGroup.id == ranking_group.id,
+                                   RankingGroup.archive_at_manual.is_(False))
+                            .values(archive_at=default)
+                            .execution_options(synchronize_session=False))
                         changed = True
             if changed:
                 session.commit()
