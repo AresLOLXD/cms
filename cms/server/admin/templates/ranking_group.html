@@ -58,6 +58,30 @@
       </tr>
       <tr>
         <td>
+          <span class="info" title="Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. Times are UTC; the local time is shown next to each."></span>
+          Archive
+        </td>
+        <td><strong>{{ view.archive_summary }}</strong></td>
+      </tr>
+      <tr>
+        <td>{{ view.archive_field.label }} (UTC)</td>
+        <td>
+          <input type="text" autocomplete="off" name="{{ view.archive_field.name }}" value="{{ view.archive_field.utc }}" placeholder="YYYY-MM-DD HH:MM:SS" data-utc-time/>
+          <input type="hidden" autocomplete="off" name="{{ view.archive_field.name }}_shown" value="{{ view.archive_field.utc }}"/>
+        </td>
+      </tr>
+      <tr>
+        <td></td>
+        <td>
+          {% if view.archived_now %}
+          <button type="submit" name="visibility_action" value="unarchive" onclick="return confirm('The whole group will be sent to the public ranking again. Continue?');">Desarchivar</button>
+          {% else %}
+          <button type="submit" name="visibility_action" value="archive_now">Archivar ahora</button>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>
           <span class="info" title="Leave empty to keep the current password."></span>
           Staff password
         </td>

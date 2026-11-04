@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from cms.db import RankingGroup
 from cms.server.admin.handlers.rankinggroup import \
@@ -271,6 +271,69 @@ class TestReadWindows(unittest.TestCase):
             self.read({"visibility_action": "explode"})
 
 
+class TestReadArchive(unittest.TestCase):
+    """The archive_at field and the archive_now / unarchive buttons."""
+
+    HOUR = timedelta(hours=1)
+
+    def read(self, form, attrs=None):
+        attrs = dict() if attrs is None else attrs
+        read_ranking_group_visibility(visibility_handler(form), attrs, NOW)
+        return attrs
+
+    def test_setting_archive_at(self):
+        # Scenario: Setting archive_at
+        attrs = self.read({"archive_at": "2026-10-12 06:00:00",
+                           "archive_at_shown": ""},
+                          {"archive_at": None})
+        self.assertEqual(attrs["archive_at"], datetime(2026, 10, 12, 6, 0))
+
+    def test_clearing_archive_at(self):
+        # Scenario: Clearing archive_at
+        attrs = self.read({"archive_at": "",
+                           "archive_at_shown": "2026-10-12 06:00:00"},
+                          {"archive_at": datetime(2026, 10, 12, 6, 0)})
+        self.assertIsNone(attrs["archive_at"])
+
+    def test_a_stale_page_does_not_undo_a_change(self):
+        # Scenario: A stale page does not undo a change
+        stored = datetime(2026, 10, 12, 6, 0)
+        attrs = self.read({"archive_at": "2026-10-11 06:00:00",
+                           "archive_at_shown": "2026-10-11 06:00:00"},
+                          {"archive_at": stored})
+        self.assertEqual(attrs["archive_at"], stored)
+
+    def test_a_malformed_archive_at(self):
+        # Scenario: A malformed time
+        with self.assertRaises(ValueError):
+            self.read({"archive_at": "soon"}, {"archive_at": None})
+
+    def test_archive_now(self):
+        # Scenario: Archiving now
+        attrs = self.read({"visibility_action": "archive_now"},
+                          {"archive_at": NOW + self.HOUR})
+        self.assertEqual(attrs["archive_at"], NOW)
+
+    def test_archive_now_on_an_archived_group(self):
+        # Scenario: Archive now on an archived group
+        with self.assertRaisesRegex(ValueError, "already archived"):
+            self.read({"visibility_action": "archive_now"},
+                      {"archive_at": NOW - self.HOUR})
+
+    def test_unarchive_button(self):
+        # Scenario: Unarchive button
+        attrs = self.read({"visibility_action": "unarchive"},
+                          {"archive_at": NOW - self.HOUR})
+        self.assertEqual(attrs["archive_at"], NOW + timedelta(hours=24))
+
+    def test_unarchive_on_a_group_that_is_not_archived(self):
+        # Scenario: Unarchive on a group that is not archived
+        for archive_at in (None, NOW + self.HOUR):
+            with self.assertRaisesRegex(ValueError, "not archived"):
+                self.read({"visibility_action": "unarchive"},
+                          {"archive_at": archive_at})
+
+
 class TestReadStaffPassword(unittest.TestCase):
 
     def test_new_password_is_hashed_with_spaces_kept(self):
@@ -423,6 +486,37 @@ class TestVisibilityView(unittest.TestCase):
         label, _, rest = view["next_change"].partition(": ")
         self.assertIn(label, ("Freeze at", "Show again at"))
         self.assertTrue(rest.startswith("2026-10-10 19:00:00 UTC"))
+
+
+class TestArchiveView(unittest.TestCase):
+
+    def view(self, **kwargs):
+        return visibility_view(
+            RankingGroup(name="olim", description="OLIM", **kwargs), NOW)
+
+    def test_an_archived_group(self):
+        # Scenario: An archived group
+        view = self.view(archive_at=datetime(2026, 10, 10, 17, 0))
+        self.assertTrue(view["archived_now"])
+        self.assertTrue(view["archive_summary"].startswith("archivado desde"))
+        self.assertIn("2026-10-10 17:00:00 UTC", view["archive_summary"])
+        self.assertEqual(view["archive_field"],
+                         {"name": "archive_at", "label": "Archive at",
+                          "utc": "2026-10-10 17:00:00"})
+
+    def test_a_group_that_will_be_archived(self):
+        # Scenario: A group that will be archived
+        view = self.view(archive_at=datetime(2026, 10, 11, 17, 0))
+        self.assertFalse(view["archived_now"])
+        self.assertTrue(view["archive_summary"].startswith("se archiva el"))
+        self.assertIn("2026-10-11 17:00:00 UTC", view["archive_summary"])
+
+    def test_a_group_with_no_archive_at(self):
+        # Scenario: A group with no archive_at
+        view = self.view()
+        self.assertFalse(view["archived_now"])
+        self.assertEqual(view["archive_summary"], "nunca se archiva")
+        self.assertEqual(view["archive_field"]["utc"], "")
 
 
 class TestRankingGroupHandlersUseTheView(unittest.TestCase):
@@ -711,6 +805,98 @@ class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
         self.assertEqual(group.unfreeze_at, NOW)
 
 
+class TestUnarchiveRegenerates(unittest.TestCase):
+
+    HOUR = timedelta(hours=1)
+
+    def setUp(self):
+        patcher = patch(
+            "cms.server.admin.handlers.rankinggroup.make_datetime",
+            return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def save(self, form: dict, **stored) -> MagicMock:
+        group = RankingGroup(name="olim", description="OLIM",
+                             staff_password=None, **stored)
+        handler = make_form_handler(
+            RankingGroupHandler,
+            {"name": "olim", "description": "OLIM", **form})
+        handler.safe_get_item = MagicMock(return_value=group)
+        handler.group = group
+
+        handler._post_sync("1")
+        return handler
+
+    def assert_regenerated_once(self, handler):
+        proxy = handler.service.proxy_service
+        self.assertEqual(
+            handler.schedule_rpc.call_args_list,
+            [call(proxy.reinitialize),
+             call(proxy.regenerate_ranking, group="olim")])
+
+    def assert_not_regenerated(self, handler):
+        handler.schedule_rpc.assert_called_once_with(
+            handler.service.proxy_service.reinitialize)
+
+    def test_unarchive_button_regenerates(self):
+        # Scenario: Unarchive button regenerates
+        handler = self.save({"visibility_action": "unarchive"},
+                            archive_at=NOW - self.HOUR)
+        self.assert_regenerated_once(handler)
+        self.assertEqual(handler.group.archive_at, NOW + timedelta(hours=24))
+
+    def test_unarchiving_by_editing_archive_at(self):
+        # Scenario: Unarchiving by editing archive_at (a future time, then
+        # an empty one)
+        stored = NOW - self.HOUR
+        for typed in ("2026-10-11 18:00:00", ""):
+            with self.subTest(typed):
+                handler = self.save(
+                    {"archive_at": typed, "archive_at_shown":
+                     stored.strftime("%Y-%m-%d %H:%M:%S")},
+                    archive_at=stored)
+                self.assertFalse(handler.group.is_archived_at(NOW))
+                self.assert_regenerated_once(handler)
+
+    def test_a_group_that_stays_as_it_is_is_not_regenerated(self):
+        # Scenario: Saving a group that stays as it is
+        for stored in (NOW - self.HOUR, NOW + self.HOUR, None):
+            with self.subTest(stored):
+                handler = self.save({}, archive_at=stored)
+                self.assert_not_regenerated(handler)
+
+    def test_archiving_is_not_regenerated(self):
+        # Scenario: Saving a group that stays as it is (not archived to
+        # archived is not an unarchive either)
+        handler = self.save({"visibility_action": "archive_now"},
+                            archive_at=NOW + self.HOUR)
+        self.assert_not_regenerated(handler)
+
+    def test_a_refused_unarchive_regenerates_nothing(self):
+        # Scenario: Unarchive on a group that is not archived
+        handler = self.save({"visibility_action": "unarchive"},
+                            archive_at=None)
+        handler.try_commit.assert_not_called()
+        handler.schedule_rpc.assert_not_called()
+        handler.service.add_notification.assert_called_once()
+
+    def test_no_regenerate_when_the_commit_fails(self):
+        # Scenario: Unarchive button regenerates (only after the commit)
+        group = RankingGroup(name="olim", description="OLIM",
+                             archive_at=NOW - self.HOUR)
+        handler = make_form_handler(
+            RankingGroupHandler,
+            {"name": "olim", "description": "OLIM",
+             "visibility_action": "unarchive"})
+        handler.safe_get_item = MagicMock(return_value=group)
+        handler.try_commit.return_value = False
+
+        handler._post_sync("1")
+
+        handler.schedule_rpc.assert_not_called()
+
+
 class TestRankingGroupTemplates(unittest.TestCase):
     """The visibility fields of the pages, and that the password stays out.
 
@@ -807,8 +993,8 @@ class TestRankingGroupTemplates(unittest.TestCase):
     def test_group_page_leaves_the_local_time_to_the_browser(self):
         html = self.render_group(freeze_at=datetime(2026, 10, 10, 20, 0))
 
-        # Only the four typed fields, not their _shown twins, are marked.
-        self.assertEqual(html.count("data-utc-time"), 4)
+        # Only the five typed fields, not their _shown twins, are marked.
+        self.assertEqual(html.count("data-utc-time"), 5)
         self.assertNotIn("= 2026-", html)
 
     def test_group_page_offers_hide_or_show_now(self):
@@ -863,6 +1049,33 @@ class TestRankingGroupTemplates(unittest.TestCase):
         for _name, label in WINDOW_FIELDS:
             self.assertIn("<td>%s (UTC)</td>" % label, html)
 
+    def test_group_page_shows_the_archive_state_and_field(self):
+        # Scenario: An archived group (the page says it and shows archive_at)
+        html = self.render_group(archive_at=NOW - self.HOUR)
+        self.assertIn("<strong>archivado desde", html)
+        for tag in (self.input_tag(html, "archive_at"),
+                    self.input_tag(html, "archive_at_shown")):
+            self.assertIn('value="2026-10-10 17:00:00"', tag)
+            self.assertIn('autocomplete="off"', tag)
+        self.assertIn("<td>Archive at (UTC)</td>", html)
+
+        html = self.render_group()
+        self.assertIn("<strong>nunca se archiva</strong>", html)
+
+    def test_group_page_offers_archive_now_or_unarchive(self):
+        html = self.render_group()
+        self.assertIn("Archivar ahora", html)
+        self.assertIn('name="visibility_action" value="archive_now"', html)
+        self.assertNotIn("Desarchivar", html)
+
+        html = self.render_group(archive_at=NOW - self.HOUR)
+        self.assertIn("Desarchivar", html)
+        self.assertIn('name="visibility_action" value="unarchive"', html)
+        self.assertNotIn("Archivar ahora", html)
+        # It sends the whole group again, so it asks first.
+        self.assertRegex(
+            html, r'value="unarchive"[^>]*onclick="return confirm\(')
+
     def test_group_page_explains_what_a_now_button_does(self):
         self.assertIn(
             "Un botón «… ahora» reemplaza la hora escrita en ese campo.",
@@ -878,7 +1091,8 @@ class TestRankingGroupTemplates(unittest.TestCase):
                 "hide_at": datetime(2026, 10, 10, 12, 0, 0, 123456),
                 "show_at": datetime(2026, 10, 10, 20, 0, 0, 500000),
                 "freeze_at": datetime(2026, 10, 10, 18, 30, 5, 999999),
-                "unfreeze_at": datetime(2026, 10, 10, 19, 0, 0, 1)},
+                "unfreeze_at": datetime(2026, 10, 10, 19, 0, 0, 1),
+                "archive_at": datetime(2026, 10, 11, 18, 0, 0, 777777)},
             "shown again, frozen now": {
                 "hide_at": datetime(2026, 10, 10, 10, 0, 0, 250000),
                 "show_at": datetime(2026, 10, 10, 12, 0, 0, 750000),
@@ -900,7 +1114,8 @@ class TestRankingGroupTemplates(unittest.TestCase):
                     set(parser.fields),
                     {"name", "description", "staff_password"}
                     | {n for n, _l in WINDOW_FIELDS}
-                    | {n + "_shown" for n, _l in WINDOW_FIELDS})
+                    | {n + "_shown" for n, _l in WINDOW_FIELDS}
+                    | {"archive_at", "archive_at_shown"})
                 handler = make_form_handler(RankingGroupHandler,
                                             parser.fields)
                 handler.safe_get_item = MagicMock(return_value=group)

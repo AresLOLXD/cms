@@ -1,9 +1,9 @@
 ## 1. Group page: state, archive_at, archive now, unarchive
 
-- [ ] 1.1 Move `ARCHIVE_GRACE` to `cms/db/rankinggroup.py` and import it in ProxyService; test that `ProxyService.ARCHIVE_GRACE` is still 24 h
-- [ ] 1.2 Add the `archive_at` field to the group page (render in UTC with local time, read with the `_shown` rule, empty clears, malformed rejects); tests for the Scenarios of "AWS shows the archive state" and "The operator can move archive_at"
-- [ ] 1.3 Add the `archive_now` and `unarchive` actions with their stale-page errors (the Unarchive button asks for confirmation, since it regenerates); tests for the Scenarios of "Archive now" and the button Scenarios of "Unarchiving publishes the corrections"
-- [ ] 1.4 Schedule one `regenerate_ranking` after the commit when a save takes the group from archived to not archived; tests for the edit, stay-archived and stay-not-archived Scenarios
+- [x] 1.1 Move `ARCHIVE_GRACE` to `cms/db/rankinggroup.py` and import it in ProxyService; test that `ProxyService.ARCHIVE_GRACE` is still 24 h
+- [x] 1.2 Add the `archive_at` field to the group page (render in UTC with local time, read with the `_shown` rule, empty clears, malformed rejects); tests for the Scenarios of "AWS shows the archive state" and "The operator can move archive_at"
+- [x] 1.3 Add the `archive_now` and `unarchive` actions with their stale-page errors (the Unarchive button asks for confirmation, since it regenerates); tests for the Scenarios of "Archive now" and the button Scenarios of "Unarchiving publishes the corrections"
+- [x] 1.4 Schedule one `regenerate_ranking` after the commit when a save takes the group from archived to not archived; tests for the edit, stay-archived and stay-not-archived Scenarios
 
 ## 2. Refusals
 

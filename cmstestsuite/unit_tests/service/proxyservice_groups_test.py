@@ -1973,6 +1973,16 @@ class ArchiveSweepTestCase(
         return ranking_group
 
 
+class TestArchiveGraceConstant(unittest.TestCase):
+
+    def test_the_grace_lives_in_the_db_package_and_is_24_hours(self):
+        # AWS reads the constant without importing the service.
+        import cms.service.ProxyService as proxy_module
+        from cms.db.rankinggroup import ARCHIVE_GRACE
+        self.assertEqual(ARCHIVE_GRACE, timedelta(hours=24))
+        self.assertEqual(proxy_module.ARCHIVE_GRACE, ARCHIVE_GRACE)
+
+
 class TestDefaultArchiveAt(ArchiveSweepTestCase):
 
     async def test_the_last_contest_decides(self):

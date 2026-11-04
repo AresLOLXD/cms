@@ -28,7 +28,7 @@
 
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import asyncio
 import enum
 import json
@@ -51,6 +51,7 @@ from cms import config
 from cms.db import SessionGen, Session, Contest, Participation, Task, \
     Group, RankingGroup, Submission, get_submissions
 from cms.db.connect_options import describe_error
+from cms.db.rankinggroup import ARCHIVE_GRACE
 from cms.io import QueueItem
 from cms.io.async_triggeredservice import AsyncExecutor, AsyncTriggeredService
 from cms.io.health import BusyTracker
@@ -68,10 +69,6 @@ logger = logging.getLogger(__name__)
 # would block the thread sending to it forever.
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 120
-
-# How long after the end of its last contest a ranking group is
-# archived by default (see _default_archive_at).
-ARCHIVE_GRACE = timedelta(hours=24)
 
 
 class CannotSendError(Exception):

@@ -26,6 +26,7 @@ from datetime import datetime
 from sqlalchemy import select, func
 
 from cms.db import Contest, RankingGroup
+from cms.db.rankinggroup import ARCHIVE_GRACE
 from cmscommon.crypto import hash_password
 from cmscommon.datetime import local_tz, make_datetime, utc
 from cmscommon.ranking_groups import RESERVED_GROUP_NAMES, \
@@ -68,6 +69,9 @@ WINDOW_FIELDS = (
     ("freeze_at", "Freeze at"),
     ("unfreeze_at", "Unfreeze at"),
 )
+# archive_at has no window partner and no check_window: it is read like
+# the window fields, but kept out of WINDOW_FIELDS.
+ARCHIVE_FIELD = ("archive_at", "Archive at")
 FORM_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -91,7 +95,8 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
     that a stale page does not undo what somebody else scheduled. The
     add form has no _shown fields, and attrs has no current time there:
     its times always count. The visibility_action buttons set a time to
-    now. The hidden column is always derived from the windows again,
+    now; archive_now and unarchive set archive_at, the second one to
+    ARCHIVE_GRACE from now. The hidden column is always derived from the windows again,
     whatever the form says, for rollbacks to MC-2 minimal.
 
     An empty password field keeps attrs["staff_password"] as it is, so
@@ -105,7 +110,7 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
         action that does not apply, or an invalid staff password.
 
     """
-    for name, _label in WINDOW_FIELDS:
+    for name, _label in WINDOW_FIELDS + (ARCHIVE_FIELD,):
         raw = handler.get_argument(name, None)
         if raw is None:
             continue
@@ -115,6 +120,8 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
             continue
         attrs[name] = parse_datetime(raw) if raw else None
 
+    archive_at = attrs.get("archive_at")
+    archived = archive_at is not None and archive_at <= now
     action = handler.get_argument("visibility_action", None)
     if action == "hide_now":
         attrs["hide_at"] = now
@@ -141,6 +148,14 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
                               attrs.get("unfreeze_at"), now):
             raise ValueError("The ranking is not frozen.")
         attrs["unfreeze_at"] = now
+    elif action == "archive_now":
+        if archived:
+            raise ValueError("The group is already archived.")
+        attrs["archive_at"] = now
+    elif action == "unarchive":
+        if not archived:
+            raise ValueError("The group is not archived.")
+        attrs["archive_at"] = now + ARCHIVE_GRACE
     elif action is not None:
         raise ValueError("Unknown action %r." % (action,))
 
@@ -182,7 +197,9 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
         is hidden or frozen now, a one-line summary and the next change,
         the first future time that changes the hidden or frozen state
         (or ""). Frozen follows the freeze window alone, also while the
-        group is hidden, unlike RankingGroup.is_frozen_at.
+        group is hidden, unlike RankingGroup.is_frozen_at. Also the
+        archive_at field, whether the group is archived now and a
+        one-line summary of that.
 
     """
     def local(value: datetime | None) -> str:
@@ -211,8 +228,19 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
                       and state_at(getattr(group, name)) != (hidden, frozen))
     next_change = "" if not upcoming else "%s: %s UTC (%s)" % (
         upcoming[0][1], format_utc(upcoming[0][0]), local(upcoming[0][0]))
+    archived = group.is_archived_at(now)
+    if group.archive_at is None:
+        archive_summary = "nunca se archiva"
+    else:
+        archive_summary = "%s %s UTC (%s)" % (
+            "archivado desde" if archived else "se archiva el",
+            format_utc(group.archive_at), local(group.archive_at))
     return {"fields": fields, "hidden_now": hidden, "frozen_now": frozen,
-            "summary": summary, "next_change": next_change}
+            "summary": summary, "next_change": next_change,
+            "archive_field": {"name": ARCHIVE_FIELD[0],
+                              "label": ARCHIVE_FIELD[1],
+                              "utc": format_utc(group.archive_at)},
+            "archived_now": archived, "archive_summary": archive_summary}
 
 
 class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
@@ -312,10 +340,12 @@ class RankingGroupHandler(BaseHandler):
         # commit, then checks its action against the new state.
         self.sql_session.refresh(group, with_for_update=True)
 
+        now = make_datetime()
+        was_archived = group.is_archived_at(now)
         try:
             attrs = group.get_attrs()
             read_ranking_group_attrs(self, attrs)
-            read_ranking_group_visibility(self, attrs, make_datetime())
+            read_ranking_group_visibility(self, attrs, now)
             group.set_attrs(attrs)
 
         except Exception as error:
@@ -324,9 +354,17 @@ class RankingGroupHandler(BaseHandler):
             self.redirect(fallback_page)
             return
 
+        now_archived = group.is_archived_at(now)
+        name = group.name
         if self.try_commit():
             # A rename moves the ranking to a new namespace.
             self.schedule_rpc(self.service.proxy_service.reinitialize)
+            if was_archived and not now_archived:
+                # The corrections made while it was archived were not
+                # sent, and the sweep only sends what the ranking lacks.
+                self.schedule_rpc(
+                    self.service.proxy_service.regenerate_ranking,
+                    group=name)
         self.redirect(fallback_page)
 
     @require_permission(BaseHandler.PERMISSION_ALL)

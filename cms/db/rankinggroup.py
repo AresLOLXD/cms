@@ -20,7 +20,7 @@
 
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.schema import Column
 from sqlalchemy.types import Boolean, DateTime, Integer, Unicode
@@ -28,6 +28,11 @@ from sqlalchemy.types import Boolean, DateTime, Integer, Unicode
 from cmscommon.ranking_groups import window_is_open
 
 from . import Base
+
+# How long after the end of its last contest a ranking group is archived
+# by default (see ProxyService._default_archive_at), and how long an
+# unarchived group stays open in AWS.
+ARCHIVE_GRACE = timedelta(hours=24)
 
 
 class RankingGroup(Base):
