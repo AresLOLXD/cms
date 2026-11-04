@@ -13,6 +13,7 @@ from cms.server.admin.handlers.rankinggroup import \
     RankingGroupListHandler, RegenerateRankingHandler, \
     read_ranking_group_attrs, read_ranking_group_visibility, \
     visibility_view
+from cms.server.admin.handlers.base import BaseHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmscommon.crypto import validate_password
 
@@ -52,12 +53,16 @@ class TestReadRankingGroupAttrs(unittest.TestCase):
 
 class TestRegenerateRankingHandler(unittest.TestCase):
 
-    def run_post(self, group_arg: str) -> MagicMock:
+    def run_post(self, group_arg: str, stored=None) -> MagicMock:
+        """Press Regenerate for group_arg; stored is the group in the DB."""
         handler = RegenerateRankingHandler.__new__(RegenerateRankingHandler)
         # "service" is a read-only property (defined on
         # CommonRequestHandler) that returns self.application.service, so
         # it must be mocked through "application", not assigned directly.
         handler.application = MagicMock()
+        handler.sql_session = MagicMock()
+        handler.sql_session.execute.return_value.scalar_one_or_none \
+            .return_value = stored
         handler.get_argument = MagicMock(return_value=group_arg)
         handler.redirect = MagicMock()
         handler.url = MagicMock(return_value="/ranking_groups")
@@ -65,17 +70,43 @@ class TestRegenerateRankingHandler(unittest.TestCase):
         handler._post_sync()
         return handler
 
+    def notification(self, handler) -> tuple[str, str]:
+        (_when, title, text), _kwargs = \
+            handler.service.add_notification.call_args
+        return title, text
+
     def test_group(self):
-        handler = self.run_post("olim")
-        handler.schedule_rpc.assert_called_once_with(
-            handler.application.service.proxy_service.regenerate_ranking,
-            group="olim")
+        # Scenario: Regenerate on a group that is not archived
+        for stored in (RankingGroup(name="olim", description="O"),
+                       RankingGroup(name="olim", description="O",
+                                    archive_at=datetime(2999, 1, 1))):
+            handler = self.run_post("olim", stored)
+            handler.schedule_rpc.assert_called_once_with(
+                handler.application.service.proxy_service
+                .regenerate_ranking,
+                group="olim")
+            self.assertEqual(self.notification(handler)[0],
+                             "Ranking regeneration requested")
 
     def test_root(self):
+        # Scenario: Regenerate on a group that is not archived (the root)
         handler = self.run_post("")
         handler.schedule_rpc.assert_called_once_with(
             handler.application.service.proxy_service.regenerate_ranking,
             group=None)
+        self.assertEqual(self.notification(handler)[0],
+                         "Ranking regeneration requested")
+
+    def test_archived_group(self):
+        # Scenario: Regenerate on an archived group
+        handler = self.run_post(
+            "olim", RankingGroup(name="olim", description="O",
+                                 archive_at=datetime(2020, 1, 1)))
+        handler.schedule_rpc.assert_not_called()
+        title, text = self.notification(handler)
+        self.assertEqual(title, "Ranking regeneration ignored")
+        self.assertIn("olim is archived", text)
+        self.assertIn("nothing was sent", text)
 
 
 NOW = datetime(2026, 10, 10, 18, 0)
@@ -944,6 +975,49 @@ class TestRenameArchivedGroup(unittest.TestCase):
         handler._post_sync("1")
         self.assertEqual(group.name, "olim")
         handler.try_commit.assert_not_called()
+
+
+class TestArchiveBanner(unittest.TestCase):
+    """The banner of the pages of a contest whose group is archived."""
+
+    def render_params(self, group) -> dict:
+        handler = BaseHandler.__new__(BaseHandler)
+        handler.application = MagicMock()
+        handler.sql_session = MagicMock()
+        handler._current_user = None
+        handler.url = MagicMock()
+        handler.static_url_helper = MagicMock()
+        handler.contest = SimpleNamespace(id=1, ranking_group=group)
+        with patch.object(BaseHandler, "xsrf_form_html", return_value=""):
+            return handler.render_params()
+
+    def banner(self, group) -> str:
+        template = AWS_ENVIRONMENT.get_template("base.html")
+        params = {"archived_group": group, "url": lambda *p: "/".join(
+            str(x) for x in p)} if group is not None else {}
+        return "".join(template.blocks["archive_banner"](
+            template.new_context(params)))
+
+    def test_a_contest_of_an_archived_group(self):
+        # Scenario: A contest of an archived group
+        group = make_group(7, "olim", archive_at=datetime(2020, 1, 1))
+        params = self.render_params(group)
+        self.assertIs(params["archived_group"], group)
+        html = self.banner(group)
+        self.assertIn("olim", html)
+        self.assertIn("do not reach the public ranking", html)
+        self.assertIn('href="ranking_group/7"', html)
+
+    def test_a_contest_of_a_group_that_is_not_archived(self):
+        # Scenario: A contest of a group that is not archived
+        for archive_at in (None, datetime(2999, 1, 1)):
+            group = make_group(7, "olim", archive_at=archive_at)
+            self.assertIsNone(self.render_params(group)["archived_group"])
+        self.assertEqual(self.banner(None).strip(), "")
+
+    def test_a_contest_with_no_group(self):
+        # Scenario: A contest with no group
+        self.assertIsNone(self.render_params(None)["archived_group"])
 
 
 class TestRankingGroupTemplates(unittest.TestCase):

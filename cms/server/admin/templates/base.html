@@ -282,6 +282,11 @@ $(document).ready(init);
           <button id="subpage_close">x</button>
           <div id="subpage_content"></div>
         </dialog>
+        {% block archive_banner %}
+        {% if archived_group is defined and archived_group %}
+        <p class="archive_banner" style="color: red;"><strong>The ranking group <a href="{{ url("ranking_group", archived_group.id) }}">{{ archived_group.name }}</a> is archived: changes made here do not reach the public ranking until the group is unarchived.</strong></p>
+        {% endif %}
+        {% endblock archive_banner %}
         {% block core %}{% endblock core %}
       </div>
 

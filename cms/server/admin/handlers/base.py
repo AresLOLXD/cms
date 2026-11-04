@@ -551,6 +551,11 @@ class BaseHandler(CommonRequestHandler):
         params = self._base_render_params(self.contest)
         if self.current_user is not None:
             params["admin"] = self.current_user
+        # The group of the contest, when archived: base.html warns that
+        # a change on the page will not reach the public ranking.
+        group = None if self.contest is None else self.contest.ranking_group
+        params["archived_group"] = group if group is not None \
+            and group.is_archived_at(params["timestamp"]) else None
         if self.contest is not None:
             params["unanswered"] = self.sql_session.execute(
                 select(func.count()).select_from(Question)

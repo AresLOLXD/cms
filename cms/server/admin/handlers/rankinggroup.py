@@ -424,6 +424,18 @@ class RegenerateRankingHandler(BaseHandler):
 
     def _post_sync(self):
         group: str = self.get_argument("group", "")
+        stored = self.sql_session.execute(
+            select(RankingGroup).filter(RankingGroup.name == group)
+        ).scalar_one_or_none() if group else None
+        if stored is not None and stored.is_archived_at(make_datetime()):
+            # ProxyService would ignore it too: say so instead of
+            # claiming that it was requested.
+            self.service.add_notification(
+                make_datetime(), "Ranking regeneration ignored",
+                "Ranking %s is archived: nothing was sent. Unarchive it "
+                "first to publish a correction." % group)
+            self.redirect(self.url("ranking_groups"))
+            return
         self.schedule_rpc(self.service.proxy_service.regenerate_ranking,
                           group=group or None)
         self.service.add_notification(

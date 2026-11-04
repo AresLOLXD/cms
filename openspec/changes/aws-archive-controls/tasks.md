@@ -11,8 +11,8 @@
 
 ## 3. Banner and regenerate notification
 
-- [ ] 3.1 Pass the archived group of the page's contest to the templates and render the banner in `base.html`; tests for the three banner Scenarios
-- [ ] 3.2 Make the AWS Regenerate handler say that an archived group was not regenerated, and skip the RPC; tests for the two Scenarios of "AWS says when a regenerate does nothing"
+- [x] 3.1 Pass the archived group of the page's contest to the templates and render the banner in `base.html`; tests for the three banner Scenarios
+- [x] 3.2 Make the AWS Regenerate handler say that an archived group was not regenerated, and skip the RPC; tests for the two Scenarios of "AWS says when a regenerate does nothing"
 
 ## 4. Docs
 
