@@ -26,7 +26,7 @@ show_user (bool): whether to add a username column.
   </thead>
   <tbody>
     {% for row in intervals %}
-    <tr{% if row.id in flagged_ids %} style="background-color: #fdd;"{% endif %}>
+    <tr{% if row.id in flagged_ids %} class="row-flagged"{% endif %}>
       {% if show_user %}<td><a href="{{ url("contest", contest.id, "user", row.user_id, "edit") }}">{{ row.username }}</a></td>{% endif %}
       <td>{{ device(row.device_id) }}</td>
       <td>{{ row.ip }}</td>

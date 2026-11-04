@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <script src="{{ static_url("static", "theme.js") }}"></script>
     <link rel="shortcut icon" href="{{ static_url("static", "favicon.ico") }}" />
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "reset.css") }}">
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "aws_style.css") }}">
@@ -72,6 +73,7 @@ $(document).ready(init);
         <div id="clock"></div>
 {% if admin is undefined %}
         <div id="sidebar_header">
+          {% include "fragments/theme_switch.html" %}
           <h1 class="parent">Administration</h1>
         </div>
 {% else %}
@@ -80,6 +82,7 @@ $(document).ready(init);
             Hello, <a href="{{ url("admins") }}">{{ admin.name }}</a>.
               <form class="inline" action="{{ url("logout") }}" method="POST">{{ xsrf_form_html|safe }}<input type="submit" value="Logout"></form>
           </div>
+          {% include "fragments/theme_switch.html" %}
           {% if contest is none %}
           <h1 class="parent">Administration</h1>
           {% else %}
@@ -284,7 +287,7 @@ $(document).ready(init);
         </dialog>
         {% block archive_banner %}
         {% if archived_group is defined and archived_group %}
-        <p class="archive_banner" style="color: red;"><strong>The ranking group <a href="{{ url("ranking_group", archived_group.id) }}">{{ archived_group.name }}</a> is archived: changes made here do not reach the public ranking until the group is unarchived.</strong></p>
+        <p class="archive_banner"><strong>The ranking group <a href="{{ url("ranking_group", archived_group.id) }}">{{ archived_group.name }}</a> is archived: changes made here do not reach the public ranking until the group is unarchived.</strong></p>
         {% endif %}
         {% endblock archive_banner %}
         {% block core %}{% endblock core %}

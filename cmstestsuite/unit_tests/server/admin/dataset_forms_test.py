@@ -69,15 +69,18 @@ class DatasetFormsTestCase(unittest.TestCase):
         aws = read_admin("static", "aws_style.css")
         cws = CONTEST_DIR.joinpath(
             "static", "cws_style.css").read_text(encoding="utf-8")
-        for css, selector in ((aws, ".hint"),
-                              (aws, ".subtask-dependency"),
-                              (cws, "#submission_detail .subtask-dependency")):
+        # AWS reads its color from the --hint token (light set: #666666).
+        self.assertIn("--hint: #666666;", aws)
+        for css, selector, color in (
+                (aws, ".hint", "var(--hint)"),
+                (aws, ".subtask-dependency", "var(--hint)"),
+                (cws, "#submission_detail .subtask-dependency", "#666666")):
             match = re.search(
                 r"^%s \{(.*?)\}" % re.escape(selector), css, re.M | re.S)
             self.assertIsNotNone(match, selector)
             self.assertIn("font-size: 0.9em", match.group(1), selector)
             # A lighter gray would be below the WCAG AA contrast on white.
-            self.assertIn("color: #666666;", match.group(1), selector)
+            self.assertIn("color: %s;" % color, match.group(1), selector)
 
     def test_skipped_row_pill_is_styled_in_cws_only(self):
         cws = CONTEST_DIR.joinpath(
