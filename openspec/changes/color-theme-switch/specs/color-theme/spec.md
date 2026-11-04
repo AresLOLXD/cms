@@ -12,11 +12,15 @@ Each of CWS, AWS and RWS SHALL show its pages in a light or a dark theme. With n
 - **THEN** the page is shown in the light theme
 
 ### Requirement: Each server has a switch with three options
-Every page of CWS, AWS and RWS SHALL offer a switch with the options System, Light and Dark, labelled «Sistema», «Claro» and «Oscuro», showing the current choice. The switch SHALL be present on CWS pages also when the contest has a single language.
+Every page of CWS and AWS, and the ranking page itself (the scoreboard), SHALL offer a switch with the options System, Light and Dark, labelled «Sistema», «Claro» and «Oscuro», showing the current choice. The switch SHALL be present on CWS pages also when the contest has a single language. The notice and staff-login pages that RWS builds itself SHALL have no switch, and follow the saved choice.
 
 #### Scenario: The switch is on every page
-- **WHEN** a page of CWS, AWS or RWS is shown
+- **WHEN** a page of CWS or AWS, or the RWS scoreboard page, is shown
 - **THEN** it has the three-option switch with the current choice selected
+
+#### Scenario: The ranking built-in pages have no switch
+- **WHEN** the hidden-ranking notice or the staff login page of RWS is shown
+- **THEN** it has no switch and shows the saved theme
 
 #### Scenario: CWS with a single language
 - **WHEN** a CWS page is shown for a contest that has only one available language

@@ -34,13 +34,15 @@ All of these are my calls unless marked as the user's.
 7. **Icons (mine).** The two CWS chevrons use `filter: invert(1)` in dark theme. RWS `tick_*.png` and `close.png` are swapped per theme with CSS (`filter` first; if a PNG does not read well, the alternate asset is added then).
 8. **RWS animations and score cells.** Colors inside the 8 keyframes and the score classes become tokens; the up/down colors are chosen so that each pair stays distinguishable from the other and from the background in both themes. The vendor-prefixed duplicates are kept as they are, only with `var()`.
 9. **Contrast test (mine).** One pytest module reads the token block of each stylesheet (light set and dark set), takes a declared list of foreground/background pairs per server (text on page, link, status colors, score-cell colors, banner text), computes WCAG contrast and asserts 4.5:1. The pairs live in the test next to the names of the tokens, so adding a token without a pair is visible in review. Screenshots are not taken by tests; the person reviewing opens the pages.
-10. **Inline colors move to the tokens.** The five inline colored `style=` attributes and the `<style>` blocks in AWS become classes using tokens; the `#adadad` link in CWS gets a token that passes AA.
+10. **Focus rings in the CWS dark overlay (added after review).** Bootstrap 2 draws focus with a `#333` ring that disappears on the dark surface, so the overlay sets `outline-color` from the link token for the focusable controls it covers.
+11. **Inline colors move to the tokens.** The five inline colored `style=` attributes and the `<style>` blocks in AWS become classes using tokens; the `#adadad` link in CWS gets a token that passes AA.
 
 ## Risks / Trade-offs
 
 - The CWS overlay will leave rough edges in rarely used Bootstrap components. Accepted until Bootstrap is upgraded; the covered surfaces are listed in the spec and each gets a test of its token pair, not of the pixels.
 - Bootstrap's 824 colors cannot be verified by a unit test: unlisted components may be unreadable in dark theme. Reviewer and user open the pages; this is stated as not verified until they have.
 - RWS has the most colors (about 190 between CSS and JS). Colors computed in JS that are not charts (if any are found while implementing) are listed as a deviation, not silently changed.
+- A cached `Ranking.css` (the ranking serves it with a 12 hour cache) can briefly be older than the page that injects the staff and frozen banners, leaving those pages without the new tokens; the banner variables therefore carry fallbacks, and the rest only looks unstyled for a while.
 - Two copies of `theme.js` can drift; the identical-copy test prevents it.
 - `localStorage` is per origin: the same server reached by two hostnames keeps two choices. Accepted.
 
