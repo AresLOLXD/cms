@@ -23,6 +23,15 @@
         color: var(--dark-link-hover);
     }
 
+    :where(:root:not([data-theme="light"])) a:focus,
+    :where(:root:not([data-theme="light"])) .btn:focus,
+    :where(:root:not([data-theme="light"])) select:focus,
+    :where(:root:not([data-theme="light"])) input[type="checkbox"]:focus,
+    :where(:root:not([data-theme="light"])) input[type="radio"]:focus,
+    :where(:root:not([data-theme="light"])) input[type="file"]:focus {
+        outline-color: var(--dark-link);
+    }
+
     :where(:root:not([data-theme="light"])) h1 small,
     :where(:root:not([data-theme="light"])) h2 small,
     :where(:root:not([data-theme="light"])) h3 small,
@@ -409,6 +418,15 @@
 
 :where(:root[data-theme="dark"]) a:hover {
     color: var(--dark-link-hover);
+}
+
+:where(:root[data-theme="dark"]) a:focus,
+:where(:root[data-theme="dark"]) .btn:focus,
+:where(:root[data-theme="dark"]) select:focus,
+:where(:root[data-theme="dark"]) input[type="checkbox"]:focus,
+:where(:root[data-theme="dark"]) input[type="radio"]:focus,
+:where(:root[data-theme="dark"]) input[type="file"]:focus {
+    outline-color: var(--dark-link);
 }
 
 :where(:root[data-theme="dark"]) h1 small,

@@ -172,6 +172,17 @@ class TestCwsPages(unittest.TestCase):
                 "static/cws_dark.css")]
             self.assertEqual(order, sorted(order), name)
 
+    def test_the_dark_overlay_recolors_the_focus_ring_in_both_halves(self):
+        # Scenario: Contrast in every theme (bootstrap.css draws the focus
+        # ring dotted #333, invisible on the dark surface)
+        for half in overlay_rules():
+            rules = [selector for selector, body in half
+                     if "outline-color: var(--dark-link)" in body]
+            self.assertEqual(len(rules), 1)
+            for control in ("a", ".btn", "select", 'input[type="checkbox"]',
+                            'input[type="radio"]', 'input[type="file"]'):
+                self.assertIn("@ %s:focus" % control, rules[0])
+
     def test_cws_serves_the_script_and_the_overlay(self):
         # The templates refer to static_url("static", ...): CWS must search
         # cms/server/static (theme.js) and cms/server/contest/static.
