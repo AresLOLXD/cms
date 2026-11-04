@@ -75,6 +75,8 @@ class TestRwsPage(unittest.TestCase):
             re.findall(r'<option value="(\w+)">(\w+)</option>', select[0]),
             [("system", "Sistema"), ("light", "Claro"), ("dark", "Oscuro")])
         self.assertEqual(self.html.count('id="theme"'), 1)
+        # the page is lang="en" and the labels are Spanish
+        self.assertRegex(self.html, r'<select id="theme"[^>]* lang="es"')
 
     def test_the_footer_has_no_literal_color(self):
         # Scenario: The three servers cover their pages (RWS footer)

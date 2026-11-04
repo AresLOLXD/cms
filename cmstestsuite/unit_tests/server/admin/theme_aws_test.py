@@ -70,6 +70,8 @@ class TestAwsPages(unittest.TestCase):
             select = re.search(r'<select id="theme"[^>]*>(.*?)</select>',
                                html, re.S)
             self.assertIsNotNone(select, name)
+            # the pages are lang="en" and the labels are Spanish
+            self.assertRegex(html, r'<select id="theme"[^>]* lang="es"', name)
             self.assertEqual(
                 re.findall(r'<option value="(\w+)">(\w+)</option>',
                            select.group(1)),
