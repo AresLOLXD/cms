@@ -426,6 +426,7 @@ class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
     """The fork adds ranking_groups.archive_at, empty and without a lock."""
 
     DROP_COLUMN = "ALTER TABLE ranking_groups DROP COLUMN archive_at"
+    DROP_MANUAL = "ALTER TABLE ranking_groups DROP COLUMN archive_at_manual"
 
     def setUp(self):
         super().setUp()
@@ -453,14 +454,14 @@ class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
             conn.close()
 
     @classmethod
-    def _archive_schema(cls) -> list:
-        """Return the type, NOT NULL and default of archive_at, as stored."""
+    def _archive_schema(cls, column: str = "archive_at") -> list:
+        """Return the type, NOT NULL and default of a column, as stored."""
         return cls._query(
             "SELECT format_type(atttypid, atttypmod), attnotnull, "
             "pg_get_expr(adbin, adrelid) FROM pg_attribute "
             "LEFT JOIN pg_attrdef ON adrelid = attrelid AND adnum = attnum "
             "WHERE attrelid = 'public.ranking_groups'::regclass "
-            "AND attname = 'archive_at' AND NOT attisdropped")
+            f"AND attname = '{column}' AND NOT attisdropped")
 
     def test_adds_what_init_db_creates_and_a_second_run_changes_nothing(self):
         expected = self._archive_schema()
@@ -475,6 +476,29 @@ class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
         self.assertEqual(self._archive_schema(), expected)
         apply_fork_ranking_group_archive_update()
         self.assertEqual(self._archive_schema(), expected)
+
+    def test_adds_the_manual_mark_as_init_db_creates_it(self):
+        expected = self._archive_schema("archive_at_manual")
+        self.assertEqual(expected, [("boolean", True, "false")])
+
+        self._run(self.DROP_MANUAL)
+        self.assertEqual(self._archive_schema("archive_at_manual"), [])
+        apply_fork_ranking_group_archive_update()
+        self.assertEqual(self._archive_schema("archive_at_manual"), expected)
+        apply_fork_ranking_group_archive_update()
+        self.assertEqual(self._archive_schema("archive_at_manual"), expected)
+
+    def test_existing_groups_get_no_manual_mark(self):
+        # Scenario "Updating an existing database": every row gets false.
+        self._run(
+            "INSERT INTO ranking_groups (name, description, hidden) "
+            "VALUES ('one', 'One', false), ('two', 'Two', false)")
+        self._run(self.DROP_MANUAL)
+        apply_fork_ranking_group_archive_update()
+        self.assertEqual(
+            self._query("SELECT name, archive_at_manual FROM ranking_groups "
+                        "ORDER BY name"),
+            [("one", False), ("two", False)])
 
     def test_existing_groups_are_left_empty(self):
         # Scenario "Updating an existing database".
@@ -505,10 +529,14 @@ class TestForkRankingGroupArchive(DatabaseMixin, unittest.TestCase):
 
     def test_setup_db_adds_the_column(self):
         expected = self._archive_schema()
+        expected_manual = self._archive_schema("archive_at_manual")
         self._run(self.DROP_COLUMN)
+        self._run(self.DROP_MANUAL)
         completed, _ = TestSchemaLockTimeout._run_setup_db()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(self._archive_schema(), expected)
+        self.assertEqual(
+            self._archive_schema("archive_at_manual"), expected_manual)
 
 
 if __name__ == "__main__":
