@@ -17,4 +17,4 @@
 
 ## 4. Docs
 
-- [ ] 4.1 Document the switch, where the choice is kept and the light chart panel in the user docs (`docs/`), with the Spanish `.po` and the docs check passing
+- [x] 4.1 Document the switch, where the choice is kept and the light chart panel in the user docs (`docs/`), with the Spanish `.po` and the docs check passing

@@ -143,6 +143,26 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
   at most 4 at a time, so a whole room logging in at the start time makes
   everyone wait.
 
+### Screens and the color theme
+
+Each server has a switch with three options: **System**, **Light** and
+**Dark**, shown as «Sistema», «Claro» and «Oscuro». It is in the navbar of the
+Contest Web Server, in the sidebar of the Admin Web Server and in the top bar
+of the Ranking Web Server. The default is System, which follows the color
+scheme of the operating system. The hidden-ranking notice and the staff login
+pages follow the choice saved in the browser.
+
+| Option | Label | Result |
+|--------|-------|--------|
+| **System** | «Sistema» | Dark if the system prefers dark, light otherwise |
+| **Light** | «Claro» | Light, whatever the system prefers |
+| **Dark** | «Oscuro» | Dark, whatever the system prefers |
+
+The choice is kept in each browser, separately for each server, and is never
+sent to the server. A projector's browser therefore needs it set once, before
+the contest. Another browser, or the same one after its site data is cleared,
+starts again from System. The charts stay on a light panel in the dark theme.
+
 ## During the contest
 
 Keep the contest's **Overview** page open in the Admin Web Server. It
