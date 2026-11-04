@@ -1585,6 +1585,147 @@ msgstr ""
 "que hayas editado en esa página, no sobre la programación que mostraba la"
 " página, así que puede rechazarse con los mensajes de arriba."
 
+msgid "Archiving a ranking group"
+msgstr "Archivar un grupo de ranking"
+
+msgid ""
+"Archiving a ranking group stops its public ranking from changing. From its archive time on, ProxyService sends the group nothing more, so the scoreboard keeps its final standings, and the group stops costing work. Until then it works as before, so a correction made during the grace period still reaches the scoreboard."
+msgstr ""
+"Archivar un grupo de ranking impide que cambie su ranking público. Desde su hora de archivo en adelante, ProxyService no le envía nada más, así que el marcador conserva sus posiciones finales, y el grupo deja de consumir trabajo. Hasta entonces funciona como antes, así que una corrección hecha durante el periodo de gracia sigue llegando al marcador."
+
+msgid "What archiving means"
+msgstr "Qué significa archivar"
+
+msgid ""
+"Nothing more is sent to the group's public ranking: no scores, tokens, contest data or visibility settings. A sweep, an initialize or a reinitialize skips the group, and a contest assigned to an archived group sends nothing."
+msgstr ""
+"No se envía nada más al ranking público del grupo: ni puntajes, ni tokens, ni datos de la competencia, ni configuración de visibilidad. Un barrido, una inicialización o una reinicialización omiten el grupo, y una competencia asignada a un grupo archivado no envía nada."
+
+msgid ""
+"The public ranking keeps the scores, tokens and contest data it already holds. Archiving removes and changes none of them."
+msgstr ""
+"El ranking público conserva los puntajes, tokens y datos de la competencia que ya tiene. Archivar no quita ni cambia ninguno de ellos."
+
+msgid ""
+"The group is shown and not frozen. When it becomes archived, ProxyService sends its visibility once, with no hide and no freeze window, even if the group was hidden or frozen. It sends no visibility again while the group stays archived."
+msgstr ""
+"El grupo se muestra y no se congela. Al archivarse, ProxyService envía su visibilidad una sola vez, sin ventana de ocultar ni ventana de congelar, aunque el grupo estuviera oculto o congelado. No vuelve a enviar visibilidad mientras el grupo siga archivado."
+
+msgid ""
+"**Regenerate** does nothing on an archived group. AWS says \"Ranking regeneration ignored\" and that nothing was sent."
+msgstr ""
+"**Regenerate** no hace nada en un grupo archivado. AWS dice \"Ranking regeneration ignored\" y que no se envió nada."
+
+msgid "The archive time"
+msgstr "La hora de archivo"
+
+msgid ""
+"Each group has an **Archive at** time in UTC (`archive_at`). The group is archived from that instant on, and stays archived until the time is moved to the future or cleared. An empty time means the group is never archived."
+msgstr ""
+"Cada grupo tiene una hora de **Archive at** en UTC (`archive_at`). El grupo queda archivado desde ese instante y sigue archivado hasta que la hora se mueva al futuro o se borre. Una hora vacía significa que el grupo nunca se archiva."
+
+msgid ""
+"A group that has contests and no archive time gets a default: 24 hours after the end of its last contest, that is, after the latest stop time of its contests. ProxyService fills it in while that instant is still in the future. While the time is still in the future, a contest added to the group, or moved later, postpones it. It is never moved earlier, and a time in the past is never changed."
+msgstr ""
+"Un grupo que tiene competencias y no tiene hora de archivo recibe una hora por defecto: 24 horas después del fin de su última competencia, es decir, después de la hora de fin más tardía de sus competencias. ProxyService la completa mientras ese instante siga en el futuro. Mientras la hora siga en el futuro, agregar una competencia al grupo, o moverla más tarde, la pospone. Nunca se mueve antes, y una hora en el pasado nunca se cambia."
+
+msgid ""
+"A group whose contests all ended more than 24 hours ago gets no default, so its time stays empty and it is never archived by itself. The same holds for a group with no contests. Groups that existed before the upgrade start with an empty time."
+msgstr ""
+"Un grupo cuyas competencias terminaron hace más de 24 horas no recibe hora por defecto: su hora queda vacía y nunca se archiva por sí solo. Lo mismo vale para un grupo sin competencias. Los grupos que existían antes de la actualización empiezan con la hora vacía."
+
+msgid "Archiving in AWS"
+msgstr "Archivar en AWS"
+
+msgid ""
+"The **Archive** row of the group page shows its state, in the wording the page uses:"
+msgstr ""
+"La fila **Archive** de la página del grupo muestra su estado, con las palabras que usa la página:"
+
+msgid ""
+"\"nunca se archiva\" (never archived) when the group has no archive time;"
+msgstr ""
+"\"nunca se archiva\" cuando el grupo no tiene hora de archivo;"
+
+msgid ""
+"\"se archiva el …\" (will be archived on …) while the time is in the future;"
+msgstr ""
+"\"se archiva el …\" mientras la hora esté en el futuro;"
+
+msgid ""
+"\"archivado desde …\" (archived since …) once it has passed."
+msgstr ""
+"\"archivado desde …\" una vez que la hora ha pasado."
+
+msgid ""
+"The two dated states show the time in UTC and in the local time, as the other times of the page do."
+msgstr ""
+"Los dos estados con fecha muestran la hora en UTC y en la hora local, como las demás horas de la página."
+
+msgid ""
+"Below it, the **Archive at (UTC)** field works like the other time fields: type `YYYY-MM-DD HH:MM:SS`, or clear it to remove the time. A time that is not valid saves nothing and shows an \"Invalid field(s)\" notification. The field follows the stale-form rule, so only a change to it counts (see \"Stale form\")."
+msgstr ""
+"Debajo, el campo **Archive at (UTC)** funciona como los demás campos de hora: escribe `YYYY-MM-DD HH:MM:SS`, o bórralo para quitar la hora. Una hora que no es válida no guarda nada y muestra una notificación \"Invalid field(s)\". El campo sigue la regla del formulario desactualizado, así que solo cuenta un cambio en él (ver \"Formulario desactualizado\")."
+
+msgid ""
+"**Archivar ahora** (shown while the group is not archived) sets **Archive at** to the current time, so the group is archived at once. On an out-of-date page, for a group that is already archived, nothing is saved and the notification says \"The group is already archived.\""
+msgstr ""
+"**Archivar ahora** (se muestra mientras el grupo no está archivado) pone **Archive at** en la hora actual, así que el grupo se archiva de inmediato. En una página desactualizada, para un grupo que ya está archivado, no se guarda nada y la notificación dice \"The group is already archived.\""
+
+msgid ""
+"**Desarchivar** (shown while the group is archived) sets **Archive at** to the current time plus 24 hours. The whole group is sent again, and it archives itself again 24 hours later, unless you move the time. The button asks for confirmation first. On an out-of-date page, for a group that is not archived, nothing is saved and the notification says \"The group is not archived.\""
+msgstr ""
+"**Desarchivar** (se muestra mientras el grupo está archivado) pone **Archive at** en la hora actual más 24 horas. Se envía de nuevo todo el grupo, y el grupo se vuelve a archivar 24 horas después, salvo que muevas la hora. El botón pide confirmación antes. En una página desactualizada, para un grupo que no está archivado, no se guarda nada y la notificación dice \"The group is not archived.\""
+
+msgid ""
+"**Any save that takes a group from archived to not archived** asks ProxyService to regenerate the whole group once, after the save is committed. That happens with **Desarchivar**, and with an edit that moves **Archive at** to the future or clears it. A save that leaves the group archived, or leaves it not archived, does not regenerate. A regenerate empties the group's public ranking and sends it again, which can take minutes for a large group."
+msgstr ""
+"**Cualquier guardado que pase un grupo de archivado a no archivado** pide a ProxyService regenerar el grupo completo una vez, después de que el guardado se confirme. Eso pasa con **Desarchivar** y con una edición que mueve **Archive at** al futuro o la borra. Un guardado que deja el grupo archivado, o que lo deja no archivado, no regenera. Regenerar vacía el ranking público del grupo y lo envía de nuevo, lo que puede tardar minutos en un grupo grande."
+
+msgid "Refusals"
+msgstr "Rechazos"
+
+msgid ""
+"AWS refuses the following, saves nothing, and shows an \"Invalid field(s)\" notification that names the group:"
+msgstr ""
+"AWS rechaza lo siguiente, no guarda nada y muestra una notificación \"Invalid field(s)\" que nombra el grupo:"
+
+msgid ""
+"Assigning a contest to an archived group. A contest that is already in an archived group can still be saved, as long as its group does not change."
+msgstr ""
+"Asignar una competencia a un grupo archivado. Una competencia que ya está en un grupo archivado sí se puede guardar, siempre que su grupo no cambie."
+
+msgid ""
+"Renaming an archived group. Unarchive it first. A save that unarchives and renames a group at once is refused too, so do the two in separate saves."
+msgstr ""
+"Renombrar un grupo archivado. Desarchívalo primero. También se rechaza un guardado que desarchiva y renombra el grupo a la vez, así que haz las dos cosas en guardados separados."
+
+msgid "The banner"
+msgstr "El aviso"
+
+msgid ""
+"On every page of a contest whose ranking group is archived, AWS shows a red banner above the content. It names the group, links to its page, and says that changes made there do not reach the public ranking until the group is unarchived. A contest with no group, or with a group that is not archived, shows no banner. Pages without a contest, such as the contest list and the ranking group pages, show none either; the group page shows the state itself."
+msgstr ""
+"En cada página de una competencia cuyo grupo de ranking está archivado, AWS muestra un aviso rojo sobre el contenido. Nombra el grupo, enlaza a su página y dice que los cambios hechos allí no llegan al ranking público hasta que se desarchive el grupo. Una competencia sin grupo, o con un grupo que no está archivado, no muestra aviso. Las páginas sin competencia, como la lista de competencias y las páginas de los grupos de ranking, tampoco muestran aviso: la página del grupo muestra su estado por sí misma."
+
+msgid "Known limits"
+msgstr "Límites conocidos"
+
+msgid ""
+"Moving a contest out of an archived group is allowed, and its data stays in that group's public ranking."
+msgstr ""
+"Se puede sacar una competencia de un grupo archivado, y sus datos se quedan en el ranking público de ese grupo."
+
+msgid ""
+"AWS does not refuse to delete an archived group. Deleting it removes the group as usual (see \"Removing an old scoreboard\")."
+msgstr ""
+"AWS no rechaza borrar un grupo archivado. Al borrarlo, el grupo se elimina como cualquier otro (ver \"Eliminar un ranking antiguo\")."
+
+msgid ""
+"There is no static snapshot of an archived group yet: its public ranking is the data the Ranking Web Server already holds."
+msgstr ""
+"Todavía no hay una copia estática de un grupo archivado: su ranking público es el dato que ya tiene el Ranking Web Server."
+
 msgid "Telegram bot"
 msgstr "Bot de Telegram"
 

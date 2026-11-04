@@ -1629,6 +1629,39 @@ msgstr ""
 "Desmarca **Active** en cada competencia para cerrarla a los concursantes."
 " Su ranking sigue publicado."
 
+msgid "Publishing a late correction"
+msgstr "Publicar una corrección tardía"
+
+msgid ""
+"A ranking group archives itself 24 hours after the end of its last contest (see \"Archiving a ranking group\" in [multi-contest.md](multi-contest.md)). Until it is archived, a correction, such as a score that changes after a late evaluation, reaches the public ranking as usual. After that, nothing reaches it until the group is unarchived. To publish a correction then:"
+msgstr ""
+"Un grupo de ranking se archiva solo 24 horas después del fin de su última competencia (ver \"Archivar un grupo de ranking\" en [Ejecutar varias competencias a la vez](multi-contest.md)). Mientras no esté archivado, una corrección, como un puntaje que cambia después de una evaluación tardía, llega al ranking público como de costumbre. Después de eso, nada le llega hasta que se desarchive el grupo. Para publicar una corrección entonces:"
+
+msgid ""
+"Open the group under **Ranking groups**. Its **Archive** row reads \"archivado desde …\" (archived since …) when it is archived, and the red banner on the contest's pages says so too."
+msgstr ""
+"Abre el grupo en **Ranking groups**. Su fila **Archive** dice \"archivado desde …\" cuando está archivado, y el aviso rojo de las páginas de la competencia también lo dice."
+
+msgid ""
+"Press **Desarchivar** and confirm. The whole group is sent again, and the group archives itself again 24 hours later."
+msgstr ""
+"Presiona **Desarchivar** y confirma. Se envía de nuevo todo el grupo, y el grupo se vuelve a archivar solo 24 horas después."
+
+msgid ""
+"Wait for the scoreboard to fill again; a large group can take minutes. Compare it with the scores in the Admin Web Server. If they differ, press **Regenerate**."
+msgstr ""
+"Espera a que el ranking vuelva a llenarse; un grupo grande puede tardar minutos. Compáralo con los puntajes del Admin Web Server. Si no coinciden, presiona **Regenerate**."
+
+msgid ""
+"If the group must stay open longer, set **Archive at (UTC)** to a later time and save. To archive it at once, press **Archivar ahora**."
+msgstr ""
+"Si el grupo debe seguir abierto más tiempo, pon **Archive at (UTC)** en una hora posterior y guarda. Para archivarlo de inmediato, presiona **Archivar ahora**."
+
+msgid ""
+"Do not press **Regenerate** on an archived group first: it does nothing, and AWS says so."
+msgstr ""
+"No presiones primero **Regenerate** en un grupo archivado: no hace nada, y AWS lo dice."
+
 msgid "After the contest"
 msgstr "Después de la competencia"
 
@@ -2148,3 +2181,11 @@ msgid ""
 msgstr ""
 "El watchdog no está corriendo: revisa su fila (`cmswatchdog`) en "
 "`./status.sh` y lee `./logs.sh cms`"
+
+msgid "A correction does not reach the public ranking after the contest"
+msgstr "Una corrección no llega al ranking público después de la competencia"
+
+msgid ""
+"If its group is archived (the banner on the contest's pages says so), press **Desarchivar** on the group; see \"Publishing a late correction\" above"
+msgstr ""
+"Si su grupo está archivado (el aviso de las páginas de la competencia lo dice), presiona **Desarchivar** en el grupo; ver \"Publicar una corrección tardía\" más arriba"
