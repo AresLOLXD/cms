@@ -13,13 +13,14 @@
     --text: #333333;
     --border-soft: #e5e5e5;
     --hover-bg: #e3e3e3;
-    --muted: #aaaaaa;
+    --muted: #6e6e6e;
     --hint: #666666;
-    --ended-link: #adadad;
+    --ended-link: #767676;
     --emboss: rgba(255, 255, 255, 0.5);
-    --announce-text: #3a87ad;
+    --announce-text: #2a6a8c;
     --announce-bg: #d9edf7;
     --announce-border: #bcd8f1;
+    --score-text: #000000;
     --score-0: 0, 100%, 50%;
     --score-0-100: 60, 100%, 50%;
     --score-100: 120, 100%, 50%;
@@ -28,13 +29,13 @@
     --alpha-total: 0.7;
     --alpha-total-hover: 0.8;
     --outcome-undefined-bg: #babdb6;
-    --outcome-undefined-text: #ffffff;
+    --outcome-undefined-text: #000000;
     --outcome-correct-bg: #4e9a06;
-    --outcome-correct-text: #ffffff;
+    --outcome-correct-text: #000000;
     --outcome-notcorrect-bg: #cc0000;
     --outcome-notcorrect-text: #ffffff;
     --outcome-partial-bg: #edd400;
-    --outcome-partial-text: #ffffff;
+    --outcome-partial-text: #000000;
     --outcome-skipped-bg: #707070;
     --outcome-skipped-text: #ffffff;
     --subtask-bg: #e0e0e0;
@@ -59,6 +60,7 @@
         --announce-text: #8cc8e8;
         --announce-bg: #1d3342;
         --announce-border: #2f5470;
+        --score-text: #dde1e6;
         --score-0: 0, 100%, 30%;
         --score-0-100: 50, 100%, 25%;
         --score-100: 125, 100%, 22%;
@@ -67,13 +69,13 @@
         --alpha-total: 0.7;
         --alpha-total-hover: 0.8;
         --outcome-undefined-bg: #babdb6;
-        --outcome-undefined-text: #ffffff;
+        --outcome-undefined-text: #000000;
         --outcome-correct-bg: #4e9a06;
-        --outcome-correct-text: #ffffff;
+        --outcome-correct-text: #000000;
         --outcome-notcorrect-bg: #cc0000;
         --outcome-notcorrect-text: #ffffff;
         --outcome-partial-bg: #edd400;
-        --outcome-partial-text: #ffffff;
+        --outcome-partial-text: #000000;
         --outcome-skipped-bg: #707070;
         --outcome-skipped-text: #ffffff;
         --subtask-bg: #3a3f45;
@@ -128,6 +130,7 @@
     --announce-text: #8cc8e8;
     --announce-bg: #1d3342;
     --announce-border: #2f5470;
+    --score-text: #dde1e6;
     --score-0: 0, 100%, 30%;
     --score-0-100: 50, 100%, 25%;
     --score-100: 125, 100%, 22%;
@@ -136,13 +139,13 @@
     --alpha-total: 0.7;
     --alpha-total-hover: 0.8;
     --outcome-undefined-bg: #babdb6;
-    --outcome-undefined-text: #ffffff;
+    --outcome-undefined-text: #000000;
     --outcome-correct-bg: #4e9a06;
-    --outcome-correct-text: #ffffff;
+    --outcome-correct-text: #000000;
     --outcome-notcorrect-bg: #cc0000;
     --outcome-notcorrect-text: #ffffff;
     --outcome-partial-bg: #edd400;
-    --outcome-partial-text: #ffffff;
+    --outcome-partial-text: #000000;
     --outcome-skipped-bg: #707070;
     --outcome-skipped-text: #ffffff;
     --subtask-bg: #3a3f45;
@@ -646,6 +649,15 @@ td.token_rules p:last-child {
 
 .task_score.score_100 {
     background-color: hsla(var(--score-100), var(--alpha-public));
+}
+
+.task_score.score_0,
+.task_score.score_0_100,
+.task_score.score_100,
+.submission_list td.score_0,
+.submission_list td.score_0_100,
+.submission_list td.score_100 {
+    color: var(--score-text);
 }
 
 /*** Submit a solution */

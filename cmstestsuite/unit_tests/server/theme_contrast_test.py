@@ -23,10 +23,11 @@ review. Only the tokens are checked: nothing here renders a page.
 
 """
 
+import colorsys
 import unittest
 
-from cmstestsuite.unit_tests.server.themecss import AWS_CSS, dark_set, \
-    light_set
+from cmstestsuite.unit_tests.server.themecss import AWS_CSS, CWS_CSS, \
+    dark_set, light_set
 
 
 MIN_RATIO = 4.5
@@ -91,6 +92,23 @@ AWS_PAIRS = [
 ]
 
 
+def blend(hsl_components: str, opacity: str, base: str) -> str:
+    """Return the #rrggbb of a translucent hsla color over an opaque base.
+
+    hsl_components: "H, S%, L%", as the score tokens are written.
+    opacity: the alpha token value.
+
+    """
+    hue, saturation, lightness = (
+        float(part.strip().rstrip("%")) for part in hsl_components.split(","))
+    color = colorsys.hls_to_rgb(hue / 360, lightness / 100, saturation / 100)
+    alpha = float(opacity)
+    return "#" + "".join(
+        "%02x" % round(255 * (alpha * c + (1 - alpha) * int(base[i:i + 2], 16)
+                              / 255))
+        for c, i in zip(color, (1, 3, 5)))
+
+
 class TestAwsContrast(unittest.TestCase):
 
     def setUp(self):
@@ -112,6 +130,114 @@ class TestAwsContrast(unittest.TestCase):
                 if ratio < MIN_RATIO:
                     failures.append("%s: %s (%s on %s) is %.2f" % (
                         theme, what, foreground, background, ratio))
+        self.assertEqual(failures, [])
+
+
+# CWS: pairs of the tokens of cws_style.css, checked in both sets. Bootstrap's
+# own light colors are not tokens (about 800 of them) and are not checked.
+CWS_PAIRS = [
+    ("text", "surface", "page text, countdown and server time"),
+    ("muted", "surface", "undefined scores, countdown labels"),
+    ("hint", "surface", "subtask dependency note"),
+    ("ended-link", "surface", "link of an ended contest"),
+    ("text", "hover-bg", "hovered attachment"),
+    ("announce-text", "announce-bg", "announcements, questions, messages"),
+    ("outcome-undefined-text", "outcome-undefined-bg", "undefined outcome"),
+    ("outcome-correct-text", "outcome-correct-bg", "correct outcome"),
+    ("outcome-notcorrect-text", "outcome-notcorrect-bg",
+     "not correct outcome"),
+    ("outcome-partial-text", "outcome-partial-bg", "partially correct outcome"),
+    ("outcome-skipped-text", "outcome-skipped-bg", "skipped testcase"),
+    ("text", "subtask-bg", "subtask header"),
+]
+
+# CWS: pairs of the colors that only cws_dark.css uses (dark- tokens), so
+# they are checked in the dark set only.
+CWS_DARK_PAIRS = [
+    ("dark-link", "surface", "links"),
+    ("dark-link", "dark-panel", "links in wells and hero units"),
+    ("dark-link", "dark-stripe", "links in striped rows"),
+    ("dark-link", "hover-bg", "links in hovered rows and attachments"),
+    ("dark-link-hover", "surface", "hovered links"),
+    ("dark-link-hover", "hover-bg", "hovered links in hovered rows"),
+    ("dark-navbar-text", "dark-navbar-bg", "navbar text and brand"),
+    ("text", "dark-stripe", "striped table rows"),
+    ("text", "hover-bg", "hovered table rows"),
+    ("text", "dark-panel", "wells, hero units, code blocks, modal footers"),
+    ("dark-code-text", "dark-panel", "inline code"),
+    ("muted", "surface", "muted text, nav headers"),
+    ("muted", "dark-stripe", "undefined scores in striped rows"),
+    ("muted", "hover-bg", "undefined scores in hovered rows"),
+    ("hint", "surface", "help blocks"),
+    ("dark-field-text", "dark-field-bg", "form fields"),
+    ("dark-field-text", "dark-field-off", "disabled form fields"),
+    ("dark-placeholder", "dark-field-bg", "placeholders"),
+    ("dark-error-text", "dark-field-bg", "fields with an error"),
+    ("dark-error-text", "surface", "labels and help of fields with an error"),
+    ("text", "dark-btn-bg", "plain button"),
+    ("text", "dark-btn-hover", "plain button, hovered or disabled"),
+    ("dark-btn-text", "dark-btn-bg", "labels"),
+    ("dark-btn-text", "dark-primary", "primary button, active nav entry"),
+    ("dark-btn-text", "dark-primary-hover", "primary button, hovered"),
+    ("dark-btn-text", "dark-info", "info button"),
+    ("dark-btn-text", "dark-info-hover", "info button, hovered"),
+    ("dark-btn-text", "dark-warning", "warning button, unread counter"),
+    ("dark-btn-text", "dark-warning-hover", "warning button, hovered"),
+    ("dark-btn-text", "dark-danger", "danger button"),
+    ("dark-btn-text", "dark-danger-hover", "danger button, hovered"),
+    ("dark-btn-text", "dark-success", "success button"),
+    ("dark-btn-text", "dark-success-hover", "success button, hovered"),
+    ("dark-warn-text", "dark-warn-bg", "alert"),
+    ("dark-error-text", "dark-error-bg", "error alert"),
+    ("dark-success-text", "dark-success-bg", "success alert"),
+]
+
+# CWS: the translucent score cells are drawn over the page (and, in dark,
+# over the striped rows).
+# shortcut: in light the rows are Bootstrap's (#f9f9f9 stripes, #f5f5f5 hover,
+# not tokens), so the cells are checked over the page only; add them if the
+# light rows ever become tokens.
+CWS_SCORE_HUES = ("score-0", "score-0-100", "score-100")
+CWS_SCORE_OPACITIES = ("alpha-public", "alpha-public-hover", "alpha-total",
+                       "alpha-total-hover")
+
+
+class TestCwsContrast(unittest.TestCase):
+
+    def setUp(self):
+        css = CWS_CSS.read_text(encoding="utf-8")
+        self.sets = {"light": light_set(css), "dark": dark_set(css)}
+
+    def test_light_is_in_the_dark_set_and_the_rest_is_dark_only(self):
+        # Not a Scenario of its own: a token missing from the dark set would
+        # make the contrast check below meaningless for it.
+        light, dark = set(self.sets["light"]), set(self.sets["dark"])
+        self.assertGreater(len(light), 0)
+        self.assertEqual({t for t in dark - light if not t.startswith("dark-")},
+                         set())
+        self.assertEqual(light - dark, set())
+
+    def test_every_pair_passes_in_both_themes(self):
+        # Scenario: Contrast in every theme (CWS)
+        failures = []
+
+        def check(theme, what, foreground, background):
+            ratio = contrast(foreground, background)
+            if ratio < MIN_RATIO:
+                failures.append("%s: %s is %.2f" % (theme, what, ratio))
+
+        for theme, tokens in self.sets.items():
+            pairs = CWS_PAIRS + (CWS_DARK_PAIRS if theme == "dark" else [])
+            for foreground, background, what in pairs:
+                check(theme, "%s (%s on %s)" % (what, foreground, background),
+                      tokens[foreground], tokens[background])
+            bases = ["surface"] + (["dark-stripe"] if theme == "dark" else [])
+            for hue in CWS_SCORE_HUES:
+                for opacity in CWS_SCORE_OPACITIES:
+                    for base in bases:
+                        check(theme, "text on %s at %s over %s" % (
+                            hue, opacity, base), tokens["score-text"],
+                            blend(tokens[hue], tokens[opacity], tokens[base]))
         self.assertEqual(failures, [])
 
 
