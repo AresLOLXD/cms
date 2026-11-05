@@ -24,6 +24,10 @@ page asks for the progress until the job is over. The jobs live only in
 the memory of this AWS process: they are lost if it restarts, and they
 expire after JOB_TTL.
 
+The language of a job is the one of the admin who starts it: the worker
+thread gets the gettext of that request, and the error of the job is stored
+already translated, so whoever polls the job reads the same text.
+
 """
 
 import dataclasses
@@ -37,6 +41,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 
 from cms.db import SessionGen
+from cms.locale.locale import N_
 from cms.server.admin.bulkimport import ImportRow, apply_import, \
     apply_user_import, hash_account_passwords, hash_passwords, \
     plan_import, plan_user_import
@@ -44,7 +49,8 @@ from cms.server.admin.bulkimport import ImportRow, apply_import, \
 logger = logging.getLogger(__name__)
 
 JOB_TTL = 3600.0
-APPLY_FAILED = "no se pudo aplicar la importación; no se guardó nada"
+# A message id: the job translates it with the gettext of its starter.
+APPLY_FAILED = N_("the import could not be applied; nothing was saved")
 # How long a job waits for the lock below, and how long the database lets
 # the writing wait for a row lock or run one statement, so that a stuck
 # commit ends the job as an error instead of stalling every contest.
@@ -59,6 +65,11 @@ STATEMENT_TIMEOUT_MS = 180000
 # job must read them after the first one commits, instead of inserting
 # them again and failing.
 _APPLY_LOCK = threading.Lock()
+
+
+def _identity(message: str) -> str:
+    """Return the message untranslated (the default gettext)."""
+    return message
 
 
 def _describe(job: "ImportJob") -> str:
@@ -153,7 +164,8 @@ class ImportJobStore:
 
     def start(self, owner_id: int, contest_id: int | None,
               rows: list[ImportRow],
-              on_done: Callable[[], None]) -> ImportJob:
+              on_done: Callable[[], None],
+              gettext: Callable[[str], str] = _identity) -> ImportJob:
         """Start importing rows into a contest, or the global users import
         when contest_id is None, in a thread.
 
@@ -161,6 +173,9 @@ class ImportJobStore:
         contest_id: the contest, or None for a global users import.
         rows: the rows, already validated by read_rows and the plan step.
         on_done: called after the commit (to notify ProxyService).
+        gettext: the translation of the admin who starts the job; the
+            job keeps that language, and the worker uses only this
+            function, never the handler.
 
         return: the job.
 
@@ -174,14 +189,15 @@ class ImportJobStore:
             self._evict()
             if self._find_running(contest_id) is not None:
                 raise ValueError(
-                    "ya hay una importación de usuarios en curso"
+                    gettext("an import of users is already running")
                     if contest_id is None
-                    else "ya hay una importación en curso para este concurso")
+                    else gettext("an import is already running for this "
+                                 "contest"))
             job = ImportJob(id=secrets.token_urlsafe(16), owner_id=owner_id,
                             contest_id=contest_id, total=len(rows),
                             created_at=self._clock())
             self._jobs[job.id] = job
-        thread = threading.Thread(target=self._run, args=(job, rows, on_done),
+        thread = threading.Thread(target=self._run, args=(job, rows, on_done, gettext),
                                   name="aws-import-%s" % job.id[:8],
                                   daemon=True)
         try:
@@ -193,7 +209,8 @@ class ImportJobStore:
         return job
 
     def _run(self, job: ImportJob, rows: list[ImportRow],
-             on_done: Callable[[], None]) -> None:
+             on_done: Callable[[], None],
+             gettext: Callable[[str], str] = _identity) -> None:
         """Import the rows of a job; the body of its thread.
 
         A failure is logged with what the job imports (the contest or the
@@ -206,6 +223,7 @@ class ImportJobStore:
         job: the job to run, updated as it goes.
         rows: the rows to import.
         on_done: called after the commit.
+        gettext: the translation of the admin who started the job.
 
         """
         global_import = job.contest_id is None
@@ -214,7 +232,8 @@ class ImportJobStore:
                 if global_import:
                     plan, errors = plan_user_import(session, rows)
                 else:
-                    plan, errors = plan_import(session, job.contest_id, rows)
+                    plan, errors = plan_import(session, job.contest_id, rows,
+                                               gettext=gettext)
                 if plan is None:
                     job.error = "; ".join(errors)
                     job.status = "error"
@@ -257,7 +276,7 @@ class ImportJobStore:
             logger.error("Bulk import %s failed with %s.\n%s",
                          _describe(job), type(exc).__name__,
                          "".join(traceback.format_tb(exc.__traceback__)))
-            job.error = APPLY_FAILED
+            job.error = gettext(APPLY_FAILED)
             job.status = "error"
             return
         finally:
@@ -266,7 +285,7 @@ class ImportJobStore:
             if job.status == "running":
                 logger.error("Bulk import %s ended without finishing.",
                              _describe(job))
-                job.error = APPLY_FAILED
+                job.error = gettext(APPLY_FAILED)
                 job.status = "error"
         # The import is saved: if the notification fails, the job stays
         # done, since telling the admin that nothing was saved would be

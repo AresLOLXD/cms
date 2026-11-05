@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 23:06-0600\n"
+"POT-Creation-Date: 2026-11-04 23:12-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -17,6 +17,121 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.12.1\n"
+
+msgid "no column is assigned to the username (username)"
+msgstr "falta asignar la columna para el usuario (username)"
+
+msgid "no column is assigned to the first name (first_name)"
+msgstr "falta asignar la columna para el nombre (first_name)"
+
+msgid "no column is assigned to the last name (last_name)"
+msgstr "falta asignar la columna para el apellido (last_name)"
+
+msgid "no column is assigned to the password (password)"
+msgstr "falta asignar la columna para la contraseña (password)"
+
+msgid "no column is assigned to the team (team)"
+msgstr "falta asignar la columna para el equipo (team)"
+
+msgid "no column is assigned to the group (group)"
+msgstr "falta asignar la columna para el grupo (group)"
+
+#, python-format
+msgid "row %d: the username is empty"
+msgstr "fila %d: el usuario está vacío"
+
+#, python-format
+msgid "row %d: the first name is empty"
+msgstr "fila %d: el nombre está vacío"
+
+#, python-format
+msgid "row %d: the last name is empty"
+msgstr "fila %d: el apellido está vacío"
+
+#, python-format
+msgid "row %d: the password is empty"
+msgstr "fila %d: la contraseña está vacía"
+
+#, python-format
+msgid "row %d: the username cell has characters that are not allowed"
+msgstr "fila %d: la celda del usuario tiene caracteres no permitidos"
+
+#, python-format
+msgid "row %d: the first name cell has characters that are not allowed"
+msgstr "fila %d: la celda del nombre tiene caracteres no permitidos"
+
+#, python-format
+msgid "row %d: the last name cell has characters that are not allowed"
+msgstr "fila %d: la celda del apellido tiene caracteres no permitidos"
+
+#, python-format
+msgid "row %d: the team cell has characters that are not allowed"
+msgstr "fila %d: la celda del equipo tiene caracteres no permitidos"
+
+#, python-format
+msgid "row %d: the group cell has characters that are not allowed"
+msgstr "fila %d: la celda del grupo tiene caracteres no permitidos"
+
+msgid "the file is larger than 2 MB"
+msgstr "el archivo pasa de 2 MB"
+
+msgid "the file is not in UTF-8"
+msgstr "el archivo no está en UTF-8"
+
+msgid "the file is not a valid CSV"
+msgstr "el archivo no es un CSV válido"
+
+msgid "the file is empty"
+msgstr "el archivo está vacío"
+
+#, python-format
+msgid "the file has more than %d rows"
+msgstr "el archivo pasa de %d filas"
+
+msgid "the column assigned to the password is not in the file"
+msgstr "la columna asignada a la contraseña no está en el archivo"
+
+msgid "the column %s is not in the file"
+msgstr "la columna %s no está en el archivo"
+
+msgid "the password column is assigned to more than one field"
+msgstr "la columna de la contraseña está asignada a más de un campo"
+
+msgid "row %d: the password is longer than %d bytes"
+msgstr "fila %d: la contraseña pasa de %d bytes"
+
+#, python-format
+msgid "row %d: the password has characters that are not allowed"
+msgstr "fila %d: la contraseña tiene caracteres no permitidos"
+
+#, python-format
+msgid "row %d: the username %s has characters that are not allowed (only letters without accents, digits, _ and -)"
+msgstr "fila %d: el usuario %s tiene caracteres no permitidos (solo letras sin acentos, números, _ y -)"
+
+#, python-format
+msgid "row %d: the username %s is repeated (row %d)"
+msgstr "fila %d: el usuario %s está repetido (fila %d)"
+
+msgid "the file has no data rows"
+msgstr "el archivo no tiene filas de datos"
+
+msgid "the contest does not exist"
+msgstr "el concurso no existe"
+
+msgid "the contest has no main group"
+msgstr "el concurso no tiene grupo principal"
+
+#, python-format
+msgid "row %d: the team %s does not exist"
+msgstr "fila %d: el equipo %s no existe"
+
+#, python-format
+msgid "row %d: the group %s does not exist in this contest"
+msgstr "fila %d: el grupo %s no existe en este concurso"
+
+#, python-format
+msgid "row %d: the username %s does not exist; without a password column only users that already exist can be registered"
+msgstr "fila %d: el usuario %s no existe; sin columna de contraseña solo se pueden inscribir usuarios que ya existen"
 
 msgid "does not exist"
 msgstr "no existe"
@@ -66,6 +181,24 @@ msgid "%d participation was removed"
 msgid_plural "%d participations were removed"
 msgstr[0] "Se quitó %d participación"
 msgstr[1] "Se quitaron %d participaciones"
+
+msgid "An import is running for this contest; wait for it to finish."
+msgstr "Hay una importación en curso para este concurso; espera a que termine."
+
+msgid "You already had an import running in this contest; this is its progress. The file you just sent was not imported."
+msgstr "Ya tenías una importación en curso en este concurso; este es su progreso. El archivo que acabas de enviar no se importó."
+
+msgid "The import was not found: it does not exist or it has expired. Check the list of users to see whether it was applied."
+msgstr "No se encontró la importación: no existe o ya expiró. Revisa la lista de usuarios para ver si se aplicó."
+
+msgid "choose a CSV file"
+msgstr "elige un archivo CSV"
+
+msgid "A users import is running; wait for it to finish."
+msgstr "Hay una importación de usuarios en curso; espera a que termine."
+
+msgid "You already had a users import running; this is its progress. The file you just sent was not imported."
+msgstr "Ya tenías una importación de usuarios en curso; este es su progreso. El archivo que acabas de enviar no se importó."
 
 #, python-format
 msgid "Invalid ranking group name %r: use only lowercase letters, digits, '-' and '_', and none of: %s."
@@ -162,6 +295,15 @@ msgstr "El ranking %s se está vaciando y se enviará de nuevo."
 
 msgid "root"
 msgstr "raíz"
+
+msgid "the import could not be applied; nothing was saved"
+msgstr "no se pudo aplicar la importación; no se guardó nada"
+
+msgid "an import of users is already running"
+msgstr "ya hay una importación de usuarios en curso"
+
+msgid "an import is already running for this contest"
+msgstr "ya hay una importación en curso para este concurso"
 
 msgid "New ranking group"
 msgstr "Nuevo grupo de ranking"

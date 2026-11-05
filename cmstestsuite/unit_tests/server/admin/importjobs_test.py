@@ -37,6 +37,7 @@ from cms.server.admin.bulkimport import ImportPlan, ImportRow, \
 from cms.server.admin import importjobs
 from cms.server.admin.importjobs import APPLY_FAILED, JOB_TTL, \
     ImportJobStore
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 MODULE = "cms.server.admin.importjobs"
 CONTEST_ID = 7
@@ -140,7 +141,7 @@ class TestJobRuns(ImportJobsTestCase):
         self.session.commit.assert_called_once_with()
         self.on_done.assert_called_once_with()
         self.plan_import.assert_called_once_with(
-            self.session, CONTEST_ID, self.rows)
+            self.session, CONTEST_ID, self.rows, gettext=mock.ANY)
         # The stored passwords come from the plan made at run time.
         self.hash_passwords.assert_called_once_with(
             self.rows, {"user0"}, {"user2": STORED_PASSWORD}, mock.ANY)
@@ -154,7 +155,7 @@ class TestJobRuns(ImportJobsTestCase):
         # writes.
         events = []
 
-        def plan(*args):
+        def plan(*args, **kwargs):
             events.append("plan")
             return self.plan, []
 
@@ -221,7 +222,7 @@ class TestJobRuns(ImportJobsTestCase):
         self.assertEqual(job.status, "error")
         self.assertEqual(job.error, APPLY_FAILED)
         self.assertEqual(
-            job.error, "no se pudo aplicar la importación; no se guardó nada")
+            job.error, "the import could not be applied; nothing was saved")
         self.assertIsNone(job.summary)
         self.session.commit.assert_not_called()
         self.on_done.assert_not_called()
@@ -389,7 +390,7 @@ class TestGlobalJobs(ImportJobsTestCase):
         with self.assertRaises(ValueError) as raised:
             store.start(OWNER_ID + 1, None, self.rows, self.on_done)
         self.assertEqual(str(raised.exception),
-                         "ya hay una importación de usuarios en curso")
+                         "an import of users is already running")
         self.assertIs(store.running_job(None), job)
         self.assertIsNone(store.running_job(CONTEST_ID))
         contest_job = store.start(OWNER_ID, CONTEST_ID, self.rows,
@@ -419,6 +420,92 @@ class TestGlobalJobs(ImportJobsTestCase):
         self.assertIsNone(logs.records[0].exc_info)
 
 
+class TestJobLanguage(ImportJobsTestCase):
+    """The job keeps the language of the admin who started it."""
+
+    def test_an_apply_failure_is_stored_in_the_language_of_the_starter(self):
+        # Scenario "A job polled by another admin": the starter has Spanish
+        # chosen; whoever reads job.as_json() afterwards sees Spanish.
+        self.apply_import.side_effect = RuntimeError(LEAK_MESSAGE)
+        store = ImportJobStore()
+
+        with self.assertLogs(MODULE, level="ERROR"):
+            job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done,
+                              gettext=SPANISH.gettext)
+            self.wait_for_job(job)
+
+        polled = json.loads(json.dumps(
+            store.get(job.id, OWNER_ID).as_json()))
+        self.assertEqual(polled["status"], "error")
+        self.assertEqual(
+            polled["error"],
+            "no se pudo aplicar la importación; no se guardó nada")
+
+    def test_the_errors_of_the_plan_are_joined_in_the_starter_language(self):
+        # Scenario "A job polled by another admin": the plan errors are
+        # translated by the worker with the gettext it was given.
+        def plan(session, contest_id, rows, gettext):
+            return None, [gettext("the contest does not exist"),
+                          gettext("the contest has no main group")]
+        self.plan_import.side_effect = plan
+        store = ImportJobStore()
+
+        job = store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done,
+                          gettext=SPANISH.gettext)
+        self.wait_for_job(job)
+
+        self.assertEqual(job.error, "el concurso no existe; "
+                         "el concurso no tiene grupo principal")
+
+    def test_a_global_job_is_translated_too(self):
+        # Scenario "A job polled by another admin", global users import.
+        self.apply_user_import.side_effect = RuntimeError(LEAK_MESSAGE)
+        store = ImportJobStore()
+
+        with self.assertLogs(MODULE, level="ERROR"):
+            job = store.start(OWNER_ID, None, self.rows, self.on_done,
+                              gettext=SPANISH.gettext)
+            self.wait_for_job(job)
+
+        self.assertEqual(
+            job.error, "no se pudo aplicar la importación; no se guardó nada")
+
+    def test_the_refusals_to_start_are_in_the_language_of_the_caller(self):
+        # Scenario "A notification" for the ValueErrors of start().
+        started = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def blocking_hash(rows, new_users, stored_passwords, progress):
+            started.set()
+            release.wait(5)
+            return HASHES
+        self.hash_passwords.side_effect = blocking_hash
+        self.hash_account_passwords.side_effect = lambda *a: (
+            started.set(), release.wait(5), ACCOUNT_HASHES)[2]
+        store = ImportJobStore()
+
+        contest_job = store.start(OWNER_ID, CONTEST_ID, self.rows,
+                                  self.on_done)
+        self.assertTrue(started.wait(5))
+        started.clear()
+        global_job = store.start(OWNER_ID, None, self.rows, self.on_done)
+        self.assertTrue(started.wait(5))
+        with self.assertRaises(ValueError) as contest:
+            store.start(OWNER_ID, CONTEST_ID, self.rows, self.on_done,
+                        gettext=SPANISH.gettext)
+        with self.assertRaises(ValueError) as users:
+            store.start(OWNER_ID, None, self.rows, self.on_done,
+                        gettext=SPANISH.gettext)
+        self.assertEqual(str(contest.exception),
+                         "ya hay una importación en curso para este concurso")
+        self.assertEqual(str(users.exception),
+                         "ya hay una importación de usuarios en curso")
+        release.set()
+        self.wait_for_job(contest_job)
+        self.wait_for_job(global_job)
+
+
 class TestStore(ImportJobsTestCase):
 
     def test_one_running_job_per_contest(self):
@@ -442,7 +529,7 @@ class TestStore(ImportJobsTestCase):
         with self.assertRaises(ValueError) as raised:
             store.start(OWNER_ID + 1, CONTEST_ID, self.rows, self.on_done)
         self.assertEqual(str(raised.exception),
-                         "ya hay una importación en curso para este concurso")
+                         "an import is already running for this contest")
         # Another contest is not blocked.
         other = store.start(OWNER_ID, CONTEST_ID + 1, self.rows,
                             self.on_done)

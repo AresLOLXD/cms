@@ -29,6 +29,7 @@ import json
 import logging
 import re
 import secrets
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -45,6 +46,7 @@ from cms.server.admin.handlers import HANDLERS
 from cms.server.admin.importjobs import ImportJob, ImportJobStore
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cms.server.util import Url
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 MODULE = "cms.server.admin.handlers.contestuser"
 CONTEST_ID = 1
@@ -58,23 +60,23 @@ MAPPING = {"username": "usuario", "first_name": "nombre",
 POSTED_MAPPING = {**{field: "" for field in FIELDS}, **MAPPING}
 # Said when a job is unknown: it may have been saved before it expired, so
 # the page must not say that nothing was applied.
-NOT_FOUND = ("No se encontró la importación: no existe o ya expiró. "
-             "Revisa la lista de usuarios para ver si se aplicó.")
+NOT_FOUND = ("The import was not found: it does not exist or it has "
+             "expired. Check the list of users to see whether it was "
+             "applied.")
 NOT_APPLIED = "No se aplicó nada"
 # Said with the progress of the admin's own running import, when a second
 # file was sent while it ran: that file was refused, not imported.
-REPEATED_NOTICE = ("Ya tenías una importación en curso en este concurso; "
-                   "este es su progreso. El archivo que acabas de enviar no "
-                   "se importó.")
+REPEATED_NOTICE = ("You already had an import running in this contest; this "
+                   "is its progress. The file you just sent was not "
+                   "imported.")
 # Said when the contest already has an import running: the file is fine, so
 # it is not one of the errors that say that nothing was applied.
-RUNNING_NOTICE = ("Hay una importación en curso para este concurso; "
-                  "espera a que termine.")
-GLOBAL_RUNNING_NOTICE = ("Hay una importación de usuarios en curso; espera "
-                         "a que termine.")
-GLOBAL_REPEATED_NOTICE = ("Ya tenías una importación de usuarios en curso; "
-                          "este es su progreso. El archivo que acabas de "
-                          "enviar no se importó.")
+RUNNING_NOTICE = ("An import is running for this contest; wait for it to "
+                  "finish.")
+GLOBAL_RUNNING_NOTICE = "A users import is running; wait for it to finish."
+GLOBAL_REPEATED_NOTICE = ("You already had a users import running; this is "
+                          "its progress. The file you just sent was not "
+                          "imported.")
 
 
 def make_plan() -> ImportPlan:
@@ -163,7 +165,8 @@ class TestImportUsersPost(unittest.TestCase):
         self.assertEqual(params["contest"].id, CONTEST_ID)
         self.assertEqual(params["fields"], FIELDS)
         plan_import.assert_called_once_with(
-            handler.sql_session, CONTEST_ID, read_rows(CSV, MAPPING)[0])
+            handler.sql_session, CONTEST_ID, read_rows(CSV, MAPPING)[0],
+            gettext=handler._)
         jobs.start.assert_not_called()
         handler.redirect.assert_not_called()
 
@@ -204,7 +207,8 @@ class TestImportUsersPost(unittest.TestCase):
             handler._post_sync(str(CONTEST_ID))
 
         jobs.start.assert_called_once_with(
-            ADMIN_ID, CONTEST_ID, read_rows(CSV, MAPPING)[0], mock.ANY)
+            ADMIN_ID, CONTEST_ID, read_rows(CSV, MAPPING)[0], mock.ANY,
+            gettext=handler._)
         handler.redirect.assert_called_once_with(
             "/contest/1/users/import?job=job-1")
         handler.render.assert_not_called()
@@ -348,7 +352,7 @@ class TestImportUsersPost(unittest.TestCase):
             handler._post_sync(str(CONTEST_ID))
 
         params = rendered_params(handler)
-        self.assertEqual(params["errors"], ["elige un archivo CSV"])
+        self.assertEqual(params["errors"], ["choose a CSV file"])
         self.assertEqual(params["mapping"], POSTED_MAPPING)
         plan_import.assert_not_called()
         jobs.start.assert_not_called()
@@ -361,7 +365,7 @@ class TestImportUsersPost(unittest.TestCase):
             handler._post_sync(str(CONTEST_ID))
 
         self.assertEqual(rendered_params(handler)["errors"],
-                         ["el archivo pasa de 2 MB"])
+                         ["the file is larger than 2 MB"])
         plan_import.assert_not_called()
         jobs.start.assert_not_called()
 
@@ -597,8 +601,8 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
         html = self.render_last_page(handler)
 
-        self.assertIn("la columna de la contraseña está asignada a más de "
-                      "un campo", html)
+        self.assertIn("the password column is assigned to more than one "
+                      "field", html)
         self.assertIn('data-selected="ana"', html)
         self.assertNotIn(PASSWORD, html)
 
@@ -1414,7 +1418,7 @@ class TestGlobalImportPage(unittest.TestCase):
             handler._post_sync()
 
         self.assertEqual(rendered_params(handler)["errors"], [
-            "falta asignar la columna para la contraseña (password)"])
+            "no column is assigned to the password (password)"])
         plan.assert_not_called()
 
     def test_import_starts_a_global_job(self):
@@ -1429,7 +1433,7 @@ class TestGlobalImportPage(unittest.TestCase):
         jobs.start.assert_called_once_with(
             ADMIN_ID, None,
             read_rows(CSV, MAPPING, USER_FIELDS, USER_REQUIRED)[0],
-            mock.ANY)
+            mock.ANY, gettext=handler._)
         handler.redirect.assert_called_once_with("/users/import?job=job-1")
         on_done = jobs.start.call_args.args[3]
         on_done()
@@ -1584,6 +1588,166 @@ class TestGlobalImportRoutesAndPermissions(unittest.TestCase):
                 admin=SimpleNamespace(permission_all=permission_all))
             self.assertEqual('<a href="/users/import">Import CSV</a>'
                              in html, permission_all)
+
+
+def spanish_handler(handler_class=ImportUsersHandler, **kwargs):
+    """Return a handler whose request has Spanish chosen."""
+    handler = make_handler(handler_class, **kwargs)
+    handler._ = SPANISH.gettext
+    handler.n_ = SPANISH.ngettext
+    return handler
+
+
+class TestHandlerTextsInTwoLanguages(unittest.TestCase):
+    """The notices and the errors that the import handlers raise follow the
+    language of the request; the Spanish is the text that main showed."""
+
+    def refuse(self, handler_class, post_args=()):
+        """Post an import that the store refuses, with nothing running
+        that the admin owns; return the rendered parameters."""
+        handler = spanish_handler(
+            handler_class, form=import_form("import"))
+        plans = {ImportUsersHandler: ".plan_import",
+                 ImportGlobalUsersHandler: ".plan_user_import"}
+        plan = make_plan() if handler_class is ImportUsersHandler \
+            else make_user_plan()
+        with mock.patch(MODULE + plans[handler_class],
+                        return_value=(plan, [])), \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.start.side_effect = ValueError("running")
+            jobs.running_job.return_value = None
+            handler._post_sync(*post_args)
+        return rendered_params(handler)
+
+    def test_a_running_import_notice_in_spanish(self):
+        # Scenario "A notification" (page in Spanish).
+        self.assertEqual(
+            self.refuse(ImportUsersHandler, (str(CONTEST_ID),))["notice"],
+            "Hay una importación en curso para este concurso; espera a "
+            "que termine.")
+        self.assertEqual(
+            self.refuse(ImportGlobalUsersHandler)["notice"],
+            "Hay una importación de usuarios en curso; espera a que "
+            "termine.")
+
+    def test_a_repeated_import_notice_in_spanish(self):
+        # Scenario "A notification" (page in Spanish).
+        for handler_class, args, notice in (
+                (ImportUsersHandler, (str(CONTEST_ID),),
+                 "Ya tenías una importación en curso en este concurso; "
+                 "este es su progreso. El archivo que acabas de enviar no "
+                 "se importó."),
+                (ImportGlobalUsersHandler, (),
+                 "Ya tenías una importación de usuarios en curso; este es "
+                 "su progreso. El archivo que acabas de enviar no se "
+                 "importó.")):
+            with self.subTest(handler=handler_class.__name__):
+                handler = spanish_handler(
+                    handler_class, form={"job": "job-1", "repetido": "1"})
+                job = SimpleNamespace(id="job-1", contest_id=(
+                    CONTEST_ID if args else None))
+                with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+                    jobs.get.return_value = job
+                    handler._get_sync(*args)
+                self.assertEqual(rendered_params(handler)["notice"], notice)
+
+    def test_the_not_found_notice_in_spanish(self):
+        # Scenario "A notification" (page in Spanish).
+        handler = spanish_handler(form={"job": "gone"})
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = None
+            handler._get_sync(str(CONTEST_ID))
+        self.assertEqual(
+            rendered_params(handler)["notice"],
+            "No se encontró la importación: no existe o ya expiró. Revisa "
+            "la lista de usuarios para ver si se aplicó.")
+
+    def test_the_errors_of_the_file_in_spanish(self):
+        # Scenario "A page in Spanish": no file, and the errors of the CSV
+        # and of the plan, translated by the handler's gettext.
+        handler = spanish_handler(data=None, form=import_form("import"))
+        handler._post_sync(str(CONTEST_ID))
+        self.assertEqual(rendered_params(handler)["errors"],
+                         ["elige un archivo CSV"])
+
+        handler = spanish_handler(
+            data=CSV, form=import_form("import", {**MAPPING, "password": ""}),
+            handler_class=ImportGlobalUsersHandler)
+        handler._post_sync()
+        self.assertEqual(rendered_params(handler)["errors"], [
+            "falta asignar la columna para la contraseña (password)"])
+
+    def test_the_handler_passes_its_language_to_the_work(self):
+        # Scenario "A job polled by another admin": the starter's gettext
+        # goes to the store, and to the planning.
+        handler = spanish_handler(form=import_form("import"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])) as plan, \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.start.return_value = SimpleNamespace(id="job-1")
+            handler._post_sync(str(CONTEST_ID))
+        self.assertEqual(plan.call_args.kwargs["gettext"],
+                         handler._)
+        self.assertEqual(jobs.start.call_args.kwargs["gettext"],
+                         handler._)
+        self.assertEqual(handler._("choose a CSV file"),
+                         "elige un archivo CSV")
+
+    def test_a_job_started_in_spanish_is_polled_in_spanish_by_an_english_page(
+            self):
+        # Scenario "A job polled by another admin": the Spanish admin
+        # starts an import that fails; a handler with English chosen (the
+        # same admin on another tab, since jobs are private to their
+        # owner) polls the status and reads the Spanish error.
+        store = ImportJobStore()
+        starter = spanish_handler(form=import_form("import"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])), \
+                mock.patch(MODULE + ".IMPORT_JOBS", store), \
+                mock.patch("cms.server.admin.importjobs.SessionGen",
+                           side_effect=RuntimeError("database down")), \
+                self.assertLogs("cms.server.admin.importjobs",
+                                level="ERROR"):
+            starter._post_sync(str(CONTEST_ID))
+            (job_id,) = store._jobs
+            deadline = time.monotonic() + 5
+            while store._jobs[job_id].status == "running":
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+
+        poller = make_handler(ImportJobStatusHandler)
+        self.assertEqual(poller._("choose a CSV file"), "choose a CSV file")
+        with mock.patch(MODULE + ".IMPORT_JOBS", store):
+            asyncio.run(poller.get(str(CONTEST_ID), job_id))
+        polled = json.loads(poller.write.call_args.args[0])
+        self.assertEqual(polled["status"], "error")
+        self.assertEqual(
+            polled["error"],
+            "no se pudo aplicar la importación; no se guardó nada")
+
+    def test_the_summary_keys_are_the_same_in_both_languages(self):
+        # Scenario "The import summary in English": the handler passes the
+        # data fields of the plan whatever its language; the labels around
+        # them are the template's.
+        for make in (make_handler, spanish_handler):
+            handler = make(form=import_form("validate"))
+            with mock.patch(MODULE + ".plan_import",
+                            return_value=(make_plan(), [])):
+                handler._post_sync(str(CONTEST_ID))
+            self.assertEqual(list(rendered_params(handler)["summary"]), [
+                "usuarios_nuevos", "usuarios_actualizados",
+                "participaciones_nuevas", "participaciones_actualizadas",
+                "equipos_quitados", "movidas_al_grupo_principal"])
+
+    def test_the_spanish_header_alias_is_recognized_in_english(self):
+        # Scenario "CSV aliases": the header «contraseña» still maps to
+        # the password while the page is in English.
+        handler = make_handler(form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])) as plan:
+            handler._post_sync(str(CONTEST_ID))
+        self.assertEqual(rendered_params(handler)["errors"], [])
+        self.assertEqual(plan.call_args.args[2][0].password, PASSWORD)
 
 
 if __name__ == "__main__":
