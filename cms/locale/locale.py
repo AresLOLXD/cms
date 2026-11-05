@@ -63,10 +63,11 @@ class Translation:
 
     """
 
-    def __init__(self, lang_code, mofile=None):
+    def __init__(self, lang_code, mofile=None, domain="cms"):
         self.locale = babel.core.Locale.parse(lang_code)
         if mofile is not None:
-            self.translation = babel.support.Translations(mofile, domain="cms")
+            self.translation = babel.support.Translations(
+                mofile, domain=domain)
         else:
             self.translation = babel.support.NullTranslations()
 
@@ -272,10 +273,15 @@ class Translation:
 DEFAULT_TRANSLATION = Translation("en")
 
 
-def get_translations() -> dict[str, Translation]:
+def get_translations(domain: str = "cms") -> dict[str, Translation]:
     """Return the translations for all the languages we support.
 
     Search for the message catalogs that were installed and load them.
+    For a domain other than "cms" (e.g. "aws"), a language without a
+    catalog for that domain is skipped silently, since most languages
+    only have the contestant-site catalog.
+
+    domain: the name of the catalog to load (the <domain>.mo files).
 
     return: for each language its message catalog
 
@@ -288,9 +294,11 @@ def get_translations() -> dict[str, Translation]:
             if lang_dir.is_dir() and not lang_dir.name.startswith('_'):
                 lang_code = lang_dir.name
                 try:
-                    mofile_path = lang_dir / "LC_MESSAGES" / "cms.mo"
+                    mofile_path = lang_dir / "LC_MESSAGES" / f"{domain}.mo"
+                    if domain != "cms" and not mofile_path.is_file():
+                        continue
                     with mofile_path.open("rb") as f:
-                        t = Translation(lang_code, f)
+                        t = Translation(lang_code, f, domain)
                         logger.info("Found translation %s", t.identifier)
                         result[t.identifier] = t
                 except Exception:
