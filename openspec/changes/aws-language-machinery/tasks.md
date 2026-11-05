@@ -1,7 +1,7 @@
 ## 1. Catalog machinery
 
 - [x] 1.1 `cms/locale/locale.py`: `Translation(domain=...)` and `get_translations(domain)`, skipping silently the languages without that catalog for a domain other than `cms`; tests for "Offered languages" and "A quiet start", and that the contestant site's loading is unchanged
-- [ ] 1.2 `babel_mapping_aws.cfg`, `cms/locale/aws.pot` and `cms/locale/es/LC_MESSAGES/aws.po` (login, error, language selector, theme switch entries), then `setup.cfg` `[compile_catalog] domain: cms aws`; `docs/Localization.rst` commands; the catalog test generalized by domain; tests for "Incomplete catalog", "A message missing from the catalog" and "Both catalogs compile"
+- [x] 1.2 `babel_mapping_aws.cfg`, `cms/locale/aws.pot` and `cms/locale/es/LC_MESSAGES/aws.po` (login, error, language selector, theme switch entries), then `setup.cfg` `[compile_catalog] domain: cms aws`; `docs/Localization.rst` commands; the catalog test generalized by domain; tests for "Incomplete catalog", "A message missing from the catalog" and "Both catalogs compile"
 
 ## 2. Language choice and selector in AWS
 
