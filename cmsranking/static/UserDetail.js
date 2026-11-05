@@ -99,7 +99,7 @@ var UserDetail = new function () {
             window.history.pushState({}, "", "#" + user_id);
         }
         window.document.title =
-            "Ranking - " + self.user["f_name"] + " " + self.user["l_name"];
+            I18n.t("title.user_prefix") + self.user["f_name"] + " " + self.user["l_name"];
 
         HistoryStore.request_update(self.history_callback);
 
@@ -155,7 +155,7 @@ var UserDetail = new function () {
             self.l_name_label.text(self.user["l_name"]);
 
             // Create a new image element and replace the old one
-            var new_face_image = $('<img id="UserDetail_face" alt="Face"/>');
+            var new_face_image = $('<img id="UserDetail_face" alt="' + I18n.t("alt.face") + '"/>');
             new_face_image.attr("src", Config.get_face_url(self.user_id));
             self.face_image.replaceWith(new_face_image);
             self.face_image = new_face_image;
@@ -170,10 +170,10 @@ var UserDetail = new function () {
             }
 
             var s = "<tr class=\"global\"> \
-                        <td class=\"name\">Global</td> \
+                        <td class=\"name\">" + I18n.t("label.global") + "</td> \
                         <td class=\"score\">" + (self.global_s.length > 0 ? round_to_str(self.global_s[self.global_s.length-1][1], DataStore.global_score_precision) : 0) + "</td> \
                         <td class=\"rank\">" + (self.global_r.length > 0 ? self.global_r[self.global_r.length-1][1] : 1) + "</td> \
-                        <td class=\"btn\"><a>Show</a></td> \
+                        <td class=\"btn\"><a>" + I18n.t("button.show") + "</a></td> \
                     </tr>";
 
             var contests = DataStore.contest_list;
@@ -185,7 +185,7 @@ var UserDetail = new function () {
                          <td class=\"name\">" + contest['name'] + "</td> \
                          <td class=\"score\">" + (self.contest_s[c_id].length > 0 ? round_to_str(self.contest_s[c_id][self.contest_s[c_id].length-1][1], contest["score_precision"]) : 0) + "</td> \
                          <td class=\"rank\">" + (self.contest_r[c_id].length > 0 ? self.contest_r[c_id][self.contest_r[c_id].length-1][1] : 1) + "</td> \
-                         <td class=\"btn\"><a>Show</a></td> \
+                         <td class=\"btn\"><a>" + I18n.t("button.show") + "</a></td> \
                       </tr>"
 
                 var tasks = contest["tasks"];
@@ -197,7 +197,7 @@ var UserDetail = new function () {
                              <td class=\"name\">" + task['name'] + "</td> \
                              <td class=\"score\">" + (self.task_s[t_id].length > 0 ? round_to_str(self.task_s[t_id][self.task_s[t_id].length-1][1], task["score_precision"]) : 0) + "</td> \
                              <td class=\"rank\">" + (self.task_r[t_id].length > 0 ? self.task_r[t_id][self.task_r[t_id].length-1][1] : 1) + "</td> \
-                             <td class=\"btn\"><a>Show</a></td> \
+                             <td class=\"btn\"><a>" + I18n.t("button.show") + "</a></td> \
                           </tr>"
                 }
             }
@@ -213,7 +213,7 @@ var UserDetail = new function () {
     };
 
     self.show_global = function () {
-        self.title_label.text("Global");
+        self.title_label.text(I18n.t("label.global"));
         self.submission_table.html("");
 
         var intervals = new Array();
@@ -281,9 +281,9 @@ var UserDetail = new function () {
 <table> \
     <thead> \
         <tr> \
-            <td>Time</td> \
-            <td>Score</td> \
-            <td>Token</td> \
+            <td>" + I18n.t("col.time") + "</td> \
+            <td>" + I18n.t("col.score") + "</td> \
+            <td>" + I18n.t("col.token") + "</td> \
             " + (DataStore.tasks[task_id]['extra_headers'].length > 0 ? "<td>" + DataStore.tasks[task_id]['extra_headers'].join("</td><td>") + "</td>" : "") + " \
         </tr> \
     </thead> \
@@ -292,7 +292,7 @@ var UserDetail = new function () {
         if (self.submissions[task_id].length == 0) {
             res += " \
         <tr> \
-            <td colspan=\"" + (3 + DataStore.tasks[task_id]['extra_headers'].length) + "\">no submissions</td> \
+            <td colspan=\"" + (3 + DataStore.tasks[task_id]['extra_headers'].length) + "\">" + I18n.t("user.no_submissions") + "</td> \
         </tr>";
         } else {
             for (var i in self.submissions[task_id]) {
@@ -304,7 +304,7 @@ var UserDetail = new function () {
         <tr> \
             <td>" + time + "</td> \
             <td>" + round_to_str(submission['score'], DataStore.tasks[task_id]['score_precision']) + "</td> \
-            <td>" + (submission["token"] ? 'Yes' : 'No') + "</td> \
+            <td>" + (submission["token"] ? I18n.t("user.yes") : I18n.t("user.no")) + "</td> \
             " + (submission["extra"].length > 0 ? "<td>" + rounded_extra.join("</td><td>") + "</td>" : "") + " \
         </tr>";
             }
@@ -320,7 +320,7 @@ var UserDetail = new function () {
             window.history.pushState(
                 {}, "", window.location.href.replace(/#.*$/, ''));
         }
-        window.document.title = "Ranking";
+        window.document.title = I18n.t("title.ranking");
         $("#UserDetail_bg").removeClass("open");
     };
 };

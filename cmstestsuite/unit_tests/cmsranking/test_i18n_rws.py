@@ -325,6 +325,77 @@ class TestRankingPage(unittest.TestCase):
         self.assertGreaterEqual(marked, 15)
 
 
+@unittest.skipIf(shutil.which("node") is None, "node is not installed")
+class TestScriptTexts(unittest.TestCase):
+
+    def setUp(self):
+        self.catalog = run_script()["catalog"]
+        self.sources = {
+            path.name: path.read_text(encoding="utf-8")
+            for path in STATIC.iterdir()
+            if path.name.endswith(".js") and path.name != "i18n.js"}
+
+    def test_both_catalogs_are_complete(self):
+        # Scenario: Both catalogs are complete
+        self.assertEqual(set(self.catalog["en"]), set(self.catalog["es"]))
+        for lang, texts in self.catalog.items():
+            for key, text in texts.items():
+                self.assertTrue(text.strip(), (lang, key))
+        used = set()
+        for name, source in self.sources.items():
+            # the argument of every call is a literal, never a data value
+            self.assertNotRegex(source, r"I18n\.t\((?!\")", name)
+            used.update(re.findall(r'I18n\.t\("([^"]+)"\)', source))
+        self.assertGreater(len(used), 20)
+        self.assertEqual(used - set(self.catalog["en"]), set())
+
+    def test_no_user_text_is_left_in_the_scripts(self):
+        # Scenario: Both catalogs are complete (a text moved to the catalog
+        # is not also left in the scripts)
+        # (only the keys that the scripts use: the alt texts and some labels
+        # are static text of Ranking.html)
+        used = {key for source in self.sources.values()
+                for key in re.findall(r'I18n\.t\("([^"]+)"\)', source)}
+        for key in used:
+            text = self.catalog["en"][key]
+            if key.startswith("conn.") or "<" in text:
+                continue
+            for name, source in self.sources.items():
+                self.assertNotIn('"%s"' % text, source, (name, key))
+                self.assertNotIn(">%s<" % text, source, (name, key))
+
+    def test_connection_messages_keep_their_links(self):
+        # Scenario: Connection messages keep their links
+        # (the same onclick code in both languages, and DataStore.js
+        # inserts them as markup)
+        links = 0
+        for key, text in self.catalog["en"].items():
+            if "<a" not in text:
+                continue
+            links += 1
+            onclick = re.findall(r'<a onclick="([^"]+)">', text)
+            self.assertEqual(len(onclick), 1, key)
+            self.assertEqual(
+                re.findall(r'<a onclick="([^"]+)">', self.catalog["es"][key]),
+                onclick, key)
+            self.assertIn('.html(I18n.t("%s"))' % key,
+                          self.sources["DataStore.js"])
+        self.assertEqual(links, 3)
+
+    def test_data_names_are_untouched(self):
+        # Scenario: Data names are untouched
+        # (the user detail still builds its title from the names of the
+        # data, after the catalog prefix, and no data goes through t())
+        source = self.sources["UserDetail.js"]
+        self.assertIn(
+            'I18n.t("title.user_prefix") + self.user["f_name"] + " " '
+            '+ self.user["l_name"]', source)
+        self.assertIn("contest['name']", source)
+        self.assertIn("task['name']", source)
+        for name, source in self.sources.items():
+            self.assertNotRegex(source, r"I18n\.t\([^\")]*\[", name)
+
+
 class TestRwsServesTheLanguageScript(test_visibility.VisibilityTestCase):
 
     def test_the_frozen_group_passes_the_script(self):
