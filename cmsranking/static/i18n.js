@@ -92,7 +92,7 @@
             "search.placeholder": "Buscar equipo",
             "alt.logo": "Logo",
             "alt.close": "Cerrar",
-            "alt.face": "Rostro",
+            "alt.face": "Foto",
             "alt.flag": "Bandera",
             "button.show_tasks": "Mostrar problemas",
             "button.totals_only": "Solo totales",
@@ -100,7 +100,7 @@
             "col.rank": "Lugar",
             "col.name": "Nombre",
             "col.username": "Usuario",
-            "col.team": "Equipo",
+            "col.team": "Eq.",
             "col.score": "Puntaje",
             "col.time": "Tiempo",
             "col.token": "Token",
@@ -108,10 +108,10 @@
             "user.no_submissions": "sin envíos",
             "user.yes": "Sí",
             "user.no": "No",
-            "conn.reconnecting": "Estás desconectado del servidor, pero tu navegador está intentando conectarse.",
+            "conn.reconnecting": "Estás desconectado del servidor, pero tu navegador está intentando reconectarse.",
             "conn.connected": "Estás conectado al servidor y recibes actualizaciones en vivo.",
             "conn.disconnected": "Estás desconectado del servidor, pero puedes <a onclick=\"DataStore.create_event_source();\">intentar conectarte</a>.",
-            "conn.outdated": "Tus datos locales no se pueden actualizar. Por favor <a onclick=\"window.location.reload();\">recarga la página</a>.",
+            "conn.outdated": "Tus datos locales no se pueden actualizar. Por favor, <a onclick=\"window.location.reload();\">recarga la página</a>.",
             "conn.init_error": "Ocurrió un error al cargar los datos. Revisa tu conexión y <a onclick=\"window.location.reload();\">recarga la página</a>."
         }
     };
@@ -130,7 +130,8 @@
         try {
             window.localStorage.setItem(KEY, choice);
         } catch (e) {
-            // The choice still applies to this page, just not to the next.
+            // The page reloads right after, so without storage it comes back
+            // in the browser language.
         }
     }
 
