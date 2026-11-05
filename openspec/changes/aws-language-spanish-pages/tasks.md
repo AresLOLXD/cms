@@ -17,4 +17,4 @@
 
 ## 5. Docs
 
-- [ ] 5.1 Mention in the AWS language section of `docs/multi-contest.md` or the runbook (where the language selector is documented, add it if the section does not exist yet) that these pages follow the AWS language, with the Spanish `.po` and the docs check passing
+- [x] 5.1 Mention in the AWS language section of `docs/multi-contest.md` or the runbook (where the language selector is documented, add it if the section does not exist yet) that these pages follow the AWS language, with the Spanish `.po` and the docs check passing
