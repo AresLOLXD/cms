@@ -31,17 +31,23 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from html.parser import HTMLParser
 from unittest.mock import patch
 
-from cmsranking.visibility import FROZEN_ROUTES
+from werkzeug.test import Client
+
+from cmsranking.visibility import FROZEN_ROUTES, NOTICE_THEME, STAFF_BANNER, \
+    STAFF_FROZEN_BANNER, VisibilityGuard, VisibilitySettings, \
+    public_frozen_banner
 from cmstestsuite.unit_tests.cmsranking import test_visibility
 
 
 STATIC = importlib.resources.files("cmsranking").joinpath("static")
 I18N_JS = STATIC.joinpath("i18n.js")
 HTML = STATIC.joinpath("Ranking.html")
+CSS = STATIC.joinpath("Ranking.css")
 
 # Runs argv[1] (the script) against stubs and prints what the page would
 # show. Config (JSON, argv[2]): "stored" (value under cms.lang, or null),
@@ -394,6 +400,224 @@ class TestScriptTexts(unittest.TestCase):
         self.assertIn("task['name']", source)
         for name, source in self.sources.items():
             self.assertNotRegex(source, r"I18n\.t\([^\")]*\[", name)
+
+
+# Runs the early snippet of a notice page (argv[1]) against stubs and prints
+# what it sets. Config (JSON, argv[2]): "stored" (cms.lang or null),
+# "languages", "language" (as in HARNESS), "throws" (local storage fails).
+SNIPPET_HARNESS = r"""
+const vm = require("vm");
+const cfg = JSON.parse(process.argv[2]);
+const attributes = {};
+const title = { textContent: "Ranking oculto",
+                getAttribute(name) { return "Hidden ranking"; } };
+const localStorage = {
+    getItem(key) {
+        if (cfg.throws) throw new Error("blocked");
+        return key === "cms.lang" ? cfg.stored : null;
+    },
+};
+const navigator = {};
+if (cfg.languages !== null) navigator.languages = cfg.languages;
+if (cfg.language !== null) navigator.language = cfg.language;
+const document = {
+    documentElement: { setAttribute(name, value) { attributes[name] = value; } },
+    querySelector(selector) { return selector === "title" ? title : null; },
+};
+vm.runInNewContext(process.argv[1], { document, localStorage, navigator });
+console.log(JSON.stringify({ lang: attributes["lang"] || null,
+                             data_lang: attributes["data-lang"] || null,
+                             title: title.textContent }));
+"""
+
+# Inputs shared by the parity test: (stored, languages, language).
+PICKS = [
+    (None, ["es-MX"], None), (None, ["ES"], None), (None, ["es", "en"], None),
+    (None, None, "es"), (None, ["en-US"], None), (None, ["fr", "es"], None),
+    (None, [], None), (None, None, "pt-BR"), (None, None, None),
+    ("en", ["es-MX"], None), ("es", ["en-US"], None),
+    ("garbage", ["es"], None), ("garbage", ["fr"], None), ("", ["es"], None),
+]
+
+
+def run_snippet(script, stored, languages, language, throws=False):
+    config = {"stored": stored, "languages": languages,
+              "language": language, "throws": throws}
+    result = subprocess.run(
+        ["node", "-e", SNIPPET_HARNESS, script, json.dumps(config)],
+        capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+def notice_snippet():
+    return re.search(r"<script>(.*?)</script>", NOTICE_THEME, re.S).group(1)
+
+
+LANG_ES_HIDDEN = r':root\[data-lang="en"\] \.lang-es \{\s*display:\s*none;'
+LANG_EN_HIDDEN = (r':root:not\(\[data-lang="en"\]\) \.lang-en \{\s*'
+                  r'display:\s*none;')
+
+
+class TestRwsBuiltInPages(test_visibility.VisibilityTestCase):
+    """The notice and the staff login, as a hidden and a frozen group serve
+    them."""
+
+    def setUp(self):
+        super().setUp()
+        self.put_contest("/olim")
+
+    def freeze(self):
+        self.client.put("/olim/visibility", data=json.dumps({
+            "hide_at": None, "show_at": None, "freeze_at": 200,
+            "unfreeze_at": 400,
+            "staff_password": test_visibility.STAFF_HASH}),
+            content_type="application/json", headers=test_visibility.AUTH)
+
+    def pages(self) -> dict[str, str]:
+        """Return the html of the hidden notice, the notice that answers a
+        failed login and the staff login of a frozen group."""
+        self.put_visibility("olim", True)
+        pages = {"hidden notice": self.client.get("/olim/")}
+        with patch("cmsranking.visibility.gevent.sleep"):
+            pages["failed login"] = self.client.post(
+                "/olim/staff-login", data={"password": "wrong"})
+        self.put_visibility("olim", False)
+        self.freeze()
+        with patch("cmsranking.visibility.time.time", return_value=350):
+            pages["frozen login"] = self.client.get("/olim/staff-login")
+        return {name: r.get_data(as_text=True) for name, r in pages.items()}
+
+    def test_the_hidden_notice_in_english(self):
+        # Scenario: The hidden notice in English
+        # (the page carries the English text, the rules that show it when
+        # the page language is English, and a snippet that picks that
+        # language; the plain-text answers carry both languages)
+        pages = self.pages()
+        notice = pages["hidden notice"]
+        self.assertIn('<span class="lang-en">This ranking is hidden for now.'
+                      '</span>', notice)
+        self.assertIn('<title data-en="Hidden ranking">Ranking oculto</title>',
+                      notice)
+        self.assertIn('<span class="lang-en">Staff password</span>', notice)
+        self.assertIn('<span class="lang-en">Sign in</span>', notice)
+        self.assertIn('<span class="lang-en">Wrong password.</span>',
+                      pages["failed login"])
+        self.assertIn('<title data-en="Staff login">Acceso staff</title>',
+                      pages["frozen login"])
+        self.assertIn('<span class="lang-en">Staff access to the live '
+                      'ranking.</span>', pages["frozen login"])
+        for name, html in pages.items():
+            style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+            self.assertRegex(style, LANG_ES_HIDDEN, name)
+            self.assertIn(notice_snippet(), html, name)
+        self.put_visibility("olim", True)
+        self.assertEqual(
+            self.client.get("/olim/users/").get_data(as_text=True),
+            "Este ranking está oculto. / This ranking is hidden.")
+        self.put_visibility("olim", False)
+        self.freeze()
+        with patch("cmsranking.visibility.time.time", return_value=350):
+            self.assertEqual(
+                self.client.get("/olim/submissions/").get_data(as_text=True),
+                "Este ranking está congelado. / This ranking is frozen.")
+
+    @unittest.skipIf(shutil.which("node") is None, "node is not installed")
+    def test_the_snippet_shows_english_for_an_english_choice(self):
+        # Scenario: The hidden notice in English
+        # (the snippet sets the page language and the English title)
+        script = notice_snippet()
+        out = run_snippet(script, "en", ["es-MX"], None)
+        self.assertEqual(out, {"lang": "en", "data_lang": "en",
+                               "title": "Hidden ranking"})
+        out = run_snippet(script, "es", ["en-US"], None)
+        self.assertEqual(out, {"lang": "es", "data_lang": "es",
+                               "title": "Ranking oculto"})
+        # storage that fails: the browser language decides
+        out = run_snippet(script, None, ["en-US"], None, throws=True)
+        self.assertEqual(out["data_lang"], "en")
+        out = run_snippet(script, None, ["es-MX"], None, throws=True)
+        self.assertEqual(out["data_lang"], "es")
+
+    @unittest.skipIf(shutil.which("node") is None, "node is not installed")
+    def test_the_snippet_picks_the_language_as_i18n_js_does(self):
+        # Scenario: The hidden notice in English (one rule in two places)
+        script = notice_snippet()
+        for stored, languages, language in PICKS:
+            early = run_script(stored=stored, languages=languages,
+                               language=language)["early"]
+            snippet = run_snippet(script, stored, languages, language)
+            self.assertEqual(
+                (snippet["lang"], snippet["data_lang"]),
+                (early["lang"], early["data_lang"]),
+                (stored, languages, language))
+
+    def test_the_hidden_notice_without_javascript(self):
+        # Scenario: The hidden notice without JavaScript
+        # (no script runs, so no data-lang is set: nothing hides the Spanish
+        # text, the English one is hidden by default, and the page is es)
+        for name, html in self.pages().items():
+            self.assertIn('<html lang="es">', html, name)
+            style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+            self.assertRegex(style, LANG_EN_HIDDEN, name)
+            hiding = re.findall(r"([^{}]*\.lang-es[^{}]*)\{", style)
+            self.assertEqual([h.strip() for h in hiding],
+                             [':root[data-lang="en"] .lang-es'], name)
+            self.assertIn('<span class="lang-es">', html, name)
+        notice = self.pages()["hidden notice"]
+        self.assertIn('<span class="lang-es">Este ranking está oculto por '
+                      'ahora.</span>', notice)
+        self.assertIn('<span class="lang-es">Contraseña del staff</span>',
+                      notice)
+
+    def test_a_group_name_with_markup(self):
+        # Scenario: A group name with markup
+        # (the name is cut to [a-z0-9_-] as before and is shown once: it is
+        # a name, not a text with two languages; no markup character of it
+        # reaches the page, and nothing of it reaches the inline script)
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        guard = VisibilityGuard(lambda environ, start_response: [], tmp,
+                                '<script>alert(1)</script>&"x', "u", "p",
+                                "Scoreboard")
+        guard.state.update_settings(VisibilitySettings(hide_at=0))
+        text = Client(guard).get("/").get_data(as_text=True)
+        self.assertIn("<h1>scriptalert1scriptx</h1>", text)
+        self.assertNotIn("alert(1)", text)
+        self.assertNotIn("&amp;", text)
+        self.assertEqual(text.count("scriptalert1scriptx"), 1)
+        script = re.search(r"<script>(.*?)</script>", text, re.S).group(1)
+        self.assertEqual(script, notice_snippet())
+
+
+class TestRwsBanners(unittest.TestCase):
+
+    def test_the_banners_follow_the_language(self):
+        # Scenario: The banners follow the language
+        # (both texts in spans, the Spanish one as it was, and the rules of
+        # Ranking.css that show one of them from data-lang)
+        for banner, es, en in [
+                (STAFF_BANNER,
+                 "Vista staff: este ranking está oculto al público",
+                 "Staff view: this ranking is hidden from the public"),
+                (STAFF_FROZEN_BANNER,
+                 "Vista staff: ranking congelado para el público",
+                 "Staff view: ranking frozen for the public"),
+                (public_frozen_banner(1_700_000_000),
+                 "Ranking congelado desde las ",
+                 "Ranking frozen since ")]:
+            text = banner.decode("utf-8")
+            self.assertIn('<span class="lang-es">' + es, text)
+            self.assertIn('<span class="lang-en">' + en, text)
+        for banner in (STAFF_BANNER, STAFF_FROZEN_BANNER):
+            text = banner.decode("utf-8")
+            self.assertIn('href="staff-logout">Salir</a>', text)
+            self.assertIn('href="staff-logout">Sign out</a>', text)
+        text = public_frozen_banner(1_700_000_000).decode("utf-8")
+        self.assertIn('href="staff-login">Acceso staff</a>', text)
+        self.assertIn('href="staff-login">Staff login</a>', text)
+        css = CSS.read_text(encoding="utf-8")
+        self.assertRegex(css, LANG_ES_HIDDEN)
+        self.assertRegex(css, LANG_EN_HIDDEN)
 
 
 class TestRwsServesTheLanguageScript(test_visibility.VisibilityTestCase):

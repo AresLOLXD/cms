@@ -99,16 +99,36 @@ FROZEN_ROUTES = {
     "img": "pass", "lib": "pass",
 }
 
-HIDDEN_TITLE = "Ranking oculto"
-HIDDEN_MESSAGE = "Este ranking está oculto por ahora."
-FROZEN_LOGIN_TITLE = "Acceso staff"
-FROZEN_LOGIN_MESSAGE = "Acceso del staff al ranking en vivo."
+# The texts of the built-in pages: (Spanish, English).
+HIDDEN_TITLE = ("Ranking oculto", "Hidden ranking")
+HIDDEN_MESSAGE = ("Este ranking está oculto por ahora.",
+                  "This ranking is hidden for now.")
+FROZEN_LOGIN_TITLE = ("Acceso staff", "Staff login")
+FROZEN_LOGIN_MESSAGE = ("Acceso del staff al ranking en vivo.",
+                        "Staff access to the live ranking.")
 
-# The theme of the notice pages. A hidden group refuses every file but the
-# notice, so these pages carry their own colors and the early apply of
-# theme.js (same behavior: the saved choice of "cms.theme" becomes
-# data-theme, and System sets nothing) instead of loading them. The dark set
-# is declared twice, identical, as in Ranking.css; keep both in step.
+
+def _bilingual(texts: tuple[str, str]) -> str:
+    """Return both texts of a built-in page, each in its language span.
+
+    texts: the Spanish and the English text, already HTML.
+
+    return: the two spans; the CSS of the page shows one (see NOTICE_THEME
+        and Ranking.css), and Spanish shows when no script has run.
+
+    """
+    return '<span class="lang-es">%s</span><span class="lang-en">%s</span>' \
+        % texts
+
+
+# The theme and the language of the notice pages. A hidden group refuses
+# every file but the notice, so these pages carry their own colors and the
+# early apply of theme.js (same behavior: the saved choice of "cms.theme"
+# becomes data-theme, and System sets nothing) and the language pick of
+# i18n.js (same rule: the saved "cms.lang", else the first browser language
+# starting with "es", else English; a test runs both) instead of loading
+# them. The English title is in data-en: a <title> holds no spans. The dark
+# set is declared twice, identical, as in Ranking.css; keep both in step.
 NOTICE_THEME = """<script>
 try {
     var theme = localStorage.getItem("cms.theme");
@@ -116,6 +136,23 @@ try {
         document.documentElement.setAttribute("data-theme", theme);
     }
 } catch (e) {}
+var lang = null;
+try {
+    var saved = localStorage.getItem("cms.lang");
+    lang = saved === "es" || saved === "en" ? saved : null;
+} catch (e) {}
+if (!lang) {
+    var first = navigator.languages && navigator.languages.length ?
+        navigator.languages[0] : navigator.language;
+    lang = typeof first === "string" &&
+        first.toLowerCase().indexOf("es") === 0 ? "es" : "en";
+}
+document.documentElement.setAttribute("lang", lang);
+document.documentElement.setAttribute("data-lang", lang);
+if (lang === "en") {
+    var title = document.querySelector("title");
+    title.textContent = title.getAttribute("data-en");
+}
 </script>
 <style>
 :root {
@@ -153,6 +190,8 @@ body { font-family: sans-serif; background: var(--page-bg);
 main { background: var(--card-bg); padding: 2em; border-radius: 8px;
        max-width: 26em; box-shadow: 0 1px 4px var(--shadow); }
 .error { color: var(--error); }
+:root[data-lang="en"] .lang-es { display: none; }
+:root:not([data-lang="en"]) .lang-en { display: none; }
 </style>
 """
 
@@ -161,18 +200,18 @@ NOTICE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
+<title data-en="{title_en}">{title_es}</title>
 {theme}</head>
 <body>
 <main>
 <h1>{group}</h1>
 <p>{message}</p>
 <form method="post" action="staff-login">
-<label>Contraseña del staff
+<label>{password_label}
 <input type="password" name="password"
        autocomplete="current-password" required>
 </label>
-<button type="submit">Entrar</button>
+<button type="submit">{submit}</button>
 </form>
 {error}
 </main>
@@ -230,11 +269,16 @@ def _banner(text_html: str) -> bytes:
 
 
 LINK = '<a style="color:inherit" href="%s">%s</a>'
-STAFF_BANNER = _banner("Vista staff: este ranking está oculto al público "
-                       "&middot; " + LINK % ("staff-logout", "Salir"))
-STAFF_FROZEN_BANNER = _banner(
+STAFF_BANNER = _banner(_bilingual((
+    "Vista staff: este ranking está oculto al público &middot; "
+    + LINK % ("staff-logout", "Salir"),
+    "Staff view: this ranking is hidden from the public &middot; "
+    + LINK % ("staff-logout", "Sign out"))))
+STAFF_FROZEN_BANNER = _banner(_bilingual((
     "Vista staff: ranking congelado para el público &middot; "
-    + LINK % ("staff-logout", "Salir"))
+    + LINK % ("staff-logout", "Salir"),
+    "Staff view: ranking frozen for the public &middot; "
+    + LINK % ("staff-logout", "Sign out"))))
 
 
 def public_frozen_banner(freeze_at: int) -> bytes:
@@ -246,9 +290,12 @@ def public_frozen_banner(freeze_at: int) -> bytes:
 
     """
     when = datetime.fromtimestamp(freeze_at).astimezone()
-    return _banner("Ranking congelado desde las %s (%s) &middot; %s" % (
-        when.strftime("%H:%M"), when.strftime("%Z"),
-        LINK % ("staff-login", "Acceso staff")))
+    hour, zone = when.strftime("%H:%M"), when.strftime("%Z")
+    return _banner(_bilingual((
+        "Ranking congelado desde las %s (%s) &middot; %s" % (
+            hour, zone, LINK % ("staff-login", "Acceso staff")),
+        "Ranking frozen since %s (%s) &middot; %s" % (
+            hour, zone, LINK % ("staff-login", "Staff login")))))
 
 
 BODY_TAG = re.compile(rb"<body[^>]*>", re.IGNORECASE)
@@ -626,14 +673,15 @@ class VisibilityGuard:
             "X-Forwarded-Proto", "").lower() == "https"
 
     def _login(self, request: Request, start_response,
-               message: str = HIDDEN_MESSAGE,
-               title: str = HIDDEN_TITLE) -> Response:
+               message: tuple[str, str] = HIDDEN_MESSAGE,
+               title: tuple[str, str] = HIDDEN_TITLE) -> Response:
         """Check the staff password and start a staff session.
 
         request: the POST to staff-login, with the form field password.
         start_response: the WSGI start_response callable.
-        message: the text of the notice shown after a failed attempt.
-        title: the title of that notice.
+        message: the (Spanish, English) text of the notice shown after a
+            failed attempt.
+        title: the (Spanish, English) title of that notice.
 
         return: a redirect that sets the staff cookie, or the notice with
             an error after a failed attempt (or a 413 if the body is too
@@ -871,7 +919,8 @@ class VisibilityGuard:
         if path == "/staff-login" and request.method == "POST":
             return self._login(request, start_response)(
                 environ, start_response)
-        return Response("Este ranking está oculto.", status=403,
+        return Response("Este ranking está oculto. / This ranking is hidden.",
+                        status=403,
                         mimetype="text/plain",
                         headers=NO_STORE)(environ, start_response)
 
@@ -901,7 +950,8 @@ class VisibilityGuard:
                 public_frozen_banner(self.state.settings.freeze_at))
         kind = FROZEN_ROUTES.get(path.strip("/").split("/")[0], "forbid")
         if kind == "forbid":
-            return Response("Este ranking está congelado.", status=403,
+            return Response("Este ranking está congelado. / "
+                            "This ranking is frozen.", status=403,
                             mimetype="text/plain",
                             headers=NO_STORE)(environ, start_response)
         if kind == "filter":
@@ -929,11 +979,17 @@ class VisibilityGuard:
         return int(last_id, 16) < self.state.last_change(now) * 1_000_000
 
     def _notice(self, error: bool = False, status: int = 200,
-                message: str = HIDDEN_MESSAGE,
-                title: str = HIDDEN_TITLE, poll: bool = False) -> Response:
+                message: tuple[str, str] = HIDDEN_MESSAGE,
+                title: tuple[str, str] = HIDDEN_TITLE,
+                poll: bool = False) -> Response:
         body = NOTICE_TEMPLATE.format(
-            group=self._escaped_group(), message=message, title=title,
-            error='<p class="error">Contraseña incorrecta.</p>'
+            group=self._escaped_group(), message=_bilingual(message),
+            title_es=title[0], title_en=title[1],
+            password_label=_bilingual(("Contraseña del staff",
+                                       "Staff password")),
+            submit=_bilingual(("Entrar", "Sign in")),
+            error='<p class="error">%s</p>' % _bilingual((
+                "Contraseña incorrecta.", "Wrong password."))
                   if error else "",
             script=NOTICE_POLL if poll else "", theme=NOTICE_THEME)
         return Response(body, status=status, mimetype="text/html",

@@ -6,7 +6,7 @@
 
 ## 2. Pages built by the ranking server
 
-- [ ] 2.1 `cmsranking/visibility.py`: the notice pages, banners, titles and the 403 bodies in both languages; the early snippet picks the language as `i18n.js` does, with the parity test; `Ranking.css` language visibility rules; tests for the Scenarios "The hidden notice in English", "The hidden notice without JavaScript", "The banners follow the language" and "A group name with markup"
+- [x] 2.1 `cmsranking/visibility.py`: the notice pages, banners, titles and the 403 bodies in both languages; the early snippet picks the language as `i18n.js` does, with the parity test; `Ranking.css` language visibility rules; tests for the Scenarios "The hidden notice in English", "The hidden notice without JavaScript", "The banners follow the language" and "A group name with markup"
 
 ## 3. Docs
 

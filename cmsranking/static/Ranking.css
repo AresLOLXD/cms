@@ -1652,3 +1652,13 @@ abbr {
         table-layout: auto;
     }
 }
+
+/* The built-in banners of the ranking server carry both languages; i18n.js
+   sets data-lang on <html>. Without it the Spanish text shows. */
+:root[data-lang="en"] .lang-es {
+    display: none;
+}
+
+:root:not([data-lang="en"]) .lang-en {
+    display: none;
+}
