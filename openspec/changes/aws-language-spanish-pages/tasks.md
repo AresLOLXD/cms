@@ -9,7 +9,7 @@
 ## 3. Users import
 
 - [x] 3.1 `bulkimport.py` (whole-sentence msgids per field, no `del` hack), `importjobs.py` and `handlers/contestuser.py` (gettext passed down, job texts in the starter's language, notices as `N_`); tests for "A job polled by another admin", "The import summary in English", "CSV aliases" and the Spanish pin
-- [ ] 3.2 `contest_users_import.html` and its script: template texts, `{% pluralize %}`, `data-msg-*` for the script; tests for "Script texts in English" and "Script texts in Spanish" for this page
+- [x] 3.2 `contest_users_import.html` and its script: template texts, `{% pluralize %}`, `data-msg-*` for the script; tests for "Script texts in English" and "Script texts in Spanish" for this page
 
 ## 4. Contests export
 
