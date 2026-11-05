@@ -48,7 +48,7 @@ msgid "Admin"
 msgstr "Admin"
 
 msgid "Welcome"
-msgstr "Bienvenido"
+msgstr "Te damos la bienvenida"
 
 msgid "Failed to log in."
 msgstr "No se pudo iniciar sesión."
@@ -66,5 +66,5 @@ msgid "Login"
 msgstr "Iniciar sesión"
 
 msgid "Reset"
-msgstr "Restablecer"
+msgstr "Limpiar"
 

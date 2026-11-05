@@ -67,8 +67,9 @@ class TestTranslatedPages(unittest.TestCase):
         # Scenario: The login page in Spanish
         html = spanish(login_page)
 
-        for text in ("Bienvenido", "Inicia sesión:", "Usuario", "Contraseña",
-                     "Iniciar sesión", "Restablecer", "<title>Admin</title>",
+        for text in ("Te damos la bienvenida", "Inicia sesión:", "Usuario",
+                     "Contraseña", "Iniciar sesión", "Limpiar",
+                     "<title>Admin</title>",
                      'title="Tema"', 'title="Idioma"', "Automático (English)"):
             self.assertIn(text, html)
         for text in ("Welcome", "Please log in", "Username", "Password",
