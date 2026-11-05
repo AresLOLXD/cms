@@ -68,11 +68,11 @@ The hidden-ranking notice, the staff login and the failed-login notice, the staf
 - **THEN** it is in the chosen language
 
 ### Requirement: Built-in pages stay safe
-Values put into the built-in pages (group names, times) SHALL stay escaped as today, and no text that a user controls SHALL reach the script that picks the language.
+The group name that a built-in page shows SHALL be shown once, reduced to its safe characters (lowercase letters, digits, hyphen and underscore) exactly as today, and times SHALL stay escaped as today. No text that a user controls SHALL reach the script that picks the language.
 
 #### Scenario: A group name with markup
 - **WHEN** a hidden notice is built for a group whose name contains markup characters
-- **THEN** the characters appear escaped in both language versions
+- **THEN** only the safe characters of the name are shown, once, and nothing of the name reaches the language script
 
 ### Requirement: The script is served in every ranking state
 The language script SHALL be served by a ranking whose visibility is live or frozen, like the other static files of the ranking page.

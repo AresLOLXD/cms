@@ -31,6 +31,8 @@ All of these are my calls unless marked as the user's.
 7. **Safety (mine).** Every interpolated value (group name, times) keeps the escaping it has today and appears in both language spans; no value is placed into the inline script, which stays a constant. The 403 plain-text bodies carry both languages on one line (`Este ranking está oculto. / This ranking is hidden.`) since they are not pages and run no script.
 8. **Tests (mine).** A node harness for `i18n.js` like the theme one (browser language rules, saved choice, failing storage, garbage values, the select, the reload on change); a Python test that parses the catalog from the file and asserts the same keys in both languages, no empty value, and that every `data-i18n*` key in `Ranking.html` and every `I18n.t("…")` literal in the scripts exists; bilingual assertions on the Python pages including the escaped group name; `FROZEN_ROUTES` entry; parity test between the early snippet of the notice pages and `i18n.js`'s pick (same inputs, same outputs).
 
+9. **Narrow column header (mine, after the first screenshots).** The Spanish header of the team column is the short form «Eq.» because the column is narrow and «Equipo» is cut off as «Equi…».
+
 ## Risks / Trade-offs
 
 - A string added to the scripts later without a catalog entry shows its key; the completeness test fails first.
@@ -38,3 +40,4 @@ All of these are my calls unless marked as the user's.
 - The reload on language change loses the open user detail panel; accepted.
 - English text flashes for a frame before the fill for Spanish visitors (decision 3).
 - The page language of `Ranking.html` (`lang="en"` in the file) is set by the script; the file keeps English as the no-JS fallback.
+- The theme switch options keep their Spanish labels («Sistema», «Claro», «Oscuro») on an English page: those labels were fixed by the color-theme spec. Translating them is a possible follow-up.
