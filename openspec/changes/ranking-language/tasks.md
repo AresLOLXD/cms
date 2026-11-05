@@ -10,4 +10,4 @@
 
 ## 3. Docs
 
-- [ ] 3.1 One paragraph about the language switch next to the theme section of `docs/contest-day.md`, with the Spanish `.po` and the docs check passing
+- [x] 3.1 One paragraph about the language switch next to the theme section of `docs/contest-day.md`, with the Spanish `.po` and the docs check passing
