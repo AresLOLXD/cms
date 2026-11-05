@@ -13,7 +13,7 @@
 
 ## 4. Contests export
 
-- [ ] 4.1 `exportjobs.py`, `handlers/export.py`, `export.html` and its script: msgids, job texts in the starter's language, script texts from the server; tests for the job-language and script Scenarios for this page and the Spanish pin
+- [x] 4.1 `exportjobs.py`, `handlers/export.py`, `export.html` and its script: msgids, job texts in the starter's language, script texts from the server; tests for the job-language and script Scenarios for this page and the Spanish pin
 
 ## 5. Docs
 
