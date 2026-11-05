@@ -28,9 +28,11 @@ the asyncio ones.
 
 import importlib.resources
 import json
+import re
 import shutil
 import subprocess
 import unittest
+from html.parser import HTMLParser
 from unittest.mock import patch
 
 from cmsranking.visibility import FROZEN_ROUTES
@@ -114,6 +116,7 @@ out.after_choices = cfg.choices.map((choice) => {
     select.listeners.change();
     return { stored: store["cms.lang"] || null, reloads: reloads };
 });
+out.catalog = window.I18n.catalog;
 out.theme = { stored: store["cms.theme"] || null,
               data_theme: attributes["data-theme"] || null };
 console.log(JSON.stringify(out));
@@ -246,6 +249,80 @@ class TestLanguageScript(unittest.TestCase):
         out = run_script(languages=["en"], elements=elements)
         self.assertEqual(out["filled"][0]["text"], "Status")
         self.assertEqual(out["filled"][1]["attrs"]["alt"], "Close")
+
+
+class ElementCollector(HTMLParser):
+    """Collect the elements of a page with their attributes and own text."""
+
+    def __init__(self):
+        super().__init__()
+        self.elements = []
+
+    def handle_starttag(self, tag, attrs):
+        self.elements.append({"tag": tag, "attrs": dict(attrs), "text": ""})
+
+    def handle_data(self, data):
+        if self.elements:
+            self.elements[-1]["text"] += data
+
+
+@unittest.skipIf(shutil.which("node") is None, "node is not installed")
+class TestRankingPage(unittest.TestCase):
+
+    def setUp(self):
+        self.html = HTML.read_text(encoding="utf-8")
+        collector = ElementCollector()
+        collector.feed(self.html)
+        self.elements = collector.elements
+        self.catalog = run_script()["catalog"]
+
+    def test_the_switch_is_in_the_top_bar_next_to_the_theme_switch(self):
+        # Scenario: The switch is on the ranking page
+        panel = re.search(r'<div id="UpperPanel">(.*?)<div id="TimeView">',
+                          self.html, re.S).group(1)
+        select = re.findall(r'<select id="language"[^>]*>(.*?)</select>',
+                            panel, re.S)
+        self.assertEqual(len(select), 1)
+        self.assertEqual(
+            re.findall(r'<option value="(\w+)">(\w+)</option>', select[0]),
+            [("es", "Español"), ("en", "English")])
+        self.assertEqual(self.html.count('id="language"'), 1)
+        self.assertLess(panel.index('id="theme"'), panel.index('id="language"'))
+        # the page is lang="en" and the labels are Spanish
+        self.assertRegex(self.html, r'<select id="language"[^>]* lang="es"')
+
+    def test_the_script_loads_in_head_right_after_the_theme(self):
+        # Scenario: Browser in Spanish (the language is set before the
+        # scripts that call I18n.t, and before the body is painted)
+        head = self.html[:self.html.index("</head>")]
+        script = head.index('src="i18n.js"')
+        self.assertNotRegex(head[script:script + 40], r"defer|async")
+        self.assertLess(head.index('src="theme.js"'), script)
+        self.assertLess(script, head.index("Ranking.css"))
+        self.assertLess(script, head.index('src="DataStore.js"'))
+
+    def test_every_marker_has_both_texts_and_the_english_fallback(self):
+        # Scenario: Both catalogs are complete (the markers of the page)
+        # (the file keeps the English text, which shows without scripts)
+        marked = 0
+        for element in self.elements:
+            attrs = element["attrs"]
+            if "data-i18n" in attrs:
+                marked += 1
+                key = attrs["data-i18n"]
+                for lang in ("en", "es"):
+                    self.assertIn(key, self.catalog[lang])
+                self.assertEqual(element["text"].strip(),
+                                 self.catalog["en"][key], key)
+            for pair in attrs.get("data-i18n-attr", "").split(","):
+                if not pair:
+                    continue
+                marked += 1
+                attribute, key = pair.split(":")
+                for lang in ("en", "es"):
+                    self.assertIn(key, self.catalog[lang])
+                self.assertEqual(attrs[attribute], self.catalog["en"][key], key)
+        self.assertGreaterEqual(marked, 15)
 
 
 class TestRwsServesTheLanguageScript(test_visibility.VisibilityTestCase):

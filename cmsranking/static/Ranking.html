@@ -5,6 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="shortcut icon" href="img/favicon.ico" />
         <script src="theme.js"></script>
+        <script src="i18n.js"></script>
         <link rel='stylesheet' href='Ranking.css'>
         <script src="//ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
         <script>
@@ -29,16 +30,16 @@ if (!("EventSource" in window)) {
         <script src="Overview.js"></script>
         <script src="Scoreboard.js"></script>
         <script src="Ranking.js"></script>
-        <title>Ranking</title>
+        <title data-i18n="title.ranking">Ranking</title>
     </head>
     <body class="teams-hidden">
         <div id="OuterFrame">
             <div id="LogoPanel">
-                <img src="logo" alt="Logo" />
+                <img src="logo" alt="Logo" data-i18n-attr="alt:alt.logo" />
             </div>
             <div id="UpperPanel">
                 <div id="ConnectionStatus_box">
-                    <div id="ConnectionStatus_label">Status</div>
+                    <div id="ConnectionStatus_label" data-i18n="label.status">Status</div>
                     <div id="ConnectionStatus_text"></div>
                 </div>
                 <select id="theme" lang="es" title="Tema" aria-label="Tema">
@@ -46,24 +47,28 @@ if (!("EventSource" in window)) {
                     <option value="light">Claro</option>
                     <option value="dark">Oscuro</option>
                 </select>
+                <select id="language" lang="es" title="Idioma" aria-label="Idioma">
+                    <option value="es">Español</option>
+                    <option value="en">English</option>
+                </select>
             </div>
             <div id="TimeView">
                 <div id="TimeView_name"></div>
                 <div id="TimeView_selector">
                     <div id="TimeView_time"></div><div id="TimeView_expand"><div class="caret"></div></div>
-                    <div id="TimeView_selector_elapsed">Elapsed time</div>
-                    <div id="TimeView_selector_remaining">Remaining time</div>
-                    <div id="TimeView_selector_current">Current time</div>
+                    <div id="TimeView_selector_elapsed" data-i18n="time.elapsed">Elapsed time</div>
+                    <div id="TimeView_selector_remaining" data-i18n="time.remaining">Remaining time</div>
+                    <div id="TimeView_selector_current" data-i18n="time.current">Current time</div>
                 </div>
             </div>
             <div id="SidePanel">
                 <div id="Overview"></div>
                 <div class="powered_by">
-                    Powered by <a href="https://cms-dev.github.io/" target="_blank">CMS</a>
+                    <span data-i18n="powered.by">Powered by</span> <a href="https://cms-dev.github.io/" target="_blank">CMS</a>
                 </div>
             </div>
             <div id="InnerFrame">
-                <button id="Scoreboard_tasks_toggle" type="button" aria-controls="Scoreboard" aria-expanded="false" hidden>Show tasks</button>
+                <button id="Scoreboard_tasks_toggle" type="button" aria-controls="Scoreboard" aria-expanded="false" hidden data-i18n="button.show_tasks">Show tasks</button>
                 <table id="Scoreboard">
                     <colgroup id="Scoreboard_cols"></colgroup>
                     <thead id="Scoreboard_head"></thead>
@@ -71,26 +76,26 @@ if (!("EventSource" in window)) {
                 </table>
             </div>
         </div>
-        <input id="TeamSearch_input" type="search" placeholder="Search Team"/>
+        <input id="TeamSearch_input" type="search" placeholder="Search Team" data-i18n-attr="placeholder:search.placeholder"/>
         <div id="TeamSearch_bg">
             <div id="TeamSearch">
-                <img id="TeamSearch_close" src="img/close.png" alt="Close"/>
+                <img id="TeamSearch_close" src="img/close.png" alt="Close" data-i18n-attr="alt:alt.close"/>
                 <div id="TeamSearch_body"></div>
             </div>
         </div>
         <div id="UserDetail_bg">
             <div id="UserDetail">
-                <img id="UserDetail_close" src="img/close.png" alt="Close"/>
+                <img id="UserDetail_close" src="img/close.png" alt="Close" data-i18n-attr="alt:alt.close"/>
                 <div id="UserDetail_header" style="display: flex;">
                     <div id="UserDetail_summary" style="flex-grow: 1">
                        <div>
                            <span id="UserDetail_f_name"></span>
                            <span id="UserDetail_l_name"></span>
                        </div>
-                        <img id="UserDetail_face" src="" alt="Face"/>
+                        <img id="UserDetail_face" src="" alt="Face" data-i18n-attr="alt:alt.face"/>
                        <div id="UserDetail_spacer"></div>
                         <div id="UserDetail_team"></div>
-                        <img id="UserDetail_flag" src="" alt="Flag"/>
+                        <img id="UserDetail_flag" src="" alt="Flag" data-i18n-attr="alt:alt.flag"/>
                     </div>
                     <div id="UserDetail_navigator" style="flex-grow: 1">
                         <table>
@@ -101,8 +106,8 @@ if (!("EventSource" in window)) {
                             <thead>
                                 <tr>
                                     <td></td>
-                                    <td>Score</td>
-                                    <td>Rank</td>
+                                    <td data-i18n="col.score">Score</td>
+                                    <td data-i18n="col.rank">Rank</td>
                                     <td></td>
                                 </tr>
                             </thead>

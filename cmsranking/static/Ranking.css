@@ -1383,13 +1383,19 @@ abbr {
 
 /* Style for the network status indicator */
 
-/* The theme switch (theme.js), in the top bar next to the status. */
-#theme {
+/* The theme switch (theme.js) and the language switch (i18n.js), in the top
+   bar next to the status. */
+#theme,
+#language {
     float: right;
     box-sizing: border-box;
     height: calc(1.8em + 2px);
     margin: 0.5em 0;
     font: inherit;
+}
+
+#language {
+    margin-right: 0.5em;
 }
 
 #ConnectionStatus_box {
