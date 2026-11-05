@@ -186,7 +186,9 @@ class TestHiddenGroup(VisibilityTestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         text = response.get_data(as_text=True)
         self.assertIn("Este ranking está oculto por ahora.", text)
-        self.assertIn('<title data-en="Hidden ranking">Ranking oculto</title>', text)
+        self.assertIn(
+            '<title data-en="Hidden ranking">Ranking oculto</title>',
+            text)
         self.assertIn('action="staff-login"', text)
 
     def test_ranking_html_shows_the_notice(self):
@@ -202,7 +204,9 @@ class TestHiddenGroup(VisibilityTestCase):
                 if method == "HEAD":
                     self.assertEqual(text, "")
                 else:
-                    self.assertIn('<title data-en="Hidden ranking">Ranking oculto</title>', text)
+                    self.assertIn(
+                        '<title data-en="Hidden ranking">'
+                        'Ranking oculto</title>', text)
                     self.assertIn('action="staff-login"', text)
 
     def test_notice_comes_back_by_itself(self):
@@ -2248,7 +2252,9 @@ class TestFrozenPublicView(VisibilityTestCase):
         self.assertEqual(response.status_code, 401)
         text = response.get_data(as_text=True)
         self.assertIn("Acceso del staff al ranking en vivo.", text)
-        self.assertIn('<title data-en="Staff login">Acceso staff</title>', text)
+        self.assertIn(
+            '<title data-en="Staff login">Acceso staff</title>',
+            text)
         self.assertNotIn("Este ranking está oculto", text)
         self.assertNotIn("Ranking oculto", text)
 

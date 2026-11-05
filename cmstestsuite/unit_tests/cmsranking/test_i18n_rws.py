@@ -48,6 +48,9 @@ STATIC = importlib.resources.files("cmsranking").joinpath("static")
 I18N_JS = STATIC.joinpath("i18n.js")
 HTML = STATIC.joinpath("Ranking.html")
 CSS = STATIC.joinpath("Ranking.css")
+RANKING_THEME_JS = STATIC.joinpath("theme.js")
+CMS_THEME_JS = importlib.resources.files("cms.server").joinpath(
+    "static", "theme.js")
 
 # Runs argv[1] (the script) against stubs and prints what the page would
 # show. Config (JSON, argv[2]): "stored" (value under cms.lang, or null),
@@ -162,6 +165,8 @@ class TestLanguageScript(unittest.TestCase):
         # Scenario: Browser in English or another language
         for kwargs in ({"languages": ["en-US"]}, {"languages": ["fr"]},
                        {"languages": ["fr", "es"]}, {"languages": []},
+                       {"languages": ["ca-ES"]}, {"languages": ["eu-ES"]},
+                       {"languages": ["gl-ES"]},
                        {"language": "pt-BR"}, {}):
             out = run_script(**kwargs)
             self.assertEqual(out["early"], {"lang": "en", "data_lang": "en"},
@@ -206,7 +211,8 @@ class TestLanguageScript(unittest.TestCase):
         self.assertEqual(out["early"]["lang"], "es")
         self.assertEqual(out["select_value"], "es")
         out = run_script(write_throws=True, languages=["en"], choices=["es"])
-        self.assertEqual(out["after_choices"], [{"stored": None, "reloads": 1}])
+        self.assertEqual(out["after_choices"],
+                         [{"stored": None, "reloads": 1}])
 
     def test_a_page_without_the_select_still_picks_the_language(self):
         # Scenario: The choice survives a reload (the notice pages and any
@@ -222,6 +228,9 @@ class TestLanguageScript(unittest.TestCase):
         source = I18N_JS.read_text(encoding="utf-8")
         self.assertNotIn("cms.theme", source)
         self.assertNotIn("data-theme", source)
+        # ... and the theme scripts never touch the language
+        for theme_js in (RANKING_THEME_JS, CMS_THEME_JS):
+            self.assertNotIn("cms.lang", theme_js.read_text(encoding="utf-8"))
 
     def test_the_choice_never_leaves_the_browser(self):
         # Scenario: The choice survives a reload (one localStorage key, no
@@ -293,7 +302,8 @@ class TestRankingPage(unittest.TestCase):
             re.findall(r'<option value="(\w+)">(\w+)</option>', select[0]),
             [("es", "Español"), ("en", "English")])
         self.assertEqual(self.html.count('id="language"'), 1)
-        self.assertLess(panel.index('id="theme"'), panel.index('id="language"'))
+        self.assertLess(panel.index('id="theme"'),
+                        panel.index('id="language"'))
         # the page is lang="en" and the labels are Spanish
         self.assertRegex(self.html, r'<select id="language"[^>]* lang="es"')
 
@@ -327,7 +337,8 @@ class TestRankingPage(unittest.TestCase):
                 attribute, key = pair.split(":")
                 for lang in ("en", "es"):
                     self.assertIn(key, self.catalog[lang])
-                self.assertEqual(attrs[attribute], self.catalog["en"][key], key)
+                self.assertEqual(attrs[attribute], self.catalog["en"][key],
+                                 key)
         self.assertGreaterEqual(marked, 15)
 
 
@@ -435,6 +446,9 @@ PICKS = [
     (None, ["es-MX"], None), (None, ["ES"], None), (None, ["es", "en"], None),
     (None, None, "es"), (None, ["en-US"], None), (None, ["fr", "es"], None),
     (None, [], None), (None, None, "pt-BR"), (None, None, None),
+    # contains "es" without starting with it: English
+    (None, ["ca-ES"], None), (None, ["eu-ES"], None),
+    (None, ["gl-ES"], None),
     ("en", ["es-MX"], None), ("es", ["en-US"], None),
     ("garbage", ["es"], None), ("garbage", ["fr"], None), ("", ["es"], None),
 ]
