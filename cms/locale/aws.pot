@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 23:16-0600\n"
+"POT-Creation-Date: 2026-11-04 23:22-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -352,6 +352,159 @@ msgid "One username per line, or a CSV whose first column is the username."
 msgstr ""
 
 msgid "Review list"
+msgstr ""
+
+msgid "Users"
+msgstr ""
+
+msgid "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved."
+msgstr ""
+
+msgid "One row per user: it creates the accounts that are missing with their password and updates the first name, the last name and the password of those that already exist. It does not register anyone in any contest. If there is any error, nothing is saved."
+msgstr ""
+
+msgid "The password of the account is only used in the contests where the participation has no password of its own."
+msgstr ""
+
+msgid "User (username)"
+msgstr ""
+
+msgid "First name (first_name)"
+msgstr ""
+
+msgid "Last names (last_name)"
+msgstr ""
+
+msgid "Password of the day (password)"
+msgstr ""
+
+msgid "Password (password)"
+msgstr ""
+
+msgid "Team (team)"
+msgstr ""
+
+msgid "Group (group)"
+msgstr ""
+
+msgid "Nothing was applied. Fix these errors and upload the file again:"
+msgstr ""
+
+#, python-format
+msgid "%(count)s error"
+msgid_plural "%(count)s errors"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "and %(count)s more"
+msgstr ""
+
+msgid "The file is valid. When it is imported:"
+msgstr ""
+
+#, python-format
+msgid "New users: %(count)s"
+msgstr ""
+
+#, python-format
+msgid "Existing users (overwritten): %(count)s"
+msgstr ""
+
+#, python-format
+msgid "New participations: %(count)s"
+msgstr ""
+
+#, python-format
+msgid "Existing participations (overwritten): %(count)s"
+msgstr ""
+
+#, python-format
+msgid "%(count)s participation will lose its team"
+msgid_plural "%(count)s participations will lose their team"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(count)s participation will move to the main group"
+msgid_plural "%(count)s participations will move to the main group"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "First row of the file; check that the columns are the right ones:"
+msgstr ""
+
+msgid "(empty)"
+msgstr ""
+
+#, python-format
+msgid "Processing %(processed)s of %(total)s"
+msgstr ""
+
+msgid "Done."
+msgstr ""
+
+#, python-format
+msgid "New users: %(new)s, existing (overwritten): %(updated)s."
+msgstr ""
+
+#, python-format
+msgid "New participations: %(new)s, existing (overwritten): %(updated)s."
+msgstr ""
+
+#, python-format
+msgid "%(count)s participation lost its team"
+msgid_plural "%(count)s participations lost their team"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(count)s participation was moved to the main group"
+msgid_plural "%(count)s participations were moved to the main group"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "Error: %(error)s"
+msgstr ""
+
+msgid "User list"
+msgstr ""
+
+msgid "Import another file"
+msgstr ""
+
+msgid "Could not check the progress; reload the page."
+msgstr ""
+
+msgid "Import progress"
+msgstr ""
+
+msgid "Pick the file again to import it. The assigned columns are kept, except the password one: check it."
+msgstr ""
+
+msgid "* required"
+msgstr ""
+
+msgid "CSV file *"
+msgstr ""
+
+msgid "(unassigned)"
+msgstr ""
+
+msgid "Unassigned: new participations get the password of their account and existing ones keep theirs. The users must exist."
+msgstr ""
+
+msgid "Empty or unassigned: the participation is left without a team / in the main group."
+msgstr ""
+
+msgid "The import hashes the passwords and can take 20 to 40 s for every 300 contestants."
+msgstr ""
+
+msgid "Only validate"
+msgstr ""
+
+msgid "Import"
 msgstr ""
 
 #, python-format

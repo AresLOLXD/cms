@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 23:12-0600\n"
+"POT-Creation-Date: 2026-11-04 23:22-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -91,12 +91,14 @@ msgstr "el archivo pasa de %d filas"
 msgid "the column assigned to the password is not in the file"
 msgstr "la columna asignada a la contraseña no está en el archivo"
 
+#, python-format
 msgid "the column %s is not in the file"
 msgstr "la columna %s no está en el archivo"
 
 msgid "the password column is assigned to more than one field"
 msgstr "la columna de la contraseña está asignada a más de un campo"
 
+#, python-format
 msgid "row %d: the password is longer than %d bytes"
 msgstr "fila %d: la contraseña pasa de %d bytes"
 
@@ -352,6 +354,159 @@ msgstr "Un username por línea, o un CSV cuya primera columna sea el username."
 
 msgid "Review list"
 msgstr "Revisar lista"
+
+msgid "Users"
+msgstr "Usuarios"
+
+msgid "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved."
+msgstr "Un renglón por concursante: crea los usuarios que falten y registra su participación en este concurso con la contraseña del día. Sin columna de contraseña, solo inscribe usuarios que ya existen y las participaciones nuevas entran con la contraseña de su cuenta. Si el usuario o la participación ya existen, se actualizan. Si hay cualquier error, no se guarda nada."
+
+msgid "One row per user: it creates the accounts that are missing with their password and updates the first name, the last name and the password of those that already exist. It does not register anyone in any contest. If there is any error, nothing is saved."
+msgstr "Un renglón por usuario: crea las cuentas que falten con su contraseña y actualiza el nombre, el apellido y la contraseña de las que ya existen. No registra a nadie en ningún concurso. Si hay cualquier error, no se guarda nada."
+
+msgid "The password of the account is only used in the contests where the participation has no password of its own."
+msgstr "La contraseña de la cuenta solo se usa en los concursos donde la participación no tiene contraseña propia."
+
+msgid "User (username)"
+msgstr "Usuario (username)"
+
+msgid "First name (first_name)"
+msgstr "Nombre (first_name)"
+
+msgid "Last names (last_name)"
+msgstr "Apellidos (last_name)"
+
+msgid "Password of the day (password)"
+msgstr "Contraseña del día (password)"
+
+msgid "Password (password)"
+msgstr "Contraseña (password)"
+
+msgid "Team (team)"
+msgstr "Equipo (team)"
+
+msgid "Group (group)"
+msgstr "Grupo (group)"
+
+msgid "Nothing was applied. Fix these errors and upload the file again:"
+msgstr "No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:"
+
+#, python-format
+msgid "%(count)s error"
+msgid_plural "%(count)s errors"
+msgstr[0] "%(count)s error"
+msgstr[1] "%(count)s errores"
+
+#, python-format
+msgid "and %(count)s more"
+msgstr "y %(count)s más"
+
+msgid "The file is valid. When it is imported:"
+msgstr "El archivo es válido. Al importarlo:"
+
+#, python-format
+msgid "New users: %(count)s"
+msgstr "Usuarios nuevos: %(count)s"
+
+#, python-format
+msgid "Existing users (overwritten): %(count)s"
+msgstr "Usuarios ya existentes (se sobrescriben): %(count)s"
+
+#, python-format
+msgid "New participations: %(count)s"
+msgstr "Participaciones nuevas: %(count)s"
+
+#, python-format
+msgid "Existing participations (overwritten): %(count)s"
+msgstr "Participaciones ya existentes (se sobrescriben): %(count)s"
+
+#, python-format
+msgid "%(count)s participation will lose its team"
+msgid_plural "%(count)s participations will lose their team"
+msgstr[0] "%(count)s participación perderá su equipo"
+msgstr[1] "%(count)s participaciones perderán su equipo"
+
+#, python-format
+msgid "%(count)s participation will move to the main group"
+msgid_plural "%(count)s participations will move to the main group"
+msgstr[0] "%(count)s participación pasará al grupo principal"
+msgstr[1] "%(count)s participaciones pasarán al grupo principal"
+
+msgid "First row of the file; check that the columns are the right ones:"
+msgstr "Primera fila del archivo; comprueba que las columnas son las correctas:"
+
+msgid "(empty)"
+msgstr "(vacío)"
+
+#, python-format
+msgid "Processing %(processed)s of %(total)s"
+msgstr "Procesando %(processed)s de %(total)s"
+
+msgid "Done."
+msgstr "Listo."
+
+#, python-format
+msgid "New users: %(new)s, existing (overwritten): %(updated)s."
+msgstr "Usuarios nuevos: %(new)s, ya existentes (se sobrescribieron): %(updated)s."
+
+#, python-format
+msgid "New participations: %(new)s, existing (overwritten): %(updated)s."
+msgstr "Participaciones nuevas: %(new)s, ya existentes (se sobrescribieron): %(updated)s."
+
+#, python-format
+msgid "%(count)s participation lost its team"
+msgid_plural "%(count)s participations lost their team"
+msgstr[0] "%(count)s participación perdió su equipo"
+msgstr[1] "%(count)s participaciones perdieron su equipo"
+
+#, python-format
+msgid "%(count)s participation was moved to the main group"
+msgid_plural "%(count)s participations were moved to the main group"
+msgstr[0] "%(count)s participación pasó al grupo principal"
+msgstr[1] "%(count)s participaciones pasaron al grupo principal"
+
+#, python-format
+msgid "Error: %(error)s"
+msgstr "Error: %(error)s"
+
+msgid "User list"
+msgstr "Lista de usuarios"
+
+msgid "Import another file"
+msgstr "Importar otro archivo"
+
+msgid "Could not check the progress; reload the page."
+msgstr "No se pudo consultar el progreso; recarga la página."
+
+msgid "Import progress"
+msgstr "Progreso de la importación"
+
+msgid "Pick the file again to import it. The assigned columns are kept, except the password one: check it."
+msgstr "Vuelve a elegir el archivo para importarlo. Se conservan las columnas asignadas, salvo la de la contraseña: revísala."
+
+msgid "* required"
+msgstr "* obligatorio"
+
+msgid "CSV file *"
+msgstr "Archivo CSV *"
+
+msgid "(unassigned)"
+msgstr "(sin asignar)"
+
+msgid "Unassigned: new participations get the password of their account and existing ones keep theirs. The users must exist."
+msgstr "Sin asignar: las participaciones nuevas entran con la contraseña de su cuenta y las existentes conservan la suya. Los usuarios deben existir."
+
+msgid "Empty or unassigned: the participation is left without a team / in the main group."
+msgstr "Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal."
+
+msgid "The import hashes the passwords and can take 20 to 40 s for every 300 contestants."
+msgstr "La importación cifra las contraseñas y puede tardar de 20 a 40 s por cada 300 concursantes."
+
+msgid "Only validate"
+msgstr "Solo validar"
+
+msgid "Import"
+msgstr "Importar"
 
 #, python-format
 msgid "Error %(status_code)s"
