@@ -54,6 +54,8 @@ from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 # The builtin TimeoutError is used elsewhere in this module.
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import selectinload
+from werkzeug.datastructures import LanguageAccept
+from werkzeug.http import parse_accept_header
 
 from cms import __version__, config
 from cms.db import Admin, Contest, Participation, Question, RankingGroup, \
@@ -63,6 +65,7 @@ from cms.db.connect_options import describe_error, is_disconnect, \
     log_rollback_error
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
+from cms.locale import DEFAULT_TRANSLATION, choose_language_code
 from cms.server import CommonRequestHandler, FileHandlerMixin
 from cmscommon.crypto import hash_password, parse_authentication
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -339,6 +342,55 @@ class BaseHandler(CommonRequestHandler):
     # Whether this request holds one of the slots of _get_request_slots().
     _holds_request_slot = False
 
+    # English until setup_locale() chooses the language of the request, so
+    # that a handler that never ran prepare() (e.g. one built by a test)
+    # still renders.
+    available_translations = {DEFAULT_TRANSLATION.identifier:
+                              DEFAULT_TRANSLATION}
+    automatic_translation = DEFAULT_TRANSLATION
+    cookie_translation = None
+    translation = DEFAULT_TRANSLATION
+    _locale_is_set = False
+
+    def _(self, msgid: str) -> str:
+        return msgid
+
+    def n_(self, singular: str, plural: str, n: int) -> str:
+        return singular if n == 1 else plural
+
+    def setup_locale(self):
+        """Choose the language of this request.
+
+        The language is the one saved in the aws_language cookie if AWS
+        offers it, else the best match for the Accept-Language header,
+        else English. It needs no database.
+
+        """
+        self.available_translations = self.service.translations
+        lang_codes = list(self.available_translations.keys())
+
+        browser_langs = parse_accept_header(
+            self.request.headers.get("Accept-Language", ""),
+            LanguageAccept).values()
+        automatic_lang = choose_language_code(browser_langs, lang_codes)
+        if automatic_lang is None:
+            automatic_lang = DEFAULT_TRANSLATION.identifier
+        self.automatic_translation = \
+            self.available_translations[automatic_lang]
+
+        chosen_lang = automatic_lang
+        cookie_lang = self.get_cookie("aws_language", None)
+        if cookie_lang in self.available_translations:
+            self.cookie_translation = self.available_translations[cookie_lang]
+            chosen_lang = cookie_lang
+        self.translation = self.available_translations[chosen_lang]
+
+        self._ = self.translation.gettext
+        self.n_ = self.translation.ngettext
+        self._locale_is_set = True
+
+        self.set_header("Content-Language", chosen_lang)
+
     def try_commit(self) -> bool:
         """Try to commit the current session.
 
@@ -480,6 +532,7 @@ class BaseHandler(CommonRequestHandler):
 
         """
         await super().prepare()
+        self.setup_locale()
         try:
             async with asyncio.timeout(REQUEST_SLOT_TIMEOUT):
                 await _get_request_slots().acquire()
@@ -516,6 +569,12 @@ class BaseHandler(CommonRequestHandler):
         # should be extracted into with narrower-scoped parameters.
         params["config"] = config
         params["handler"] = self
+        params["translation"] = self.translation
+        params["gettext"] = self._
+        params["ngettext"] = self.n_
+        params["available_translations"] = self.available_translations
+        params["cookie_translation"] = self.cookie_translation
+        params["automatic_translation"] = self.automatic_translation
         return params
 
     def error_render_params(self) -> dict:
@@ -625,6 +684,9 @@ class BaseHandler(CommonRequestHandler):
         # it here, without querying the database, and if it fails we
         # simply return a basic textual error notice.
         try:
+            # prepare() may not have run (a slot timeout, the XSRF check).
+            if not self._locale_is_set:
+                self.setup_locale()
             self.r_params = self.error_render_params()
         except:
             self.write("A critical error has occurred :-(")

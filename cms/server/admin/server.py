@@ -39,6 +39,7 @@ from tornado.httputil import (
 from cms import config, ServiceCoord, get_service_shards
 from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
 from cms.io import WebService, rpc_method
+from cms.locale import get_translations
 from cms.service import EvaluationService
 from cmscommon.binary import hex_to_bin
 from .exportjobs import EXPORT_JOBS
@@ -133,6 +134,8 @@ class AdminWebServer(WebService):
             listen_address=config.admin_web_server.listen_address)
 
         self.jinja2_environment = AWS_ENVIRONMENT
+        # The languages AWS offers: English and those with an aws.mo.
+        self.translations = get_translations("aws")
 
         # Tornado's limits are global, but each service runs in its own
         # process, so these don't reach CWS. The call replaces the

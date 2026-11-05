@@ -5,7 +5,7 @@
 
 ## 2. Language choice and selector in AWS
 
-- [ ] 2.1 `AdminWebServer.translations`, `BaseHandler.setup_locale()` in `prepare()` and guarded in `write_error`, class-level defaults, params in `_base_render_params`, `install_null_translations` in the AWS environment; tests (a handler built with mocks) for the Scenarios "Browser in Spanish", "Browser in English or another language", "The cookie wins" and "A bad cookie is ignored"
+- [x] 2.1 `AdminWebServer.translations`, `BaseHandler.setup_locale()` in `prepare()` and guarded in `write_error`, class-level defaults, params in `_base_render_params`, `install_null_translations` in the AWS environment; tests (a handler built with mocks) for the Scenarios "Browser in Spanish", "Browser in English or another language", "The cookie wins" and "A bad cookie is ignored"
 - [ ] 2.2 `fragments/lang_switch.html` with the cookie setter, included in `base.html` and `login.html`, `<html lang>` from the translation, `Content-Language`; tests for "The selector is on the login and error pages", "Choosing a language" and "Choosing Automatic"
 
 ## 3. First translated pages
