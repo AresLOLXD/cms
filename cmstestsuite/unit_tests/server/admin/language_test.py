@@ -87,6 +87,13 @@ class TestLanguageChoice(unittest.TestCase):
             with self.subTest(accept=accept):
                 self.assert_language(make_handler(accept), "en", "Login")
 
+    def test_upper_case_accept_language_does_not_fail(self):
+        for accept, code, text in (("ES", "es", "Entrar"),
+                                   ("EN-US", "en", "Login"),
+                                   ("Es-MX", "es", "Entrar")):
+            with self.subTest(accept=accept):
+                self.assert_language(make_handler(accept), code, text)
+
     def test_the_cookie_wins(self):
         # Scenario: The cookie wins
         self.assert_language(make_handler("es-MX", "en"), "en", "Login")

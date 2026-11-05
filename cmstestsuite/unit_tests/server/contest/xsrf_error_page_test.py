@@ -191,6 +191,16 @@ class XsrfErrorPageTests:
         self.assertEqual(response.code, 302)
         self.assertIn(self.contest_name + "_login", self.set_cookies(response))
 
+    async def test_upper_case_accept_language_does_not_fail(self):
+        # The browser's spelling must not reach the translations lookup.
+        for accept in ("ES", "EN-US", "Es-MX"):
+            with self.subTest(accept=accept):
+                response = await self.client.fetch(
+                    "http://127.0.0.1:%d%s" % (
+                        self.port, self.contest_path or "/"),
+                    headers={"Accept-Language": accept}, raise_error=False)
+                self.assertEqual(response.code, 200)
+
 
 class SingleContestXsrfErrorPageTest(XsrfErrorPageTests, CwsTestBase):
     multi_contest = False

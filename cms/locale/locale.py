@@ -380,4 +380,10 @@ def filter_language_codes(lang_codes: list[str], prefixes: list[str]) -> list[st
 def choose_language_code(
     preferred: Iterable[str], available: Iterable[str]
 ) -> str | None:
-    return babel.core.negotiate_locale(preferred, available, sep="-")
+    available = list(available)
+    chosen = babel.core.negotiate_locale(preferred, available, sep="-")
+    if chosen is None:
+        return None
+    # Babel returns the spelling of the browser ("EN"); callers index
+    # their translations by our own spelling.
+    return next(a for a in available if a.lower() == chosen.lower())

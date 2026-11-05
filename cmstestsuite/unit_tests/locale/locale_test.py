@@ -657,6 +657,13 @@ class TestChooseLanguageCode(unittest.TestCase):
             choose_language_code(["it", "fr-FR"], ["de", "froobar", "fr"]),
             "fr")
 
+    def test_upper_case_preferences_give_our_spelling(self):
+        # Babel keeps the browser's spelling; we return the available one.
+        self.assertEqual(choose_language_code(["EN-US"], ["en", "es"]), "en")
+        self.assertEqual(choose_language_code(["ES"], ["en", "es"]), "es")
+        self.assertEqual(
+            choose_language_code(["zh-cn"], ["zh-CN", "en"]), "zh-CN")
+
 
 if __name__ == "__main__":
     unittest.main()
