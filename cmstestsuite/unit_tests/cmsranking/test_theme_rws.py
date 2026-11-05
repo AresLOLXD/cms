@@ -224,10 +224,14 @@ const localStorage = {
         return cfg.stored;
     },
 };
+const title = { getAttribute() { return ""; } };
 const document = {
     documentElement: { setAttribute(name, value) { attributes[name] = value; } },
+    querySelector() { return title; },
 };
-vm.runInNewContext(process.argv[1], { document, localStorage });
+// the snippet also picks the language (see test_i18n_rws)
+vm.runInNewContext(process.argv[1],
+                   { document, localStorage, navigator: {} });
 console.log(JSON.stringify(attributes["data-theme"] || null));
 """
 

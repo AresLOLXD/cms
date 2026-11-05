@@ -1383,13 +1383,19 @@ abbr {
 
 /* Style for the network status indicator */
 
-/* The theme switch (theme.js), in the top bar next to the status. */
-#theme {
+/* The theme switch (theme.js) and the language switch (i18n.js), in the top
+   bar next to the status. */
+#theme,
+#language {
     float: right;
     box-sizing: border-box;
     height: calc(1.8em + 2px);
     margin: 0.5em 0;
     font: inherit;
+}
+
+#language {
+    margin-right: 0.5em;
 }
 
 #ConnectionStatus_box {
@@ -1645,4 +1651,14 @@ abbr {
     #UserDetail_submissions table {
         table-layout: auto;
     }
+}
+
+/* The built-in banners of the ranking server carry both languages; i18n.js
+   sets data-lang on <html>. Without it the Spanish text shows. */
+:root[data-lang="en"] .lang-es {
+    display: none;
+}
+
+:root:not([data-lang="en"]) .lang-en {
+    display: none;
 }

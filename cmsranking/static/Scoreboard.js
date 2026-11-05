@@ -157,7 +157,7 @@ var Scoreboard = new function () {
         $("tr td[data-sort_key=" + self.sort_key + "]", self.tbody_el).addClass("sort_key");
 
         if (self.many_tasks) {
-            self.toggle_el.text(self.tasks_collapsed ? "Show tasks" : "Totals only")
+            self.toggle_el.text(self.tasks_collapsed ? I18n.t("button.show_tasks") : I18n.t("button.totals_only"))
                 .attr("aria-expanded", !self.tasks_collapsed);
         }
         $("#InnerFrame").scrollTop(scroll);
@@ -252,10 +252,10 @@ var Scoreboard = new function () {
         var result = " \
 <tr> \
     <th class=\"sel\"></th> \
-    <th class=\"rank\">Rank</th> \
-    <th colspan=\"20\" class=\"name\">Name</th>" +
-            (PublicConfig.show_id_column ? "<th class=\"user_id\">Username</th>" : "") +
-            "<th class=\"team\">Team</th>";
+    <th class=\"rank\">" + I18n.t("col.rank") + "</th> \
+    <th colspan=\"20\" class=\"name\">" + I18n.t("col.name") + "</th>" +
+            (PublicConfig.show_id_column ? "<th class=\"user_id\">" + I18n.t("col.username") + "</th>" : "") +
+            "<th class=\"team\">" + I18n.t("col.team") + "</th>";
 
         var contests = DataStore.contest_list;
         for (var i in contests) {
@@ -277,7 +277,7 @@ var Scoreboard = new function () {
 
         if(self.show_global_score) {
             result += " \
-    <th colspan=\"5\" class=\"score global\" data-sort_key=\"global\">Global</th> \
+    <th colspan=\"5\" class=\"score global\" data-sort_key=\"global\">" + I18n.t("label.global") + "</th> \
 </tr>";
         }
 

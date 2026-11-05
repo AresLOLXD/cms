@@ -163,6 +163,10 @@ sent to the server. A projector's browser therefore needs it set once, before
 the contest. Another browser, or the same one after its site data is cleared,
 starts again from System. The charts stay on a light panel in the dark theme.
 
+### Ranking language
+
+The Ranking Web Server also has a language switch with the options «Español» and «English», next to the theme switch in its top bar. With no saved choice, the page uses the browser's first preferred language: Spanish if it starts with `es`, English otherwise. The choice is kept in each browser, separately for each ranking address, and is never sent to the server, so a projector's browser needs it set once, before the contest, as with the theme. The hidden-ranking notice, the staff login and the banners follow the same choice. Names of contests, tasks, teams and users come from the data and are not translated.
+
 ## During the contest
 
 Keep the contest's **Overview** page open in the Admin Web Server. It
