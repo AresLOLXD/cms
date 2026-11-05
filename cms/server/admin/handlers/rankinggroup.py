@@ -21,12 +21,14 @@
 """
 
 import asyncio
+from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy import select, func
 
 from cms.db import Contest, RankingGroup
 from cms.db.rankinggroup import ARCHIVE_GRACE
+from cms.locale.locale import N_
 from cmscommon.crypto import hash_password
 from cmscommon.datetime import local_tz, make_datetime, utc
 from cmscommon.ranking_groups import RESERVED_GROUP_NAMES, \
@@ -49,9 +51,9 @@ def read_ranking_group_attrs(handler: BaseHandler, attrs: dict):
     handler.get_string(attrs, "description")
     name = attrs.get("name")
     if name is None or not is_valid_group_name(name):
-        raise ValueError(
+        raise ValueError(handler._(
             "Invalid ranking group name %r: use only lowercase letters, "
-            "digits, '-' and '_', and none of: %s."
+            "digits, '-' and '_', and none of: %s.")
             % (name, ", ".join(sorted(RESERVED_GROUP_NAMES))))
     if not attrs.get("description"):
         attrs["description"] = name
@@ -64,14 +66,14 @@ MAX_STAFF_PASSWORD_BYTES = 72
 # The time fields of a ranking group: the column and its label. The pages
 # add "(UTC)" to the label of an input: the times are written in UTC.
 WINDOW_FIELDS = (
-    ("hide_at", "Hide from"),
-    ("show_at", "Show again at"),
-    ("freeze_at", "Freeze at"),
-    ("unfreeze_at", "Unfreeze at"),
+    ("hide_at", N_("Hide from")),
+    ("show_at", N_("Show again at")),
+    ("freeze_at", N_("Freeze at")),
+    ("unfreeze_at", N_("Unfreeze at")),
 )
 # archive_at has no window partner and no check_window: it is read like
 # the window fields, but kept out of WINDOW_FIELDS.
-ARCHIVE_FIELD = ("archive_at", "Archive at")
+ARCHIVE_FIELD = ("archive_at", N_("Archive at"))
 FORM_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -136,7 +138,7 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
     elif action == "show_now":
         if not window_is_open(attrs.get("hide_at"), attrs.get("show_at"),
                               now):
-            raise ValueError("The ranking is not hidden.")
+            raise ValueError(handler._("The ranking is not hidden."))
         attrs["show_at"] = now
     elif action == "freeze_now":
         # The raw window, also while the group is hidden: freezing then
@@ -144,7 +146,7 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
         # window that is open as soon as the group is shown.
         if window_is_open(attrs.get("freeze_at"), attrs.get("unfreeze_at"),
                           now):
-            raise ValueError("The ranking is already frozen.")
+            raise ValueError(handler._("The ranking is already frozen."))
         attrs["freeze_at"] = now
         if attrs.get("unfreeze_at") is not None \
                 and attrs["unfreeze_at"] <= now:
@@ -152,24 +154,27 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
     elif action == "unfreeze_now":
         if not window_is_open(attrs.get("freeze_at"),
                               attrs.get("unfreeze_at"), now):
-            raise ValueError("The ranking is not frozen.")
+            raise ValueError(handler._("The ranking is not frozen."))
         attrs["unfreeze_at"] = now
     elif action == "archive_now":
         if archived:
-            raise ValueError("The group is already archived.")
+            raise ValueError(handler._("The group is already archived."))
         attrs["archive_at"] = now
     elif action == "unarchive":
         if not archived:
-            raise ValueError("The group is not archived.")
+            raise ValueError(handler._("The group is not archived."))
         attrs["archive_at"] = now + ARCHIVE_GRACE
     elif action is not None:
-        raise ValueError("Unknown action %r." % (action,))
+        raise ValueError(handler._("Unknown action %r.") % (action,))
 
     # Compared with the stored value, not with what was typed: a stale
     # field that keeps the stored value must not set the mark.
     if attrs.get("archive_at") != stored_archive_at:
         attrs["archive_at_manual"] = True
 
+    # shortcut: the text of this ValueError comes from cmscommon and stays
+    # English in both languages; translate it when cmscommon takes a
+    # gettext (or the window check moves into the admin package).
     check_window(attrs.get("hide_at"), attrs.get("show_at"), "hide")
     check_window(attrs.get("freeze_at"), attrs.get("unfreeze_at"),
                  "freeze")
@@ -186,23 +191,26 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
     remove = handler.get_argument(
         "remove_staff_password", None) is not None
     if new_password and remove:
-        raise ValueError(
-            "Set a new staff password or remove it, not both.")
+        raise ValueError(handler._(
+            "Set a new staff password or remove it, not both."))
     if remove:
         attrs["staff_password"] = None
     elif new_password:
         if len(new_password.encode("utf-8")) > MAX_STAFF_PASSWORD_BYTES:
-            raise ValueError(
-                "The staff password is too long (at most %d bytes)."
+            raise ValueError(handler._(
+                "The staff password is too long (at most %d bytes).")
                 % MAX_STAFF_PASSWORD_BYTES)
         attrs["staff_password"] = hash_password(new_password, "bcrypt")
 
 
-def visibility_view(group: RankingGroup, now: datetime) -> dict:
+def visibility_view(group: RankingGroup, now: datetime,
+                    gettext: Callable[[str], str] = lambda msgid: msgid
+                    ) -> dict:
     """Prepare what the group page shows about its visibility.
 
     group: the ranking group.
     now: the current time, naive UTC.
+    gettext: translates the labels and summaries (identity by default).
 
     return: the fields (name, label, UTC value), whether it
         is hidden or frozen now, a one-line summary and the next change,
@@ -219,7 +227,7 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
         return value.replace(tzinfo=utc).astimezone(local_tz).strftime(
             "%Y-%m-%d %H:%M %Z")
 
-    fields = [{"name": name, "label": label,
+    fields = [{"name": name, "label": gettext(label),
                "utc": format_utc(getattr(group, name))}
               for name, label in WINDOW_FIELDS]
 
@@ -229,10 +237,11 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
 
     hidden, frozen = state_at(now)
     if hidden:
-        summary = "oculto (congelado)" if frozen else "oculto"
+        summary = (gettext("hidden (frozen)") if frozen
+                   else gettext("hidden"))
     else:
-        summary = "congelado" if frozen else "visible"
-    upcoming = sorted((getattr(group, name), label)
+        summary = gettext("frozen") if frozen else gettext("visible")
+    upcoming = sorted((getattr(group, name), gettext(label))
                       for name, label in WINDOW_FIELDS
                       if getattr(group, name) is not None
                       and getattr(group, name) > now
@@ -241,15 +250,16 @@ def visibility_view(group: RankingGroup, now: datetime) -> dict:
         upcoming[0][1], format_utc(upcoming[0][0]), local(upcoming[0][0]))
     archived = group.is_archived_at(now)
     if group.archive_at is None:
-        archive_summary = "nunca se archiva"
+        archive_summary = gettext("never archived")
     else:
-        archive_summary = "%s %s UTC (%s)" % (
-            "archivado desde" if archived else "se archiva el",
-            format_utc(group.archive_at), local(group.archive_at))
+        archive_summary = (
+            gettext("archived since %s UTC (%s)") if archived
+            else gettext("will be archived on %s UTC (%s)")
+        ) % (format_utc(group.archive_at), local(group.archive_at))
     return {"fields": fields, "hidden_now": hidden, "frozen_now": frozen,
             "summary": summary, "next_change": next_change,
             "archive_field": {"name": ARCHIVE_FIELD[0],
-                              "label": ARCHIVE_FIELD[1],
+                              "label": gettext(ARCHIVE_FIELD[1]),
                               "utc": format_utc(group.archive_at)},
             "archived_now": archived, "archive_summary": archive_summary}
 
@@ -260,13 +270,13 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
 
     """
 
-    REMOVE = "Remove"
+    REMOVE = N_("Remove")
 
     def _get_sync(self):
         self.r_params = self.render_params()
         now = make_datetime()
         self.r_params["views"] = {
-            group.id: visibility_view(group, now)
+            group.id: visibility_view(group, now, self._)
             for group in self.r_params["ranking_group_list"]}
         self.render("ranking_groups.html", **self.r_params)
 
@@ -274,11 +284,13 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
         group_id: str = self.get_argument("ranking_group_id")
         operation: str = self.get_argument("operation")
 
-        if operation == self.REMOVE:
+        # The button posts its label: the page language's, or English.
+        if operation in (self.REMOVE, self._(self.REMOVE)):
             self.redirect(self.url("ranking_groups", group_id, "remove"))
         else:
             self.service.add_notification(
-                make_datetime(), "Invalid operation %s" % operation, "")
+                make_datetime(), self._("Invalid operation %s") % operation,
+                "")
             self.redirect(self.url("ranking_groups"))
 
     @require_permission(BaseHandler.AUTHENTICATED)
@@ -305,7 +317,7 @@ class AddRankingGroupHandler(
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -330,7 +342,8 @@ class RankingGroupHandler(BaseHandler):
 
         self.r_params = self.render_params()
         self.r_params["ranking_group"] = group
-        self.r_params["view"] = visibility_view(group, make_datetime())
+        self.r_params["view"] = visibility_view(
+            group, make_datetime(), self._)
         self.r_params["group_contests"] = self.sql_session.execute(
             select(Contest)
             .filter(Contest.ranking_group_id == group.id)
@@ -359,15 +372,15 @@ class RankingGroupHandler(BaseHandler):
             # An archived group is not sent, so a rename would move
             # nothing: the new namespace would stay empty.
             if was_archived and attrs["name"] != group.name:
-                raise ValueError(
+                raise ValueError(self._(
                     "Ranking group %r is archived: unarchive it before "
-                    "renaming it." % group.name)
+                    "renaming it.") % group.name)
             read_ranking_group_visibility(self, attrs, now)
             group.set_attrs(attrs)
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -442,17 +455,18 @@ class RegenerateRankingHandler(BaseHandler):
             # ProxyService would ignore it too: say so instead of
             # claiming that it was requested.
             self.service.add_notification(
-                make_datetime(), "Ranking regeneration ignored",
-                "Ranking %s is archived: nothing was sent. Unarchive it "
-                "first to publish a correction." % group)
+                make_datetime(), self._("Ranking regeneration ignored"),
+                self._("Ranking %s is archived: nothing was sent. "
+                       "Unarchive it first to publish a correction.")
+                % group)
             self.redirect(self.url("ranking_groups"))
             return
         self.schedule_rpc(self.service.proxy_service.regenerate_ranking,
                           group=group or None)
         self.service.add_notification(
-            make_datetime(), "Ranking regeneration requested",
-            "Ranking %s is being emptied and sent again."
-            % (group or "root"))
+            make_datetime(), self._("Ranking regeneration requested"),
+            self._("Ranking %s is being emptied and sent again.")
+            % (group or self._("root")))
         self.redirect(self.url("ranking_groups"))
 
     @require_permission(BaseHandler.PERMISSION_ALL)

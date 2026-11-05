@@ -1,6 +1,6 @@
 ## 1. Ranking groups
 
-- [ ] 1.1 `handlers/rankinggroup.py` (`visibility_view` and the window and archive labels with a gettext argument), `ranking_group.html`, `ranking_groups.html`, `add_ranking_group.html` (buttons, hint, tooltips, confirm texts) and the notifications of these handlers; Spanish pinned to today's text; tests for "A page in English", "A page in Spanish" and "Ranking group state in both languages"
+- [x] 1.1 `handlers/rankinggroup.py` (`visibility_view` and the window and archive labels with a gettext argument), `ranking_group.html`, `ranking_groups.html`, `add_ranking_group.html` (buttons, hint, tooltips, confirm texts) and the notifications of these handlers; Spanish pinned to today's text; tests for "A page in English", "A page in Spanish" and "Ranking group state in both languages"
 
 ## 2. Bulk removal
 

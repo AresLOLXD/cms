@@ -1,5 +1,7 @@
 """Tests for the AWS ranking group handlers."""
 
+import html as htmllib
+import json
 import re
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -8,8 +10,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 from cms.db import RankingGroup
+from cms.locale import DEFAULT_TRANSLATION
 from cms.server.admin.handlers.rankinggroup import \
     WINDOW_FIELDS, AddRankingGroupHandler, RankingGroupHandler, \
     RankingGroupListHandler, RegenerateRankingHandler, \
@@ -23,6 +27,7 @@ from cmscommon.crypto import validate_password
 def form_handler(form: dict) -> MagicMock:
     """Return a fake handler whose get_string reads from form."""
     handler = MagicMock()
+    handler._ = lambda msgid: msgid
 
     def get_string(dest, name, empty=""):
         if name in form:
@@ -55,9 +60,12 @@ class TestReadRankingGroupAttrs(unittest.TestCase):
 
 class TestRegenerateRankingHandler(unittest.TestCase):
 
-    def run_post(self, group_arg: str, stored=None) -> MagicMock:
+    def run_post(self, group_arg: str, stored=None,
+                 gettext=None) -> MagicMock:
         """Press Regenerate for group_arg; stored is the group in the DB."""
         handler = RegenerateRankingHandler.__new__(RegenerateRankingHandler)
+        if gettext is not None:
+            handler._ = gettext
         # "service" is a read-only property (defined on
         # CommonRequestHandler) that returns self.application.service, so
         # it must be mocked through "application", not assigned directly.
@@ -98,6 +106,24 @@ class TestRegenerateRankingHandler(unittest.TestCase):
             group=None)
         self.assertEqual(self.notification(handler)[0],
                          "Ranking regeneration requested")
+
+    def test_notifications_in_spanish(self):
+        # Scenario: A notification (in the language of the request; the
+        # Spanish of these two is new: they were English before)
+        handler = self.run_post(
+            "olim", RankingGroup(name="olim", description="O",
+                                 archive_at=datetime(2020, 1, 1)),
+            SPANISH.gettext)
+        self.assertEqual(
+            self.notification(handler),
+            ("Regeneración del ranking ignorada",
+             "El ranking olim está archivado: no se envió nada. "
+             "Desarchívalo primero para publicar una corrección."))
+        handler = self.run_post("", gettext=SPANISH.gettext)
+        self.assertEqual(
+            self.notification(handler),
+            ("Regeneración del ranking solicitada",
+             "El ranking raíz se está vaciando y se enviará de nuevo."))
 
     def test_archived_group(self):
         # Scenario: Regenerate on an archived group
@@ -146,6 +172,7 @@ NOW = datetime(2026, 10, 10, 18, 0)
 def visibility_handler(form: dict) -> MagicMock:
     """Return a fake handler reading the visibility fields from form."""
     handler = MagicMock()
+    handler._ = lambda msgid: msgid
 
     def get_argument(name, default=None, strip=True):
         value = form.get(name, default)
@@ -515,11 +542,11 @@ class TestVisibilityView(unittest.TestCase):
         hidden = self.view(hide_at=NOW - self.HOUR)
         self.assertEqual(
             (hidden["summary"], hidden["hidden_now"], hidden["frozen_now"]),
-            ("oculto", True, False))
+            ("hidden", True, False))
         frozen = self.view(freeze_at=NOW - self.HOUR)
         self.assertEqual(
             (frozen["summary"], frozen["hidden_now"], frozen["frozen_now"]),
-            ("congelado", False, True))
+            ("frozen", False, True))
 
     def test_windows_that_are_over_or_not_started_do_not_count(self):
         view = self.view(hide_at=NOW - 2 * self.HOUR, show_at=NOW - self.HOUR,
@@ -529,7 +556,7 @@ class TestVisibilityView(unittest.TestCase):
     def test_hidden_group_with_an_open_freeze_window_is_still_frozen(self):
         # The freeze button follows the raw window, not is_frozen_at().
         view = self.view(hide_at=NOW - self.HOUR, freeze_at=NOW - self.HOUR)
-        self.assertEqual(view["summary"], "oculto (congelado)")
+        self.assertEqual(view["summary"], "hidden (frozen)")
         self.assertIs(view["hidden_now"], True)
         self.assertIs(view["frozen_now"], True)
 
@@ -537,7 +564,7 @@ class TestVisibilityView(unittest.TestCase):
         view = self.view(hide_at=NOW - self.HOUR,
                          freeze_at=NOW - 2 * self.HOUR,
                          unfreeze_at=NOW - self.HOUR)
-        self.assertEqual(view["summary"], "oculto")
+        self.assertEqual(view["summary"], "hidden")
         self.assertIs(view["frozen_now"], False)
 
     def test_fields_carry_the_utc_times(self):
@@ -608,7 +635,7 @@ class TestArchiveView(unittest.TestCase):
         # Scenario: An archived group
         view = self.view(archive_at=datetime(2026, 10, 10, 17, 0))
         self.assertTrue(view["archived_now"])
-        self.assertTrue(view["archive_summary"].startswith("archivado desde"))
+        self.assertTrue(view["archive_summary"].startswith("archived since"))
         self.assertIn("2026-10-10 17:00:00 UTC", view["archive_summary"])
         self.assertEqual(view["archive_field"],
                          {"name": "archive_at", "label": "Archive at",
@@ -618,14 +645,14 @@ class TestArchiveView(unittest.TestCase):
         # Scenario: A group that will be archived
         view = self.view(archive_at=datetime(2026, 10, 11, 17, 0))
         self.assertFalse(view["archived_now"])
-        self.assertTrue(view["archive_summary"].startswith("se archiva el"))
+        self.assertTrue(view["archive_summary"].startswith("will be archived on"))
         self.assertIn("2026-10-11 17:00:00 UTC", view["archive_summary"])
 
     def test_a_group_with_no_archive_at(self):
         # Scenario: A group with no archive_at
         view = self.view()
         self.assertFalse(view["archived_now"])
-        self.assertEqual(view["archive_summary"], "nunca se archiva")
+        self.assertEqual(view["archive_summary"], "never archived")
         self.assertEqual(view["archive_field"]["utc"], "")
 
 
@@ -650,7 +677,7 @@ class TestRankingGroupHandlersUseTheView(unittest.TestCase):
 
         (page,), params = handler.render.call_args
         self.assertEqual(page, "ranking_group.html")
-        self.assertEqual(params["view"]["summary"], "oculto")
+        self.assertEqual(params["view"]["summary"], "hidden")
 
     def test_add_page_gets_the_time_fields(self):
         handler = AddRankingGroupHandler.__new__(AddRankingGroupHandler)
@@ -678,7 +705,7 @@ class TestRankingGroupHandlersUseTheView(unittest.TestCase):
         self.assertEqual(
             {group_id: view["summary"]
              for group_id, view in params["views"].items()},
-            {1: "oculto", 2: "visible"})
+            {1: "hidden", 2: "visible"})
 
 
 class TestRankingGroupHandlerSavesVisibility(unittest.TestCase):
@@ -1101,6 +1128,16 @@ class TestArchiveBanner(unittest.TestCase):
         self.assertIsNone(self.render_params(None)["archived_group"])
 
 
+def render_core_block(page: str, **params) -> str:
+    """Render the "core" block of a page; gettext params choose the language."""
+    template = AWS_ENVIRONMENT.get_template(page)
+    params.setdefault(
+        "url", lambda *parts: "/" + "/".join(str(p) for p in parts))
+    params.setdefault("xsrf_form_html", "")
+    params.setdefault("admin", SimpleNamespace(permission_all=True))
+    return "".join(template.blocks["core"](template.new_context(params)))
+
+
 class TestRankingGroupTemplates(unittest.TestCase):
     """The visibility fields of the pages, and that the password stays out.
 
@@ -1115,12 +1152,7 @@ class TestRankingGroupTemplates(unittest.TestCase):
     HOUR = timedelta(hours=1)
 
     def render_core(self, page: str, **params) -> str:
-        template = AWS_ENVIRONMENT.get_template(page)
-        params.setdefault(
-            "url", lambda *parts: "/" + "/".join(str(p) for p in parts))
-        params.setdefault("xsrf_form_html", "")
-        params.setdefault("admin", SimpleNamespace(permission_all=True))
-        return "".join(template.blocks["core"](template.new_context(params)))
+        return render_core_block(page, **params)
 
     def render_group(self, **windows) -> str:
         """Render the group page of a group with the given windows."""
@@ -1203,15 +1235,15 @@ class TestRankingGroupTemplates(unittest.TestCase):
 
     def test_group_page_offers_hide_or_show_now(self):
         html = self.render_group()
-        self.assertIn("Ocultar ahora", html)
+        self.assertIn("Hide now", html)
         self.assertIn('name="visibility_action" value="hide_now"', html)
-        self.assertNotIn("Mostrar ahora", html)
+        self.assertNotIn("Show now", html)
         self.assertNotIn('value="show_now"', html)
 
         html = self.render_group(hide_at=NOW - self.HOUR)
-        self.assertIn("Mostrar ahora", html)
+        self.assertIn("Show now", html)
         self.assertIn('name="visibility_action" value="show_now"', html)
-        self.assertNotIn("Ocultar ahora", html)
+        self.assertNotIn("Hide now", html)
         self.assertNotIn('value="hide_now"', html)
 
     def archive_now_button(self, html: str) -> str:
@@ -1247,28 +1279,28 @@ class TestRankingGroupTemplates(unittest.TestCase):
 
     def test_group_page_offers_freeze_or_unfreeze_now(self):
         html = self.render_group()
-        self.assertIn("Congelar ahora", html)
+        self.assertIn("Freeze now", html)
         self.assertIn('name="visibility_action" value="freeze_now"', html)
-        self.assertNotIn("Descongelar ahora", html)
+        self.assertNotIn("Unfreeze now", html)
 
         html = self.render_group(freeze_at=NOW - self.HOUR)
-        self.assertIn("Descongelar ahora", html)
+        self.assertIn("Unfreeze now", html)
         self.assertIn('name="visibility_action" value="unfreeze_now"', html)
-        self.assertNotIn("Congelar ahora", html)
+        self.assertNotIn("Freeze now", html)
         self.assertNotIn('value="freeze_now"', html)
 
     def test_freeze_button_of_a_hidden_group_follows_the_freeze_window(self):
-        # is_frozen_at() is False while hidden, but "Congelar ahora" would
+        # is_frozen_at() is False while hidden, but "Freeze now" would
         # move freeze_at to now and publish the scores of the open window
         # once the group is shown.
         html = self.render_group(hide_at=NOW - self.HOUR,
                                  freeze_at=NOW - self.HOUR)
 
-        self.assertIn("Descongelar ahora", html)
-        self.assertNotIn("Congelar ahora", html)
+        self.assertIn("Unfreeze now", html)
+        self.assertNotIn("Freeze now", html)
         self.assertNotIn('value="freeze_now"', html)
-        self.assertIn("Mostrar ahora", html)
-        self.assertIn("<strong>oculto (congelado)</strong>", html)
+        self.assertIn("Show now", html)
+        self.assertIn("<strong>hidden (frozen)</strong>", html)
 
     def test_group_page_marks_the_time_labels_as_utc(self):
         html = self.render_group()
@@ -1279,7 +1311,7 @@ class TestRankingGroupTemplates(unittest.TestCase):
     def test_group_page_shows_the_archive_state_and_field(self):
         # Scenario: An archived group (the page says it and shows archive_at)
         html = self.render_group(archive_at=NOW - self.HOUR)
-        self.assertIn("<strong>archivado desde", html)
+        self.assertIn("<strong>archived since", html)
         for tag in (self.input_tag(html, "archive_at"),
                     self.input_tag(html, "archive_at_shown")):
             self.assertIn('value="2026-10-10 17:00:00"', tag)
@@ -1287,25 +1319,25 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assertIn("<td>Archive at (UTC)</td>", html)
 
         html = self.render_group()
-        self.assertIn("<strong>nunca se archiva</strong>", html)
+        self.assertIn("<strong>never archived</strong>", html)
 
     def test_group_page_offers_archive_now_or_unarchive(self):
         html = self.render_group()
-        self.assertIn("Archivar ahora", html)
+        self.assertIn("Archive now", html)
         self.assertIn('name="visibility_action" value="archive_now"', html)
-        self.assertNotIn("Desarchivar", html)
+        self.assertNotIn(">Unarchive</button>", html)
 
         html = self.render_group(archive_at=NOW - self.HOUR)
-        self.assertIn("Desarchivar", html)
+        self.assertIn(">Unarchive</button>", html)
         self.assertIn('name="visibility_action" value="unarchive"', html)
-        self.assertNotIn("Archivar ahora", html)
+        self.assertNotIn("Archive now", html)
         # It sends the whole group again, so it asks first.
         self.assertRegex(
             html, r'value="unarchive"[^>]*onclick="return confirm\(')
 
     def test_group_page_explains_what_a_now_button_does(self):
         self.assertIn(
-            "Un botón «… ahora» reemplaza la hora escrita en ese campo.",
+            'A "… now" button replaces the time typed in that field.',
             self.render_group())
 
     def test_saving_the_page_untouched_changes_nothing(self):
@@ -1423,17 +1455,202 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assertIn("<th>State</th>", html)
         self.assertIn("<th>Staff password</th>", html)
         self.assertEqual(html.count("<td>visible</td>"), 1)
-        self.assertEqual(html.count("<td>oculto</td>"), 1)
+        self.assertEqual(html.count("<td>hidden</td>"), 1)
         self.assertEqual(html.count(
-            "<td>oculto (nobody can see it: no staff password)</td>"), 1)
-        self.assertEqual(html.count("<td>congelado</td>"), 1)
-        self.assertEqual(html.count("<td>oculto (congelado)</td>"), 1)
+            "<td>hidden (nobody can see it: no staff password)</td>"), 1)
+        self.assertEqual(html.count("<td>frozen</td>"), 1)
+        self.assertEqual(html.count("<td>hidden (frozen)</td>"), 1)
         self.assertEqual(html.count(
             "<td>visible &middot; next: Hide from: "
             "2026-10-10 19:00:00 UTC ("), 1)
         self.assertEqual(html.count("<td>set</td>"), 2)
         self.assertEqual(html.count("<td>not set</td>"), 4)
         self.assert_no_stored_password(html)
+
+
+class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
+    """The ranking group pages and messages in English and in Spanish.
+
+    The Spanish texts are those that the pages showed before the pages
+    were translated, word for word (the "pinned" ones), plus the
+    translations of what was English on every page.
+
+    """
+
+    HOUR = timedelta(hours=1)
+    # What the database holds for a group that has a staff password.
+    STORED = "bcrypt:$2b$04$only-the-stored-hash-marker"
+
+    def render_in(self, translation, page: str, **params) -> str:
+        return render_core_block(
+            page, gettext=translation.gettext,
+            ngettext=translation.ngettext, **params)
+
+    def group_page(self, translation, **windows) -> str:
+        group = RankingGroup(name="olim", description="OLIM", **windows)
+        return self.render_in(
+            translation, "ranking_group.html", ranking_group=group,
+            group_contests=[],
+            view=visibility_view(group, NOW, translation.gettext))
+
+    def test_a_page_in_english(self):
+        # Scenario: A page in English
+        pages = {
+            "ranking_group.html": self.group_page(DEFAULT_TRANSLATION),
+            "ranking_groups.html": self.render_in(
+                DEFAULT_TRANSLATION, "ranking_groups.html",
+                ranking_group_list=[make_group(1, "olim")], contest_list=[],
+                views={1: visibility_view(make_group(1, "olim"), NOW)}),
+            "add_ranking_group.html": self.render_in(
+                DEFAULT_TRANSLATION, "add_ranking_group.html",
+                window_fields=WINDOW_FIELDS),
+        }
+
+        self.assertIn("Hide now", pages["ranking_group.html"])
+        self.assertIn("Staff password", pages["ranking_group.html"])
+        self.assertIn("Regenerate a ranking", pages["ranking_groups.html"])
+        self.assertIn("Empty and regenerate the ranking olim?",
+                      pages["ranking_groups.html"])
+        self.assertIn("Hide from (UTC)", pages["add_ranking_group.html"])
+        for html in pages.values():
+            for spanish in ("ahora", "oculto", "congelado", "Contraseña",
+                            "Concursos", "Regenerar"):
+                self.assertNotIn(spanish, html)
+
+    def test_a_page_in_spanish(self):
+        # Scenario: A page in Spanish
+        group_page = self.group_page(SPANISH)
+        groups = [make_group(1, "olim", hide_at=NOW - self.HOUR,
+                             staff_password=self.STORED),
+                  make_group(2, "omips", hide_at=NOW - self.HOUR),
+                  make_group(3, "open")]
+        list_page = self.render_in(
+            SPANISH, "ranking_groups.html", ranking_group_list=groups,
+            contest_list=[],
+            views={g.id: visibility_view(g, NOW, SPANISH.gettext)
+                   for g in groups})
+        add_page = self.render_in(
+            SPANISH, "add_ranking_group.html", window_fields=WINDOW_FIELDS)
+
+        for text in ("Información general", "Nombre", "Descripción",
+                     "Ocultar desde (UTC)", "Archivar a las (UTC)",
+                     "Contraseña de staff", "(sin definir)",
+                     "Quitar la contraseña de staff",
+                     "Concursos de este grupo", 'value="Actualizar"',
+                     'value="Limpiar"', 'value="Quitar"'):
+            self.assertIn(text, group_page)
+        for text in ("Grupos de ranking", "Regenerar un ranking",
+                     "Ranking raíz (<code>/</code>)", 'value="Regenerar"',
+                     "<th>Estado</th>", "<td>definida</td>",
+                     "<td>sin definir</td>",
+                     "<td>oculto (nadie puede verlo: sin contraseña de "
+                     "staff)</td>"):
+            self.assertIn(text, list_page)
+        # The confirm texts reach the script as JSON in the attribute.
+        self.assertEqual(
+            [json.loads(htmllib.unescape(text)) for text in re.findall(
+                r"confirm\((.*?)\);", list_page)],
+            ["¿Vaciar y regenerar el ranking raíz?",
+             "¿Vaciar y regenerar el ranking olim?",
+             "¿Vaciar y regenerar el ranking omips?",
+             "¿Vaciar y regenerar el ranking open?"])
+        for text in ("Nuevo grupo de ranking", "Mostrar de nuevo a las (UTC)",
+                     "Contraseña de staff"):
+            self.assertIn(text, add_page)
+        # (the HTML comments of the templates are English and not shown)
+        for page in (group_page, list_page, add_page):
+            for english in (">Hide now<", "Staff password", ">Name<",
+                            ">Name\n", 'value="Update"', 'value="Remove"',
+                            "Regenerate", ">Contests<"):
+                self.assertNotIn(english, page)
+
+    def test_the_spanish_is_what_the_pages_showed_before(self):
+        # Scenario: A page in Spanish (the Spanish of main, pinned: these
+        # are the texts that ranking_group.py and the templates had).
+        spanish = SPANISH.gettext
+        self.assertEqual(
+            [spanish(m) for m in ("hidden (frozen)", "hidden", "frozen",
+                                  "visible", "never archived")],
+            ["oculto (congelado)", "oculto", "congelado", "visible",
+             "nunca se archiva"])
+        self.assertEqual(
+            [spanish(m) % ("2026-10-10 17:00:00", "x") for m in (
+                "archived since %s UTC (%s)",
+                "will be archived on %s UTC (%s)")],
+            ["archivado desde 2026-10-10 17:00:00 UTC (x)",
+             "se archiva el 2026-10-10 17:00:00 UTC (x)"])
+        self.assertEqual(
+            [spanish(m) for m in ("Show now", "Hide now", "Unfreeze now",
+                                  "Freeze now", "Archive now", "Unarchive",
+                                  'A "… now" button replaces the time '
+                                  'typed in that field.')],
+            ["Mostrar ahora", "Ocultar ahora", "Descongelar ahora",
+             "Congelar ahora", "Archivar ahora", "Desarchivar",
+             "Un botón «… ahora» reemplaza la hora escrita en ese campo."])
+
+    def test_ranking_group_state_in_both_languages(self):
+        # Scenario: Ranking group state in both languages
+        window = dict(hide_at=NOW - self.HOUR, freeze_at=NOW - self.HOUR)
+        cases = [
+            # (windows, English, Spanish, buttons in English and Spanish)
+            ({}, "visible", "visible",
+             ("Hide now", "Freeze now", "Archive now"),
+             ("Ocultar ahora", "Congelar ahora", "Archivar ahora")),
+            (dict(hide_at=NOW - self.HOUR), "hidden", "oculto",
+             ("Show now", "Freeze now", "Archive now"),
+             ("Mostrar ahora", "Congelar ahora", "Archivar ahora")),
+            (dict(freeze_at=NOW - self.HOUR), "frozen", "congelado",
+             ("Hide now", "Unfreeze now", "Archive now"),
+             ("Ocultar ahora", "Descongelar ahora", "Archivar ahora")),
+            (window, "hidden (frozen)", "oculto (congelado)",
+             ("Show now", "Unfreeze now", "Archive now"),
+             ("Mostrar ahora", "Descongelar ahora", "Archivar ahora")),
+            (dict(archive_at=NOW - self.HOUR), "archived since",
+             "archivado desde", ("Unarchive",), ("Desarchivar",)),
+        ]
+        for windows, english, spanish, buttons_en, buttons_es in cases:
+            with self.subTest(english=english):
+                html_en = self.group_page(DEFAULT_TRANSLATION, **windows)
+                html_es = self.group_page(SPANISH, **windows)
+                self.assertIn(">%s" % english, html_en)
+                self.assertIn(">%s" % spanish, html_es)
+                for button in buttons_en:
+                    self.assertIn(">%s</button>" % button, html_en)
+                for button in buttons_es:
+                    self.assertIn(">%s</button>" % button, html_es)
+
+    def test_notifications_and_errors_in_spanish(self):
+        # Scenario: A notification (the invalid-field notification and its
+        # error are written in the language of the request)
+        edit = make_form_handler(RankingGroupHandler, {
+            "name": "olim", "visibility_action": "show_now"})
+        edit._ = SPANISH.gettext
+        edit.safe_get_item = MagicMock(
+            return_value=make_group(1, "olim"))
+        edit._post_sync("1")
+        (_when, title, text), _kwargs = \
+            edit.application.service.add_notification.call_args
+        self.assertEqual(title, "Campos no válidos")
+        self.assertIn("El ranking no está oculto.", text)
+
+    def test_the_remove_button_posts_either_language(self):
+        # Scenario: A page in Spanish (its button label is what the form
+        # posts, so the handler accepts the label of both languages)
+        for translation, label in ((DEFAULT_TRANSLATION, "Remove"),
+                                   (SPANISH, "Quitar")):
+            handler = RankingGroupListHandler.__new__(
+                RankingGroupListHandler)
+            handler._ = translation.gettext
+            handler.get_argument = MagicMock(
+                side_effect=lambda name, _label=label:
+                "7" if name == "ranking_group_id" else _label)
+            handler.redirect = MagicMock()
+            handler.url = MagicMock(
+                side_effect=lambda *parts: "/" + "/".join(parts))
+
+            handler._post_sync()
+
+            handler.redirect.assert_called_once_with("/ranking_groups/7/remove")
 
 
 if __name__ == "__main__":
