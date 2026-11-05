@@ -40,9 +40,10 @@ SPANISH = Translation("es")
 OFFERED = {"en": DEFAULT_TRANSLATION, "es": SPANISH}
 
 
-def login_page(**params) -> str:
-    handler = MagicMock()
-    handler.get_argument.return_value = ""
+def login_page(handler=None, **params) -> str:
+    if handler is None:
+        handler = MagicMock()
+        handler.get_argument.return_value = ""
     return render_page("login.html", handler=handler,
                        available_translations=OFFERED, **params)
 

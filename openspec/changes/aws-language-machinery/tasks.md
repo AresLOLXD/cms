@@ -10,4 +10,4 @@
 
 ## 3. First translated pages
 
-- [ ] 3.1 Wrap `login.html`, `error.html` and the theme switch labels, fill the Spanish catalog, remove the fixed `lang="es"` of the theme switch; tests for "The login page in Spanish", "The error page in Spanish" and "The AWS switch follows the page language"; the existing AWS render and theme tests stay green
+- [x] 3.1 Wrap `login.html`, `error.html` and the theme switch labels, fill the Spanish catalog, remove the fixed `lang="es"` of the theme switch; tests for "The login page in Spanish", "The error page in Spanish" and "The AWS switch follows the page language"; the existing AWS render and theme tests stay green

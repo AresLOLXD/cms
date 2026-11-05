@@ -76,13 +76,12 @@ class TestAwsPages(unittest.TestCase):
             select = re.search(r'<select id="theme"[^>]*>(.*?)</select>',
                                html, re.S)
             self.assertIsNotNone(select, name)
-            # the pages are lang="en" and the labels are Spanish
-            self.assertRegex(html, r'<select id="theme"[^>]* lang="es"', name)
+            # the labels follow the page language (see translated_pages_test)
             self.assertEqual(
                 re.findall(r'<option value="(\w+)">(\w+)</option>',
                            select.group(1)),
-                [("system", "Sistema"), ("light", "Claro"),
-                 ("dark", "Oscuro")], name)
+                [("system", "System"), ("light", "Light"),
+                 ("dark", "Dark")], name)
 
     def test_the_script_loads_in_head_before_the_stylesheets(self):
         # Scenario: A saved dark choice with a light system
