@@ -24,20 +24,22 @@ import asyncio
 import logging
 
 from cms.db import Contest
+from cms.locale.locale import N_
 from cms.server.admin.bulkremove import MAX_PLAN_USERS, RemovalPlan, \
     parse_usernames, plan_removal, remove_participations, remove_users
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
 
-NOTHING_CHOSEN = "No elegiste ningún usuario."
-WRONG_COUNT = ("El número escrito no coincide con el número de usuarios. "
-               "No se borró nada.")
-PLAN_CHANGED = ("La selección cambió desde la vista previa (los usuarios, "
-                "sus concursos o envíos, o si hay un concurso en curso): "
-                "revisa la lista y confirma otra vez. No se borró nada.")
-PLAN_TOO_LARGE = "La selección es demasiado grande"
-PLAN_TOO_LARGE_TEXT = ("Son %d usuarios y el máximo por vez es %d. "
-                       "Divídela en listas más pequeñas.")
+NOTHING_CHOSEN = N_("You did not choose any user.")
+WRONG_COUNT = N_("The number typed does not match the number of users. "
+                 "Nothing was deleted.")
+PLAN_CHANGED = N_("The selection changed since the preview (the users, "
+                  "their contests or submissions, or whether a contest is "
+                  "running): review the list and confirm again. Nothing "
+                  "was deleted.")
+PLAN_TOO_LARGE = N_("The selection is too large")
+PLAN_TOO_LARGE_TEXT = N_("There are %d users and the most at a time is %d. "
+                         "Split it into smaller lists.")
 MAX_ERROR_LENGTH = 300
 # The most usernames that the audit log line names; it counts the rest.
 MAX_LOGGED_USERNAMES = 200
@@ -70,7 +72,7 @@ class _BulkRemoveHandler(BaseHandler):
             user_ids = [int(value)
                         for value in self.get_arguments("user_id")]
         except ValueError:
-            self._notify("Invalid field(s)", "user_id")
+            self._notify(self._("Invalid field(s)"), "user_id")
             self.redirect(self._back_url)
             return
         if self.get_argument("action", "preview") == "confirm":
@@ -93,13 +95,13 @@ class _BulkRemoveHandler(BaseHandler):
         if files and files[0]["body"]:
             sources.append(files[0]["body"])
         try:
-            usernames = parse_usernames(*sources)
+            usernames = parse_usernames(*sources, gettext=self._)
         except ValueError as error:
-            self._notify("No se leyó la lista", str(error))
+            self._notify(self._("The list could not be read"), str(error))
             self.redirect(self._back_url)
             return
         if not user_ids and not usernames:
-            self._notify(NOTHING_CHOSEN, "")
+            self._notify(self._(NOTHING_CHOSEN), "")
             self.redirect(self._back_url)
             return
         plan = plan_removal(self.sql_session, contest_id=self._scope_id(),
@@ -107,7 +109,8 @@ class _BulkRemoveHandler(BaseHandler):
         if len(plan.users) > MAX_PLAN_USERS:
             # The confirmation form would carry more arguments than AWS
             # parses, and the admin would get a bare 400 at confirm.
-            self._notify(PLAN_TOO_LARGE, PLAN_TOO_LARGE_TEXT
+            self._notify(self._(PLAN_TOO_LARGE),
+                         self._(PLAN_TOO_LARGE_TEXT)
                          % (len(plan.users), MAX_PLAN_USERS))
             self.redirect(self._back_url)
             return
@@ -115,16 +118,16 @@ class _BulkRemoveHandler(BaseHandler):
 
     def _confirm(self, user_ids: list[int]) -> None:
         if not user_ids:
-            self._notify(NOTHING_CHOSEN, "")
+            self._notify(self._(NOTHING_CHOSEN), "")
             self.redirect(self._back_url)
             return
         plan = plan_removal(self.sql_session, contest_id=self._scope_id(),
                             user_ids=user_ids)
         if self.get_argument("fingerprint", "") != plan.fingerprint:
-            self._render_plan(plan, PLAN_CHANGED)
+            self._render_plan(plan, self._(PLAN_CHANGED))
             return
         if self.get_argument("expected_count", "") != str(len(plan.users)):
-            self._render_plan(plan, WRONG_COUNT)
+            self._render_plan(plan, self._(WRONG_COUNT))
             return
         try:
             if self.contest is None:
@@ -141,7 +144,8 @@ class _BulkRemoveHandler(BaseHandler):
             # per id, so show only the database driver's message.
             orig = getattr(error, "orig", None)
             text = repr(error) if orig is None else str(orig)
-            self._notify("No se borró nada", text[:MAX_ERROR_LENGTH])
+            self._notify(self._("Nothing was deleted"),
+                         text[:MAX_ERROR_LENGTH])
             self.redirect(self._back_url)
             return
         # reinitialize only resets the groups that lost contests, and RWS
@@ -151,13 +155,14 @@ class _BulkRemoveHandler(BaseHandler):
                               group=group)
         if self.contest is None:
             scope = "the platform"
-            subject = "Se borró 1 usuario" if count == 1 \
-                else "Se borraron %d usuarios" % count
+            subject = self.n_("%d user was deleted",
+                              "%d users were deleted", count) % count
         else:
             scope = "contest %s (id %s)" % (self.contest.name,
                                             self.contest.id)
-            subject = "Se quitó 1 participación" if count == 1 \
-                else "Se quitaron %d participaciones" % count
+            subject = self.n_("%d participation was removed",
+                              "%d participations were removed",
+                              count) % count
         usernames = [entry.username for entry in plan.users]
         logged = ", ".join(usernames[:MAX_LOGGED_USERNAMES])
         if len(usernames) > MAX_LOGGED_USERNAMES:

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 22:59-0600\n"
+"POT-Creation-Date: 2026-11-04 23:06-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,6 +16,55 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.12.1\n"
+
+msgid "does not exist"
+msgstr ""
+
+msgid "does not take part in the contest"
+msgstr ""
+
+msgid "the list is over 1 MB"
+msgstr ""
+
+msgid "the list is not in UTF-8"
+msgstr ""
+
+msgid "You did not choose any user."
+msgstr ""
+
+msgid "The number typed does not match the number of users. Nothing was deleted."
+msgstr ""
+
+msgid "The selection changed since the preview (the users, their contests or submissions, or whether a contest is running): review the list and confirm again. Nothing was deleted."
+msgstr ""
+
+msgid "The selection is too large"
+msgstr ""
+
+#, python-format
+msgid "There are %d users and the most at a time is %d. Split it into smaller lists."
+msgstr ""
+
+msgid "Invalid field(s)"
+msgstr ""
+
+msgid "The list could not be read"
+msgstr ""
+
+msgid "Nothing was deleted"
+msgstr ""
+
+#, python-format
+msgid "%d user was deleted"
+msgid_plural "%d users were deleted"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%d participation was removed"
+msgid_plural "%d participations were removed"
+msgstr[0] ""
+msgstr[1] ""
 
 #, python-format
 msgid "Invalid ranking group name %r: use only lowercase letters, digits, '-' and '_', and none of: %s."
@@ -92,9 +141,6 @@ msgstr ""
 msgid "Invalid operation %s"
 msgstr ""
 
-msgid "Invalid field(s)"
-msgstr ""
-
 #, python-format
 msgid "Ranking group %r is archived: unarchive it before renaming it."
 msgstr ""
@@ -141,6 +187,27 @@ msgid "Staff password"
 msgstr ""
 
 msgid "Reset"
+msgstr ""
+
+msgid "Import CSV"
+msgstr ""
+
+msgid "Selected users:"
+msgstr ""
+
+msgid "Remove selected from the contest"
+msgstr ""
+
+msgid "Select all"
+msgstr ""
+
+msgid "Remove by list"
+msgstr ""
+
+msgid "One username per line, or a CSV whose first column is the username."
+msgstr ""
+
+msgid "Review list"
 msgstr ""
 
 #, python-format
@@ -305,5 +372,68 @@ msgstr ""
 
 #, python-format
 msgid "Empty and regenerate the ranking %s?"
+msgstr ""
+
+msgid "Delete selected"
+msgstr ""
+
+msgid "Delete by list"
+msgstr ""
+
+msgid "Delete users"
+msgstr ""
+
+#, python-format
+msgid "Remove participations from %(name)s"
+msgstr ""
+
+msgid "Warning: a contest that is running is among those affected. Submissions made during the contest will be lost, and emptying and sending a ranking again in the middle of a contest is heavy."
+msgstr ""
+
+#, python-format
+msgid "%(count)s user will be deleted, %(submissions)s submissions and %(user_tests)s user tests."
+msgid_plural "%(count)s users will be deleted, %(submissions)s submissions and %(user_tests)s user tests."
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(count)s participation will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests."
+msgid_plural "%(count)s participations will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests."
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "This operation cannot be undone."
+msgstr ""
+
+msgid "root (/)"
+msgstr ""
+
+#, python-format
+msgid "Rankings that will be emptied and sent again: %(groups)s."
+msgstr ""
+
+msgid "First name"
+msgstr ""
+
+msgid "Last name"
+msgstr ""
+
+msgid "Submissions"
+msgstr ""
+
+msgid "There is nothing to delete."
+msgstr ""
+
+msgid "Ignored:"
+msgstr ""
+
+#, python-format
+msgid "Type %(count)s to confirm:"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Cancel"
 msgstr ""
 

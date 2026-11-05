@@ -1311,13 +1311,13 @@ class TestImportTemplates(unittest.TestCase):
             "contest_users.html", contest=contest, config=config,
             unassigned_users=[])
         self.assertIn(
-            '<a href="/contest/1/users/import">Importar CSV</a>', html)
+            '<a href="/contest/1/users/import">Import CSV</a>', html)
 
         html = self.render_core(
             "contest_users.html", contest=contest, config=config,
             unassigned_users=[],
             admin=SimpleNamespace(permission_all=False))
-        self.assertNotIn("Importar CSV", html)
+        self.assertNotIn("Import CSV", html)
 
 
 class TestTheContestPasswordIsOptional(unittest.TestCase):
@@ -1582,7 +1582,7 @@ class TestGlobalImportRoutesAndPermissions(unittest.TestCase):
             html = TestImportTemplates().render_core(
                 "users.html", user_list=[],
                 admin=SimpleNamespace(permission_all=permission_all))
-            self.assertEqual('<a href="/users/import">Importar CSV</a>'
+            self.assertEqual('<a href="/users/import">Import CSV</a>'
                              in html, permission_all)
 
 

@@ -19,20 +19,22 @@
 """Bulk removal of users (from the platform) or of participations (from
 a contest), for AWS.
 
-The messages are meant to be shown as they are in the page.
+The reasons of NOT_FOUND and NOT_IN_CONTEST are message ids: the page
+translates them when it shows them.
 
 """
 
 import dataclasses
 import hashlib
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from cms.db import Contest, Participation, Submission, User, UserTest
+from cms.locale.locale import N_
 from cmscommon.datetime import make_datetime
 
 MAX_LIST_BYTES = 1024 * 1024
@@ -44,14 +46,16 @@ MAX_LIST_BYTES = 1024 * 1024
 # is always parsed.
 MAX_PLAN_USERS = 9_900
 # Why a value of the selection is not removed.
-NOT_FOUND = "no existe"
-NOT_IN_CONTEST = "no participa en el concurso"
+NOT_FOUND = N_("does not exist")
+NOT_IN_CONTEST = N_("does not take part in the contest")
 # A list may be a CSV exported with any of these separators; the
 # username is the first column.
 _SEPARATORS = re.compile(r"[,;\t]")
 
 
-def parse_usernames(*sources: bytes) -> list[str]:
+def parse_usernames(*sources: bytes,
+                    gettext: Callable[[str], str] = lambda s: s
+                    ) -> list[str]:
     """Return the usernames listed in sources, in order, without repeats.
 
     Each source is the text of the textarea or the body of the uploaded
@@ -61,6 +65,7 @@ def parse_usernames(*sources: bytes) -> list[str]:
     any case, as the header of a CSV.
 
     sources: the lists, UTF-8 with or without BOM.
+    gettext: translates the messages of the errors.
 
     return: the usernames.
 
@@ -69,14 +74,14 @@ def parse_usernames(*sources: bytes) -> list[str]:
 
     """
     if sum(len(source) for source in sources) > MAX_LIST_BYTES:
-        raise ValueError("la lista pasa de 1 MB")
+        raise ValueError(gettext("the list is over 1 MB"))
     usernames: list[str] = []
     seen: set[str] = set()
     for source in sources:
         try:
             text = source.decode("utf-8-sig")
         except UnicodeDecodeError:
-            raise ValueError("la lista no está en UTF-8") from None
+            raise ValueError(gettext("the list is not in UTF-8")) from None
         first = True
         for line in text.splitlines():
             value = _SEPARATORS.split(line, maxsplit=1)[0]

@@ -4,7 +4,7 @@
 
 ## 2. Bulk removal
 
-- [ ] 2.1 `cms/server/admin/bulkremove.py`, `handlers/bulkremove.py`, `users_bulk_remove.html`, `users.html`, `contest_users.html`: msgids, plural forms, notifications in the request language; tests for "One and several", "Zero", "A notification" and the Spanish pin
+- [x] 2.1 `cms/server/admin/bulkremove.py`, `handlers/bulkremove.py`, `users_bulk_remove.html`, `users.html`, `contest_users.html`: msgids, plural forms, notifications in the request language; tests for "One and several", "Zero", "A notification" and the Spanish pin
 
 ## 3. Users import
 
