@@ -17,7 +17,7 @@ Each of CWS, AWS and RWS SHALL show its pages in a light or a dark theme. With n
 - **THEN** the page is shown in the light theme
 
 ### Requirement: Each server has a switch with three options
-Every page of CWS and AWS, and the ranking page itself (the scoreboard), SHALL offer a switch with the options System, Light and Dark, labelled «Sistema», «Claro» and «Oscuro», showing the current choice. The switch SHALL be present on CWS pages also when the contest has a single language. The notice and staff-login pages that RWS builds itself SHALL have no switch, and follow the saved choice.
+Every page of CWS and AWS, and the ranking page itself (the scoreboard), SHALL offer a switch with the options System, Light and Dark, showing the current choice. The labels are «Sistema», «Claro» and «Oscuro», except on AWS pages shown in English, where they are «System», «Light» and «Dark». The switch SHALL be present on CWS pages also when the contest has a single language. The notice and staff-login pages that RWS builds itself SHALL have no switch, and follow the saved choice.
 
 #### Scenario: The switch is on every page
 - **WHEN** a page of CWS or AWS, or the RWS scoreboard page, is shown
@@ -38,6 +38,10 @@ Every page of CWS and AWS, and the ranking page itself (the scoreboard), SHALL o
 #### Scenario: Choosing System
 - **WHEN** the person picks System
 - **THEN** the page follows the system preference again
+
+#### Scenario: The AWS switch follows the page language
+- **WHEN** an AWS page is shown in English or in Spanish
+- **THEN** the theme switch labels are «System», «Light», «Dark» or «Sistema», «Claro», «Oscuro» respectively
 
 ### Requirement: The choice is kept in the browser, per server
 The choice SHALL be kept in the browser's local storage under one key, SHALL apply to every later page of the same server in that browser, and SHALL NOT be sent to the server or stored in the database. When local storage is unavailable, the pages SHALL work and follow the system preference.

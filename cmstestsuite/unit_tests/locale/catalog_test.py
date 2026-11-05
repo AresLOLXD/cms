@@ -15,25 +15,35 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Tests that keep the Spanish catalog of CWS closed.
+"""Tests that keep the Spanish catalogs of CWS and AWS closed.
 
-A message added to the code must reach cms.pot and the es catalog, and
-the es catalog must have no untranslated or fuzzy message. If one of
-these fails, run "./setup.py extract_messages" and "./setup.py
-update_catalog -l es", then translate what is missing.
+A message added to the code must reach the template (cms.pot, aws.pot)
+and the es catalog, and the es catalog must have no untranslated or
+fuzzy message. If one of these fails, run "./setup.py extract_messages"
+and "./setup.py update_catalog -l es" (for AWS add "-F
+babel_mapping_aws.cfg -o cms/locale/aws.pot" to the first and "-D aws -i
+cms/locale/aws.pot" to the second, see docs/Localization.rst), then
+translate what is missing.
 
 """
 
+import io
 from configparser import RawConfigParser
 from pathlib import Path
 
+import pytest
 from babel.messages import Catalog
 from babel.messages.extract import DEFAULT_KEYWORDS, extract_from_dir
+from babel.messages.mofile import write_mo
 from babel.messages.pofile import read_po
 
 
 ROOT = Path(__file__).resolve().parents[3]
 LOCALE_DIR = ROOT / "cms" / "locale"
+# The domains whose catalogs are checked, and the mapping file that tells
+# which files hold their messages.
+MAPPING_FILES = {"cms": "babel_mapping.cfg", "aws": "babel_mapping_aws.cfg"}
+DOMAINS = list(MAPPING_FILES)
 
 
 def _first(msgid):
@@ -63,14 +73,22 @@ def find_open_messages(catalog):
         if message.id and (message.fuzzy or not any(_strings(message))))
 
 
-def extract_code_msgids():
+def find_missing_messages(code_msgids, catalog):
+    """Return the msgids found in the code that the catalog does not have."""
+    known = {_first(message.id) for message in catalog}
+    return sorted(code_msgids - known)
+
+
+def extract_code_msgids(domain="cms"):
     """Return the msgids that "setup.py extract_messages" finds in the code.
 
     It uses the same mapping and keywords as setup.cfg.
 
+    domain: the catalog whose messages are wanted, "cms" or "aws".
+
     """
     parser = RawConfigParser()
-    parser.read(ROOT / "babel_mapping.cfg", encoding="utf-8")
+    parser.read(ROOT / MAPPING_FILES[domain], encoding="utf-8")
     method_map = []
     options_map = {}
     for section in parser.sections():
@@ -92,6 +110,8 @@ def extract_code_msgids():
 
 
 def test_checker_finds_fuzzy_and_untranslated_messages():
+    # Scenario "Incomplete catalog" (aws-language): the check itself fails
+    # and lists the messages.
     catalog = Catalog(locale="es")
     catalog.add("Done", "Hecho")
     catalog.add("Fuzzy one", "Dudoso", flags=["fuzzy"])
@@ -102,24 +122,58 @@ def test_checker_finds_fuzzy_and_untranslated_messages():
         "Fuzzy one", "Missing one", "One file"]
 
 
-def test_es_catalog_has_no_fuzzy_or_untranslated_messages():
+def test_checker_finds_messages_missing_from_the_catalog():
+    # Scenario "A message missing from the catalog" (aws-language): the check
+    # itself fails and lists the message.
+    catalog = Catalog(locale="es")
+    catalog.add("Done", "Hecho")
+    catalog.add(("One file", "%d files"), ("Un archivo", "%d archivos"))
+
+    assert find_missing_messages(
+        {"Done", "One file", "New one"}, catalog) == ["New one"]
+
+
+@pytest.mark.parametrize("domain", DOMAINS)
+def test_es_catalog_has_no_fuzzy_or_untranslated_messages(domain):
+    # Scenario "Incomplete catalog" (aws-language) for the real catalogs.
     open_messages = find_open_messages(
-        _read_catalog(LOCALE_DIR / "es" / "LC_MESSAGES" / "cms.po"))
+        _read_catalog(LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po"))
 
     assert not open_messages, (
-        "es has fuzzy or untranslated messages:\n  "
+        f"es {domain} has fuzzy or untranslated messages:\n  "
         + "\n  ".join(open_messages))
 
 
-def test_code_messages_are_in_pot_and_es():
-    code_msgids = extract_code_msgids()
+@pytest.mark.parametrize("domain", DOMAINS)
+def test_code_messages_are_in_pot_and_es(domain):
+    # Scenario "A message missing from the catalog" (aws-language) for the
+    # real code and catalogs.
+    code_msgids = extract_code_msgids(domain)
     assert code_msgids, "no message was extracted from the code"
 
     for name, path in (
-            ("cms.pot", LOCALE_DIR / "cms.pot"),
-            ("es", LOCALE_DIR / "es" / "LC_MESSAGES" / "cms.po")):
-        known = {_first(message.id) for message in _read_catalog(path)}
-        missing = sorted(code_msgids - known)
+            (f"{domain}.pot", LOCALE_DIR / f"{domain}.pot"),
+            (f"es {domain}",
+             LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po")):
+        missing = find_missing_messages(code_msgids, _read_catalog(path))
         assert not missing, (
             f"{name} lacks messages found in the code:\n  "
             + "\n  ".join(missing))
+
+
+def test_both_catalogs_compile():
+    # Scenario "Both catalogs compile" (aws-language): the build compiles the
+    # domains listed in setup.cfg; each of them must compile for Spanish.
+    # shortcut: this compiles with Babel's API rather than running
+    # "setup.py compile_catalog" (CI has no setuptools).
+    parser = RawConfigParser()
+    parser.read(ROOT / "setup.cfg", encoding="utf-8")
+    built = parser.get("compile_catalog", "domain").split()
+
+    assert sorted(built) == sorted(DOMAINS)
+    for domain in built:
+        catalog = _read_catalog(
+            LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po")
+        mo = io.BytesIO()
+        write_mo(mo, catalog)
+        assert len(mo.getvalue()) > 0, f"{domain} did not compile"

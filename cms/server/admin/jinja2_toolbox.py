@@ -66,3 +66,8 @@ AWS_ENVIRONMENT = GLOBAL_ENVIRONMENT.overlay(
 
 instrument_cms_toolbox(AWS_ENVIRONMENT)
 instrument_formatting_toolbox(AWS_ENVIRONMENT)
+
+# Without a per-request gettext in the context (direct renders in tests,
+# macros imported without context) the texts stay in English instead of
+# failing under StrictUndefined; the per-request gettext shadows it.
+AWS_ENVIRONMENT.install_null_translations(newstyle=False)

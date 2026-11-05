@@ -12,7 +12,16 @@ When you change a string in a template or in a web server, you have to generate 
 
     ./setup.py extract_messages
 
-When you have a new translation, or an update of an old translation, you need to update the ``cms.mo`` files (the compiled versions of the ``cms.po`` files). You can run ``python setup.py compile_catalog`` to update the ``cms.mo`` files for all translations (or add the ``-l <code>`` argument to update only the one for a given locale). The usual ``python setup.py install`` will do this automatically. Note that, to have the new strings, you need to restart the web server.
+When you have a new translation, or an update of an old translation, you need to update the ``cms.mo`` files (the compiled versions of the ``cms.po`` files). You can run ``python setup.py compile_catalog`` to update the ``cms.mo`` files for all translations (or add the ``-l <code>`` argument to update only the one for a given locale; for a language without an AWS catalog also add ``-D cms``, see below). The usual ``python setup.py install`` will do this automatically. Note that, to have the new strings, you need to restart the web server.
+
+The administration web server (AWS) has its own catalog, the ``aws`` domain: the template is :gh_blob:`cms/locale/aws.pot` and the translations are :file:`cms/locale/<code>/LC_MESSAGES/aws.po`. Only the files under ``cms/server/admin`` are extracted (see :gh_blob:`babel_mapping_aws.cfg`). To generate the template again and to merge it into a translation, run these commands from the root of the repository.
+
+.. sourcecode:: bash
+
+    ./setup.py extract_messages -F babel_mapping_aws.cfg -o cms/locale/aws.pot
+    ./setup.py update_catalog -D aws -i cms/locale/aws.pot -l <code>
+
+``./setup.py compile_catalog`` compiles both the ``cms`` and the ``aws`` catalogs, and skips the languages that have no :file:`aws.po`. With ``-l <code>`` it fails for a language that has no :file:`aws.po`; build only its ``cms`` catalog with ``./setup.py compile_catalog -D cms -l <code>``. AWS offers English and every language that has a compiled ``aws.mo``; without it (for instance in an editable install that never ran ``compile_catalog``) AWS runs in English.
 
 
 For translators
@@ -36,4 +45,6 @@ After you are done translating the messages, please run the following command an
 
 .. sourcecode:: bash
 
-    ./setup.py compile_catalog -l <code>
+    ./setup.py compile_catalog -D cms -l <code>
+
+To translate AWS into a new language, run ``./setup.py init_catalog -D aws -i cms/locale/aws.pot -l <code>`` and translate :file:`cms/locale/<code>/LC_MESSAGES/aws.po` in the same way; it is merged with the ``update_catalog`` command above and compiled with ``./setup.py compile_catalog -l <code>``, which builds both catalogs.

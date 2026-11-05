@@ -29,6 +29,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from cms.locale import DEFAULT_TRANSLATION
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.server.themecss import AWS_CSS, DARK_ATTRIBUTE, \
     DARK_MEDIA, LITERAL_COLOR, light_set, read_block
@@ -43,6 +44,11 @@ def render_page(page: str, **params) -> str:
     params.setdefault("url", lambda *parts: "/" + "/".join(map(str, parts)))
     params.setdefault("xsrf_form_html", "")
     params.setdefault("timestamp", None)
+    params.setdefault("translation", DEFAULT_TRANSLATION)
+    params.setdefault("available_translations",
+                      {DEFAULT_TRANSLATION.identifier: DEFAULT_TRANSLATION})
+    params.setdefault("cookie_translation", None)
+    params.setdefault("automatic_translation", DEFAULT_TRANSLATION)
     return AWS_ENVIRONMENT.get_template(page).render(**params)
 
 
@@ -70,13 +76,12 @@ class TestAwsPages(unittest.TestCase):
             select = re.search(r'<select id="theme"[^>]*>(.*?)</select>',
                                html, re.S)
             self.assertIsNotNone(select, name)
-            # the pages are lang="en" and the labels are Spanish
-            self.assertRegex(html, r'<select id="theme"[^>]* lang="es"', name)
+            # the labels follow the page language (see translated_pages_test)
             self.assertEqual(
                 re.findall(r'<option value="(\w+)">(\w+)</option>',
                            select.group(1)),
-                [("system", "Sistema"), ("light", "Claro"),
-                 ("dark", "Oscuro")], name)
+                [("system", "System"), ("light", "Light"),
+                 ("dark", "Dark")], name)
 
     def test_the_script_loads_in_head_before_the_stylesheets(self):
         # Scenario: A saved dark choice with a light system

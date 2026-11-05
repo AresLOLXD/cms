@@ -1,0 +1,69 @@
+# Translations template for Contest Management System.
+# Copyright (C) 2026 CMS development group
+# This file is distributed under the same license as the Contest Management System project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
+"Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
+"POT-Creation-Date: 2026-11-04 22:23-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.12.1\n"
+
+#, python-format
+msgid "Error %(status_code)s"
+msgstr ""
+
+msgid "An error occured while the server was handling your request."
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+#, python-format
+msgid "Automatic (%(lang)s)"
+msgstr ""
+
+msgid "Theme"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Light"
+msgstr ""
+
+msgid "Dark"
+msgstr ""
+
+msgid "Admin"
+msgstr ""
+
+msgid "Welcome"
+msgstr ""
+
+msgid "Failed to log in."
+msgstr ""
+
+msgid "Please log in:"
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Password"
+msgstr ""
+
+msgid "Login"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
