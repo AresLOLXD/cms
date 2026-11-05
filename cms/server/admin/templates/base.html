@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ translation.identifier }}">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <script src="{{ static_url("static", "theme.js") }}"></script>
@@ -74,6 +74,7 @@ $(document).ready(init);
 {% if admin is undefined %}
         <div id="sidebar_header">
           {% include "fragments/theme_switch.html" %}
+          {% include "fragments/lang_switch.html" %}
           <h1 class="parent">Administration</h1>
         </div>
 {% else %}
@@ -83,6 +84,7 @@ $(document).ready(init);
               <form class="inline" action="{{ url("logout") }}" method="POST">{{ xsrf_form_html|safe }}<input type="submit" value="Logout"></form>
           </div>
           {% include "fragments/theme_switch.html" %}
+          {% include "fragments/lang_switch.html" %}
           {% if contest is none %}
           <h1 class="parent">Administration</h1>
           {% else %}

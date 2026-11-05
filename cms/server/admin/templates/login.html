@@ -1,6 +1,6 @@
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ translation.identifier }}">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <script src="{{ static_url("static", "theme.js") }}"></script>
@@ -12,6 +12,7 @@
   <body class="admin">
     <div id="login-content">
       {% include "fragments/theme_switch.html" %}
+      {% include "fragments/lang_switch.html" %}
 
 {% if admin is undefined %}
 <h1>Welcome</h1>
