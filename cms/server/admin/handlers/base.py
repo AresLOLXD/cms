@@ -350,7 +350,6 @@ class BaseHandler(CommonRequestHandler):
     automatic_translation = DEFAULT_TRANSLATION
     cookie_translation = None
     translation = DEFAULT_TRANSLATION
-    _locale_is_set = False
 
     def _(self, msgid: str) -> str:
         return msgid
@@ -387,7 +386,6 @@ class BaseHandler(CommonRequestHandler):
 
         self._ = self.translation.gettext
         self.n_ = self.translation.ngettext
-        self._locale_is_set = True
 
         self.set_header("Content-Language", chosen_lang)
 
@@ -684,9 +682,10 @@ class BaseHandler(CommonRequestHandler):
         # it here, without querying the database, and if it fails we
         # simply return a basic textual error notice.
         try:
-            # prepare() may not have run (a slot timeout, the XSRF check).
-            if not self._locale_is_set:
-                self.setup_locale()
+            # prepare() may not have run (a slot timeout, the XSRF check),
+            # and send_error() cleared the headers it set. If this fails
+            # we fall back to the textual notice, like any other failure.
+            self.setup_locale()
             self.r_params = self.error_render_params()
         except:
             self.write("A critical error has occurred :-(")

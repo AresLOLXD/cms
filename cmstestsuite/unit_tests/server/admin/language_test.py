@@ -125,6 +125,21 @@ class TestLanguageChoice(unittest.TestCase):
         self.assertEqual(rendered["gettext"]("Login"), "Entrar")
         self.assertEqual(handler._headers["Content-Language"], "es")
 
+    def test_the_error_page_keeps_the_language_after_send_error(self):
+        # send_error() clears the headers set by prepare().
+        handler = make_handler("es-MX")
+        rendered = {}
+        handler.render = lambda name, **params: rendered.update(params)
+        handler.finish = lambda *args, **kwargs: None
+        handler._headers_written = False
+        handler._finished = False
+
+        handler.send_error(404)
+
+        self.assertEqual(handler.get_status(), 404)
+        self.assertEqual(rendered["gettext"]("Login"), "Entrar")
+        self.assertEqual(handler._headers["Content-Language"], "es")
+
 
 if __name__ == "__main__":
     unittest.main()
