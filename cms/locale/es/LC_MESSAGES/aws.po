@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 23:22-0600\n"
+"POT-Creation-Date: 2026-11-04 23:28-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -147,6 +147,20 @@ msgstr "la lista pasa de 1 MB"
 msgid "the list is not in UTF-8"
 msgstr "la lista no está en UTF-8"
 
+msgid "an export is already running; wait for it to finish"
+msgstr "ya hay una exportación en curso; espera a que termine"
+
+#, python-format
+msgid "there is not enough free space on the AWS disk to export (at least %d GB must be free, both in the exports directory and in the temp_dir)"
+msgstr "no hay espacio libre suficiente en el disco de AWS para exportar (se necesitan al menos %d GB libres, tanto en el directorio de exportaciones como en el temp_dir)"
+
+#, python-format
+msgid "the export failed (exit code %d); nothing was generated"
+msgstr "la exportación falló (código de salida %d); no se generó nada"
+
+msgid "the export failed; nothing was generated"
+msgstr "la exportación falló; no se generó nada"
+
 msgid "You did not choose any user."
 msgstr "No elegiste ningún usuario."
 
@@ -201,6 +215,19 @@ msgstr "Hay una importación de usuarios en curso; espera a que termine."
 
 msgid "You already had a users import running; this is its progress. The file you just sent was not imported."
 msgstr "Ya tenías una importación de usuarios en curso; este es su progreso. El archivo que acabas de enviar no se importó."
+
+msgid "The export was not found: it does not exist or it has expired."
+msgstr "No se encontró la exportación: no existe o ya expiró."
+
+msgid "choose at least one contest"
+msgstr "elige al menos un concurso"
+
+msgid "one of the chosen contests no longer exists"
+msgstr "alguno de los concursos elegidos ya no existe"
+
+#, python-format
+msgid "These contests are running or in their analysis mode: %s. The dump is read without freezing the database: it may come out inconsistent and the load may affect the contest. Tick the confirmation to export them anyway."
+msgstr "Estos concursos están en curso o en su modo de análisis: %s. El volcado se lee sin congelar la base de datos: puede salir inconsistente y la carga puede afectar al concurso. Marca la confirmación para exportarlos de todos modos."
 
 #, python-format
 msgid "Invalid ranking group name %r: use only lowercase letters, digits, '-' and '_', and none of: %s."
@@ -514,6 +541,109 @@ msgstr "Error %(status_code)s"
 
 msgid "An error occured while the server was handling your request."
 msgstr "Ocurrió un error mientras el servidor procesaba tu solicitud."
+
+msgid "Export contests"
+msgstr "Exportar concursos"
+
+msgid "Download a <code>.zip</code> file with the contests you choose: the same content and format that <code>cmsDumpExporter</code> generates, which can be imported again unchanged with <code>cmsDumpImporter</code>."
+msgstr "Descarga un archivo <code>.zip</code> con los concursos que elijas: el mismo contenido y formato que genera <code>cmsDumpExporter</code>, que se reimporta sin cambios con <code>cmsDumpImporter</code>."
+
+msgid "The file contains the users' passwords (hashed or in plain text, as they are stored) and all the submissions: treat it as confidential information. Only admins with all the permissions can export and download."
+msgstr "El archivo contiene las contraseñas de los usuarios (cifradas o en texto plano, según estén guardadas) y todos los envíos: trátalo como información confidencial. Solo los administradores con todos los permisos pueden exportar y descargar."
+
+msgid "The dump may include more than you choose: <code>cmsDumpExporter</code> also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants."
+msgstr "El volcado puede incluir más de lo que eliges: <code>cmsDumpExporter</code> también exporta los usuarios de esos concursos y todos los concursos en los que participan. No incluye los grupos de ranking ni el registro de actividad de los participantes."
+
+msgid "It is not a backup of the whole database: for that use <code>backup.sh</code> (<code>pg_dump</code>)."
+msgstr "No es un respaldo de toda la base de datos: para eso usa <code>backup.sh</code> (<code>pg_dump</code>)."
+
+msgid "Only one export runs at a time in the whole of AWS. The file is deleted one hour after it ends."
+msgstr "Solo corre una exportación a la vez en todo AWS. El archivo se borra una hora después de que termina."
+
+msgid "The export was not started:"
+msgstr "No se inició la exportación:"
+
+#, python-format
+msgid "Download the .zip (%(size)s MB)"
+msgstr "Descargar el .zip (%(size)s MB)"
+
+msgid "The file will be available for one hour."
+msgstr "El archivo estará disponible una hora."
+
+msgid "The export failed."
+msgstr "La exportación falló."
+
+msgid "Packing the .zip…"
+msgstr "Empaquetando el .zip…"
+
+msgid "Exporting… it may take several minutes; you can close this page and come back from the list of exports."
+msgstr "Exportando… puede tardar varios minutos; puedes cerrar esta página y volver desde la lista de exportaciones."
+
+msgid "Export other contests"
+msgstr "Exportar otros concursos"
+
+msgid "Could not check the state; reload the page."
+msgstr "No se pudo consultar el estado; recarga la página."
+
+msgid "Checking the state…"
+msgstr "Consultando el estado…"
+
+msgid "Contests *"
+msgstr "Concursos *"
+
+msgid "(no contests)"
+msgstr "(no hay concursos)"
+
+msgid "(running or in analysis mode)"
+msgstr "(en curso o en modo de análisis)"
+
+msgid "Content"
+msgstr "Contenido"
+
+msgid "Database and files"
+msgstr "Base de datos y archivos"
+
+msgid "Only the database, without files (<code>-F</code>)"
+msgstr "Solo la base de datos, sin archivos (<code>-F</code>)"
+
+msgid "Only the files, without the database (<code>-f</code>; it cannot be imported again)"
+msgstr "Solo los archivos, sin la base de datos (<code>-f</code>; no se puede reimportar)"
+
+msgid "Options"
+msgstr "Opciones"
+
+msgid "Do not export what can be regenerated: results and executables (<code>-G</code>, recommended)"
+msgstr "No exportar lo que se puede regenerar: resultados y ejecutables (<code>-G</code>, recomendado)"
+
+msgid "Do not export the submissions (<code>-S</code>)"
+msgstr "No exportar los envíos (<code>-S</code>)"
+
+msgid "Do not export the user tests (<code>-U</code>)"
+msgstr "No exportar las pruebas de usuario (<code>-U</code>)"
+
+msgid "Do not export the users (<code>-X</code>)"
+msgstr "No exportar los usuarios (<code>-X</code>)"
+
+msgid "There are contests running or in analysis mode. The dump is read without freezing the database: it may come out inconsistent, and the queries and the reading of files load the database that the contest uses."
+msgstr "Hay concursos en curso o en modo de análisis. El volcado se lee sin congelar la base de datos: puede salir inconsistente, y las consultas y la lectura de archivos cargan la base de datos que usa el concurso."
+
+msgid "I understand the risk and want to export anyway"
+msgstr "Entiendo el riesgo y quiero exportar de todos modos"
+
+msgid "Export"
+msgstr "Exportar"
+
+msgid "Your exports"
+msgstr "Tus exportaciones"
+
+msgid "running"
+msgstr "en curso"
+
+msgid "ready"
+msgstr "lista"
+
+msgid "failed"
+msgstr "falló"
 
 msgid "Language"
 msgstr "Idioma"

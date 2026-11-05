@@ -37,12 +37,14 @@ from tornado.httputil import ParseBodyConfig, set_parse_body_config
 
 from cmstestsuite.unit_tests.server.admin.admin_session_test import \
     session_payload, sign
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 from cmstestsuite.unit_tests.server.admin.exportjobs_test import \
     FAKE_EXPORTER
 from cmstestsuite.unit_tests.server.admin.pool_exhaustion_test import \
     XSRF_COOKIE, _AwsServerMixin
 
 from cms.db import Admin
+from cms.locale import DEFAULT_TRANSLATION
 from cms.server.admin import exportjobs, server
 from cms.server.admin.exportjobs import ExportJobStore
 from cms.server.admin.handlers import base
@@ -50,7 +52,7 @@ from cms.server.admin.handlers.base import BaseHandler
 from cms.server.admin.server import AdminWebServer
 
 MODULE = "cms.server.admin.handlers.export"
-RUNNING_ERROR = "Marca la confirmación"
+RUNNING_ERROR = "Tick the confirmation"
 
 
 class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
@@ -86,10 +88,12 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
         self.gate = os.path.join(directory, "gate")
         self.gated = False
         self.argv_calls = []
+        self.exit_code = 0
 
         def build_argv(contest_ids, flags, target):
             self.argv_calls.append((list(contest_ids), tuple(flags)))
-            return [sys.executable, "-c", FAKE_EXPORTER, target, "0",
+            return [sys.executable, "-c", FAKE_EXPORTER, target,
+                    str(self.exit_code),
                     self.gate if self.gated else ""]
 
         self.store = ExportJobStore(os.path.join(directory, "aws-exports"),
@@ -97,6 +101,8 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.settle)
         for patcher in (
                 mock.patch(MODULE + ".EXPORT_JOBS", self.store),
+                mock.patch.object(self.aws, "translations", {
+                    "en": DEFAULT_TRANSLATION, "es": SPANISH}),
                 mock.patch.object(exportjobs, "MIN_FREE_BYTES", 0)):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -116,9 +122,13 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
 
     async def fetch(self, path: str, cookie: str | None = None,
                     form: list[tuple[str, str]] | None = None,
-                    xsrf: bool = True, **kwargs) -> HTTPResponse:
-        """Send a GET, or a POST if there is a form, as an admin."""
+                    xsrf: bool = True, language: str | None = None,
+                    **kwargs) -> HTTPResponse:
+        """Send a GET, or a POST if there is a form, as an admin, with the
+        AWS language chosen if one is given."""
         cookies = [cookie or self.cookie_header, "_xsrf=" + XSRF_COOKIE]
+        if language is not None:
+            cookies.append("aws_language=" + language)
         body = None
         if form is not None:
             body = urlencode(form + ([("_xsrf", XSRF_COOKIE)] if xsrf
@@ -156,9 +166,9 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.code, 200)
         body = response.body.decode()
-        self.assertIn("Exportar concursos", body)
+        self.assertIn("Export contests", body)
         self.assertIn(self.finished.name, body)
-        self.assertIn("(en curso o en modo de análisis)", body)
+        self.assertIn("(running or in analysis mode)", body)
 
     async def test_only_full_admins_see_the_menu_entry(self):
         entry = '<a class="menu_link" href="./export">Export</a>'
@@ -240,7 +250,7 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
             response = await self.fetch(path, self.other)
             self.assertEqual(response.code, 404, path)
         page = await self.fetch("/export?job=" + job.id, self.other)
-        self.assertIn("No se encontró la exportación", page.body.decode())
+        self.assertIn("The export was not found", page.body.decode())
         self.assertNotIn(job.name, page.body.decode())
         unknown = await self.fetch("/export/nope/download")
         self.assertEqual(unknown.code, 404)
@@ -267,9 +277,9 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
 
     async def test_the_form_is_checked(self):
         for form, message in (
-                ([], "elige al menos un concurso"),
+                ([], "choose at least one contest"),
                 ([("contest_id", str(self.finished_id + 1000))],
-                 "ya no existe")):
+                 "no longer exists")):
             response = await self.fetch("/export", form=form)
             self.assertEqual(response.code, 200)
             self.assertIn(message, response.body.decode())
@@ -291,9 +301,93 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
             form=[("contest_id", str(self.finished_id))])
 
         self.assertEqual(second.code, 200)
-        self.assertIn("ya hay una exportación en curso",
+        self.assertIn("an export is already running",
                       second.body.decode())
         self.assertEqual(len(self.argv_calls), 1)
+
+    # The page and the job in the two languages. The page follows the
+    # aws_language cookie of the request.
+
+    async def test_the_page_in_english_and_in_spanish(self):
+        # Scenarios: A page in English / A page in Spanish
+        english = await self.fetch("/export", language="en")
+        spanish = await self.fetch("/export", language="es")
+
+        self.assertIn("Export contests", english.body.decode())
+        self.assertNotIn("Exportar concursos", english.body.decode())
+        self.assertIn("Exportar concursos", spanish.body.decode())
+        self.assertIn("(en curso o en modo de análisis)",
+                      spanish.body.decode())
+        self.assertNotIn("Export contests", spanish.body.decode())
+
+    async def test_the_errors_of_the_form_in_spanish(self):
+        # Scenario: A page in Spanish (the errors of the form)
+        for form, message in (
+                ([], "elige al menos un concurso"),
+                ([("contest_id", str(self.finished_id + 1000))],
+                 "alguno de los concursos elegidos ya no existe"),
+                ([("contest_id", str(self.running_id)),
+                  ("contest_id", str(self.analysis_id))],
+                 "Estos concursos están en curso o en su modo de "
+                 "análisis: %s, %s. El volcado se lee sin congelar la "
+                 "base de datos: puede salir inconsistente y la carga "
+                 "puede afectar al concurso. Marca la confirmación para "
+                 "exportarlos de todos modos." % tuple(sorted(
+                     (self.running.name, self.analysis.name))))):
+            response = await self.fetch("/export", form=form, language="es")
+            self.assertEqual(response.code, 200)
+            self.assertIn("<li>%s</li>" % message, response.body.decode())
+
+    async def test_the_not_found_notice_and_the_busy_error_in_spanish(self):
+        # Scenario: A notification (the notice of an unknown job) and
+        # Scenario: A page in Spanish (the error of a second export)
+        page = await self.fetch("/export?job=nope", language="es")
+        self.assertIn("No se encontró la exportación: no existe o ya "
+                      "expiró.", page.body.decode())
+
+        self.gated = True
+        form = [("contest_id", str(self.finished_id))]
+        await self.fetch("/export", form=form)
+        second = await self.fetch("/export", self.other, form, language="es")
+        self.assertIn("<li>ya hay una exportación en curso; espera a que "
+                      "termine</li>", second.body.decode())
+
+    async def test_a_job_started_in_spanish_is_polled_in_spanish_in_english(
+            self):
+        # Scenario: A job polled by another admin. The same owner, with
+        # English chosen on another tab, reads the Spanish error.
+        self.exit_code = 3
+        response = await self.fetch(
+            "/export", form=[("contest_id", str(self.finished_id))],
+            language="es")
+        self.assertEqual(response.code, 302)
+        (job,) = self.store.jobs_of(self.admin_id)
+        await job.task
+
+        status = await self.fetch("/export/%s/status" % job.id,
+                                  language="en")
+        self.assertEqual(
+            json.loads(status.body)["error"],
+            "la exportación falló (código de salida 3); no se generó nada")
+        page = await self.fetch("/export?job=" + job.id, language="en")
+        self.assertIn('data-messages="', page.body.decode())
+        self.assertIn("Checking the state", page.body.decode())
+
+    async def test_the_list_of_exports_names_the_states_in_two_languages(
+            self):
+        # Scenarios: A page in English / A page in Spanish
+        done = await self.run_job()
+        self.exit_code = 3
+        failed = await self.run_job()
+        for language, words in (("en", ("ready", "failed")),
+                                ("es", ("lista", "falló"))):
+            body = (await self.fetch("/export", language=language)
+                    ).body.decode()
+            self.assertIn("Your exports" if language == "en"
+                          else "Tus exportaciones", body)
+            for job, word in zip((done, failed), words):
+                self.assertRegex(
+                    body, r"%s</a></td>\s*<td>%s</td>" % (job.name, word))
 
 
 class TestWipeAtStart(unittest.TestCase):

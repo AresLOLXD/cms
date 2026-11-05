@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 23:22-0600\n"
+"POT-Creation-Date: 2026-11-04 23:28-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -146,6 +146,20 @@ msgstr ""
 msgid "the list is not in UTF-8"
 msgstr ""
 
+msgid "an export is already running; wait for it to finish"
+msgstr ""
+
+#, python-format
+msgid "there is not enough free space on the AWS disk to export (at least %d GB must be free, both in the exports directory and in the temp_dir)"
+msgstr ""
+
+#, python-format
+msgid "the export failed (exit code %d); nothing was generated"
+msgstr ""
+
+msgid "the export failed; nothing was generated"
+msgstr ""
+
 msgid "You did not choose any user."
 msgstr ""
 
@@ -199,6 +213,19 @@ msgid "A users import is running; wait for it to finish."
 msgstr ""
 
 msgid "You already had a users import running; this is its progress. The file you just sent was not imported."
+msgstr ""
+
+msgid "The export was not found: it does not exist or it has expired."
+msgstr ""
+
+msgid "choose at least one contest"
+msgstr ""
+
+msgid "one of the chosen contests no longer exists"
+msgstr ""
+
+#, python-format
+msgid "These contests are running or in their analysis mode: %s. The dump is read without freezing the database: it may come out inconsistent and the load may affect the contest. Tick the confirmation to export them anyway."
 msgstr ""
 
 #, python-format
@@ -512,6 +539,109 @@ msgid "Error %(status_code)s"
 msgstr ""
 
 msgid "An error occured while the server was handling your request."
+msgstr ""
+
+msgid "Export contests"
+msgstr ""
+
+msgid "Download a <code>.zip</code> file with the contests you choose: the same content and format that <code>cmsDumpExporter</code> generates, which can be imported again unchanged with <code>cmsDumpImporter</code>."
+msgstr ""
+
+msgid "The file contains the users' passwords (hashed or in plain text, as they are stored) and all the submissions: treat it as confidential information. Only admins with all the permissions can export and download."
+msgstr ""
+
+msgid "The dump may include more than you choose: <code>cmsDumpExporter</code> also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants."
+msgstr ""
+
+msgid "It is not a backup of the whole database: for that use <code>backup.sh</code> (<code>pg_dump</code>)."
+msgstr ""
+
+msgid "Only one export runs at a time in the whole of AWS. The file is deleted one hour after it ends."
+msgstr ""
+
+msgid "The export was not started:"
+msgstr ""
+
+#, python-format
+msgid "Download the .zip (%(size)s MB)"
+msgstr ""
+
+msgid "The file will be available for one hour."
+msgstr ""
+
+msgid "The export failed."
+msgstr ""
+
+msgid "Packing the .zip…"
+msgstr ""
+
+msgid "Exporting… it may take several minutes; you can close this page and come back from the list of exports."
+msgstr ""
+
+msgid "Export other contests"
+msgstr ""
+
+msgid "Could not check the state; reload the page."
+msgstr ""
+
+msgid "Checking the state…"
+msgstr ""
+
+msgid "Contests *"
+msgstr ""
+
+msgid "(no contests)"
+msgstr ""
+
+msgid "(running or in analysis mode)"
+msgstr ""
+
+msgid "Content"
+msgstr ""
+
+msgid "Database and files"
+msgstr ""
+
+msgid "Only the database, without files (<code>-F</code>)"
+msgstr ""
+
+msgid "Only the files, without the database (<code>-f</code>; it cannot be imported again)"
+msgstr ""
+
+msgid "Options"
+msgstr ""
+
+msgid "Do not export what can be regenerated: results and executables (<code>-G</code>, recommended)"
+msgstr ""
+
+msgid "Do not export the submissions (<code>-S</code>)"
+msgstr ""
+
+msgid "Do not export the user tests (<code>-U</code>)"
+msgstr ""
+
+msgid "Do not export the users (<code>-X</code>)"
+msgstr ""
+
+msgid "There are contests running or in analysis mode. The dump is read without freezing the database: it may come out inconsistent, and the queries and the reading of files load the database that the contest uses."
+msgstr ""
+
+msgid "I understand the risk and want to export anyway"
+msgstr ""
+
+msgid "Export"
+msgstr ""
+
+msgid "Your exports"
+msgstr ""
+
+msgid "running"
+msgstr ""
+
+msgid "ready"
+msgstr ""
+
+msgid "failed"
 msgstr ""
 
 msgid "Language"

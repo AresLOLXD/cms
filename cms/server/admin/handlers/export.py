@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from tornado.iostream import StreamClosedError
 
 from cms.db import Contest, Group
+from cms.locale.locale import N_
 from cms.server.admin.exportjobs import EXPORT_JOBS, ExportJob
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
@@ -45,7 +46,9 @@ CONTENT_FLAGS = {"all": (), "no_files": ("-F",), "only_files": ("-f",)}
 OPTION_FLAGS = {"no_generated": "-G", "no_submissions": "-S",
                 "no_user_tests": "-U", "no_users": "-X"}
 CHUNK_SIZE = 1024 * 1024
-NOT_FOUND = "No se encontró la exportación: no existe o ya expiró."
+# A message id, translated where it is shown.
+NOT_FOUND = N_("The export was not found: it does not exist or it has "
+               "expired.")
 
 
 def running_contests(session: Session, contest_ids: Collection[int],
@@ -123,7 +126,7 @@ class ExportHandler(BaseHandler):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None, self._render_page, None, None, job,
-            NOT_FOUND if job_id is not None and job is None else None,
+            self._(NOT_FOUND) if job_id is not None and job is None else None,
             EXPORT_JOBS.jobs_of(admin_id))
 
     def _read_form(self) -> dict:
@@ -158,19 +161,19 @@ class ExportHandler(BaseHandler):
         """
         ids = form["contest_ids"]
         if not ids:
-            return ["elige al menos un concurso"]
+            return [self._("choose at least one contest")]
         found = self.sql_session.execute(
             select(Contest.id).where(Contest.id.in_(ids))).scalars().all()
         if len(found) != len(ids):
-            return ["alguno de los concursos elegidos ya no existe"]
+            return [self._("one of the chosen contests no longer exists")]
         running = running_contests(self.sql_session, ids, make_datetime())
         if running and not form["confirmed"]:
-            return ["Estos concursos están en curso o en su modo de "
-                    "análisis: %s. El volcado se lee sin congelar la base "
-                    "de datos: puede salir inconsistente y la carga puede "
-                    "afectar al concurso. Marca la confirmación para "
-                    "exportarlos de todos modos." %
-                    ", ".join(sorted(running.values()))]
+            return [self._(
+                "These contests are running or in their analysis mode: %s. "
+                "The dump is read without freezing the database: it may "
+                "come out inconsistent and the load may affect the "
+                "contest. Tick the confirmation to export them anyway.") %
+                ", ".join(sorted(running.values()))]
         return []
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -184,7 +187,8 @@ class ExportHandler(BaseHandler):
                 flag for option, flag in OPTION_FLAGS.items()
                 if option in form["options"])
             try:
-                job = EXPORT_JOBS.start(admin.id, form["contest_ids"], flags)
+                job = EXPORT_JOBS.start(admin.id, form["contest_ids"], flags,
+                                       gettext=self._)
             except ValueError as exc:
                 errors = [str(exc)]
             else:
