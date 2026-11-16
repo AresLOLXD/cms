@@ -1,0 +1,35 @@
+# Spanish translations for Contest Management System.
+# Lane L3 of aws-language-rest.
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-11-16 12:18-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: aws-L3\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.12.1\n"
+
+msgid "No datasets exist for this task."
+msgstr "No hay datasets para este problema."
+
+#, python-format
+msgid "Current dataset: \"<strong>%(description)s</strong>\"."
+msgstr "Dataset actual: «<strong>%(description)s</strong>»."
+
+msgid ""
+"Click on one of the following items to view the results under a different"
+" dataset."
+msgstr ""
+"Haz clic en uno de los elementos siguientes para ver los resultados con "
+"otro dataset."
+
+#, python-format
+msgid "Reevaluate all %(count)s submissions for this dataset"
+msgstr "Reevaluar todos los envíos de este dataset (%(count)s en total)"
+

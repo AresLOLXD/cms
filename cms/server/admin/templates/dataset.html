@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {% import "macro/reevaluation_buttons.html" as macro_reevaluation_buttons with context %}
 
 {% extends "base.html" %}
@@ -12,10 +13,10 @@
 {% set dataset_selector_par_url = url("dataset") %}
 {% include "fragments/dataset_selector.html" %}
 
-<h2 id="title_submissions" class="toggling_on">Submissions</h2>
+<h2 id="title_submissions" class="toggling_on">{% trans %}Submissions{% endtrans %}</h2>
 <div id="submissions">
   <p>
-    Reevaluate all {{ submission_count }} submissions for this dataset
+    {% trans count=submission_count %}Reevaluate all {{ count }} submissions for this dataset{% endtrans %}
     {{ macro_reevaluation_buttons.reevaluation_buttons(
            admin.permission_all,
            url("dataset", shown_dataset.id),
