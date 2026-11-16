@@ -1,0 +1,101 @@
+# Spanish translations for Contest Management System.
+# Copyright (C) 2026 CMS development group
+# This file is distributed under the same license as the Contest Management
+# System project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-11-16 00:15-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: aws-L2\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.12.1\n"
+
+msgid ""
+"A short name for the task, preferably using only letters, numbers and "
+"underscores."
+msgstr ""
+"Un nombre corto para el problema, de preferencia solo con letras, números"
+" y guiones bajos."
+
+#, python-format
+msgid ""
+"Are you sure you want to remove task %(name)s from CMS, including all "
+"related data?"
+msgstr ""
+"¿Seguro que quieres borrar el problema %(name)s de CMS, con todos sus "
+"datos relacionados?"
+
+msgid "Attachment storage failed"
+msgstr "No se pudo guardar el adjunto"
+
+#, python-format
+msgid "Dataset name %r is already taken."
+msgstr "El nombre de dataset %r ya está en uso."
+
+msgid "Edit selected task:"
+msgstr "Editar el problema seleccionado:"
+
+msgid "Invalid score type parameters"
+msgstr "Parámetros del tipo de puntaje no válidos"
+
+msgid "Invalid task statement"
+msgstr "Enunciado del problema no válido"
+
+msgid "Language code:"
+msgstr "Código de idioma:"
+
+msgid "Name:"
+msgstr "Nombre:"
+
+msgid "New task"
+msgstr "Nuevo problema"
+
+msgid "No language code specified"
+msgstr "No se indicó el código de idioma"
+
+msgid "No task name specified."
+msgstr "No se indicó el nombre del problema."
+
+msgid "Please choose a unique name for this dataset."
+msgstr "Elige un nombre único para este dataset."
+
+msgid "Remove Task"
+msgstr "Borrar problema"
+
+msgid "Task statement storage failed"
+msgstr "No se pudo guardar el enunciado del problema"
+
+msgid "Tasks list"
+msgstr "Lista de problemas"
+
+msgid "The language code can be any string."
+msgstr "El código de idioma puede ser cualquier cadena de texto."
+
+msgid "The task statement must be a .pdf file."
+msgstr "El enunciado del problema debe ser un archivo .pdf."
+
+#, python-format
+msgid "This will remove %(count)s submission(s)."
+msgstr "Se borrarán %(count)s envío(s)."
+
+msgid "Upload attachment"
+msgstr "Subir adjunto"
+
+msgid "Upload statement"
+msgstr "Subir enunciado"
+
+msgid "You do not have permission to remove a task."
+msgstr "No tienes permiso para borrar un problema."
+
+msgid "the score parameters could not be checked."
+msgstr "no se pudieron revisar los parámetros del puntaje."
+

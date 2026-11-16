@@ -1,27 +1,28 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 
 <div class="core_title">
-  <h1>Tasks list</h1>
+  <h1>{% trans %}Tasks list{% endtrans %}</h1>
 </div>
 
 <form action="{{ url("tasks") }}" method="POST">
   {{ xsrf_form_html|safe }}
-  Edit selected task:
-   <input type="submit"
+  {% trans %}Edit selected task:{% endtrans %}
+   <button type="submit"
          name="operation"
          value="Remove"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         />
+         >{% trans %}Remove{% endtrans %}</button>
   <table class="bordered">
     <thead>
       <tr>
         <th></th>
-        <th>Name</th>
-        <th>Title</th>
+        <th>{% trans %}Name{% endtrans %}</th>
+        <th>{% trans %}Title{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
