@@ -215,3 +215,17 @@ msgstr "Salida estándar"
 
 msgid "Standard error"
 msgstr "Error estándar"
+
+#, python-format
+msgid "User test %(id)s (Task: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+msgstr ""
+"User test %(id)s (Problema: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+
+msgid "User test details"
+msgstr "Detalles del user test"
+
+msgid "Evaluation sandbox"
+msgstr "Sandbox de evaluación"
+
+msgid "See output"
+msgstr "Ver salida"

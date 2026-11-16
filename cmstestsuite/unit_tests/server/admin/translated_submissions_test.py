@@ -171,6 +171,22 @@ class TestSubmissionPages(unittest.TestCase):
                      "Failures during evaluation", "(Task: <a href="):
             self.assertIn(text, html)
 
+    def test_the_user_test_page_in_spanish(self):
+        # Scenario "A page group in Spanish"
+        html = page("user_test.html", SPANISH)
+        for text in ("Detalles del user test", "Propiedad", "Valor",
+                     "Sandbox de compilación", "(Problema: <a href=",
+                     "Fallas durante la compilación"):
+            self.assertIn(text, html)
+        for text in ("User test details", "Property", "Compilation sandbox",
+                     "Failures during compilation"):
+            self.assertNotIn(text, html)
+        # The English page keeps its words (Scenario "A page in English
+        # is unchanged").
+        html = page("user_test.html", DEFAULT_TRANSLATION)
+        for text in ("User test details", "Property", "(Task: <a href="):
+            self.assertIn(text, html)
+
     def test_the_status_of_a_submission_in_spanish(self):
         # Scenario "A page group in Spanish": the texts of a row (the
         # outcomes of the grading are not ours and are not asserted).
