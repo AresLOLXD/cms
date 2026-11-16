@@ -79,6 +79,100 @@ def a_contest() -> SimpleNamespace:
         allow_user_tests=True)
 
 
+class TestSidebar(unittest.TestCase):
+
+    def test_the_sidebar_in_spanish(self):
+        # Scenario "A page group in Spanish" (aws-language): the chrome
+        html_ = spanish("base.html", **sidebar())
+
+        for text in ("Administración", 'Hola, <a href="/admins">root</a>.',
+                     'value="Cerrar sesión"', "Resumen", "Uso de recursos",
+                     "Exportar", "Concursos", "(crear concurso nuevo…)",
+                     "Problemas",
+                     "(crear problema nuevo…)", "Usuarios", "Equipos",
+                     "(crear equipo nuevo…)", "(crear grupo de ranking nuevo…)"):
+            self.assertIn(text, html_)
+        # plurals: 2 users and 1 team, and the ranking group list of one
+        for text in ("(mostrar los 2 usuarios…)", "(mostrar el único equipo…)",
+                     "(mostrar 1 grupo de ranking…)"):
+            self.assertIn(text, html_)
+        self.assertNotIn("Administration", html_)
+        self.assertNotIn("(show", html_)
+        self.assertIn("<title>Admin</title>", html_)
+
+    def test_the_contest_sidebar_and_footer_in_spanish(self):
+        # Scenario "A page group in Spanish" (aws-language): the chrome of
+        # a contest page, the title with the description, the footer
+        html_ = spanish("base.html", **sidebar(a_contest(), unanswered=0))
+
+        for text in ("<title>Admin: d</title>", ">General</a>", ">Ranking</a>",
+                     ">Actividad</a>", ">Envíos</a>", ">User tests</a>",
+                     ">Preguntas</a>", ">Anuncios</a>",
+                     ">código</a> de CMS se publica bajo la<br/>"):
+            self.assertIn(text, html_)
+
+    def test_the_archive_banner_and_secret_notice_in_spanish(self):
+        # Scenario "A page group in Spanish" (aws-language)
+        config = SimpleNamespace(web_server=SimpleNamespace(
+            secret_key="default", DEFAULT_SECRET_KEY="default"))
+        params = sidebar(archived_group=SimpleNamespace(id=9, name="G"))
+        params["config"] = config
+
+        html_ = spanish("base.html", **params)
+
+        self.assertIn("¡Cambia secret_key en cms.toml!", html_)
+        self.assertIn("Por ejemplo,", html_)
+        self.assertIn('El grupo de ranking <a href="/ranking_group/9">G</a> '
+                      "está archivado", html_)
+
+    def test_the_sidebar_in_english_is_unchanged(self):
+        # Scenario "A page in English is unchanged" (aws-language)
+        html_ = render_page("base.html", **sidebar())
+
+        for text in ("Administration", 'value="Logout"', "(show the 2 users...)",
+                     "(show the only team...)",
+                     "(show the 1 ranking groups...)",
+                     "(create new ranking group...)", "<title>Admin</title>",
+                     'Hello, <a href="/admins">root</a>.'):
+            self.assertIn(text, html_)
+        contest_page = render_page(
+            "base.html", **sidebar(a_contest(), unanswered=0))
+        self.assertIn("<title>Admin: d</title>", contest_page)
+
+    def test_the_logged_in_login_page_in_spanish(self):
+        # Scenario "A page group in Spanish" (aws-language): the login page
+        # of someone who already logged in
+        handler = MagicMock()
+        handler.get_argument.return_value = ""
+        admin = SimpleNamespace(name="root")
+
+        html_ = spanish("login.html", handler=handler, admin=admin)
+        english = render_page("login.html", handler=handler, admin=admin)
+
+        self.assertIn('Ya iniciaste sesión. <a href="/logout">Cierra la '
+                      'sesión</a> o ve al <a href="/">resumen</a>.', html_)
+        self.assertIn('You are already logged in. <a href="/logout">Logout'
+                      '</a> or go to the <a href="/">overview</a>.', english)
+
+    def test_the_overload_warning_in_spanish(self):
+        # Scenario "A page group in Spanish" (aws-language)
+        config = SimpleNamespace(contest_web_server=SimpleNamespace(
+            listen_port=[1]))
+        contest = SimpleNamespace(participations=[0] * 150)
+        template = AWS_ENVIRONMENT.get_template(
+            "fragments/overload_warning.html")
+
+        spanish_html = template.render(
+            config=config, contest=contest, gettext=SPANISH.gettext,
+            ngettext=SPANISH.ngettext)
+        english_html = template.render(config=config, contest=contest)
+
+        self.assertIn("Por ahora tienes 150.0 usuarios por cada "
+                      "ContestWebServer, en promedio.<br/>", spanish_html)
+        self.assertIn("At the moment, you have 150.0 users for each "
+                      "ContestWebServer, on average.<br/>One CWS", english_html)
+
+
 class TestBaseHandlerTexts(unittest.TestCase):
 
     def setUp(self):

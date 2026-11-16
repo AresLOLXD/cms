@@ -45,8 +45,7 @@
 </form>
 {% else %}
 
-You are already logged in. <a href="{{ url("logout") }}">Logout</a>
-or go to the <a href="{{ url() }}">overview</a>.
+{% trans logout_url=url("logout"), overview_url=url() %}You are already logged in. <a href="{{ logout_url }}">Logout</a> or go to the <a href="{{ overview_url }}">overview</a>.{% endtrans %}
 
 {% endif %}
 

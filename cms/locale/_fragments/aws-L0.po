@@ -149,3 +149,87 @@ msgstr "Ocultar respuesta"
 
 msgid "Reply"
 msgstr "Responder"
+
+msgid "Admin: %(description)s"
+msgstr "Admin: %(description)s"
+
+msgid "Administration"
+msgstr "Administración"
+
+msgid "Hello, <a href=\"%(admins_url)s\">%(name)s</a>."
+msgstr "Hola, <a href=\"%(admins_url)s\">%(name)s</a>."
+
+msgid "Change secret_key in cms.toml!"
+msgstr "¡Cambia secret_key en cms.toml!"
+
+msgid "For example,"
+msgstr "Por ejemplo,"
+
+msgid "Resource usage"
+msgstr "Uso de recursos"
+
+msgid "(no contests available)"
+msgstr "(no hay concursos)"
+
+msgid "(show more...)"
+msgstr "(mostrar más…)"
+
+msgid "(create new contest...)"
+msgstr "(crear concurso nuevo…)"
+
+msgid "(no tasks available)"
+msgstr "(no hay problemas)"
+
+msgid "(create new task...)"
+msgstr "(crear problema nuevo…)"
+
+msgid "(no user available)"
+msgstr "(no hay usuarios)"
+
+msgid "(show the only user...)"
+msgid_plural "(show the %(count)s users...)"
+msgstr[0] "(mostrar el único usuario…)"
+msgstr[1] "(mostrar los %(count)s usuarios…)"
+
+msgid "(create new user...)"
+msgstr "(crear usuario nuevo…)"
+
+msgid "Teams"
+msgstr "Equipos"
+
+msgid "(no team available)"
+msgstr "(no hay equipos)"
+
+msgid "(show the only team...)"
+msgid_plural "(show the %(count)s teams...)"
+msgstr[0] "(mostrar el único equipo…)"
+msgstr[1] "(mostrar los %(count)s equipos…)"
+
+msgid "(create new team...)"
+msgstr "(crear equipo nuevo…)"
+
+msgid "(show the %(count)s ranking groups...)"
+msgid_plural "(show the %(count)s ranking groups...)"
+msgstr[0] "(mostrar %(count)s grupo de ranking…)"
+msgstr[1] "(mostrar los %(count)s grupos de ranking…)"
+
+msgid "(create new ranking group...)"
+msgstr "(crear grupo de ranking nuevo…)"
+
+msgid "General"
+msgstr "General"
+
+msgid "Groups"
+msgstr "Grupos"
+
+msgid "CMS <a href=\"http://github.com/cms-dev/cms/\">codebase</a> is released under the<br/><a href=\"http://www.gnu.org/licenses/agpl.txt\">GNU Affero General Public License</a>."
+msgstr "El <a href=\"http://github.com/cms-dev/cms/\">código</a> de CMS se publica bajo la<br/><a href=\"http://www.gnu.org/licenses/agpl.txt\">GNU Affero General Public License</a>."
+
+msgid "The ranking group <a href=\"%(group_url)s\">%(name)s</a> is archived: changes made here do not reach the public ranking until the group is unarchived."
+msgstr "El grupo de ranking <a href=\"%(group_url)s\">%(name)s</a> está archivado: los cambios que hagas aquí no llegan al ranking público hasta que se desarchive el grupo."
+
+msgid "At the moment, you have %(ratio)s users for each ContestWebServer, on average.<br/>One CWS can reasonably handle about 100 simultaneous requests. This situation might cause long request delays or failures."
+msgstr "Por ahora tienes %(ratio)s usuarios por cada ContestWebServer, en promedio.<br/>Un CWS puede atender razonablemente unas 100 solicitudes simultáneas. Esta situación podría causar demoras largas o fallas en las solicitudes."
+
+msgid "You are already logged in. <a href=\"%(logout_url)s\">Logout</a> or go to the <a href=\"%(overview_url)s\">overview</a>."
+msgstr "Ya iniciaste sesión. <a href=\"%(logout_url)s\">Cierra la sesión</a> o ve al <a href=\"%(overview_url)s\">resumen</a>."
