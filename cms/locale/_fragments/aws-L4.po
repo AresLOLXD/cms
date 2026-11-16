@@ -229,3 +229,33 @@ msgstr "Sandbox de evaluación"
 
 msgid "See output"
 msgstr "Ver salida"
+
+#, python-format
+msgid "Submission ID %s not found."
+msgstr "No se encontró el envío con ID %s."
+
+msgid "Cannot compare submissions: they are for different tasks and have more than 1 file."
+msgstr ""
+"No se pueden comparar los envíos: son de problemas distintos y tienen más "
+"de un archivo."
+
+msgid "File not present in old submission"
+msgstr "El archivo no está en el envío anterior"
+
+msgid "Old file is too big to diff"
+msgstr "El archivo anterior es demasiado grande para compararlo"
+
+msgid "Old file has too many lines to diff"
+msgstr "El archivo anterior tiene demasiadas líneas para compararlo"
+
+msgid "File not present in new submission"
+msgstr "El archivo no está en el envío nuevo"
+
+msgid "New file is too big to diff"
+msgstr "El archivo nuevo es demasiado grande para compararlo"
+
+msgid "New file has too many lines to diff"
+msgstr "El archivo nuevo tiene demasiadas líneas para compararlo"
+
+msgid "No changes"
+msgstr "Sin cambios"

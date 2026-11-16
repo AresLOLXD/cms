@@ -29,9 +29,12 @@ import unittest
 from datetime import datetime
 from html.parser import HTMLParser
 from types import SimpleNamespace
+from unittest import mock
 
-from cms.db import SubmissionResult, UserTestResult
+from cms.db import Submission, SubmissionResult, UserTestResult
 from cms.locale import DEFAULT_TRANSLATION
+from cms.server.admin.handlers.submission import (
+    SubmissionCommentHandler, SubmissionDiffHandler)
 from cmstestsuite.unit_tests.server.admin import aws_render
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
@@ -282,6 +285,134 @@ class TestSubmissionPages(unittest.TestCase):
         for button in found:
             self.assertTrue(button["onclick"].startswith(
                 'confirm("Do you really want to reevaluate?") && '))
+
+
+def handler_in(handler_class, translation):
+    """Build a handler without a request or a database."""
+    handler = handler_class.__new__(handler_class)
+    handler.application = mock.MagicMock()
+    handler.sql_session = mock.MagicMock()
+    handler.set_header = mock.MagicMock()
+    handler.write = mock.MagicMock()
+    handler.redirect = mock.MagicMock()
+    handler.url = mock.MagicMock(return_value="/")
+    handler._ = translation.gettext
+    handler.n_ = translation.ngettext
+    return handler
+
+
+def fake_submission(task_id=1, files=("a.cpp",), language="C++17"):
+    task = SimpleNamespace(
+        id=task_id, submission_format=["a.cpp"])
+    submission = SimpleNamespace(
+        task_id=task_id, task=task, language=language,
+        files={name: SimpleNamespace(digest=name) for name in files})
+    return submission
+
+
+class TestSubmissionDiff(unittest.TestCase):
+    """The messages of the diff of two submissions, one test per branch.
+    Each is asserted in English (as it was before) and in Spanish."""
+
+    def diff(self, translation, old, new, contents=None):
+        handler = handler_in(SubmissionDiffHandler, translation)
+        # The content of a file is its name, unless the test says so.
+        handler.service.file_cacher.get_file_content.side_effect = \
+            lambda digest: (contents or {}).get(digest, b"same")
+        found = {1: old, 2: new}
+        with mock.patch.object(
+                Submission, "get_from_id",
+                side_effect=lambda id, session: found.get(int(id))):
+            handler._get_sync("1", "2")
+        ((body,), _) = handler.write.call_args
+        return json.loads(body)
+
+    def check(self, old, new, english, spanish, contents=None, key="status"):
+        for translation, expected in ((DEFAULT_TRANSLATION, english),
+                                      (SPANISH, spanish)):
+            answer = self.diff(translation, old, new, contents)
+            found = answer["message"] if key == "message" \
+                else answer["files"][0][key]
+            self.assertEqual(found, expected)
+
+    def test_a_submission_that_does_not_exist(self):
+        # Scenario "A page group in Spanish" (the messages of a handler)
+        self.check(None, fake_submission(),
+                   "Submission ID 1 not found.",
+                   "No se encontró el envío con ID 1.", key="message")
+
+    def test_two_tasks_with_several_files(self):
+        # Scenario "A page group in Spanish"
+        self.check(
+            fake_submission(1, ("a.cpp", "b.cpp")),
+            fake_submission(2, ("a.cpp", "b.cpp")),
+            "Cannot compare submissions: they are for different tasks and "
+            "have more than 1 file.",
+            "No se pueden comparar los envíos: son de problemas distintos y "
+            "tienen más de un archivo.", key="message")
+
+    def test_a_file_missing_from_a_submission(self):
+        # Scenario "A page group in Spanish"
+        self.check(fake_submission(files=()), fake_submission(),
+                   "File not present in old submission",
+                   "El archivo no está en el envío anterior")
+        self.check(fake_submission(), fake_submission(files=()),
+                   "File not present in new submission",
+                   "El archivo no está en el envío nuevo")
+
+    def test_a_file_that_is_too_big(self):
+        # Scenario "A page group in Spanish"
+        big = {"a.cpp": b"x" * 1000001}
+        self.check(fake_submission(), fake_submission(),
+                   "Old file is too big to diff",
+                   "El archivo anterior es demasiado grande para "
+                   "compararlo", contents=big)
+        # Only the new submission is big: its digest is not the old one.
+        old = fake_submission()
+        old.files["a.cpp"].digest = "small"
+        self.check(old, fake_submission(), "New file is too big to diff",
+                   "El archivo nuevo es demasiado grande para compararlo",
+                   contents=big)
+
+    def test_a_file_with_too_many_lines(self):
+        # Scenario "A page group in Spanish"
+        many = {"a.cpp": b"\n" * 5001}
+        self.check(fake_submission(), fake_submission(),
+                   "Old file has too many lines to diff",
+                   "El archivo anterior tiene demasiadas líneas para "
+                   "compararlo", contents=many)
+        old = fake_submission()
+        old.files["a.cpp"].digest = "small"
+        self.check(old, fake_submission(),
+                   "New file has too many lines to diff",
+                   "El archivo nuevo tiene demasiadas líneas para "
+                   "compararlo", contents=many)
+
+    def test_two_equal_files(self):
+        # Scenario "A page group in Spanish"
+        self.check(fake_submission(), fake_submission(),
+                   "No changes", "Sin cambios")
+
+
+class TestSubmissionComment(unittest.TestCase):
+
+    def notification(self, translation):
+        handler = handler_in(SubmissionCommentHandler, translation)
+        handler.safe_get_item = mock.MagicMock(
+            return_value=SimpleNamespace(comment=""))
+        error = ValueError("boom")
+        handler.get_string = mock.MagicMock(side_effect=error)
+        handler._post_sync("1")
+        return handler.service.add_notification.call_args.args[1:], \
+            repr(error)
+
+    def test_the_subject_of_an_invalid_comment(self):
+        # Scenario "Invalid field in English" and "Invalid field in
+        # Spanish": the subject changes, the repr of the error does not.
+        (subject, text), error = self.notification(DEFAULT_TRANSLATION)
+        self.assertEqual((subject, text), ("Invalid field(s)", error))
+        (subject, text), error = self.notification(SPANISH)
+        self.assertEqual((subject, text), ("Campos no válidos", error))
 
 
 if __name__ == "__main__":

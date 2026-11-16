@@ -22,6 +22,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Submission-related handlers for AWS.
 
 """
@@ -116,7 +118,8 @@ class SubmissionDiffHandler(BaseHandler):
 
         if sub_old is None or sub_new is None:
             missing_id = old_id if sub_old is None else new_id
-            resp['message'] = f"Submission ID {missing_id} not found."
+            resp['message'] = self._("Submission ID %s not found.") \
+                % missing_id
             self.write(json.dumps(resp))
             return
 
@@ -131,8 +134,9 @@ class SubmissionDiffHandler(BaseHandler):
             new_files = {"submission.%l": new_file}
             files_to_compare = ["submission.%l"]
         else:
-            resp['message'] = "Cannot compare submissions: they are for " \
-                "different tasks and have more than 1 file."
+            resp['message'] = self._(
+                "Cannot compare submissions: they are for different tasks "
+                "and have more than 1 file.")
             self.write(json.dumps(resp))
             return
 
@@ -146,29 +150,37 @@ class SubmissionDiffHandler(BaseHandler):
             else:
                 real_fname = fname
 
-            def get_file(x, which):
+            def get_file(x, not_present, too_big, too_many_lines):
                 if fname not in x:
-                    return None, f"File not present in {which} submission"
+                    return None, not_present
                 digest = x[fname].digest
                 file_bin = self.service.file_cacher.get_file_content(digest)
                 if len(file_bin) > 1000000:
-                    return None, f"{which} file is too big to diff".capitalize()
+                    return None, too_big
                 file_lines = file_bin.decode(errors='replace').splitlines()
                 if len(file_lines) > 5000:
-                    return None, f"{which} file has too many lines to diff".capitalize()
+                    return None, too_many_lines
                 return file_lines, None
 
-            old_content, old_status = get_file(old_files, "old")
+            old_content, old_status = get_file(
+                old_files,
+                self._("File not present in old submission"),
+                self._("Old file is too big to diff"),
+                self._("Old file has too many lines to diff"))
             if old_status:
                 result_files.append({"fname": real_fname, "status": old_status})
                 continue
-            new_content, new_status = get_file(new_files, "new")
+            new_content, new_status = get_file(
+                new_files,
+                self._("File not present in new submission"),
+                self._("New file is too big to diff"),
+                self._("New file has too many lines to diff"))
             if new_status:
                 result_files.append({"fname": real_fname, "status": new_status})
                 continue
 
             if old_content == new_content:
-                result_files.append({"fname": real_fname, "status": "No changes"})
+                result_files.append({"fname": real_fname, "status": self._("No changes")})
             else:
                 diff_iter = difflib.unified_diff(old_content, new_content, lineterm='')
                 # skip the "---" and "+++" lines.
@@ -201,7 +213,7 @@ class SubmissionCommentHandler(BaseHandler):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
 
         else:
             self.try_commit()
