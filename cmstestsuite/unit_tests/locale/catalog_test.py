@@ -326,6 +326,43 @@ def find_conflicting_msgids(fragments):
     return sorted(msgid for msgid, forms in seen.items() if len(forms) > 1)
 
 
+def _header(text, name):
+    """Return the value of a header of the text of a .po file, or None."""
+    found = re.search(rf'^"{name}: (.*?)\\n"$', text, re.M)
+    return found.group(1) if found else None
+
+
+def find_fragment_problems(text, reference):
+    """Return what is wrong with the text of a fragment of a lane: its
+    header differs from the one of aws.po, it repeats a msgid, it has
+    an obsolete entry, or a plural lacks one of its two forms.
+
+    text: the content of the .po file.
+    reference: the content of aws.po.
+
+    """
+    catalog = read_po(io.BytesIO(text.encode("utf-8")))
+    problems = []
+    if _header(text, "Language") != "es":
+        problems.append(
+            f"Language is {_header(text, 'Language')!r}, not 'es'")
+    if _header(text, "Plural-Forms") != _header(reference, "Plural-Forms"):
+        problems.append(f"Plural-Forms is {_header(text, 'Plural-Forms')!r}, "
+                        f"aws.po has {_header(reference, 'Plural-Forms')!r}")
+    # A msgid may go over several lines.
+    msgids = re.findall(r'^msgid ("(?:.*)"(?:\n".*")*)', text, re.M)
+    problems += [f"msgid {msgid} is twice" for msgid, times
+                 in Counter(msgids).items() if times > 1 and msgid != '""']
+    if re.search(r"^#~", text, re.M):
+        problems.append("has obsolete entries (#~)")
+    for message in catalog:
+        if message.id and isinstance(message.id, tuple) \
+                and (len(message.string) != 2 or not all(message.string)):
+            problems.append(f"plural {message.id[0]!r} needs msgstr[0] and "
+                            "msgstr[1]")
+    return problems
+
+
 def find_check_errors(catalog):
     """Return what Babel's check says about the placeholders."""
     return [f"{_first(message.id)!r}: {error}"
@@ -440,6 +477,46 @@ def test_fragments_do_not_repeat_merged_msgids():
 
     assert not any(repeated.values()), (
         f"fragments repeat messages of aws.po: {repeated}")
+
+
+_FRAGMENT_HEADER = (
+    'msgid ""\nmsgstr ""\n"Language: es\\n"\n"MIME-Version: 1.0\\n"\n'
+    '"Content-Type: text/plain; charset=UTF-8\\n"\n'
+    '"Plural-Forms: nplurals=2; plural=(n != 1);\\n"\n\n')
+
+
+def test_fragment_problems_are_found():
+    reference = _FRAGMENT_HEADER
+
+    def problems(body, header=_FRAGMENT_HEADER):
+        return find_fragment_problems(header + body, reference)
+
+    assert problems('msgid "A"\nmsgstr "B"\n') == []
+    assert problems('msgid "A %d"\nmsgid_plural "A %d s"\n'
+                    'msgstr[0] "B"\nmsgstr[1] "Bs"\n') == []
+    assert problems('msgid "A"\nmsgstr "B"\n\nmsgid "A"\nmsgstr "C"\n') \
+        == ['msgid "A" is twice']
+    assert problems('#~ msgid "A"\n#~ msgstr "B"\n') \
+        == ["has obsolete entries (#~)"]
+    assert len(problems('msgid "A %d"\nmsgid_plural "A %d s"\n'
+                        'msgstr[0] "B"\nmsgstr[1] ""\n')) == 1
+    assert len(problems('msgid "A %d"\nmsgid_plural "A %d s"\n'
+                        'msgstr[0] "B"\n')) == 1
+    assert len(problems('msgid "A"\nmsgstr "B"\n',
+                        _FRAGMENT_HEADER.replace('"Language: es\\n"\n', ""))) == 1
+    assert len(problems('msgid "A"\nmsgstr "B"\n',
+                        _FRAGMENT_HEADER.replace("n != 1", "n > 1"))) == 1
+    assert len(problems('msgid "A"\nmsgstr "B"\n', "")) == 2
+
+
+def test_fragments_are_well_formed():
+    reference = (LOCALE_DIR / "es" / "LC_MESSAGES" / "aws.po").read_text(
+        encoding="utf-8")
+    problems = {fragment.name: find_fragment_problems(
+        fragment.read_text(encoding="utf-8"), reference)
+        for fragment in _fragment_paths()}
+
+    assert not any(problems.values()), problems
 
 
 def test_fragments_agree_with_each_other():
