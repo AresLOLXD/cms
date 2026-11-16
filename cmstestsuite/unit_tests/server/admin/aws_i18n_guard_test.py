@@ -240,21 +240,58 @@ def test_the_guard_catches_what_it_promises():
         '<p title="Bare title">{% trans %}Wrapped{% endtrans %}</p>\n'
         "<p>Bare text</p>\n"
         '<input type="submit" value="{{ _("Wrapped") }}">\n'
-        '<script>alert("Bare script text"); var key = "some_key";</script>\n')
+        '<script>alert("Bare script text"); var key = "some_key";</script>\n'
+        '<p>{{ fmt(text="Bare keyword text") }}</p>\n'
+        '<p>{{ ["Bare first", "Bare second"][i] }}</p>\n'
+        '{% for x in ["Bare loop one", "Bare loop two"] %}{% endfor %}\n'
+        '<p>NOTE</p><p>OK</p><p>UTC</p><p>YYYY-MM-DD</p>\n'
+        '<button onclick="alert(message)">{{ _("Wrapped") }}</button>\n'
+        '<button onclick="showMessage(\'Bare event text\')">x</button>\n'
+        '<button onclick="return confirm({{ _(\'Wrapped\')|tojson }});">'
+        'x</button>\n'
+        '<input type="hidden" name="a" value="Task {{ n }} was rejudged">\n'
+        '<input type="hidden" name="op" value="validate">\n')
     assert [(kind, text) for _, kind, text in lint.template_texts(template)] \
-        == [("attr-title", "Bare title"), ("text", "Bare text")]
+        == [("attr-title", "Bare title"), ("text", "Bare text"),
+            ("text", "NOTE"), ("text", "OK"),
+            ("js-attr-alert", "message"), ("js-attr", "Bare event text"),
+            ("attr-value-prose", "Task was rejudged"),
+            ("expr-literal", "Bare keyword text"),
+            ("expr-literal", "Bare first"), ("expr-literal", "Bare second"),
+            ("for-literal", "Bare loop one"),
+            ("for-literal", "Bare loop two")]
     scripts = [text for body in lint.inline_scripts(template)
                for _, _, text in lint.script_literals(body[1])]
     assert scripts == ["Bare script text"]
+    # a single word is a text where the script shows it
+    assert [text for _, _, text in lint.script_literals(
+        "el.textContent = 'done'; var kind = 'done';"
+        "$(x).html('x' + 'loading'); say('Done.'); say('Compiling...');"
+        "var f = 'a.b'")] == ["done", "loading", "Done.", "Compiling..."]
 
     python = (
+        "from cmscommon.importers import import_testcases_from_zipfile\n"
         "def post(self):\n"
         "    self.service.add_notification(\n"
         '        make_datetime(), "Bare subject", self._("Wrapped"))\n'
-        '    assert x, "Bare assert"\n')
+        '    assert x, "Bare assert"\n'
+        '    self.service.add_notification(\n'
+        '        subject="Bare keyword subject", text=self._("Wrapped"),\n'
+        '        timestamp=1)\n'
+        '    message = "Bare assigned text"\n'
+        '    self.service.add_notification(1, self._("Wrapped"), message)\n'
+        '    subject, text = import_testcases_from_zipfile(1)\n'
+        '    self.service.add_notification(1, subject, text)\n'
+        '    self.write({"error": "Bare dict text", "code": 3})\n')
     assert [(kind, text) for _, kind, text in lint.python_texts(python)] \
         == [("notification-subject", "Bare subject"),
-            ("assert-text", "Bare assert")]
+            ("assert-text", "Bare assert"),
+            ("notification-subject", "Bare keyword subject"),
+            ("notification-text", "Bare assigned text"),
+            ("helper-return", "Successfully added %d and overwritten %d "
+             "testcase(s)"),
+            ("helper-return", "Added: %s; overwritten: %s; skipped: %s"),
+            ("dict-text", "Bare dict text")]
 
 
 def test_every_file_is_complete():

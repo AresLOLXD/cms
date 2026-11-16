@@ -40,7 +40,9 @@ template). The names in this module are relative to cms/server/admin.
 """
 
 import ast
+import importlib.util
 import os
+import pathlib
 import re
 from html.parser import HTMLParser
 
@@ -75,8 +77,20 @@ NOT_PROSE = [
     (r"^(\W|\d)*$", "no letters"),
     (r"^\s*(selected|checked|disabled|readonly|multiple)\s*$",
      "html boolean attribute"),
-    (r"^[^a-z]*$", "only capitals and symbols: UTC, YYYY-MM-DD, KB"),
 ]
+
+# ALL CAPS that is a symbol or an acronym, not prose ("NOTE" and "OK"
+# are prose).
+SYMBOLS = {"UTC", "CMS", "CPU", "YYYY", "MM", "DD", "HH", "SS", "KB", "MB",
+           "GB", "IP", "ID", "URL", "CSV", "JSON", "RAM", "HTTP", "API",
+           "ISO", "UTF", "SQL", "PDF", "XML"}
+
+
+def is_symbols(text: str) -> bool:
+    """Tell whether the text is ALL CAPS made of known symbols."""
+    return not re.search(r"[a-z]", text) \
+        and all(word in SYMBOLS for word in WORD.findall(text))
+
 
 # Intentional English that the checks would flag: (file, exact text,
 # reason). A lane asks the coordinator for an entry in its report. An
@@ -311,6 +325,11 @@ def _consts(node, wrapped=False):
             return
         for a in node.args:
             yield from _consts(a, wrapped)
+        for keyword in node.kwargs:
+            yield from _consts(keyword.value, wrapped)
+    elif isinstance(node, nodes.Getitem):
+        # ["a", "b"][i]
+        yield from _consts(node.node, wrapped)
     elif isinstance(node, (nodes.List, nodes.Tuple)):
         for n in node.items:
             yield from _consts(n, wrapped)
@@ -341,6 +360,9 @@ def expr_literals(src: str):
         for d in m.defaults:
             for c in _consts(d):
                 yield c.lineno, "macro-default-literal", c.value
+    for loop in tree.find_all(nodes.For):
+        for c in _consts(loop.iter):
+            yield c.lineno, "for-literal", c.value
 
 
 def static_literals(src: str) -> list[str]:
@@ -361,6 +383,8 @@ def static_literals(src: str) -> list[str]:
         found += [c for a in call.call.args for c in _consts(a, True)]
     for m in tree.find_all(nodes.Macro):
         found += [c for d in m.defaults for c in _consts(d, True)]
+    for loop in tree.find_all(nodes.For):
+        found += _consts(loop.iter, True)
     texts = (" ".join(_PRINTF.sub("", c.value).split()) for c in found)
     return [text for text in texts if WORD.search(text)]
 
@@ -388,10 +412,31 @@ class _Linter(HTMLParser):
             elif name == "value" and tag == "input" \
                     and a.get("type") in ("submit", "button", "reset"):
                 self.add("attr-value", val)
+            elif name == "value" and tag == "input" \
+                    and a.get("type") in (None, "text", "hidden", "search"):
+                # a text that is posted or shown as the value of a field
+                prose = _is_prose(val)
+                if prose:
+                    self.add("attr-value-prose", prose)
             elif name.startswith("on"):
-                for m in re.finditer(
-                        r"""(confirm|alert|prompt)\(\s*(['"])(.*?)\2""", val):
-                    self.add("js-attr-" + m.group(1), m.group(3))
+                self.event(val)
+
+    def event(self, val):
+        """Check an event attribute: a message of alert(), confirm()
+        or prompt(), a quoted prose literal of any call."""
+        said = set()
+        for m in re.finditer(
+                r"""\b(confirm|alert|prompt)\(\s*"""
+                r"""(?:(['"])(.*?)\2|([^)'"\s][^),]*))""", val):
+            if m.group(3) is not None:
+                said.add(m.group(3))
+                self.add("js-attr-" + m.group(1), m.group(3))
+            elif not re.search("[%s%s]" % (WRAPPED, EXPR), m.group(4)):
+                # a variable: its text is not under gettext
+                self.add("js-attr-" + m.group(1), m.group(4))
+        for _, _, text in script_literals(val):
+            if text not in said:
+                self.add("js-attr", text)
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -418,7 +463,7 @@ def template_texts(src: str) -> list[tuple[int, str, str]]:
     linter.feed(skeleton(src))
     found = linter.findings + list(expr_literals(src))
     return [(line, kind, text) for line, kind, text in found
-            if WORD.search(text)
+            if WORD.search(text) and not is_symbols(text)
             and not any(re.search(rule, text) for rule, _ in NOT_PROSE)]
 
 
@@ -443,7 +488,7 @@ def _is_prose(literal: str) -> str | None:
         return None
     tokens = text.split()
     # css classes, ids, files
-    if all(re.search(r"[-_.\d]", t) for t in tokens):
+    if all(re.search(r"[-_\d]|\w\.\w", t) for t in tokens):
         return None
     if text in JS_NOT_PROSE or not re.search(r"[a-z]", text):
         return None
@@ -458,6 +503,23 @@ def _is_prose(literal: str) -> str | None:
     return text
 
 
+# Where a literal is shown to the admin, whatever it looks like: a word
+# is a text there.
+_VISIBLE = re.compile(
+    r"(?:textContent|innerText|innerHTML|\.text|\.html|\.append|\.prepend"
+    r"|\.title|\.placeholder|alert|confirm|prompt"
+    r"|attr\(\s*['\"](?:title|placeholder|alt)['\"]\s*,)"
+    r"\s*(?:=|\()\s*(?:[^;\n]*?\+\s*)?$")
+
+
+def _visible_text(literal: str) -> str | None:
+    """Return the text of a literal that is shown, even a single
+    lowercase word."""
+    text = " ".join(re.sub(r"<[^>]*>|&\w+;", " ", _SENTINELS.sub(
+        " ", literal)).split())
+    return text if WORD.search(text) and text not in JS_NOT_PROSE else None
+
+
 def script_literals(js: str, first_line: int = 0) -> list[tuple[int, str, str]]:
     """Return the (line, "literal", text) prose literals of a script."""
     found = []
@@ -466,6 +528,8 @@ def script_literals(js: str, first_line: int = 0) -> list[tuple[int, str, str]]:
         if token.startswith(("//", "/*")):
             continue
         prose = _is_prose(token[1:-1])
+        if not prose and _VISIBLE.search(js[max(0, m.start() - 80):m.start()]):
+            prose = _visible_text(token[1:-1])
         if prose:
             found.append(
                 (first_line + js.count("\n", 0, m.start()) + 1, "literal",
@@ -576,16 +640,47 @@ def _unwrapped_constants(node):
         yield from _unwrapped_constants(child)
 
 
+def _literal_texts(node) -> list[str]:
+    """Return the prose literals that an expression can be: a string, a
+    formatted string, a conditional of them."""
+    kind, text = _classify(node)
+    return [text] if kind == "literal" else []
+
+
+def _helper_returns(module: str, name: str, index: int) -> list[str]:
+    """Return the prose literals that the function of the module returns
+    at the position of its returned tuple."""
+    try:
+        spec = importlib.util.find_spec(module)
+        tree = ast.parse(pathlib.Path(spec.origin).read_text(encoding="utf-8"))
+    except (ImportError, ValueError, AttributeError, OSError):
+        return []
+    found = []
+    for function in ast.walk(tree):
+        if isinstance(function, ast.FunctionDef) and function.name == name:
+            for node in ast.walk(function):
+                if isinstance(node, ast.Return) and node.value is not None:
+                    value = node.value
+                    if isinstance(value, ast.Tuple) and index < len(value.elts):
+                        value = value.elts[index]
+                    found += _literal_texts(value)
+    return found
+
+
 class _PythonVisitor(ast.NodeVisitor):
     """Collect the texts that reach the admin without gettext.
 
-    Sinks: add_notification(ts, subject, text), raise ValueError and
-    the like, and assert ..., text (in handlers); self.write(text with
-    spaces); prose module or class constants not wrapped in N_. HTTP
-    error reasons are English on purpose and are not sinks.
+    Sinks: add_notification(ts, subject, text) (by position or keyword,
+    with a literal, or a name that was assigned a literal or the
+    result of an imported helper that returns literals), raise
+    ValueError and the like, and assert ..., text (in handlers);
+    self.write(text with spaces); a prose value of a dict in a handler
+    (the response of a request); prose module or
+    class constants not wrapped in N_. HTTP error reasons are English on
+    purpose and are not sinks.
 
-    shortcut: only literal texts are seen; a text built from variables
-    or returned by a helper is not. Upgrade if one slips through.
+    shortcut: a text built from variables, or assigned through more
+    than one step, is not seen. Upgrade if one slips through.
 
     """
 
@@ -594,17 +689,47 @@ class _PythonVisitor(ast.NodeVisitor):
         self.in_handler = in_handler
         self.depth = 0
         self.in_class_body = False
+        # name -> module of the helpers imported with "from m import f"
+        self.imported: dict[str, str] = {}
+        # the names of the current function: literals they were
+        # assigned, and (module, function, index) of a helper result
+        self.literals: dict[str, list[str]] = {}
+        self.results: dict[str, tuple[str, str, int]] = {}
 
     def check(self, node, kind, expr):
         kind_of, text = _classify(expr)
         if kind_of == "literal":
             self.found.append((node.lineno, kind, text))
+        elif isinstance(expr, ast.Name):
+            for text in self.literals.get(expr.id, []):
+                self.found.append((node.lineno, kind, text))
+            if expr.id in self.results:
+                module, name, index = self.results[expr.id]
+                for text in _helper_returns(module, name, index):
+                    self.found.append((node.lineno, "helper-return", text))
+
+    def _prose_dict(self, node):
+        """Check the values of a dict: a text that a response sends."""
+        for value in node.values:
+            for text in _literal_texts(value):
+                if " " in text.strip() or text[:1].isupper():
+                    self.found.append((value.lineno, "dict-text", text))
+
+    def visit_ImportFrom(self, node):
+        for alias in node.names:
+            self.imported[alias.asname or alias.name] = node.module or ""
 
     def visit_Call(self, node):
         name = _callee(node)
-        if name == "add_notification" and len(node.args) >= 3:
-            self.check(node, "notification-subject", node.args[1])
-            self.check(node, "notification-text", node.args[2])
+        keywords = {k.arg: k.value for k in node.keywords}
+        if name == "add_notification":
+            args = list(node.args) + [None] * 3
+            subject = args[1] if len(node.args) >= 2 else keywords.get("subject")
+            text = args[2] if len(node.args) >= 3 else keywords.get("text")
+            for kind, expr in (("notification-subject", subject),
+                               ("notification-text", text)):
+                if expr is not None:
+                    self.check(node, kind, expr)
         elif name in RAISED and node.args and self.in_handler:
             self.check(node, "exception-text", node.args[0])
         elif name == "write" and node.args:
@@ -618,17 +743,41 @@ class _PythonVisitor(ast.NodeVisitor):
             self.check(node, "assert-text", node.msg)
         self.generic_visit(node)
 
+    def visit_Dict(self, node):
+        if self.in_handler and self.depth:
+            self._prose_dict(node)
+        self.generic_visit(node)
+
     def visit_Assign(self, node):
         if self.depth == 0 or self.in_class_body:
             for v in _unwrapped_constants(node.value):
                 if " " in v.strip() and v[:1].isupper():
                     self.found.append((node.lineno, "constant", v))
+        # remember what the names of the function are
+        for target in node.targets:
+            names = [target] if isinstance(target, ast.Name) else \
+                target.elts if isinstance(target, ast.Tuple) else []
+            for index, name in enumerate(names):
+                if not isinstance(name, ast.Name):
+                    continue
+                value = node.value
+                self.literals.setdefault(name.id, []).extend(
+                    _literal_texts(value))
+                if isinstance(value, ast.Call) \
+                        and isinstance(value.func, ast.Name) \
+                        and value.func.id in self.imported:
+                    self.results[name.id] = (
+                        self.imported[value.func.id], value.func.id,
+                        index if isinstance(target, ast.Tuple) else 0)
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
+        outer = self.literals, self.results
+        self.literals, self.results = {}, {}
         self.depth += 1
         self.generic_visit(node)
         self.depth -= 1
+        self.literals, self.results = outer
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
