@@ -9,6 +9,8 @@ from html.parser import HTMLParser
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
+from jinja2.utils import htmlsafe_json_dumps
+
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
@@ -1563,6 +1565,54 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
                             ">Name\n", 'value="Update"', 'value="Remove"',
                             "Regenerate", ">Contests<"):
                 self.assertNotIn(english, page)
+
+    def confirm_handlers(self, html: str) -> list[str]:
+        """The onsubmit/onclick attributes of the page, in order, as the
+        browser reads them (unescaped once)."""
+        found = []
+
+        class Confirming(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                found.extend(value for name, value in attrs
+                             if name in ("onsubmit", "onclick"))
+
+        Confirming().feed(html)
+        return found
+
+    def test_the_confirm_texts_are_escaped_for_script_and_attribute(self):
+        # Scenario: A page in Spanish (the confirm texts reach the script
+        # as a JSON string, escaped once more for the HTML attribute: a
+        # name with a quote must not cut the attribute)
+        name = 'o"l<m&'
+        for translation in (DEFAULT_TRANSLATION, SPANISH):
+            gettext = translation.gettext
+            group = make_group(1, name)
+            regenerate, = self.confirm_handlers(self.render_in(
+                translation, "ranking_groups.html",
+                ranking_group_list=[group], contest_list=[],
+                views={1: visibility_view(group, NOW, gettext)}))[1:]
+            unarchive, = self.confirm_handlers(self.group_page(
+                translation, archive_at=NOW - self.HOUR))
+            archive_now, = self.confirm_handlers(self.group_page(
+                translation, hide_at=NOW - self.HOUR))
+            expected = {
+                regenerate: gettext(
+                    "Empty and regenerate the ranking %s?") % name,
+                unarchive: gettext(
+                    "The whole group will be sent to the public ranking "
+                    "again. Continue?"),
+                archive_now: gettext(
+                    "This ranking is hidden or frozen now: archiving it "
+                    "will show it in full to the public. Continue?"),
+            }
+            with self.subTest(translation=translation):
+                for attribute, text in expected.items():
+                    self.assertEqual(
+                        attribute,
+                        "return confirm(%s);" % htmlsafe_json_dumps(text))
+                    self.assertEqual(
+                        json.loads(attribute[len("return confirm("):-2]),
+                        text)
 
     def test_the_spanish_is_what_the_pages_showed_before(self):
         # Scenario: A page in Spanish (the Spanish of main, pinned: these
