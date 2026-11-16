@@ -13,7 +13,7 @@
 <form action="{{ url("ranking_groups") }}" method="POST">
   {{ xsrf_form_html|safe }}
   {% trans %}Edit selected group:{% endtrans %}
-  <input type="submit" name="operation" value="{{ _("Remove") }}" {% if not admin.permission_all %} disabled {% endif %} />
+  <button type="submit" name="operation" value="Remove" {% if not admin.permission_all %} disabled {% endif %}>{{ _("Delete group") }}</button>
   <table class="bordered">
     <thead>
       <tr>

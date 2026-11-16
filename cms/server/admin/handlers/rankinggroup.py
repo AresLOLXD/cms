@@ -270,7 +270,7 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
 
     """
 
-    REMOVE = N_("Remove")
+    REMOVE = "Remove"
 
     def _get_sync(self):
         self.r_params = self.render_params()
@@ -284,8 +284,7 @@ class RankingGroupListHandler(SimpleHandler("ranking_groups.html")):
         group_id: str = self.get_argument("ranking_group_id")
         operation: str = self.get_argument("operation")
 
-        # The button posts its label: the page language's, or English.
-        if operation in (self.REMOVE, self._(self.REMOVE)):
+        if operation == self.REMOVE:
             self.redirect(self.url("ranking_groups", group_id, "remove"))
         else:
             self.service.add_notification(

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 23:28-0600\n"
+"POT-Creation-Date: 2026-11-15 18:39-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -294,9 +294,6 @@ msgstr ""
 
 #, python-format
 msgid "will be archived on %s UTC (%s)"
-msgstr ""
-
-msgid "Remove"
 msgstr ""
 
 #, python-format
@@ -748,6 +745,9 @@ msgstr ""
 msgid "Remove staff password"
 msgstr ""
 
+msgid "Delete group"
+msgstr ""
+
 msgid "Contests in this group"
 msgstr ""
 
@@ -859,6 +859,9 @@ msgid "Type %(count)s to confirm:"
 msgstr ""
 
 msgid "Delete"
+msgstr ""
+
+msgid "Remove"
 msgstr ""
 
 msgid "Cancel"

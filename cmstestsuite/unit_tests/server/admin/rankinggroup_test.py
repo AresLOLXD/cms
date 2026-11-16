@@ -1539,7 +1539,7 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
                      "Contraseña de staff", "(sin definir)",
                      "Quitar la contraseña de staff",
                      "Concursos de este grupo", 'value="Actualizar"',
-                     'value="Limpiar"', 'value="Quitar"'):
+                     'value="Limpiar"', ">Borrar grupo</button>"):
             self.assertIn(text, group_page)
         for text in ("Grupos de ranking", "Regenerar un ranking",
                      "Ranking raíz (<code>/</code>)", 'value="Regenerar"',
@@ -1562,7 +1562,7 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
         # (the HTML comments of the templates are English and not shown)
         for page in (group_page, list_page, add_page):
             for english in (">Hide now<", "Staff password", ">Name<",
-                            ">Name\n", 'value="Update"', 'value="Remove"',
+                            ">Name\n", 'value="Update"', ">Delete group<",
                             "Regenerate", ">Contests<"):
                 self.assertNotIn(english, page)
 
@@ -1683,24 +1683,40 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
         self.assertEqual(title, "Campos no válidos")
         self.assertIn("El ranking no está oculto.", text)
 
-    def test_the_remove_button_posts_either_language(self):
-        # Scenario: A page in Spanish (its button label is what the form
-        # posts, so the handler accepts the label of both languages)
-        for translation, label in ((DEFAULT_TRANSLATION, "Remove"),
-                                   (SPANISH, "Quitar")):
-            handler = RankingGroupListHandler.__new__(
-                RankingGroupListHandler)
-            handler._ = translation.gettext
-            handler.get_argument = MagicMock(
-                side_effect=lambda name, _label=label:
-                "7" if name == "ranking_group_id" else _label)
-            handler.redirect = MagicMock()
-            handler.url = MagicMock(
-                side_effect=lambda *parts: "/" + "/".join(parts))
+    def test_the_remove_button_posts_the_same_value_in_both_languages(self):
+        # Scenario: A page in Spanish (the label is translated, the value
+        # posted is not, so the language can change between the page load
+        # and the submit)
+        group = make_group(1, "olim")
+        for translation, label in ((DEFAULT_TRANSLATION, "Delete group"),
+                                   (SPANISH, "Borrar grupo")):
+            for html in (
+                    self.group_page(translation),
+                    self.render_in(
+                        translation, "ranking_groups.html",
+                        ranking_group_list=[group], contest_list=[],
+                        views={1: visibility_view(
+                            group, NOW, translation.gettext)})):
+                with self.subTest(translation=translation):
+                    self.assertIn(
+                        '<button type="submit" name="operation" '
+                        'value="Remove" ', html)
+                    self.assertIn(">%s</button>" % label, html)
 
-            handler._post_sync()
+    def test_remove_posted_in_english_works_on_a_page_in_spanish(self):
+        # Scenario: A page in Spanish
+        handler = RankingGroupListHandler.__new__(RankingGroupListHandler)
+        handler._ = SPANISH.gettext
+        handler.get_argument = MagicMock(
+            side_effect=lambda name: "7" if name == "ranking_group_id"
+            else "Remove")
+        handler.redirect = MagicMock()
+        handler.url = MagicMock(
+            side_effect=lambda *parts: "/" + "/".join(parts))
 
-            handler.redirect.assert_called_once_with("/ranking_groups/7/remove")
+        handler._post_sync()
+
+        handler.redirect.assert_called_once_with("/ranking_groups/7/remove")
 
 
 if __name__ == "__main__":

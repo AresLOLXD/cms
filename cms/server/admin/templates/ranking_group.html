@@ -98,8 +98,8 @@
   <form action="{{ url("ranking_groups") }}" method="POST" style="display:inline; float: right;">
     {{ xsrf_form_html|safe }}
     <input type="hidden" name="ranking_group_id" value="{{ ranking_group.id }}" />
-    <input type="submit" name="operation" value="{{ _("Remove") }}" {% if not admin.permission_all %}
-      disabled {% endif %} />
+    <button type="submit" name="operation" value="Remove" {% if not admin.permission_all %}
+      disabled {% endif %}>{{ _("Delete group") }}</button>
   </form>
   <div class="hr"></div>
 </div>
