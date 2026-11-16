@@ -22,6 +22,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
+from collections.abc import Callable
 from datetime import datetime
 
 import babel.dates
@@ -31,20 +34,22 @@ from cms.db.task import Dataset
 from cmscommon.datetime import get_system_timezone, local_tz, utc
 
 
-def format_dataset_attrs(dataset: Dataset) -> str:
+def format_dataset_attrs(dataset: Dataset,
+                         gettext: Callable[[str], str] = lambda s: s) -> str:
     """Return a printable string for the attributes of a dataset.
 
     E.g.: live, autojudge enabled, etc.
 
     dataset: the dataset in question.
+    gettext: the translation function of the request.
 
     return: printable string of relevant attributes.
 
     """
     if dataset is dataset.task.active_dataset:
-        return " (Live)"
+        return " " + gettext("(Live)")
     elif dataset.autojudge:
-        return " (Background judging)"
+        return " " + gettext("(Background judging)")
     else:
         return ""
 

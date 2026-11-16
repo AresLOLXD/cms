@@ -23,6 +23,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Base class for all handlers in AWS, and some utility functions.
 
 """
@@ -430,7 +432,7 @@ class BaseHandler(CommonRequestHandler):
                 logger.error("Commit of %s %s failed: %s",
                              self.request.method, self.request.path,
                              describe_error(error))
-                text = "The database did not answer, try again."
+                text = self._("The database did not answer, try again.")
             else:
                 # Anything else is a bug: keep the 500.
                 raise
@@ -440,12 +442,12 @@ class BaseHandler(CommonRequestHandler):
             except Exception as rollback_error:
                 log_rollback_error(rollback_error, True)
             self.service.add_notification(
-                make_datetime(), "Operation failed.", text)
+                make_datetime(), self._("Operation failed."), text)
             return False
         else:
             self.service.add_notification(
                 make_datetime(),
-                "Operation successful.", "")
+                self._("Operation successful."), "")
             return True
 
     def get_current_user(self) -> Admin | None:
@@ -731,7 +733,7 @@ class BaseHandler(CommonRequestHandler):
         try:
             dest[name] = bool(value)
         except:
-            raise ValueError("Can't cast %s to bool." % value)
+            raise ValueError(self._("Can't cast %s to bool.") % value)
 
     get_int = argument_reader(parse_int)
 
@@ -763,7 +765,7 @@ class BaseHandler(CommonRequestHandler):
             else:
                 format_ = list(e.strip() for e in value.split(","))
         else:
-            raise ValueError("Submission format not recognized.")
+            raise ValueError(self._("Submission format not recognized."))
         dest["submission_format"] = format_
 
     def get_time_limit(self, dest: dict, field: str):
@@ -785,9 +787,9 @@ class BaseHandler(CommonRequestHandler):
             try:
                 value = float(value)
             except:
-                raise ValueError("Can't cast %s to float." % value)
+                raise ValueError(self._("Can't cast %s to float.") % value)
             if not 0 <= value < float("+inf"):
-                raise ValueError("Time limit out of range.")
+                raise ValueError(self._("Time limit out of range."))
             dest["time_limit"] = value
 
     def get_memory_limit(self, dest: dict, field: str):
@@ -809,9 +811,9 @@ class BaseHandler(CommonRequestHandler):
             try:
                 value = int(value)
             except:
-                raise ValueError("Can't cast %s to int." % value)
+                raise ValueError(self._("Can't cast %s to int.") % value)
             if not 0 < value:
-                raise ValueError("Invalid memory limit.")
+                raise ValueError(self._("Invalid memory limit."))
             # AWS displays the value as MiB, but it is stored as bytes.
             dest["memory_limit"] = value * 1024 * 1024
 
@@ -831,11 +833,11 @@ class BaseHandler(CommonRequestHandler):
         """
         name = self.get_argument(name, None)
         if name is None:
-            raise ValueError("Task type not found.")
+            raise ValueError(self._("Task type not found."))
         try:
             class_ = get_task_type_class(name)
         except KeyError:
-            raise ValueError("Task type not recognized: %s." % name)
+            raise ValueError(self._("Task type not recognized: %s.") % name)
         params = class_.parse_handler(self, params + name + "_")
         dest["task_type"] = name
         dest["task_type_parameters"] = params
@@ -854,18 +856,18 @@ class BaseHandler(CommonRequestHandler):
         """
         name = self.get_argument(name, None)
         if name is None:
-            raise ValueError("Score type not found.")
+            raise ValueError(self._("Score type not found."))
         try:
             get_score_type_class(name)
         except KeyError:
-            raise ValueError("Score type not recognized: %s." % name)
+            raise ValueError(self._("Score type not recognized: %s.") % name)
         params = self.get_argument(params, None)
         if params is None:
-            raise ValueError("Score type parameters not found.")
+            raise ValueError(self._("Score type parameters not found."))
         try:
             params = json.loads(params)
         except ValueError:
-            raise ValueError("Score type parameters are invalid JSON.")
+            raise ValueError(self._("Score type parameters are invalid JSON."))
         dest["score_type"] = name
         dest["score_type_parameters"] = params
 
@@ -1014,9 +1016,11 @@ class BaseHandler(CommonRequestHandler):
     def get_group_settings(self, g: Group):
         attrs = dict()
         self.get_datetime(attrs, "start")
-        assert attrs.get("start") is not None, "No main group start time specified."
+        assert attrs.get("start") is not None, \
+            self._("No main group start time specified.")
         self.get_datetime(attrs, "stop")
-        assert attrs.get("stop") is not None, "No main group stop time specified."
+        assert attrs.get("stop") is not None, \
+            self._("No main group stop time specified.")
         self.get_timedelta_sec(attrs, "per_user_time")
 
         self.get_bool(attrs, "analysis_enabled")

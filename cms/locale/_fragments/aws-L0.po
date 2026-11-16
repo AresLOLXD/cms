@@ -1,0 +1,58 @@
+# Spanish translations of the AWS messages of lane L0 (shared chrome and
+# the shared script channel). Merged into aws.po at integration.
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "(Live)"
+msgstr "(En vivo)"
+
+msgid "(Background judging)"
+msgstr "(Evaluación en segundo plano)"
+
+msgid "The database did not answer, try again."
+msgstr "La base de datos no respondió. Inténtalo de nuevo."
+
+msgid "Can't cast %s to bool."
+msgstr "No se puede convertir %s a booleano."
+
+msgid "Submission format not recognized."
+msgstr "No se reconoce el formato de envío."
+
+msgid "Can't cast %s to float."
+msgstr "No se puede convertir %s a número decimal."
+
+msgid "Time limit out of range."
+msgstr "El límite de tiempo está fuera de rango."
+
+msgid "Invalid memory limit."
+msgstr "Límite de memoria no válido."
+
+msgid "Task type not found."
+msgstr "No se encontró el tipo de problema."
+
+msgid "Task type not recognized: %s."
+msgstr "No se reconoce el tipo de problema: %s."
+
+msgid "Score type not found."
+msgstr "No se encontró el tipo de puntaje."
+
+msgid "Score type not recognized: %s."
+msgstr "No se reconoce el tipo de puntaje: %s."
+
+msgid "Score type parameters not found."
+msgstr "No se encontraron los parámetros del tipo de puntaje."
+
+msgid "Score type parameters are invalid JSON."
+msgstr "Los parámetros del tipo de puntaje no son un JSON válido."
+
+msgid "No main group start time specified."
+msgstr "No se indicó la hora de inicio del grupo principal."
+
+msgid "No main group stop time specified."
+msgstr "No se indicó la hora de fin del grupo principal."
