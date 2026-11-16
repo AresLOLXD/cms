@@ -1,0 +1,7972 @@
+{
+ "activate_dataset.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Preview dataset change for § (",
+    "§",
+    ")",
+    "Current dataset:",
+    "§",
+    "[View results]",
+    "New dataset:",
+    "§",
+    "[View results]",
+    "NOTE",
+    ": The preview on this page uses the existing scoring information for both datasets. If you have made modifications to a dataset, you need to ensure that the scores are up to date. This may require re-compiling, re-evaluating or just re-scoring the entire dataset. To do so, use the buttons below, and wait for it to complete.",
+    "Reevaluate all submissions for the dataset \"§\":",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Switching to this dataset will cause the following changes:",
+    "Notify",
+    "User",
+    "Submission id",
+    "Change",
+    "§",
+    "§",
+    "(Tokened)",
+    "Score: § -> §",
+    "Public score: § -> §",
+    "Ranking score: \"\\u00a7\" -> \"\\u00a7\"",
+    "§",
+    "(Tokened)",
+    "Score: § -> §",
+    "Public score: § -> §",
+    "Ranking score: \"\\u00a7\" -> \"\\u00a7\"",
+    "Notify:",
+    "[All users]",
+    "[No users]",
+    "[Users with visible changes only]",
+    "By default, users with changes to their public score, or changes to the score of a tokened submission, will be notified.",
+    "The following message will be sent to the selected users:",
+    "Subject:",
+    "Text:",
+    "The task \"§\" has been rejudged and the score on your submissions has been updated.",
+    "Activate!",
+    "Abort!"
+   ],
+   "posts": [
+    [
+     "message_subject",
+     "Task § has been rejudged"
+    ],
+    [
+     "notify_§",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Preview dataset change for § (",
+    "§",
+    ")",
+    "Current dataset:",
+    "§",
+    "[View results]",
+    "New dataset:",
+    "§",
+    "[View results]",
+    "NOTE",
+    ": The preview on this page uses the existing scoring information for both datasets. If you have made modifications to a dataset, you need to ensure that the scores are up to date. This may require re-compiling, re-evaluating or just re-scoring the entire dataset. To do so, use the buttons below, and wait for it to complete.",
+    "Reevaluate all submissions for the dataset \"§\":",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Good news! At present, switching to this dataset will have no effect on the scores. No notifications will be sent.",
+    "Activate!",
+    "Abort!"
+   ],
+   "posts": []
+  }
+ },
+ "add_admin.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New admin",
+    "Admin information",
+    "Username",
+    "Password",
+    "Name",
+    "All permissions",
+    "Messaging permissions",
+    "Enabled",
+    "Create",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "enabled",
+     ""
+    ],
+    [
+     "name",
+     ""
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "permission_all",
+     ""
+    ],
+    [
+     "permission_messaging",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New admin",
+    "Admin information",
+    "Username",
+    "Password",
+    "Name",
+    "Create",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_attachment.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload attachment",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "attachment",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload attachment",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "attachment",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_contest.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New contest",
+    "A short name for the contest, preferably using only letters, numbers and underscores.",
+    "Name:"
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New contest",
+    "A short name for the contest, preferably using only letters, numbers and underscores.",
+    "Name:"
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_dataset.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Create dataset",
+    "You are cloning the dataset \"§\".",
+    "Dataset information",
+    "A (unique) description for this dataset.",
+    "Description",
+    "Whether to copy over the evaluations from the original dataset.",
+    "Clone evaluation results",
+    "Limits",
+    "Total maximum time for each evaluation, in seconds.",
+    "Time limit",
+    "second(s)",
+    "Total maximum memory usage for each evaluation, in MiB (2^20 bytes).",
+    "Memory limit",
+    "MiB",
+    "Task type settings (",
+    "documentation",
+    ")",
+    "Please see the task type documentation.",
+    "Task type",
+    "Batch",
+    "BatchAndOutput",
+    "Communication",
+    "Interactive",
+    "OutputOnly",
+    "TwoSteps",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Comma-separated list of output only testcases",
+    "Number of Processes",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "User I/O",
+    "User processes read from stdin and write to stdout",
+    "User processes read from and write to fifos, whose paths are given as arguments",
+    "Process limit",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "Concurrent solutions",
+    "Controller memory limit (MB)",
+    "Controller time limit (s)",
+    "Controller wall time limit (s)",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Whether to copy the managers from the original dataset.",
+    "Clone managers",
+    "Score type settings (",
+    "documentation",
+    ")",
+    "Please see the score type documentation.",
+    "Score Type",
+    "GroupMin",
+    "GroupMul",
+    "GroupThreshold",
+    "Sum",
+    "Please see the score type documentation. A subtask can list \"depends_on\": [subtask numbers]; see the subtask dependencies page of the documentation.",
+    "Score Parameters",
+    "\"\\u00a7\"",
+    "Create"
+   ],
+   "posts": [
+    [
+     "TaskTypeOptions_BatchAndOutput_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_output_only_testcases",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Batch_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_Batch_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_Batch_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Batch_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Batch_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_Batch_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_Communication_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_Communication_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_Communication_num_processes",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Communication_user_io",
+     "fifo_io"
+    ],
+    [
+     "TaskTypeOptions_Communication_user_io",
+     "std_io"
+    ],
+    [
+     "TaskTypeOptions_Interactive_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_Interactive_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_Interactive_concurrent",
+     ""
+    ],
+    [
+     "TaskTypeOptions_Interactive_controller_memory_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Interactive_controller_time_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Interactive_controller_wall_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Interactive_process_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_OutputOnly_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_OutputOnly_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_TwoSteps_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_TwoSteps_output_eval",
+     "diff"
+    ],
+    [
+     "clone_managers",
+     ""
+    ],
+    [
+     "clone_results",
+     ""
+    ],
+    [
+     "description",
+     "§"
+    ],
+    [
+     "memory_limit",
+     "§"
+    ],
+    [
+     "score_type",
+     "GroupMin"
+    ],
+    [
+     "score_type",
+     "GroupMul"
+    ],
+    [
+     "score_type",
+     "GroupThreshold"
+    ],
+    [
+     "score_type",
+     "Sum"
+    ],
+    [
+     "task_type",
+     "Batch"
+    ],
+    [
+     "task_type",
+     "BatchAndOutput"
+    ],
+    [
+     "task_type",
+     "Communication"
+    ],
+    [
+     "task_type",
+     "Interactive"
+    ],
+    [
+     "task_type",
+     "OutputOnly"
+    ],
+    [
+     "task_type",
+     "TwoSteps"
+    ],
+    [
+     "time_limit",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Create dataset",
+    "You are cloning the dataset \"§\".",
+    "Dataset information",
+    "A (unique) description for this dataset.",
+    "Description",
+    "Whether to copy over the evaluations from the original dataset.",
+    "Clone evaluation results",
+    "Limits",
+    "Total maximum time for each evaluation, in seconds.",
+    "Time limit",
+    "second(s)",
+    "Total maximum memory usage for each evaluation, in MiB (2^20 bytes).",
+    "Memory limit",
+    "MiB",
+    "Task type settings (",
+    "documentation",
+    ")",
+    "Please see the task type documentation.",
+    "Task type",
+    "Batch",
+    "BatchAndOutput",
+    "Communication",
+    "Interactive",
+    "OutputOnly",
+    "TwoSteps",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Comma-separated list of output only testcases",
+    "Number of Processes",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "User I/O",
+    "User processes read from stdin and write to stdout",
+    "User processes read from and write to fifos, whose paths are given as arguments",
+    "Process limit",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "Concurrent solutions",
+    "Controller memory limit (MB)",
+    "Controller time limit (s)",
+    "Controller wall time limit (s)",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Score type settings (",
+    "documentation",
+    ")",
+    "Please see the score type documentation.",
+    "Score Type",
+    "GroupMin",
+    "GroupMul",
+    "GroupThreshold",
+    "Sum",
+    "Please see the score type documentation. A subtask can list \"depends_on\": [subtask numbers]; see the subtask dependencies page of the documentation.",
+    "Score Parameters",
+    "\"\\u00a7\"",
+    "Create"
+   ],
+   "posts": [
+    [
+     "TaskTypeOptions_BatchAndOutput_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_BatchAndOutput_output_only_testcases",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Batch_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_Batch_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_Batch_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Batch_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Batch_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_Batch_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_Communication_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_Communication_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_Communication_num_processes",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Communication_user_io",
+     "fifo_io"
+    ],
+    [
+     "TaskTypeOptions_Communication_user_io",
+     "std_io"
+    ],
+    [
+     "TaskTypeOptions_Interactive_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_Interactive_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_Interactive_concurrent",
+     ""
+    ],
+    [
+     "TaskTypeOptions_Interactive_controller_memory_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Interactive_controller_time_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Interactive_controller_wall_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_Interactive_process_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_OutputOnly_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_OutputOnly_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_TwoSteps_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_TwoSteps_output_eval",
+     "diff"
+    ],
+    [
+     "clone_results",
+     ""
+    ],
+    [
+     "description",
+     "§"
+    ],
+    [
+     "memory_limit",
+     "§"
+    ],
+    [
+     "score_type",
+     "GroupMin"
+    ],
+    [
+     "score_type",
+     "GroupMul"
+    ],
+    [
+     "score_type",
+     "GroupThreshold"
+    ],
+    [
+     "score_type",
+     "Sum"
+    ],
+    [
+     "task_type",
+     "Batch"
+    ],
+    [
+     "task_type",
+     "BatchAndOutput"
+    ],
+    [
+     "task_type",
+     "Communication"
+    ],
+    [
+     "task_type",
+     "Interactive"
+    ],
+    [
+     "task_type",
+     "OutputOnly"
+    ],
+    [
+     "task_type",
+     "TwoSteps"
+    ],
+    [
+     "time_limit",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_manager.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload manager",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "manager",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload manager",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "manager",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_ranking_group.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New ranking group",
+    "General information",
+    "Used in the scoreboard URL (/<name>/): lowercase letters, digits, '-' and '_'.",
+    "Name",
+    "Description",
+    "While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Leave a time empty for none.",
+    "§ (UTC)",
+    "YYYY-MM-DD HH:MM:SS",
+    "§ (UTC)",
+    "YYYY-MM-DD HH:MM:SS",
+    "The staff use it to see the ranking while it is hidden. Leave empty for none: a hidden ranking is then visible to nobody.",
+    "Staff password",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "description",
+     ""
+    ],
+    [
+     "name",
+     ""
+    ],
+    [
+     "staff_password",
+     ""
+    ],
+    [
+     "§",
+     ""
+    ],
+    [
+     "§",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New ranking group",
+    "General information",
+    "Used in the scoreboard URL (/<name>/): lowercase letters, digits, '-' and '_'.",
+    "Name",
+    "Description",
+    "The staff use it to see the ranking while it is hidden. Leave empty for none: a hidden ranking is then visible to nobody.",
+    "Staff password",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "description",
+     ""
+    ],
+    [
+     "name",
+     ""
+    ],
+    [
+     "staff_password",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_statement.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload statement",
+    "Language code:",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "language",
+     ""
+    ],
+    [
+     "statement",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload statement",
+    "Language code:",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "language",
+     ""
+    ],
+    [
+     "statement",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_task.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New task",
+    "A short name for the task, preferably using only letters, numbers and underscores.",
+    "Name:"
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New task",
+    "A short name for the task, preferably using only letters, numbers and underscores.",
+    "Name:"
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_team.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New team",
+    "General information",
+    "Code",
+    "Name",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "code",
+     ""
+    ],
+    [
+     "name",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New team",
+    "General information",
+    "Code",
+    "Name",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "code",
+     ""
+    ],
+    [
+     "name",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_testcase.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload testcase",
+    "Codename:",
+    "Input:",
+    "Output:",
+    "Public",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "codename",
+     ""
+    ],
+    [
+     "input",
+     ""
+    ],
+    [
+     "output",
+     ""
+    ],
+    [
+     "public",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload testcase",
+    "Codename:",
+    "Input:",
+    "Output:",
+    "Public",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "codename",
+     ""
+    ],
+    [
+     "input",
+     ""
+    ],
+    [
+     "output",
+     ""
+    ],
+    [
+     "public",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_testcases.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload testcases",
+    "Archive (a zip file containing files only):",
+    "Public",
+    "Overwrite existing testcases",
+    "Input file names template (use * as a testcase codename, for example: input.* or *.in)",
+    "Output file names template (use * as a testcase codename, for example: output.* or *.out)",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "archive",
+     ""
+    ],
+    [
+     "input_template",
+     "input.*"
+    ],
+    [
+     "output_template",
+     "output.*"
+    ],
+    [
+     "overwrite",
+     ""
+    ],
+    [
+     "public",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Upload testcases",
+    "Archive (a zip file containing files only):",
+    "Public",
+    "Overwrite existing testcases",
+    "Input file names template (use * as a testcase codename, for example: input.* or *.in)",
+    "Output file names template (use * as a testcase codename, for example: output.* or *.out)",
+    "Upload"
+   ],
+   "posts": [
+    [
+     "archive",
+     ""
+    ],
+    [
+     "input_template",
+     "input.*"
+    ],
+    [
+     "output_template",
+     "output.*"
+    ],
+    [
+     "overwrite",
+     ""
+    ],
+    [
+     "public",
+     ""
+    ]
+   ]
+  }
+ },
+ "add_user.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New user",
+    "General information",
+    "First name of the contestant.",
+    "First name",
+    "Last name of the contestant.",
+    "Last name",
+    "Username of the contestant (used to log in).",
+    "Username",
+    "Contestant password. Caution: stored in plain text.",
+    "Password",
+    "Plain text",
+    "Hashed (bcrypt)",
+    "Contestant e-mail address.",
+    "E-mail",
+    "Timezone of the contestant, used to display start, end times and the current server time in local time. Example: 'Europe/Rome', 'America/New_York', ...",
+    "Timezone",
+    "Comma-separated list of language codes, from the most to the least preferred. Example: 'en, ja'.",
+    "Preferred languages",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "email",
+     ""
+    ],
+    [
+     "first_name",
+     ""
+    ],
+    [
+     "last_name",
+     ""
+    ],
+    [
+     "method",
+     "bcrypt"
+    ],
+    [
+     "method",
+     "plaintext"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "preferred_languages",
+     ""
+    ],
+    [
+     "timezone",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "New user",
+    "General information",
+    "First name of the contestant.",
+    "First name",
+    "Last name of the contestant.",
+    "Last name",
+    "Username of the contestant (used to log in).",
+    "Username",
+    "Contestant password. Caution: stored in plain text.",
+    "Password",
+    "Plain text",
+    "Hashed (bcrypt)",
+    "Contestant e-mail address.",
+    "E-mail",
+    "Timezone of the contestant, used to display start, end times and the current server time in local time. Example: 'Europe/Rome', 'America/New_York', ...",
+    "Timezone",
+    "Comma-separated list of language codes, from the most to the least preferred. Example: 'en, ja'.",
+    "Preferred languages",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "email",
+     ""
+    ],
+    [
+     "first_name",
+     ""
+    ],
+    [
+     "last_name",
+     ""
+    ],
+    [
+     "method",
+     "bcrypt"
+    ],
+    [
+     "method",
+     "plaintext"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "preferred_languages",
+     ""
+    ],
+    [
+     "timezone",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  }
+ },
+ "admin.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "Admin information",
+    "Username",
+    "Password",
+    "Name",
+    "All permissions",
+    "Messaging permissions",
+    "Enabled",
+    "Update",
+    "Reset",
+    "Leaving the password field empty will keep the previous password.",
+    "Delete this admin"
+   ],
+   "posts": [
+    [
+     "enabled",
+     ""
+    ],
+    [
+     "name",
+     ""
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "permission_all",
+     ""
+    ],
+    [
+     "permission_messaging",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "Admin information",
+    "Username",
+    "Password",
+    "Name",
+    "Update",
+    "Reset",
+    "Leaving the password field empty will keep the previous password."
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  }
+ },
+ "admins.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Admins list",
+    "Enabled",
+    "Username",
+    "Name",
+    "All permissions",
+    "Messaging permissions",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Add a new admin",
+    "Disabled admins cannot log in.",
+    "Admins with the \"All permissions\" bit set can do any operation, regardless of the status of the other permission bits.",
+    "The \"Messaging\" permissions allow the admin to communicate with the contestants, answering questions, sending private messages and announcements."
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Admins list",
+    "Enabled",
+    "Username",
+    "Name",
+    "All permissions",
+    "Messaging permissions",
+    "Disabled admins cannot log in.",
+    "Admins with the \"All permissions\" bit set can do any operation, regardless of the status of the other permission bits.",
+    "The \"Messaging\" permissions allow the admin to communicate with the contestants, answering questions, sending private messages and announcements."
+   ],
+   "posts": []
+  }
+ },
+ "announcements.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Announcements",
+    "Announcements",
+    "Subject",
+    "Text",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Add announcement",
+    "Preview Markdown",
+    "Remove",
+    "§",
+    "§",
+    "§",
+    "By: §",
+    "Remove",
+    "§",
+    "§",
+    "§",
+    "By: §"
+   ],
+   "posts": [
+    [
+     "subject",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Announcements",
+    "Announcements"
+   ],
+   "posts": []
+  }
+ },
+ "base.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x"
+   ],
+   "posts": []
+  }
+ },
+ "contest.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Contest configuration",
+    "Contest information",
+    "A short name for the contest, preferably using only letters, numbers and underscores.",
+    "Name",
+    "The name of the contest as seen by the contestants.",
+    "Description",
+    "§",
+    "When CWS serves all contests (CMS_CONTEST_ID=ALL), only active contests are listed and can be entered. Ignored when CWS serves a single contest.",
+    "Active",
+    "The public scoreboard (RWS /<group>/) this contest is sent to. Contests of the same group are ranked together. Deactivating a contest does not remove it from its ranking; choose 'none' for that.",
+    "Ranking group",
+    "(none)",
+    "§ — §",
+    "§ — §",
+    "The list of languages that contestants can use, or empty for allowing any language. Example: 'en,ja' (without quotes).",
+    "Allowed localizations",
+    "Programming languages that contestants can use to solve the tasks. All the allowed languages must have task support, for example in managed tasks.",
+    "Allowed programming languages",
+    "C# / Mono",
+    "C++11 / g++",
+    "C++14 / g++",
+    "C++17 / g++",
+    "C++20 / g++",
+    "C11 / gcc",
+    "Haskell / ghc",
+    "Java / JDK",
+    "PHP",
+    "Pascal / fpc",
+    "Python 3 / CPython",
+    "Python 3 / PyPy",
+    "Rust",
+    "Whether contestants can download their own submissions.",
+    "Submissions download allowed",
+    "Whether contestants can submit questions.",
+    "Allow questions",
+    "Whether contestants can submit user tests.",
+    "Allow user tests",
+    "The number of decimal places the scores will be rounded to. Example: '2' to allow 98.76.",
+    "Score decimal places",
+    "Allow contestant to make unofficial submission before analysis mode",
+    "Allow unofficial submission before analysis mode",
+    "Timezone in which contestants see the start and end times and the current time. If empty, the timezone of the server is used. Example: 'Europe/Rome', 'America/New_York', ...",
+    "Timezone",
+    "Logging in",
+    "If checked, contestants that are marked as hidden in this contest will not be able to log in.",
+    "Block hidden participations",
+    "If checked, contestants will be able to log in using username and password.",
+    "Allow password authentication",
+    "If checked, contestants will be able to autonomously create a user account and a participation in the contest.",
+    "Allow registration",
+    "If true, contestants with an IP address specified for this contest will only be able to log in from that address.",
+    "IP based login restriction",
+    "If true, contestants with an IP address specified for this contest will be automatically logged in when connecting from that address.",
+    "IP based autologin",
+    "Tokens parameters (",
+    "documentation",
+    ")",
+    "Select 'disabled' to remove tokens completely, 'infinite' for allowing any number of tokens, or 'finite' to specify the amount with the following parameters. If you prefer to control tokens at the task level, select 'infinite' here.",
+    "Token mode",
+    "Disabled",
+    "Finite",
+    "Infinite",
+    "The maximum number of tokens a contestant can use in the whole contest. It is used only if tokens are finite.",
+    "Maximum number of tokens",
+    "The minimum amount of time (in seconds) that a contestant needs to wait after using a token before being able to use another. It is used only if tokens are finite.",
+    "Minimum interval between tokens",
+    "The number of tokens that a contestant has available when their contest time starts. It is used only if tokens are finite.",
+    "Initial number of tokens",
+    "The number of tokens that are generated periodically. It is used only if tokens are finite.",
+    "Token generation number",
+    "The amount of time (in minutes) between two token generation events. It is used only if tokens are finite.",
+    "Token generation period",
+    "Maximum number of tokens available to a contestant at any given time during the contest. It is used only if tokens are finite.",
+    "Maximum accumulated tokens",
+    "Main group settings",
+    "The group used for time calculations in the admin and ranking interface.",
+    "Main group",
+    "§",
+    "Contest time",
+    "Start time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Start time (in UTC)",
+    "End time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "End time (in UTC)",
+    "Length of the contest (in seconds) for each contestant. If not specified, each contestant can submit solutions for the whole duration of the contest. If specified, only up to this length after the first log in (or up to the end of the contest, whichever comes first).",
+    "Length of the contest",
+    "Analysis mode",
+    "If true, analysis mode for this contest will be enabled.",
+    "Enabled",
+    "Start time of the analysis mode in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Analysis mode start time (in UTC)",
+    "End time of the analysis mode in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "Analysis mode end time (in UTC)",
+    "To change start and end times or analysis mode for other groups, or change the main group, please use the",
+    "groups",
+    "section.",
+    "Limits",
+    "Maximum number of submissions each contestant can submit, for the whole contest. Leave empty for no limits.",
+    "Maximum number of submissions",
+    "Maximum number of user tests each contestant can submit, for the whole contest. Leave empty for no limits.",
+    "Maximum number of user tests",
+    "The minimum amount of time (in seconds) that a contestant needs to wait after a submission before being able to submit another. Leave empty for no limits.",
+    "Minimum interval between submissions",
+    "The amount of time (in seconds) until the end of participation in which the minimum interval between submissions is not enforced.",
+    "Minimum submission interval grace period",
+    "The minimum amount of time (in seconds) that a contestant needs to wait after a user test before being able to send another. Leave empty for no limits.",
+    "Minimum interval between user tests",
+    "Update",
+    "Reset",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "active",
+     ""
+    ],
+    [
+     "allow_password_authentication",
+     ""
+    ],
+    [
+     "allow_questions",
+     ""
+    ],
+    [
+     "allow_registration",
+     ""
+    ],
+    [
+     "allow_unofficial_submission_before_analysis_mode",
+     ""
+    ],
+    [
+     "allow_user_tests",
+     ""
+    ],
+    [
+     "allowed_localizations",
+     "§,§"
+    ],
+    [
+     "analysis_enabled",
+     ""
+    ],
+    [
+     "analysis_start",
+     "§"
+    ],
+    [
+     "analysis_stop",
+     "§"
+    ],
+    [
+     "block_hidden_participations",
+     ""
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "ip_autologin",
+     ""
+    ],
+    [
+     "ip_restriction",
+     ""
+    ],
+    [
+     "languages",
+     "C# / Mono"
+    ],
+    [
+     "languages",
+     "C++11 / g++"
+    ],
+    [
+     "languages",
+     "C++14 / g++"
+    ],
+    [
+     "languages",
+     "C++17 / g++"
+    ],
+    [
+     "languages",
+     "C++20 / g++"
+    ],
+    [
+     "languages",
+     "C11 / gcc"
+    ],
+    [
+     "languages",
+     "Haskell / ghc"
+    ],
+    [
+     "languages",
+     "Java / JDK"
+    ],
+    [
+     "languages",
+     "PHP"
+    ],
+    [
+     "languages",
+     "Pascal / fpc"
+    ],
+    [
+     "languages",
+     "Python 3 / CPython"
+    ],
+    [
+     "languages",
+     "Python 3 / PyPy"
+    ],
+    [
+     "languages",
+     "Rust"
+    ],
+    [
+     "max_submission_number",
+     "§"
+    ],
+    [
+     "max_user_test_number",
+     "§"
+    ],
+    [
+     "min_submission_interval",
+     "1"
+    ],
+    [
+     "min_submission_interval_grace_period",
+     "1"
+    ],
+    [
+     "min_user_test_interval",
+     "1"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "per_user_time",
+     "§"
+    ],
+    [
+     "ranking_group_id",
+     ""
+    ],
+    [
+     "ranking_group_id",
+     "§"
+    ],
+    [
+     "ranking_group_id",
+     "§"
+    ],
+    [
+     "score_precision",
+     "§"
+    ],
+    [
+     "start",
+     "§"
+    ],
+    [
+     "stop",
+     "§"
+    ],
+    [
+     "submissions_download_allowed",
+     ""
+    ],
+    [
+     "timezone",
+     "§"
+    ],
+    [
+     "token_gen_initial",
+     "§"
+    ],
+    [
+     "token_gen_interval",
+     "0"
+    ],
+    [
+     "token_gen_max",
+     "§"
+    ],
+    [
+     "token_gen_number",
+     "§"
+    ],
+    [
+     "token_max_number",
+     "§"
+    ],
+    [
+     "token_min_interval",
+     "1"
+    ],
+    [
+     "token_mode",
+     "disabled"
+    ],
+    [
+     "token_mode",
+     "finite"
+    ],
+    [
+     "token_mode",
+     "infinite"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Contest configuration",
+    "Contest information",
+    "A short name for the contest, preferably using only letters, numbers and underscores.",
+    "Name",
+    "The name of the contest as seen by the contestants.",
+    "Description",
+    "§",
+    "When CWS serves all contests (CMS_CONTEST_ID=ALL), only active contests are listed and can be entered. Ignored when CWS serves a single contest.",
+    "Active",
+    "The public scoreboard (RWS /<group>/) this contest is sent to. Contests of the same group are ranked together. Deactivating a contest does not remove it from its ranking; choose 'none' for that.",
+    "Ranking group",
+    "(none)",
+    "The list of languages that contestants can use, or empty for allowing any language. Example: 'en,ja' (without quotes).",
+    "Allowed localizations",
+    "Programming languages that contestants can use to solve the tasks. All the allowed languages must have task support, for example in managed tasks.",
+    "Allowed programming languages",
+    "C# / Mono",
+    "C++11 / g++",
+    "C++14 / g++",
+    "C++17 / g++",
+    "C++20 / g++",
+    "C11 / gcc",
+    "Haskell / ghc",
+    "Java / JDK",
+    "PHP",
+    "Pascal / fpc",
+    "Python 3 / CPython",
+    "Python 3 / PyPy",
+    "Rust",
+    "Whether contestants can download their own submissions.",
+    "Submissions download allowed",
+    "Whether contestants can submit questions.",
+    "Allow questions",
+    "Whether contestants can submit user tests.",
+    "Allow user tests",
+    "The number of decimal places the scores will be rounded to. Example: '2' to allow 98.76.",
+    "Score decimal places",
+    "Allow contestant to make unofficial submission before analysis mode",
+    "Allow unofficial submission before analysis mode",
+    "Timezone in which contestants see the start and end times and the current time. If empty, the timezone of the server is used. Example: 'Europe/Rome', 'America/New_York', ...",
+    "Timezone",
+    "Logging in",
+    "If checked, contestants that are marked as hidden in this contest will not be able to log in.",
+    "Block hidden participations",
+    "If checked, contestants will be able to log in using username and password.",
+    "Allow password authentication",
+    "If checked, contestants will be able to autonomously create a user account and a participation in the contest.",
+    "Allow registration",
+    "If true, contestants with an IP address specified for this contest will only be able to log in from that address.",
+    "IP based login restriction",
+    "If true, contestants with an IP address specified for this contest will be automatically logged in when connecting from that address.",
+    "IP based autologin",
+    "Tokens parameters (",
+    "documentation",
+    ")",
+    "Select 'disabled' to remove tokens completely, 'infinite' for allowing any number of tokens, or 'finite' to specify the amount with the following parameters. If you prefer to control tokens at the task level, select 'infinite' here.",
+    "Token mode",
+    "Disabled",
+    "Finite",
+    "Infinite",
+    "The maximum number of tokens a contestant can use in the whole contest. It is used only if tokens are finite.",
+    "Maximum number of tokens",
+    "The minimum amount of time (in seconds) that a contestant needs to wait after using a token before being able to use another. It is used only if tokens are finite.",
+    "Minimum interval between tokens",
+    "The number of tokens that a contestant has available when their contest time starts. It is used only if tokens are finite.",
+    "Initial number of tokens",
+    "The number of tokens that are generated periodically. It is used only if tokens are finite.",
+    "Token generation number",
+    "The amount of time (in minutes) between two token generation events. It is used only if tokens are finite.",
+    "Token generation period",
+    "Maximum number of tokens available to a contestant at any given time during the contest. It is used only if tokens are finite.",
+    "Maximum accumulated tokens",
+    "Main group settings",
+    "The group used for time calculations in the admin and ranking interface.",
+    "Main group",
+    "§",
+    "Contest time",
+    "Start time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Start time (in UTC)",
+    "End time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "End time (in UTC)",
+    "Length of the contest (in seconds) for each contestant. If not specified, each contestant can submit solutions for the whole duration of the contest. If specified, only up to this length after the first log in (or up to the end of the contest, whichever comes first).",
+    "Length of the contest",
+    "Analysis mode",
+    "If true, analysis mode for this contest will be enabled.",
+    "Enabled",
+    "Start time of the analysis mode in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Analysis mode start time (in UTC)",
+    "End time of the analysis mode in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "Analysis mode end time (in UTC)",
+    "To change start and end times or analysis mode for other groups, or change the main group, please use the",
+    "groups",
+    "section.",
+    "Limits",
+    "Maximum number of submissions each contestant can submit, for the whole contest. Leave empty for no limits.",
+    "Maximum number of submissions",
+    "Maximum number of user tests each contestant can submit, for the whole contest. Leave empty for no limits.",
+    "Maximum number of user tests",
+    "The minimum amount of time (in seconds) that a contestant needs to wait after a submission before being able to submit another. Leave empty for no limits.",
+    "Minimum interval between submissions",
+    "The amount of time (in seconds) until the end of participation in which the minimum interval between submissions is not enforced.",
+    "Minimum submission interval grace period",
+    "The minimum amount of time (in seconds) that a contestant needs to wait after a user test before being able to send another. Leave empty for no limits.",
+    "Minimum interval between user tests",
+    "Update",
+    "Reset",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "active",
+     ""
+    ],
+    [
+     "allow_password_authentication",
+     ""
+    ],
+    [
+     "allow_questions",
+     ""
+    ],
+    [
+     "allow_registration",
+     ""
+    ],
+    [
+     "allow_unofficial_submission_before_analysis_mode",
+     ""
+    ],
+    [
+     "allow_user_tests",
+     ""
+    ],
+    [
+     "allowed_localizations",
+     ""
+    ],
+    [
+     "analysis_enabled",
+     ""
+    ],
+    [
+     "analysis_start",
+     "§"
+    ],
+    [
+     "analysis_stop",
+     "§"
+    ],
+    [
+     "block_hidden_participations",
+     ""
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "ip_autologin",
+     ""
+    ],
+    [
+     "ip_restriction",
+     ""
+    ],
+    [
+     "languages",
+     "C# / Mono"
+    ],
+    [
+     "languages",
+     "C++11 / g++"
+    ],
+    [
+     "languages",
+     "C++14 / g++"
+    ],
+    [
+     "languages",
+     "C++17 / g++"
+    ],
+    [
+     "languages",
+     "C++20 / g++"
+    ],
+    [
+     "languages",
+     "C11 / gcc"
+    ],
+    [
+     "languages",
+     "Haskell / ghc"
+    ],
+    [
+     "languages",
+     "Java / JDK"
+    ],
+    [
+     "languages",
+     "PHP"
+    ],
+    [
+     "languages",
+     "Pascal / fpc"
+    ],
+    [
+     "languages",
+     "Python 3 / CPython"
+    ],
+    [
+     "languages",
+     "Python 3 / PyPy"
+    ],
+    [
+     "languages",
+     "Rust"
+    ],
+    [
+     "max_submission_number",
+     "§"
+    ],
+    [
+     "max_user_test_number",
+     "§"
+    ],
+    [
+     "min_submission_interval",
+     "1"
+    ],
+    [
+     "min_submission_interval_grace_period",
+     "1"
+    ],
+    [
+     "min_user_test_interval",
+     "1"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "per_user_time",
+     "§"
+    ],
+    [
+     "ranking_group_id",
+     ""
+    ],
+    [
+     "score_precision",
+     "§"
+    ],
+    [
+     "start",
+     "§"
+    ],
+    [
+     "stop",
+     "§"
+    ],
+    [
+     "submissions_download_allowed",
+     ""
+    ],
+    [
+     "timezone",
+     "§"
+    ],
+    [
+     "token_gen_initial",
+     "§"
+    ],
+    [
+     "token_gen_interval",
+     "0"
+    ],
+    [
+     "token_gen_max",
+     "§"
+    ],
+    [
+     "token_gen_number",
+     "§"
+    ],
+    [
+     "token_max_number",
+     "§"
+    ],
+    [
+     "token_min_interval",
+     "1"
+    ],
+    [
+     "token_mode",
+     "disabled"
+    ],
+    [
+     "token_mode",
+     "finite"
+    ],
+    [
+     "token_mode",
+     "infinite"
+    ]
+   ]
+  }
+ },
+ "contest_activity.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Activity",
+    "Times are in the contest's timezone (§).",
+    "Simultaneous activity (§)",
+    "The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than 1 seconds. A dynamic IP change on one device is not reported. A missing device is not evidence of an API script: a browser that did not present the device cookie (the first request after an IP autologin, cleared cookies, a cookie-less client) has none either.",
+    "Username",
+    "First device / IP",
+    "Second device / IP",
+    "Overlap from",
+    "Overlap to",
+    "§",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "More than one device (2)",
+    "Informational only: another browser, a private window or cleared cookies also count as a new device.",
+    "Username",
+    "Devices",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Intervals (§)",
+    "Username:",
+    "IP address or network:",
+    "10.0.0.0/24",
+    "Filter",
+    "Clear",
+    "Download as",
+    "csv",
+    "(with the filters above; times in UTC).",
+    "Username",
+    "Device",
+    "IP address",
+    "Start",
+    "Last activity",
+    "End",
+    "Started by",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§"
+   ],
+   "posts": [
+    [
+     "ip",
+     "§"
+    ],
+    [
+     "username",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Activity",
+    "Times are in the contest's timezone (§).",
+    "Simultaneous activity (§)",
+    "The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than 1 seconds. A dynamic IP change on one device is not reported. A missing device is not evidence of an API script: a browser that did not present the device cookie (the first request after an IP autologin, cleared cookies, a cookie-less client) has none either.",
+    "None.",
+    "More than one device (0)",
+    "Informational only: another browser, a private window or cleared cookies also count as a new device.",
+    "None.",
+    "Intervals (§)",
+    "Username:",
+    "IP address or network:",
+    "10.0.0.0/24",
+    "Filter",
+    "Clear",
+    "Download as",
+    "csv",
+    "(with the filters above; times in UTC).",
+    "No activity recorded."
+   ],
+   "posts": [
+    [
+     "ip",
+     "§"
+    ],
+    [
+     "username",
+     "§"
+    ]
+   ]
+  }
+ },
+ "contest_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Contest",
+    "Are you sure you want to remove contest § from CMS, including all related data?",
+    "This will remove 2 participation(s) and § submission(s).",
+    "This operation cannot be undone.",
+    "Yes, remove",
+    "No"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Contest",
+    "You do not have permission to remove a contest."
+   ],
+   "posts": []
+  }
+ },
+ "contest_submissions.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "All Submissions",
+    "Reevaluate all § submissions in this contest (for all datasets)",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Diff submissions...",
+    "Select two submissions from the table, or enter submission IDs:",
+    "old:",
+    "new:",
+    "Diff",
+    "-",
+    "+",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "Latency",
+    "Files",
+    "Token",
+    "Official",
+    "Comment",
+    "Reevaluate",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "§",
+    "§",
+    "§",
+    "Yes",
+    "Yes",
+    "§",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "§",
+    "§",
+    "§",
+    "Yes",
+    "Yes",
+    "§",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S"
+   ],
+   "posts": [
+    [
+     "diff-radio-new",
+     ""
+    ],
+    [
+     "diff-radio-new",
+     ""
+    ],
+    [
+     "diff-radio-old",
+     ""
+    ],
+    [
+     "diff-radio-old",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "All Submissions",
+    "Reevaluate all § submissions in this contest (for all datasets)",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Diff submissions...",
+    "Select two submissions from the table, or enter submission IDs:",
+    "old:",
+    "new:",
+    "Diff",
+    "-",
+    "+",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "Latency",
+    "Files",
+    "Token",
+    "Official",
+    "Comment",
+    "Reevaluate"
+   ],
+   "posts": []
+  }
+ },
+ "contest_tasks.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Tasks list of",
+    "§",
+    "Add a new task:",
+    "Select a new task",
+    "§",
+    "§",
+    "Add task",
+    "Remove selected task from the contest:",
+    "Remove from contest",
+    "Move selected task:",
+    "to the top",
+    "up by 1",
+    "down by 1",
+    "to the bottom",
+    "Name",
+    "Title",
+    "§",
+    "§",
+    "§",
+    "§"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove from contest"
+    ],
+    [
+     "operation",
+     "down by 1"
+    ],
+    [
+     "operation",
+     "to the bottom"
+    ],
+    [
+     "operation",
+     "to the top"
+    ],
+    [
+     "operation",
+     "up by 1"
+    ],
+    [
+     "task_id",
+     "null"
+    ],
+    [
+     "task_id",
+     "§"
+    ],
+    [
+     "task_id",
+     "§"
+    ],
+    [
+     "task_id",
+     "§"
+    ],
+    [
+     "task_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Tasks list of",
+    "§",
+    "Add a new task:",
+    "Select a new task",
+    "Add task",
+    "Remove selected task from the contest:",
+    "Remove from contest",
+    "Move selected task:",
+    "to the top",
+    "up by 1",
+    "down by 1",
+    "to the bottom",
+    "Name",
+    "Title"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove from contest"
+    ],
+    [
+     "operation",
+     "down by 1"
+    ],
+    [
+     "operation",
+     "to the bottom"
+    ],
+    [
+     "operation",
+     "to the top"
+    ],
+    [
+     "operation",
+     "up by 1"
+    ],
+    [
+     "task_id",
+     "null"
+    ]
+   ]
+  }
+ },
+ "contest_user_tests.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "All user tests",
+    "There are § user tests in this contest",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "User input",
+    "Files",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "See input",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "See input",
+    "§",
+    "§"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "All user tests",
+    "There are § user tests in this contest",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "User input",
+    "Files"
+   ],
+   "posts": []
+  }
+ },
+ "contest_users.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Users list",
+    "Add a new user:",
+    "Select a new user",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Add user",
+    "Import CSV",
+    "Selected users:",
+    "Remove selected from the contest",
+    "Select all",
+    "Username",
+    "First name",
+    "Last name",
+    "Group",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Remove by list",
+    "One username per line, or a CSV whose first column is the username.",
+    "Review list"
+   ],
+   "posts": [
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "file",
+     ""
+    ],
+    [
+     "group_id",
+     "§"
+    ],
+    [
+     "group_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "null"
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Users list",
+    "Add a new user:",
+    "Select a new user",
+    "Add user",
+    "Selected users:",
+    "Remove selected from the contest",
+    "Select all",
+    "Username",
+    "First name",
+    "Last name",
+    "Group",
+    "Remove by list",
+    "One username per line, or a CSV whose first column is the username.",
+    "Review list"
+   ],
+   "posts": [
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "file",
+     ""
+    ],
+    [
+     "user_id",
+     "null"
+    ]
+   ]
+  }
+ },
+ "contest_users_import.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Import CSV — §",
+    "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved.",
+    "Nothing was applied. Fix these errors and upload the file again:",
+    "2 errors",
+    "§",
+    "§",
+    "§",
+    "The file is valid. When it is imported:",
+    "New users: §",
+    "Existing users (overwritten): §",
+    "First row of the file; check that the columns are the right ones:",
+    "§: §",
+    "§: §",
+    "Processing § of §",
+    "Import progress"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Import CSV — Users",
+    "One row per user: it creates the accounts that are missing with their password and updates the first name, the last name and the password of those that already exist. It does not register anyone in any contest. If there is any error, nothing is saved.",
+    "The password of the account is only used in the contests where the participation has no password of its own.",
+    "* required",
+    "CSV file *",
+    "The import hashes the passwords and can take 20 to 40 s for every 300 contestants.",
+    "Only validate",
+    "Import"
+   ],
+   "posts": [
+    [
+     "action",
+     "import"
+    ],
+    [
+     "action",
+     "validate"
+    ],
+    [
+     "file",
+     ""
+    ]
+   ]
+  }
+ },
+ "contests.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Contests list",
+    "Edit selected contest:",
+    "Remove",
+    "Name",
+    "Description",
+    "Active",
+    "Ranking group",
+    "§",
+    "§",
+    "yes",
+    "§",
+    "§",
+    "§",
+    "yes",
+    "§"
+   ],
+   "posts": [
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Contests list",
+    "Edit selected contest:",
+    "Remove",
+    "Name",
+    "Description",
+    "Active",
+    "Ranking group"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove"
+    ]
+   ]
+  }
+ },
+ "dataset.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (",
+    "§",
+    ")",
+    "Dataset: §",
+    "Current dataset: \"",
+    "§",
+    "\".",
+    "Click on one of the following items to view the results under a different dataset.",
+    "§",
+    "(Live)",
+    "§",
+    "(Live)",
+    "Submissions",
+    "Reevaluate all § submissions for this dataset",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Diff submissions...",
+    "Select two submissions from the table, or enter submission IDs:",
+    "old:",
+    "new:",
+    "Diff",
+    "-",
+    "+",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "Latency",
+    "Files",
+    "Token",
+    "Official",
+    "Comment",
+    "Reevaluate",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "§",
+    "§",
+    "§",
+    "Yes",
+    "Yes",
+    "§",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "§",
+    "§",
+    "§",
+    "Yes",
+    "Yes",
+    "§",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S"
+   ],
+   "posts": [
+    [
+     "diff-radio-new",
+     ""
+    ],
+    [
+     "diff-radio-new",
+     ""
+    ],
+    [
+     "diff-radio-old",
+     ""
+    ],
+    [
+     "diff-radio-old",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (",
+    "§",
+    ")",
+    "Dataset: §",
+    "No datasets exist for this task.",
+    "Submissions",
+    "Reevaluate all § submissions for this dataset",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Diff submissions...",
+    "Select two submissions from the table, or enter submission IDs:",
+    "old:",
+    "new:",
+    "Diff",
+    "-",
+    "+",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "Latency",
+    "Files",
+    "Token",
+    "Official",
+    "Comment",
+    "Reevaluate"
+   ],
+   "posts": []
+  }
+ },
+ "delete_dataset.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Delete dataset",
+    "Are you sure you want to delete the dataset \"§\" and all associated managers, test cases, and submission results?",
+    "Delete",
+    "Cancel"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Delete dataset",
+    "Are you sure you want to delete the dataset \"§\" and all associated managers, test cases, and submission results?",
+    "Delete",
+    "Cancel"
+   ],
+   "posts": []
+  }
+ },
+ "download_testcases.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Download all testcases",
+    "Zip file name",
+    "Input file names template (use * as a testcase codename, for example: input.* or *.in)",
+    "Output file names template (use * as a testcase codename, for example: output.* or *.out)",
+    "Download"
+   ],
+   "posts": [
+    [
+     "input_template",
+     "input.*"
+    ],
+    [
+     "output_template",
+     "output.*"
+    ],
+    [
+     "zip_filename",
+     "testcases.zip"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Download all testcases",
+    "Zip file name",
+    "Input file names template (use * as a testcase codename, for example: input.* or *.in)",
+    "Output file names template (use * as a testcase codename, for example: output.* or *.out)",
+    "Download"
+   ],
+   "posts": [
+    [
+     "input_template",
+     "input.*"
+    ],
+    [
+     "output_template",
+     "output.*"
+    ],
+    [
+     "zip_filename",
+     "testcases.zip"
+    ]
+   ]
+  }
+ },
+ "error.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Error §",
+    "An error occured while the server was handling your request."
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Error §",
+    "An error occured while the server was handling your request."
+   ],
+   "posts": []
+  }
+ },
+ "export.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Export contests",
+    "Download a",
+    ".zip",
+    "file with the contests you choose: the same content and format that",
+    "cmsDumpExporter",
+    "generates, which can be imported again unchanged with",
+    "cmsDumpImporter",
+    ".",
+    "The file contains the users' passwords (hashed or in plain text, as they are stored) and all the submissions: treat it as confidential information. Only admins with all the permissions can export and download.",
+    "The dump may include more than you choose:",
+    "cmsDumpExporter",
+    "also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants.",
+    "It is not a backup of the whole database: for that use",
+    "backup.sh",
+    "(",
+    "pg_dump",
+    ").",
+    "Only one export runs at a time in the whole of AWS. The file is deleted one hour after it ends.",
+    "The export was not started:",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Checking the state…",
+    "Your exports",
+    "§",
+    "failed",
+    "§",
+    "failed"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Export contests",
+    "Download a",
+    ".zip",
+    "file with the contests you choose: the same content and format that",
+    "cmsDumpExporter",
+    "generates, which can be imported again unchanged with",
+    "cmsDumpImporter",
+    ".",
+    "The file contains the users' passwords (hashed or in plain text, as they are stored) and all the submissions: treat it as confidential information. Only admins with all the permissions can export and download.",
+    "The dump may include more than you choose:",
+    "cmsDumpExporter",
+    "also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants.",
+    "It is not a backup of the whole database: for that use",
+    "backup.sh",
+    "(",
+    "pg_dump",
+    ").",
+    "Only one export runs at a time in the whole of AWS. The file is deleted one hour after it ends.",
+    "Contests *",
+    "(no contests)",
+    "Content",
+    "Database and files",
+    "Only the database, without files (",
+    "-F",
+    ")",
+    "Only the files, without the database (",
+    "-f",
+    "; it cannot be imported again)",
+    "Options",
+    "Do not export what can be regenerated: results and executables (",
+    "-G",
+    ", recommended)",
+    "Do not export the submissions (",
+    "-S",
+    ")",
+    "Do not export the user tests (",
+    "-U",
+    ")",
+    "Do not export the users (",
+    "-X",
+    ")",
+    "* required",
+    "Export"
+   ],
+   "posts": [
+    [
+     "content",
+     "all"
+    ],
+    [
+     "content",
+     "no_files"
+    ],
+    [
+     "content",
+     "only_files"
+    ],
+    [
+     "no_generated",
+     "1"
+    ],
+    [
+     "no_submissions",
+     "1"
+    ],
+    [
+     "no_user_tests",
+     "1"
+    ],
+    [
+     "no_users",
+     "1"
+    ]
+   ]
+  }
+ },
+ "group.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Group § in",
+    "§",
+    "Users",
+    "Username",
+    "First name",
+    "Last name",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Group information",
+    "The name of this user group.",
+    "Name",
+    "Contest time",
+    "Start time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Start time (in UTC)",
+    "End time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "End time (in UTC)",
+    "Length of the contest (in seconds) for each contestant. If not specified, each contestant can submit solutions for the whole duration of the contest. If specified, only up to this length after the first log in (or up to the end of the contest, whichever comes first).",
+    "Length of the contest",
+    "Analysis mode",
+    "If true, analysis mode for this contest will be enabled.",
+    "Enabled",
+    "Start time of the analysis mode in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Analysis mode start time (in UTC)",
+    "End time of the analysis mode in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "Analysis mode end time (in UTC)",
+    "Update",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "analysis_enabled",
+     ""
+    ],
+    [
+     "analysis_start",
+     "§"
+    ],
+    [
+     "analysis_stop",
+     "§"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "per_user_time",
+     "§"
+    ],
+    [
+     "start",
+     "§"
+    ],
+    [
+     "stop",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Group § in",
+    "§",
+    "Users",
+    "No users found.",
+    "Group information",
+    "The name of this user group.",
+    "Name",
+    "Contest time",
+    "Start time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Start time (in UTC)",
+    "End time of the contest for users in this group in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "End time (in UTC)",
+    "Length of the contest (in seconds) for each contestant. If not specified, each contestant can submit solutions for the whole duration of the contest. If specified, only up to this length after the first log in (or up to the end of the contest, whichever comes first).",
+    "Length of the contest",
+    "Analysis mode",
+    "If true, analysis mode for this contest will be enabled.",
+    "Enabled",
+    "Start time of the analysis mode in the UTC timezone. Example: '2015-12-31 15:00:00'.",
+    "Analysis mode start time (in UTC)",
+    "End time of the analysis mode in the UTC timezone. Example: '2015-12-31 18:00:00'.",
+    "Analysis mode end time (in UTC)",
+    "Update",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "analysis_enabled",
+     ""
+    ],
+    [
+     "analysis_start",
+     "§"
+    ],
+    [
+     "analysis_stop",
+     "§"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "per_user_time",
+     "§"
+    ],
+    [
+     "start",
+     "§"
+    ],
+    [
+     "stop",
+     "§"
+    ]
+   ]
+  }
+ },
+ "groups.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Groups list",
+    "Add a new group named",
+    "Add group",
+    "Edit selected group:",
+    "Make main group",
+    "Delete selected group",
+    "Name",
+    "Start (in UTC)",
+    "End (in UTC)",
+    "Max. contest length (in seconds)",
+    "Analysis",
+    "Analysis start",
+    "Analysis end",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§"
+   ],
+   "posts": [
+    [
+     "group_id",
+     "§"
+    ],
+    [
+     "group_id",
+     "§"
+    ],
+    [
+     "name",
+     ""
+    ],
+    [
+     "operation",
+     "Delete selected group"
+    ],
+    [
+     "operation",
+     "Make main group"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Groups list",
+    "Add a new group named",
+    "Add group",
+    "Edit selected group:",
+    "Make main group",
+    "Delete selected group",
+    "Name",
+    "Start (in UTC)",
+    "End (in UTC)",
+    "Max. contest length (in seconds)",
+    "Analysis",
+    "Analysis start",
+    "Analysis end"
+   ],
+   "posts": [
+    [
+     "name",
+     ""
+    ],
+    [
+     "operation",
+     "Delete selected group"
+    ],
+    [
+     "operation",
+     "Make main group"
+    ]
+   ]
+  }
+ },
+ "login.html": {
+  "full": {
+   "texts": [
+    "Admin",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Welcome",
+    "Failed to log in.",
+    "Please log in:",
+    "Username",
+    "Password",
+    "Login",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "next",
+     "§"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Welcome",
+    "Failed to log in.",
+    "Please log in:",
+    "Username",
+    "Password",
+    "Login",
+    "Reset"
+   ],
+   "posts": [
+    [
+     "next",
+     "§"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "username",
+     ""
+    ]
+   ]
+  }
+ },
+ "overview.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Overview",
+    "Submissions status",
+    "Status",
+    "Number",
+    "loading...",
+    "Queue status",
+    "Id",
+    "Job",
+    "Priority",
+    "Since",
+    "loading...",
+    "Workers status",
+    "Shard",
+    "Connected",
+    "Current job",
+    "Since",
+    "Action",
+    "loading...",
+    "Logs",
+    "Time",
+    "Severity",
+    "Service",
+    "Operation",
+    "Message",
+    "loading..."
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Overview",
+    "Submissions status",
+    "Status",
+    "Number",
+    "loading...",
+    "Queue status",
+    "Id",
+    "Job",
+    "Priority",
+    "Since",
+    "loading...",
+    "Workers status",
+    "Shard",
+    "Connected",
+    "Current job",
+    "Since",
+    "Action",
+    "loading...",
+    "Logs",
+    "Time",
+    "Severity",
+    "Service",
+    "Operation",
+    "Message",
+    "loading..."
+   ],
+   "posts": []
+  }
+ },
+ "participation.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Participation of",
+    "§",
+    "in",
+    "§",
+    "Submissions",
+    "Reevaluate all § submissions for this user in this contest (for all datasets)",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Diff submissions...",
+    "Select two submissions from the table, or enter submission IDs:",
+    "old:",
+    "new:",
+    "Diff",
+    "-",
+    "+",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "Latency",
+    "Files",
+    "Token",
+    "Official",
+    "Comment",
+    "Reevaluate",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "§",
+    "§",
+    "§",
+    "Yes",
+    "Yes",
+    "§",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "§",
+    "§",
+    "§",
+    "[Unknown status]",
+    "Compilation output",
+    "N/A",
+    "§",
+    "§",
+    "§",
+    "Yes",
+    "Yes",
+    "§",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Participation information",
+    "The group this contestant is part of. This determines the time window for participation.",
+    "Group",
+    "§",
+    "§",
+    "Code of the team of the contestant in this contest. Only used in the external ranking.",
+    "Team",
+    "Contestant password for this contest. If empty, the contestant's main password is used. Caution: stored in plain text.",
+    "Password",
+    "Plain text",
+    "Hashed (bcrypt)",
+    "Whether the contestant's results will be visible in the external ranking.",
+    "Hidden participation",
+    "Whether the contestant is unrestricted by maximum number of submissions, user tests, and minimum interval between submissions, user tests, and contest time.",
+    "Unrestricted participation",
+    "A comma-separated list of IP addresses (or subnets) of the contestant for this contest. Used for IP-based login restrictions and/or for autologin (in this case, it must be a single address).",
+    "IP address or subnet",
+    "Time of first login during this contest, used for USACO-style contests. Example: '2015-12-31 15:00:00'.",
+    "Time of first login (in UTC)",
+    "To be set (in seconds) to acknowledge that the contestant lost that amount of time at the beginning of the contest. If this is non-zero, all the events (token generation, end of contest) for this contestant will be shifted of the appropriate amount.",
+    "Delay",
+    "To be set (in seconds) to acknowledge that the contestant lost that amount of time during the contest. If this is non-zero, the end of the contest will be shifted of the appropriate amount for this contestant.",
+    "Extra time",
+    "Update",
+    "Reset",
+    "Activity",
+    "Times are in the contest's timezone (§). The whole contest's log is under",
+    "Activity",
+    ".",
+    "Simultaneous activity",
+    "(its intervals are highlighted below):",
+    "Username",
+    "First device / IP",
+    "Second device / IP",
+    "Overlap from",
+    "Overlap to",
+    "§",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "/ §",
+    "§",
+    "§",
+    "Device",
+    "IP address",
+    "Start",
+    "Last activity",
+    "End",
+    "Started by",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Questions",
+    "§",
+    "§",
+    "§",
+    "Reply: §",
+    "§",
+    "Reply from: §",
+    "Edit reply",
+    "Precompiled answer:",
+    "Yes",
+    "No",
+    "Invalid Question (not a Yes/No Question)",
+    "No Comment/Please refer to task statement",
+    "Other",
+    "Alternative answer:",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Send",
+    "Preview Markdown",
+    "§",
+    "§",
+    "§",
+    "Reply: §",
+    "§",
+    "Reply from: §",
+    "Edit reply",
+    "Precompiled answer:",
+    "Yes",
+    "No",
+    "Invalid Question (not a Yes/No Question)",
+    "No Comment/Please refer to task statement",
+    "Other",
+    "Alternative answer:",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Send",
+    "Preview Markdown",
+    "Messages",
+    "Subject:",
+    "Text:",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Send",
+    "Preview Markdown",
+    "§",
+    "§",
+    "§",
+    "By: §",
+    "§",
+    "§",
+    "§",
+    "By: §"
+   ],
+   "posts": [
+    [
+     "delay_time",
+     "1"
+    ],
+    [
+     "diff-radio-new",
+     ""
+    ],
+    [
+     "diff-radio-new",
+     ""
+    ],
+    [
+     "diff-radio-old",
+     ""
+    ],
+    [
+     "diff-radio-old",
+     ""
+    ],
+    [
+     "extra_time",
+     "1"
+    ],
+    [
+     "group_id",
+     "§"
+    ],
+    [
+     "group_id",
+     "§"
+    ],
+    [
+     "hidden",
+     ""
+    ],
+    [
+     "ip",
+     "§, §"
+    ],
+    [
+     "message_subject",
+     ""
+    ],
+    [
+     "method",
+     "bcrypt"
+    ],
+    [
+     "method",
+     "plaintext"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "reply_question_quick_answer",
+     "invalid"
+    ],
+    [
+     "reply_question_quick_answer",
+     "invalid"
+    ],
+    [
+     "reply_question_quick_answer",
+     "no"
+    ],
+    [
+     "reply_question_quick_answer",
+     "no"
+    ],
+    [
+     "reply_question_quick_answer",
+     "nocomment"
+    ],
+    [
+     "reply_question_quick_answer",
+     "nocomment"
+    ],
+    [
+     "reply_question_quick_answer",
+     "other"
+    ],
+    [
+     "reply_question_quick_answer",
+     "other"
+    ],
+    [
+     "reply_question_quick_answer",
+     "yes"
+    ],
+    [
+     "reply_question_quick_answer",
+     "yes"
+    ],
+    [
+     "starting_time",
+     "§"
+    ],
+    [
+     "team",
+     "§"
+    ],
+    [
+     "unrestricted",
+     ""
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Participation of",
+    "§",
+    "in",
+    "§",
+    "Submissions",
+    "Reevaluate all § submissions for this user in this contest (for all datasets)",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Diff submissions...",
+    "Select two submissions from the table, or enter submission IDs:",
+    "old:",
+    "new:",
+    "Diff",
+    "-",
+    "+",
+    "Time",
+    "User",
+    "Task",
+    "Status",
+    "Latency",
+    "Files",
+    "Token",
+    "Official",
+    "Comment",
+    "Reevaluate",
+    "Participation information",
+    "The group this contestant is part of. This determines the time window for participation.",
+    "Group",
+    "Code of the team of the contestant in this contest. Only used in the external ranking.",
+    "Team",
+    "Contestant password for this contest. If empty, the contestant's main password is used. Caution: stored in plain text.",
+    "Password",
+    "Plain text",
+    "Hashed (bcrypt)",
+    "Whether the contestant's results will be visible in the external ranking.",
+    "Hidden participation",
+    "Whether the contestant is unrestricted by maximum number of submissions, user tests, and minimum interval between submissions, user tests, and contest time.",
+    "Unrestricted participation",
+    "A comma-separated list of IP addresses (or subnets) of the contestant for this contest. Used for IP-based login restrictions and/or for autologin (in this case, it must be a single address).",
+    "IP address or subnet",
+    "Time of first login during this contest, used for USACO-style contests. Example: '2015-12-31 15:00:00'.",
+    "Time of first login (in UTC)",
+    "To be set (in seconds) to acknowledge that the contestant lost that amount of time at the beginning of the contest. If this is non-zero, all the events (token generation, end of contest) for this contestant will be shifted of the appropriate amount.",
+    "Delay",
+    "To be set (in seconds) to acknowledge that the contestant lost that amount of time during the contest. If this is non-zero, the end of the contest will be shifted of the appropriate amount for this contestant.",
+    "Extra time",
+    "Update",
+    "Reset",
+    "Activity",
+    "Times are in the contest's timezone (§). The whole contest's log is under",
+    "Activity",
+    ".",
+    "No activity recorded.",
+    "Questions",
+    "Messages",
+    "Subject:",
+    "Text:",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Send",
+    "Preview Markdown"
+   ],
+   "posts": [
+    [
+     "delay_time",
+     "1"
+    ],
+    [
+     "extra_time",
+     "1"
+    ],
+    [
+     "hidden",
+     ""
+    ],
+    [
+     "ip",
+     ""
+    ],
+    [
+     "message_subject",
+     ""
+    ],
+    [
+     "method",
+     "bcrypt"
+    ],
+    [
+     "method",
+     "plaintext"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "starting_time",
+     "§"
+    ],
+    [
+     "team",
+     "§"
+    ],
+    [
+     "unrestricted",
+     ""
+    ]
+   ]
+  }
+ },
+ "participation_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Participation",
+    "Are you sure you want to remove user § from contest §, including all related data?",
+    "This will remove § submission(s).",
+    "This operation cannot be undone.",
+    "Yes, remove",
+    "No"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Participation",
+    "You do not have permission to remove a participation."
+   ],
+   "posts": []
+  }
+ },
+ "questions.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Questions",
+    "§ §",
+    "§",
+    "— §",
+    "§",
+    "§",
+    "Reply: §",
+    "§",
+    "Reply from: §",
+    "Edit reply",
+    "Precompiled answer:",
+    "Yes",
+    "No",
+    "Invalid Question (not a Yes/No Question)",
+    "No Comment/Please refer to task statement",
+    "Other",
+    "Alternative answer:",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Send",
+    "Preview Markdown",
+    "§ §",
+    "§",
+    "— §",
+    "§",
+    "§",
+    "Reply: §",
+    "§",
+    "Reply from: §",
+    "Edit reply",
+    "Precompiled answer:",
+    "Yes",
+    "No",
+    "Invalid Question (not a Yes/No Question)",
+    "No Comment/Please refer to task statement",
+    "Other",
+    "Alternative answer:",
+    "You can use Markdown here. URLs are not automatically linked, surround them with <> like <http://example.org>.",
+    "Send",
+    "Preview Markdown"
+   ],
+   "posts": [
+    [
+     "reply_question_quick_answer",
+     "invalid"
+    ],
+    [
+     "reply_question_quick_answer",
+     "invalid"
+    ],
+    [
+     "reply_question_quick_answer",
+     "no"
+    ],
+    [
+     "reply_question_quick_answer",
+     "no"
+    ],
+    [
+     "reply_question_quick_answer",
+     "nocomment"
+    ],
+    [
+     "reply_question_quick_answer",
+     "nocomment"
+    ],
+    [
+     "reply_question_quick_answer",
+     "other"
+    ],
+    [
+     "reply_question_quick_answer",
+     "other"
+    ],
+    [
+     "reply_question_quick_answer",
+     "yes"
+    ],
+    [
+     "reply_question_quick_answer",
+     "yes"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Questions"
+   ],
+   "posts": []
+  }
+ },
+ "ranking.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Ranking",
+    "Download as",
+    "csv",
+    ",",
+    "text",
+    ".",
+    "Username",
+    "User",
+    "Team",
+    "§",
+    "§",
+    "Global"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Ranking",
+    "Download as",
+    "csv",
+    ",",
+    "text",
+    ".",
+    "Username",
+    "User",
+    "Global"
+   ],
+   "posts": []
+  }
+ },
+ "ranking_group.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "General Information",
+    "Update",
+    "Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL.",
+    "Name",
+    "Description",
+    "While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Times are UTC; the local time is shown next to each.",
+    "Now",
+    "§",
+    "· next: §",
+    "§ (UTC)",
+    "YYYY-MM-DD HH:MM:SS",
+    "§ (UTC)",
+    "YYYY-MM-DD HH:MM:SS",
+    "Show now",
+    "Unfreeze now",
+    "A \"… now\" button replaces the time typed in that field.",
+    "Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. If ProxyService was down when you pressed Unarchive, press Regenerate for this group. Times are UTC; the local time is shown next to each.",
+    "Archive",
+    "§",
+    "§ (UTC)",
+    "YYYY-MM-DD HH:MM:SS",
+    "Unarchive",
+    "Leave empty to keep the current password.",
+    "Staff password",
+    "(set)",
+    "Remove staff password",
+    "Update",
+    "Reset",
+    "Delete group",
+    "Contests in this group",
+    "§",
+    "§"
+   ],
+   "posts": [
+    [
+     "description",
+     "§"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "ranking_group_id",
+     "§"
+    ],
+    [
+     "remove_staff_password",
+     ""
+    ],
+    [
+     "staff_password",
+     ""
+    ],
+    [
+     "visibility_action",
+     "show_now"
+    ],
+    [
+     "visibility_action",
+     "unarchive"
+    ],
+    [
+     "visibility_action",
+     "unfreeze_now"
+    ],
+    [
+     "§",
+     "§"
+    ],
+    [
+     "§",
+     "§"
+    ],
+    [
+     "§",
+     "§"
+    ],
+    [
+     "§_shown",
+     "§"
+    ],
+    [
+     "§_shown",
+     "§"
+    ],
+    [
+     "§_shown",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "General Information",
+    "Update",
+    "Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL.",
+    "Name",
+    "Description",
+    "While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Times are UTC; the local time is shown next to each.",
+    "Now",
+    "§",
+    "Hide now",
+    "Freeze now",
+    "A \"… now\" button replaces the time typed in that field.",
+    "Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. If ProxyService was down when you pressed Unarchive, press Regenerate for this group. Times are UTC; the local time is shown next to each.",
+    "Archive",
+    "§",
+    "§ (UTC)",
+    "YYYY-MM-DD HH:MM:SS",
+    "Archive now",
+    "Leave empty to keep the current password.",
+    "Staff password",
+    "(not set)",
+    "Remove staff password",
+    "Update",
+    "Reset",
+    "Delete group",
+    "Contests in this group",
+    "No contest is sent to this ranking yet."
+   ],
+   "posts": [
+    [
+     "description",
+     "§"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "ranking_group_id",
+     "§"
+    ],
+    [
+     "remove_staff_password",
+     ""
+    ],
+    [
+     "staff_password",
+     ""
+    ],
+    [
+     "visibility_action",
+     "archive_now"
+    ],
+    [
+     "visibility_action",
+     "freeze_now"
+    ],
+    [
+     "visibility_action",
+     "hide_now"
+    ],
+    [
+     "§",
+     "§"
+    ],
+    [
+     "§_shown",
+     "§"
+    ]
+   ]
+  }
+ },
+ "ranking_group_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove ranking group",
+    "Are you sure you want to remove ranking group § (§)?",
+    "No contest is sent to this ranking.",
+    "Its scoreboard will be emptied. This operation cannot be undone.",
+    "Yes, remove",
+    "No"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove ranking group",
+    "You do not have permission to remove a ranking group."
+   ],
+   "posts": []
+  }
+ },
+ "ranking_groups.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Ranking groups",
+    "Each ranking group is an independent public scoreboard, served by RWS at",
+    "/<name>/",
+    ". Assign a contest to a group from the contest's own page.",
+    "Edit selected group:",
+    "Delete group",
+    "Name",
+    "Description",
+    "Contests",
+    "State",
+    "Staff password",
+    "§",
+    "§",
+    "§ · next: §",
+    "set",
+    "§",
+    "§",
+    "§ · next: §",
+    "set",
+    "Regenerate a ranking",
+    "Regenerating empties a scoreboard and sends all of its data again from the database. Use it when a scoreboard does not match the database. The root ranking is the one at",
+    "/",
+    ": it is used when ProxyService runs for a single contest, and regenerating it while using groups leaves it empty.",
+    "Root ranking (",
+    "/",
+    ")",
+    "Regenerate",
+    "§ (",
+    "/§/",
+    ")",
+    "Regenerate",
+    "§ (",
+    "/§/",
+    ")",
+    "Regenerate"
+   ],
+   "posts": [
+    [
+     "group",
+     ""
+    ],
+    [
+     "group",
+     "§"
+    ],
+    [
+     "group",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "ranking_group_id",
+     "§"
+    ],
+    [
+     "ranking_group_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Ranking groups",
+    "Each ranking group is an independent public scoreboard, served by RWS at",
+    "/<name>/",
+    ". Assign a contest to a group from the contest's own page.",
+    "Edit selected group:",
+    "Delete group",
+    "Name",
+    "Description",
+    "Contests",
+    "State",
+    "Staff password",
+    "Regenerate a ranking",
+    "Regenerating empties a scoreboard and sends all of its data again from the database. Use it when a scoreboard does not match the database. The root ranking is the one at",
+    "/",
+    ": it is used when ProxyService runs for a single contest, and regenerating it while using groups leaves it empty.",
+    "Root ranking (",
+    "/",
+    ")",
+    "Regenerate"
+   ],
+   "posts": [
+    [
+     "group",
+     ""
+    ],
+    [
+     "operation",
+     "Remove"
+    ]
+   ]
+  }
+ },
+ "rename_dataset.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Rename dataset",
+    "Edit description (each dataset must have a unique description):",
+    "Rename"
+   ],
+   "posts": [
+    [
+     "description",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "- Rename dataset",
+    "Edit description (each dataset must have a unique description):",
+    "Rename"
+   ],
+   "posts": [
+    [
+     "description",
+     "§"
+    ]
+   ]
+  }
+ },
+ "resources.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Resource usage",
+    "Machine § (§)",
+    "Service",
+    "Uptime (s)",
+    "Threads",
+    "Resident (MB)",
+    "Virtual (MB)",
+    "User (%)",
+    "System (%)",
+    "Autorestart",
+    "loading...",
+    "CPU",
+    "Memory",
+    "Swap",
+    "Machine § (§)",
+    "Service",
+    "Uptime (s)",
+    "Threads",
+    "Resident (MB)",
+    "Virtual (MB)",
+    "User (%)",
+    "System (%)",
+    "Autorestart",
+    "loading...",
+    "CPU",
+    "Memory",
+    "Swap"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Resource usage"
+   ],
+   "posts": []
+  }
+ },
+ "resourceslist.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Machine list",
+    "See resource usage of the machines:",
+    "§",
+    "(§)",
+    "§",
+    "(§)",
+    "All"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Machine list",
+    "See resource usage of the machines:",
+    "All"
+   ],
+   "posts": []
+  }
+ },
+ "submission.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Submission § (Task:",
+    "§",
+    ")",
+    "Dataset: §",
+    "Current dataset: \"",
+    "§",
+    "\".",
+    "Click on one of the following items to view the results under a different dataset.",
+    "§",
+    "(Live)",
+    "§",
+    "(Live)",
+    "Submission details",
+    "Property",
+    "Value",
+    "Submission time",
+    "§",
+    "Id",
+    "§",
+    "Task",
+    "§",
+    "User",
+    "§",
+    "Files",
+    "Language",
+    "§",
+    "Token",
+    "Yes",
+    "Official",
+    "Yes",
+    "Make unofficial",
+    "Status",
+    "N/A",
+    "Latency as seen by user",
+    "§",
+    "Failures during compilation",
+    "§",
+    "Compilation shard",
+    "§",
+    "Compilation sandbox",
+    "§",
+    "§",
+    "Rerun and archive",
+    "Failures during evaluation",
+    "§",
+    "Max execution time",
+    "§ s",
+    "Max memory used",
+    "§ MiB",
+    "Reevaluate",
+    "Compilation",
+    "C",
+    "Evaluation",
+    "E",
+    "Score",
+    "S",
+    "Comment",
+    "§",
+    "Reset",
+    "Evaluation (as seen by the user)",
+    "[Cannot get score type - see logs]",
+    "Evaluation (as seen by the admin)",
+    "#",
+    "Codename",
+    "Outcome",
+    "Visible",
+    "Details",
+    "Admin Details",
+    "Shard",
+    "Resources",
+    "Sandbox",
+    "1",
+    "§",
+    "§",
+    "N/A",
+    "§",
+    "§",
+    "(§ s) (§ s) (§ MiB)",
+    "§",
+    "§",
+    "Rerun and archive",
+    "2",
+    "§",
+    "§",
+    "N/A",
+    "§",
+    "§",
+    "(§ s) (§ s) (§ MiB)",
+    "§",
+    "§",
+    "Rerun and archive",
+    "Compilation",
+    "Outcome",
+    "N/A",
+    "Standard output",
+    "§",
+    "Standard error",
+    "§"
+   ],
+   "posts": [
+    [
+     "official",
+     "no"
+    ]
+   ]
+  },
+  "empty": {
+   "error": "ValueError"
+  }
+ },
+ "task.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "Submissions",
+    "2 submissions",
+    "Task configuration",
+    "Task information",
+    "A short name for the task, preferably using only letters, numbers and underscores.",
+    "Name",
+    "The title of the task as seen by the contestants.",
+    "Title",
+    "The index of the task within the contest, if the task is associated with a contest.",
+    "Position",
+    "§",
+    "The statements of this task, by language code. Primary statements are shown prominently to contestants.",
+    "Statements [",
+    "add",
+    "]",
+    "Statement for language \"§\"",
+    "Primary?",
+    "Delete",
+    "Statement for language \"§\"",
+    "Primary?",
+    "Delete",
+    "Attachments for this task. Contestant can view and download attachments from the task page.",
+    "Attachments [",
+    "add",
+    "]",
+    "§",
+    "-",
+    "Delete",
+    "§",
+    "-",
+    "Delete",
+    "A comma-separated list with the names of the files that need to be submitted (with the language extensions changed to %l). The task type dictates the submission format. Consult the task type documentation to know the requirements.",
+    "Submission format",
+    "Programming languages that contestants can use to solve this task. If none are selected, all contest languages are allowed. Otherwise, only the selected languages are allowed.",
+    "Allowed programming languages",
+    "C# / Mono",
+    "C++11 / g++",
+    "C++14 / g++",
+    "C++17 / g++",
+    "C++20 / g++",
+    "C11 / gcc",
+    "Haskell / ghc",
+    "Java / JDK",
+    "PHP",
+    "Pascal / fpc",
+    "Python 3 / CPython",
+    "Python 3 / PyPy",
+    "Rust",
+    "With 'restricted' contestants only see limited technical information about each testcase; with 'full' they see more details, but malicious contestants might use this data to get some information about the test data.",
+    "Feedback level",
+    "OI Restricted",
+    "Restricted",
+    "Full",
+    "Tokens parameters (",
+    "documentation",
+    ")",
+    "Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters. If you prefer to control tokens at the task level, select 'infinite' here.",
+    "Token mode",
+    "Disabled",
+    "Finite",
+    "Infinite",
+    "The maximum number of tokens a contestant can use in this task. It is used only if tokens are finite.",
+    "Maximum number of tokens",
+    "The minimum amount of time (in seconds) that a contestant needs to wait for this task after using a token before being able to use another. It is used only if tokens are finite.",
+    "Minimum interval between tokens",
+    "The number of tokens that a contestant has available for this task when their contest time starts. It is used only if tokens are finite.",
+    "Initial number of tokens",
+    "The number of tokens that are generated periodically for this task. It is used only if tokens are finite.",
+    "Token generation number",
+    "The amount of time (in minutes) between two token generation events for this task. It is used only if tokens are finite.",
+    "Token generation period",
+    "Maximum number of tokens for this task available to a contestant at any given time during the contest. It is used only if tokens are finite.",
+    "Maximum accumulated tokens",
+    "Limits",
+    "Maximum number of submissions each contestant can submit for this task, for the whole contest. Leave empty for no limits.",
+    "Maximum number of submissions",
+    "Maximum number of user tests each contestant can submit for this task, for the whole contest. Leave empty for no limits.",
+    "Maximum number of user tests",
+    "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a submission before being able to submit another. Leave empty for no limits.",
+    "Minimum interval between submissions",
+    "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a user test before being able to send another. Leave empty for no limits.",
+    "Minimum interval between user tests",
+    "Score options",
+    "The number of decimal places the scores will be rounded to. Example: '2' to allow 98.76.",
+    "Score decimal places",
+    "How the score for the task is computed from the score of each submission.",
+    "Score mode",
+    "Use best among tokened and last submissions (IOI 2010-2012)",
+    "Use best among all submissions (IOI 2013-2016)",
+    "Use the sum over each subtask of the best result for that subtask across all submissions (IOI 2017-)",
+    "Datasets",
+    "Create a new dataset",
+    "Dataset: § (Live)",
+    "[Make Live ...]",
+    "[Clone]",
+    "[Rename]",
+    "[Delete]",
+    "[Disable background judging]",
+    "[View results]",
+    "Dataset configuration",
+    "Limits",
+    "Total maximum time for each evaluation, in seconds.",
+    "Time limit",
+    "second(s)",
+    "Total maximum memory usage for each evaluation, in MiB (2^20 bytes).",
+    "Memory limit",
+    "MiB",
+    "Task type settings (",
+    "documentation",
+    ")",
+    "Please see the task type documentation.",
+    "Task type",
+    "Batch",
+    "BatchAndOutput",
+    "Communication",
+    "Interactive",
+    "OutputOnly",
+    "TwoSteps",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Comma-separated list of output only testcases",
+    "Number of Processes",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "User I/O",
+    "User processes read from stdin and write to stdout",
+    "User processes read from and write to fifos, whose paths are given as arguments",
+    "Process limit",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "Concurrent solutions",
+    "Controller memory limit (MB)",
+    "Controller time limit (s)",
+    "Controller wall time limit (s)",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Managers for this task. Managers are sources, headers, libraries or binaries used during the evaluation.",
+    "Managers [",
+    "add",
+    "]",
+    "§",
+    "-",
+    "Delete",
+    "§",
+    "-",
+    "Delete",
+    "Score type settings (",
+    "documentation",
+    ")",
+    "Please see the score type documentation.",
+    "Score Type",
+    "GroupMin",
+    "GroupMul",
+    "GroupThreshold",
+    "Sum",
+    "Please see the score type documentation. A subtask can list \"depends_on\": [subtask numbers]; see the subtask dependencies page of the documentation.",
+    "Score Parameters",
+    "\"\\u00a7\"",
+    "Test cases",
+    "Add a testcase",
+    "Add multiple testcases",
+    "Download all testcases",
+    "#",
+    "Codename",
+    "Public",
+    "Input",
+    "Output",
+    "Ops",
+    "1",
+    "§",
+    "Show input",
+    "Show output",
+    "Delete",
+    "2",
+    "§",
+    "Show input",
+    "Show output",
+    "Delete",
+    "Dataset: § (Live)",
+    "[Make Live ...]",
+    "[Clone]",
+    "[Rename]",
+    "[Delete]",
+    "[Disable background judging]",
+    "[View results]",
+    "Dataset configuration",
+    "Limits",
+    "Total maximum time for each evaluation, in seconds.",
+    "Time limit",
+    "second(s)",
+    "Total maximum memory usage for each evaluation, in MiB (2^20 bytes).",
+    "Memory limit",
+    "MiB",
+    "Task type settings (",
+    "documentation",
+    ")",
+    "Please see the task type documentation.",
+    "Task type",
+    "Batch",
+    "BatchAndOutput",
+    "Communication",
+    "Interactive",
+    "OutputOnly",
+    "TwoSteps",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "I/O (blank for stdin/stdout)",
+    "Input file",
+    "Output file",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Comma-separated list of output only testcases",
+    "Number of Processes",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "User I/O",
+    "User processes read from stdin and write to stdout",
+    "User processes read from and write to fifos, whose paths are given as arguments",
+    "Process limit",
+    "Compilation",
+    "Submissions are self-sufficient",
+    "Submissions are compiled with a grader",
+    "Concurrent solutions",
+    "Controller memory limit (MB)",
+    "Controller time limit (s)",
+    "Controller wall time limit (s)",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Output evaluation",
+    "Outputs compared with white diff",
+    "Outputs are compared by a comparator",
+    "Managers for this task. Managers are sources, headers, libraries or binaries used during the evaluation.",
+    "Managers [",
+    "add",
+    "]",
+    "§",
+    "-",
+    "Delete",
+    "§",
+    "-",
+    "Delete",
+    "Score type settings (",
+    "documentation",
+    ")",
+    "Please see the score type documentation.",
+    "Score Type",
+    "GroupMin",
+    "GroupMul",
+    "GroupThreshold",
+    "Sum",
+    "Please see the score type documentation. A subtask can list \"depends_on\": [subtask numbers]; see the subtask dependencies page of the documentation.",
+    "Score Parameters",
+    "\"\\u00a7\"",
+    "Test cases",
+    "Add a testcase",
+    "Add multiple testcases",
+    "Download all testcases",
+    "#",
+    "Codename",
+    "Public",
+    "Input",
+    "Output",
+    "Ops",
+    "1",
+    "§",
+    "Show input",
+    "Show output",
+    "Delete",
+    "2",
+    "§",
+    "Show input",
+    "Show output",
+    "Delete",
+    "Update",
+    "Reset",
+    "Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest.",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "TaskTypeOptions_1_BatchAndOutput_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_output_only_testcases",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_BatchAndOutput_output_only_testcases",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_io_0_inputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_io_1_outputfile",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_Batch_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_num_processes",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_num_processes",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_user_io",
+     "fifo_io"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_user_io",
+     "fifo_io"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_user_io",
+     "std_io"
+    ],
+    [
+     "TaskTypeOptions_1_Communication_user_io",
+     "std_io"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_compilation",
+     "alone"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_compilation",
+     "grader"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_concurrent",
+     ""
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_concurrent",
+     ""
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_controller_memory_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_controller_memory_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_controller_time_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_controller_time_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_controller_wall_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_controller_wall_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_process_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_Interactive_process_limit",
+     "None"
+    ],
+    [
+     "TaskTypeOptions_1_OutputOnly_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_OutputOnly_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_OutputOnly_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_OutputOnly_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_TwoSteps_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_TwoSteps_output_eval",
+     "comparator"
+    ],
+    [
+     "TaskTypeOptions_1_TwoSteps_output_eval",
+     "diff"
+    ],
+    [
+     "TaskTypeOptions_1_TwoSteps_output_eval",
+     "diff"
+    ],
+    [
+     "allowed_languages",
+     "C# / Mono"
+    ],
+    [
+     "allowed_languages",
+     "C++11 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C++14 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C++17 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C++20 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C11 / gcc"
+    ],
+    [
+     "allowed_languages",
+     "Haskell / ghc"
+    ],
+    [
+     "allowed_languages",
+     "Java / JDK"
+    ],
+    [
+     "allowed_languages",
+     "PHP"
+    ],
+    [
+     "allowed_languages",
+     "Pascal / fpc"
+    ],
+    [
+     "allowed_languages",
+     "Python 3 / CPython"
+    ],
+    [
+     "allowed_languages",
+     "Python 3 / PyPy"
+    ],
+    [
+     "allowed_languages",
+     "Rust"
+    ],
+    [
+     "feedback_level",
+     "full"
+    ],
+    [
+     "feedback_level",
+     "oi_restricted"
+    ],
+    [
+     "feedback_level",
+     "restricted"
+    ],
+    [
+     "max_submission_number",
+     "§"
+    ],
+    [
+     "max_user_test_number",
+     "§"
+    ],
+    [
+     "memory_limit_§",
+     "§"
+    ],
+    [
+     "memory_limit_§",
+     "§"
+    ],
+    [
+     "min_submission_interval",
+     "1"
+    ],
+    [
+     "min_user_test_interval",
+     "1"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "primary_statement_§",
+     ""
+    ],
+    [
+     "primary_statement_§",
+     ""
+    ],
+    [
+     "score_mode",
+     "max"
+    ],
+    [
+     "score_mode",
+     "max_subtask"
+    ],
+    [
+     "score_mode",
+     "max_tokened_last"
+    ],
+    [
+     "score_precision",
+     "§"
+    ],
+    [
+     "score_type_§",
+     "GroupMin"
+    ],
+    [
+     "score_type_§",
+     "GroupMin"
+    ],
+    [
+     "score_type_§",
+     "GroupMul"
+    ],
+    [
+     "score_type_§",
+     "GroupMul"
+    ],
+    [
+     "score_type_§",
+     "GroupThreshold"
+    ],
+    [
+     "score_type_§",
+     "GroupThreshold"
+    ],
+    [
+     "score_type_§",
+     "Sum"
+    ],
+    [
+     "score_type_§",
+     "Sum"
+    ],
+    [
+     "submission_format",
+     "§, §"
+    ],
+    [
+     "task_id",
+     "§"
+    ],
+    [
+     "task_type_§",
+     "Batch"
+    ],
+    [
+     "task_type_§",
+     "Batch"
+    ],
+    [
+     "task_type_§",
+     "BatchAndOutput"
+    ],
+    [
+     "task_type_§",
+     "BatchAndOutput"
+    ],
+    [
+     "task_type_§",
+     "Communication"
+    ],
+    [
+     "task_type_§",
+     "Communication"
+    ],
+    [
+     "task_type_§",
+     "Interactive"
+    ],
+    [
+     "task_type_§",
+     "Interactive"
+    ],
+    [
+     "task_type_§",
+     "OutputOnly"
+    ],
+    [
+     "task_type_§",
+     "OutputOnly"
+    ],
+    [
+     "task_type_§",
+     "TwoSteps"
+    ],
+    [
+     "task_type_§",
+     "TwoSteps"
+    ],
+    [
+     "testcase_§_public",
+     ""
+    ],
+    [
+     "testcase_§_public",
+     ""
+    ],
+    [
+     "testcase_§_public",
+     ""
+    ],
+    [
+     "testcase_§_public",
+     ""
+    ],
+    [
+     "time_limit_§",
+     "§"
+    ],
+    [
+     "time_limit_§",
+     "§"
+    ],
+    [
+     "title",
+     "§"
+    ],
+    [
+     "token_gen_initial",
+     "§"
+    ],
+    [
+     "token_gen_interval",
+     "0"
+    ],
+    [
+     "token_gen_max",
+     "§"
+    ],
+    [
+     "token_gen_number",
+     "§"
+    ],
+    [
+     "token_max_number",
+     "§"
+    ],
+    [
+     "token_min_interval",
+     "1"
+    ],
+    [
+     "token_mode",
+     "disabled"
+    ],
+    [
+     "token_mode",
+     "finite"
+    ],
+    [
+     "token_mode",
+     "infinite"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "Submissions",
+    "No submissions for this task yet.",
+    "Task configuration",
+    "Task information",
+    "A short name for the task, preferably using only letters, numbers and underscores.",
+    "Name",
+    "The title of the task as seen by the contestants.",
+    "Title",
+    "The index of the task within the contest, if the task is associated with a contest.",
+    "Position",
+    "§",
+    "The statements of this task, by language code. Primary statements are shown prominently to contestants.",
+    "Statements",
+    "No statements uploaded yet",
+    "Attachments for this task. Contestant can view and download attachments from the task page.",
+    "Attachments",
+    "No attachments.",
+    "A comma-separated list with the names of the files that need to be submitted (with the language extensions changed to %l). The task type dictates the submission format. Consult the task type documentation to know the requirements.",
+    "Submission format",
+    "Programming languages that contestants can use to solve this task. If none are selected, all contest languages are allowed. Otherwise, only the selected languages are allowed.",
+    "Allowed programming languages",
+    "C# / Mono",
+    "C++11 / g++",
+    "C++14 / g++",
+    "C++17 / g++",
+    "C++20 / g++",
+    "C11 / gcc",
+    "Haskell / ghc",
+    "Java / JDK",
+    "PHP",
+    "Pascal / fpc",
+    "Python 3 / CPython",
+    "Python 3 / PyPy",
+    "Rust",
+    "With 'restricted' contestants only see limited technical information about each testcase; with 'full' they see more details, but malicious contestants might use this data to get some information about the test data.",
+    "Feedback level",
+    "OI Restricted",
+    "Restricted",
+    "Full",
+    "Tokens parameters (",
+    "documentation",
+    ")",
+    "Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters. If you prefer to control tokens at the task level, select 'infinite' here.",
+    "Token mode",
+    "Disabled",
+    "Finite",
+    "Infinite",
+    "The maximum number of tokens a contestant can use in this task. It is used only if tokens are finite.",
+    "Maximum number of tokens",
+    "The minimum amount of time (in seconds) that a contestant needs to wait for this task after using a token before being able to use another. It is used only if tokens are finite.",
+    "Minimum interval between tokens",
+    "The number of tokens that a contestant has available for this task when their contest time starts. It is used only if tokens are finite.",
+    "Initial number of tokens",
+    "The number of tokens that are generated periodically for this task. It is used only if tokens are finite.",
+    "Token generation number",
+    "The amount of time (in minutes) between two token generation events for this task. It is used only if tokens are finite.",
+    "Token generation period",
+    "Maximum number of tokens for this task available to a contestant at any given time during the contest. It is used only if tokens are finite.",
+    "Maximum accumulated tokens",
+    "Limits",
+    "Maximum number of submissions each contestant can submit for this task, for the whole contest. Leave empty for no limits.",
+    "Maximum number of submissions",
+    "Maximum number of user tests each contestant can submit for this task, for the whole contest. Leave empty for no limits.",
+    "Maximum number of user tests",
+    "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a submission before being able to submit another. Leave empty for no limits.",
+    "Minimum interval between submissions",
+    "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a user test before being able to send another. Leave empty for no limits.",
+    "Minimum interval between user tests",
+    "Score options",
+    "The number of decimal places the scores will be rounded to. Example: '2' to allow 98.76.",
+    "Score decimal places",
+    "How the score for the task is computed from the score of each submission.",
+    "Score mode",
+    "Use best among tokened and last submissions (IOI 2010-2012)",
+    "Use best among all submissions (IOI 2013-2016)",
+    "Use the sum over each subtask of the best result for that subtask across all submissions (IOI 2017-)",
+    "Datasets",
+    "No datasets have been created for this task.",
+    "Update",
+    "Reset",
+    "Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest.",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "allowed_languages",
+     "C# / Mono"
+    ],
+    [
+     "allowed_languages",
+     "C++11 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C++14 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C++17 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C++20 / g++"
+    ],
+    [
+     "allowed_languages",
+     "C11 / gcc"
+    ],
+    [
+     "allowed_languages",
+     "Haskell / ghc"
+    ],
+    [
+     "allowed_languages",
+     "Java / JDK"
+    ],
+    [
+     "allowed_languages",
+     "PHP"
+    ],
+    [
+     "allowed_languages",
+     "Pascal / fpc"
+    ],
+    [
+     "allowed_languages",
+     "Python 3 / CPython"
+    ],
+    [
+     "allowed_languages",
+     "Python 3 / PyPy"
+    ],
+    [
+     "allowed_languages",
+     "Rust"
+    ],
+    [
+     "feedback_level",
+     "full"
+    ],
+    [
+     "feedback_level",
+     "oi_restricted"
+    ],
+    [
+     "feedback_level",
+     "restricted"
+    ],
+    [
+     "max_submission_number",
+     "§"
+    ],
+    [
+     "max_user_test_number",
+     "§"
+    ],
+    [
+     "min_submission_interval",
+     "1"
+    ],
+    [
+     "min_user_test_interval",
+     "1"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "score_mode",
+     "max"
+    ],
+    [
+     "score_mode",
+     "max_subtask"
+    ],
+    [
+     "score_mode",
+     "max_tokened_last"
+    ],
+    [
+     "score_precision",
+     "§"
+    ],
+    [
+     "submission_format",
+     ""
+    ],
+    [
+     "task_id",
+     "§"
+    ],
+    [
+     "title",
+     "§"
+    ],
+    [
+     "token_gen_initial",
+     "§"
+    ],
+    [
+     "token_gen_interval",
+     "0"
+    ],
+    [
+     "token_gen_max",
+     "§"
+    ],
+    [
+     "token_gen_number",
+     "§"
+    ],
+    [
+     "token_max_number",
+     "§"
+    ],
+    [
+     "token_min_interval",
+     "1"
+    ],
+    [
+     "token_mode",
+     "disabled"
+    ],
+    [
+     "token_mode",
+     "finite"
+    ],
+    [
+     "token_mode",
+     "infinite"
+    ]
+   ]
+  }
+ },
+ "task_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Task",
+    "Are you sure you want to remove task § from CMS, including all related data?",
+    "This will remove § submission(s).",
+    "This operation cannot be undone.",
+    "Yes, remove",
+    "No"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Task",
+    "You do not have permission to remove a task."
+   ],
+   "posts": []
+  }
+ },
+ "tasks.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Tasks list",
+    "Edit selected task:",
+    "Remove",
+    "Name",
+    "Title",
+    "§",
+    "§",
+    "§",
+    "§"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "task_id",
+     "§"
+    ],
+    [
+     "task_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Tasks list",
+    "Edit selected task:",
+    "Remove",
+    "Name",
+    "Title"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove"
+    ]
+   ]
+  }
+ },
+ "team.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "General Information",
+    "Code",
+    "Name",
+    "Update",
+    "Reset",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "code",
+     "§"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "team_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ (§)",
+    "General Information",
+    "Code",
+    "Name",
+    "Update",
+    "Reset",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "code",
+     "§"
+    ],
+    [
+     "name",
+     "§"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "team_id",
+     "§"
+    ]
+   ]
+  }
+ },
+ "team_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Team",
+    "Are you sure you want to remove team § (§)?",
+    "This team has no associated participations.",
+    "This operation cannot be undone.",
+    "Yes, remove",
+    "No"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove Team",
+    "You do not have permission to remove a team."
+   ],
+   "posts": []
+  }
+ },
+ "teams.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Teams list",
+    "Edit selected team:",
+    "Remove",
+    "Code",
+    "Name",
+    "§",
+    "§",
+    "§",
+    "§"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "team_id",
+     "§"
+    ],
+    [
+     "team_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Teams list",
+    "Edit selected team:",
+    "Remove",
+    "Code",
+    "Name"
+   ],
+   "posts": [
+    [
+     "operation",
+     "Remove"
+    ]
+   ]
+  }
+ },
+ "user.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ § (§)",
+    "Participations",
+    "Add a new participation (in main group):",
+    "Select a contest",
+    "§",
+    "§",
+    "Hidden",
+    "Unrestricted",
+    "Add participation",
+    "Edit selected participation:",
+    "Remove",
+    "Participation",
+    "Hidden?",
+    "Unrestricted?",
+    "Contest",
+    "Contest description",
+    "Group",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "General Information",
+    "First name of the contestant.",
+    "First name",
+    "Last name of the contestant.",
+    "Last name",
+    "Username of the contestant (used to log in).",
+    "Username",
+    "Contestant password. Caution: stored in plain text.",
+    "Password",
+    "Plain text",
+    "Hashed (bcrypt)",
+    "Contestant e-mail address.",
+    "E-mail",
+    "Timezone of the contestant, used to display start, end times and the current server time in local time. Example: 'Europe/Rome', 'America/New_York', ...",
+    "Timezone",
+    "Comma-separated list of language codes, from the most to the least preferred. Example: 'en, ja'.",
+    "Preferred languages",
+    "Update",
+    "Reset",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "contest_id",
+     "null"
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "contest_id",
+     "§"
+    ],
+    [
+     "email",
+     "§"
+    ],
+    [
+     "first_name",
+     "§"
+    ],
+    [
+     "hidden",
+     ""
+    ],
+    [
+     "last_name",
+     "§"
+    ],
+    [
+     "method",
+     "bcrypt"
+    ],
+    [
+     "method",
+     "plaintext"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "preferred_languages",
+     "§, §"
+    ],
+    [
+     "timezone",
+     "§"
+    ],
+    [
+     "unrestricted",
+     ""
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "username",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "§ § (§)",
+    "Participations",
+    "Add a new participation (in main group):",
+    "Select a contest",
+    "Hidden",
+    "Unrestricted",
+    "Add participation",
+    "Edit selected participation:",
+    "Remove",
+    "Participation",
+    "Hidden?",
+    "Unrestricted?",
+    "Contest",
+    "Contest description",
+    "Group",
+    "General Information",
+    "First name of the contestant.",
+    "First name",
+    "Last name of the contestant.",
+    "Last name",
+    "Username of the contestant (used to log in).",
+    "Username",
+    "Contestant password. Caution: stored in plain text.",
+    "Password",
+    "Plain text",
+    "Hashed (bcrypt)",
+    "Contestant e-mail address.",
+    "E-mail",
+    "Timezone of the contestant, used to display start, end times and the current server time in local time. Example: 'Europe/Rome', 'America/New_York', ...",
+    "Timezone",
+    "Comma-separated list of language codes, from the most to the least preferred. Example: 'en, ja'.",
+    "Preferred languages",
+    "Update",
+    "Reset",
+    "Remove"
+   ],
+   "posts": [
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "contest_id",
+     "null"
+    ],
+    [
+     "email",
+     "§"
+    ],
+    [
+     "first_name",
+     "§"
+    ],
+    [
+     "hidden",
+     ""
+    ],
+    [
+     "last_name",
+     "§"
+    ],
+    [
+     "method",
+     "bcrypt"
+    ],
+    [
+     "method",
+     "plaintext"
+    ],
+    [
+     "operation",
+     "Remove"
+    ],
+    [
+     "password",
+     ""
+    ],
+    [
+     "preferred_languages",
+     ""
+    ],
+    [
+     "timezone",
+     "§"
+    ],
+    [
+     "unrestricted",
+     ""
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "username",
+     "§"
+    ]
+   ]
+  }
+ },
+ "user_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove User",
+    "Are you sure you want to remove user §, including all related data?",
+    "This will remove § participation(s) and § submission(s).",
+    "This operation cannot be undone.",
+    "Yes, remove",
+    "No"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove User",
+    "You do not have permission to remove a user."
+   ],
+   "posts": []
+  }
+ },
+ "user_test.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "User test § (Task:",
+    "§",
+    ")",
+    "Dataset: §",
+    "Current dataset: \"",
+    "§",
+    "\".",
+    "Click on one of the following items to view the results under a different dataset.",
+    "§",
+    "(Live)",
+    "§",
+    "(Live)",
+    "User test details",
+    "Property",
+    "Value",
+    "Id",
+    "§",
+    "Task",
+    "§",
+    "User",
+    "§",
+    "Files",
+    "Language",
+    "§",
+    "Status",
+    "N/A",
+    "Failures during compilation",
+    "§",
+    "Compilation shard",
+    "§",
+    "Compilation sandbox",
+    "§ §",
+    "Failures during evaluation",
+    "§",
+    "Evaluation sandbox",
+    "§ §",
+    "Evaluation",
+    "Outcome",
+    "N/A",
+    "Output",
+    "See output",
+    "Compilation",
+    "Outcome",
+    "N/A",
+    "Standard output",
+    "§",
+    "Standard error",
+    "§"
+   ],
+   "posts": []
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "User test § (Task:",
+    "§",
+    ")",
+    "Dataset: §",
+    "No datasets exist for this task.",
+    "User test details",
+    "Property",
+    "Value",
+    "Id",
+    "§",
+    "Task",
+    "§",
+    "User",
+    "§",
+    "Files",
+    "Language",
+    "§",
+    "Status",
+    "N/A",
+    "Failures during compilation",
+    "§",
+    "Compilation shard",
+    "§",
+    "Compilation sandbox",
+    "Failures during evaluation",
+    "§"
+   ],
+   "posts": []
+  }
+ },
+ "users.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Users list",
+    "Import CSV",
+    "Selected users:",
+    "Delete selected",
+    "Select all",
+    "Username",
+    "First name",
+    "Last name",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Delete by list",
+    "One username per line, or a CSV whose first column is the username.",
+    "Review list"
+   ],
+   "posts": [
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "file",
+     ""
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Users list",
+    "Selected users:",
+    "Delete selected",
+    "Select all",
+    "Username",
+    "First name",
+    "Last name",
+    "Delete by list",
+    "One username per line, or a CSV whose first column is the username.",
+    "Review list"
+   ],
+   "posts": [
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "action",
+     "preview"
+    ],
+    [
+     "file",
+     ""
+    ]
+   ]
+  }
+ },
+ "users_bulk_remove.html": {
+  "full": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove participations from §",
+    "§",
+    "Warning: a contest that is running is among those affected. Submissions made during the contest will be lost, and emptying and sending a ranking again in the middle of a contest is heavy.",
+    "2 participations will be removed from this contest, with § submissions and § user tests. This operation cannot be undone.",
+    "Rankings that will be emptied and sent again: §, §.",
+    "Username",
+    "First name",
+    "Last name",
+    "Submissions",
+    "User tests",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "§",
+    "Ignored:",
+    "§ — §",
+    "§ — §",
+    "Type 2 to confirm:",
+    "Remove",
+    "Cancel"
+   ],
+   "posts": [
+    [
+     "action",
+     "confirm"
+    ],
+    [
+     "expected_count",
+     ""
+    ],
+    [
+     "fingerprint",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ],
+    [
+     "user_id",
+     "§"
+    ]
+   ]
+  },
+  "empty": {
+   "texts": [
+    "Admin: §",
+    "Theme",
+    "Theme",
+    "System",
+    "Light",
+    "Dark",
+    "Language",
+    "Language",
+    "Automatic (English)",
+    "English",
+    "Administration",
+    "CMS",
+    "codebase",
+    "is released under the",
+    "GNU Affero General Public License",
+    ".",
+    "x",
+    "Remove participations from §",
+    "§",
+    "There is nothing to delete.",
+    "Cancel"
+   ],
+   "posts": []
+  }
+ }
+}
