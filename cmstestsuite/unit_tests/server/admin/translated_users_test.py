@@ -24,7 +24,9 @@ page looks.
 """
 
 import json
+import re
 import unittest
+from datetime import datetime
 from types import SimpleNamespace
 
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
@@ -46,6 +48,14 @@ def page(name: str, translation=None, **params) -> str:
     text, attributes = visible(render(AWS_ENVIRONMENT, name, translation,
                                       **params))
     return " | ".join([text] + attributes)
+
+
+def operation_buttons(html: str) -> list[tuple[str, str]]:
+    """The (value posted, label shown) of the buttons that send an
+    operation."""
+    return re.findall(
+        r'<button[^>]*name="operation"[^>]*value="([^"]*)"[^>]*>([^<]*)'
+        r"</button>", html)
 
 
 class TestUsersPagesInSpanish(unittest.TestCase):
@@ -112,6 +122,97 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             json.dumps("La contraseña está cifrada, escribe aquí una nueva "
                        "para cambiarla"), html)
         self.assertNotIn("The password is hashed", html)
+
+    def test_the_teams_pages_in_spanish(self):
+        # Scenario: A page group in Spanish (teams)
+        team = SimpleNamespace(id=3, code="mx", name="Equipo <1>")
+        admin = SimpleNamespace(permission_all=True)
+
+        text = page("teams.html", SPANISH, team_list=[team], admin=admin)
+        for expected in ("Lista de equipos", "Editar el equipo seleccionado:",
+                         "Código", "Nombre", "Quitar"):
+            self.assertIn(expected, text)
+        self.assertNotIn("Teams list", text)
+
+        text = page("team.html", SPANISH, team=team, admin=admin)
+        for expected in ("Información general", "Actualizar", "Limpiar"):
+            self.assertIn(expected, text)
+
+        text = page("add_team.html", SPANISH)
+        self.assertIn("Nuevo equipo", text)
+        self.assertNotIn("New team", text)
+
+    def test_the_team_removal_page_in_spanish(self):
+        # Scenario: A page group in Spanish (teams)
+        params = {"team": SimpleNamespace(id=3, code="mx", name="Equipo"),
+                  "admin": SimpleNamespace(permission_all=True)}
+
+        text = page("team_remove.html", SPANISH, participation_count=4,
+                    **params)
+        for expected in (
+                "Borrar equipo",
+                "¿Seguro que quieres borrar el equipo mx (Equipo)?",
+                "Esto quitará la asociación con el equipo de 4 "
+                "participación(es)."):
+            self.assertIn(expected, text)
+
+        text = page("team_remove.html", SPANISH, participation_count=0,
+                    **params)
+        self.assertIn("Este equipo no tiene participaciones asociadas.",
+                      text)
+
+    def test_the_groups_pages_in_spanish(self):
+        # Scenario: A page group in Spanish (groups)
+        contest = SimpleNamespace(id=1, name="d1", main_group_id=5)
+        group = SimpleNamespace(
+            id=5, name="main", contest=contest, per_user_time=None,
+            start=datetime(2026, 1, 1), stop=datetime(2026, 1, 2),
+            analysis_enabled=False, analysis_start=datetime(2026, 1, 3),
+            analysis_stop=datetime(2026, 1, 4), participations=[])
+        contest.groups = [group]
+        admin = SimpleNamespace(permission_all=True)
+
+        text = page("groups.html", SPANISH, contest=contest, admin=admin)
+        for expected in ("Lista de grupos", "Agrega un grupo nuevo llamado",
+                         "Editar el grupo seleccionado:", "Inicio (en UTC)",
+                         "Inicio del análisis", "(grupo principal)"):
+            self.assertIn(expected, text)
+        self.assertNotIn("Groups list", text)
+
+        text = page("group.html", SPANISH, contest=contest, group=group,
+                    admin=admin)
+        for expected in ("Grupo main en", "No se encontraron usuarios.",
+                         "Información del grupo",
+                         "Nombre de este grupo de usuarios."):
+            self.assertIn(expected, text)
+
+    def test_the_operation_buttons_post_english_values(self):
+        # Scenario: No translated posted values (the label is Spanish, the
+        # value that the handler reads is what it was)
+        admin = SimpleNamespace(permission_all=True)
+        contest = SimpleNamespace(id=1, name="d1", main_group_id=5,
+                                  groups=[])
+        pages = {
+            "groups.html": ({"contest": contest},
+                            [("Make main group", "Hacer grupo principal"),
+                             ("Delete selected group",
+                              "Borrar el grupo seleccionado")]),
+            "teams.html": ({"team_list": []}, [("Remove", "Quitar")]),
+            "team.html": ({"team": SimpleNamespace(id=1, code="a", name="b")},
+                          [("Remove", "Quitar")]),
+            "user.html": ({"user": user(), "unassigned_contests": [],
+                           "participations": [SimpleNamespace(
+                               contest=SimpleNamespace(
+                                   id=2, name="d1", description=""),
+                               user=user(), hidden=False,
+                               unrestricted=False,
+                               group=SimpleNamespace(name="g"))]},
+                          [("Remove", "Quitar")]),
+        }
+        for name, (params, expected) in pages.items():
+            html = render(AWS_ENVIRONMENT, name, SPANISH, admin=admin,
+                          **params)
+            self.assertEqual(operation_buttons(html), expected, msg=name)
 
 
 if __name__ == "__main__":

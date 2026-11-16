@@ -96,3 +96,78 @@ msgstr "Esto borrará %(participations)s participación(es) y %(submissions)s en
 
 msgid "You do not have permission to remove a user."
 msgstr "No tienes permiso para borrar un usuario."
+
+msgid "Code"
+msgstr "Código"
+
+msgid "Teams list"
+msgstr "Lista de equipos"
+
+msgid "Edit selected team:"
+msgstr "Editar el equipo seleccionado:"
+
+msgid "New team"
+msgstr "Nuevo equipo"
+
+msgid "Remove Team"
+msgstr "Borrar equipo"
+
+msgid "Are you sure you want to remove team %(code)s (%(name)s)?"
+msgstr "¿Seguro que quieres borrar el equipo %(code)s (%(name)s)?"
+
+msgid "This will remove the team association from %(count)s participation(s). The participations will remain but will no longer be associated with this team."
+msgstr "Esto quitará la asociación con el equipo de %(count)s participación(es). Las participaciones se conservarán, pero ya no estarán asociadas a este equipo."
+
+msgid "This team has no associated participations."
+msgstr "Este equipo no tiene participaciones asociadas."
+
+msgid "You do not have permission to remove a team."
+msgstr "No tienes permiso para borrar un equipo."
+
+msgid "Groups list"
+msgstr "Lista de grupos"
+
+msgid "Add a new group named"
+msgstr "Agrega un grupo nuevo llamado"
+
+msgid "Add group"
+msgstr "Agregar grupo"
+
+msgid "Make main group"
+msgstr "Hacer grupo principal"
+
+msgid "Delete selected group"
+msgstr "Borrar el grupo seleccionado"
+
+msgid "Start (in UTC)"
+msgstr "Inicio (en UTC)"
+
+msgid "End (in UTC)"
+msgstr "Fin (en UTC)"
+
+msgid "Max. contest length (in seconds)"
+msgstr "Duración máxima del concurso (en segundos)"
+
+msgid "Analysis"
+msgstr "Análisis"
+
+msgid "Analysis start"
+msgstr "Inicio del análisis"
+
+msgid "Analysis end"
+msgstr "Fin del análisis"
+
+msgid "(main group)"
+msgstr "(grupo principal)"
+
+msgid "Group %(group_name)s in <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+msgstr "Grupo %(group_name)s en <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+
+msgid "No users found."
+msgstr "No se encontraron usuarios."
+
+msgid "Group information"
+msgstr "Información del grupo"
+
+msgid "The name of this user group."
+msgstr "Nombre de este grupo de usuarios."

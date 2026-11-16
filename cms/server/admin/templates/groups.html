@@ -1,49 +1,50 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 <div class="core_title">
-  <h1>Groups list</h1>
+  <h1>{% trans %}Groups list{% endtrans %}</h1>
 </div>
 
 <form action="{{ url("contest", contest.id, "groups", "add") }}" method="POST">
     {{ xsrf_form_html|safe }}
-  Add a new group named
+  {% trans %}Add a new group named{% endtrans %}
   <input type="text" name="name"/>
   <input type="submit"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="Add group" />
+         value="{{ _("Add group") }}" />
 </form>
 
 <form action="{{ url("contest", contest.id, "groups") }}" method="POST">
     {{ xsrf_form_html|safe }}
-  Edit selected group:
-  <input type="submit"
+  {% trans %}Edit selected group:{% endtrans %}
+  <button type="submit"
          name="operation"
          value="Make main group"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         />
-  <input type="submit"
+         >{% trans %}Make main group{% endtrans %}</button>
+  <button type="submit"
          name="operation"
          value="Delete selected group"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         />
+         >{% trans %}Delete selected group{% endtrans %}</button>
   <table class="bordered">
     <thead>
       <tr>
         <th></th>
-        <th>Name</th>
-        <th>Start (in UTC)</th>
-        <th>End (in UTC)</th>
-        <th>Max. contest length (in seconds)</th>
-        <th>Analysis</th>
-        <th>Analysis start</th>
-        <th>Analysis end</th>
+        <th>{% trans %}Name{% endtrans %}</th>
+        <th>{% trans %}Start (in UTC){% endtrans %}</th>
+        <th>{% trans %}End (in UTC){% endtrans %}</th>
+        <th>{% trans %}Max. contest length (in seconds){% endtrans %}</th>
+        <th>{% trans %}Analysis{% endtrans %}</th>
+        <th>{% trans %}Analysis start{% endtrans %}</th>
+        <th>{% trans %}Analysis end{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
@@ -52,7 +53,7 @@
         <td>
           <input type="radio" name="group_id" value="{{ g.id }}"/>
         </td>
-        <td><a href="{{ url("contest", contest.id, "group", g.id, "edit") }}">{{ g.name }} {% if g.id == g.contest.main_group_id %}(main group){% endif %}</a></td>
+        <td><a href="{{ url("contest", contest.id, "group", g.id, "edit") }}">{{ g.name }} {% if g.id == g.contest.main_group_id %}{% trans %}(main group){% endtrans %}{% endif %}</a></td>
         <td>{{ g.start|format_utc_time }}</td>
         <td>{{ g.stop|format_utc_time }}</td>
         <td>
