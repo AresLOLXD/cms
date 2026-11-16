@@ -169,7 +169,7 @@ class TestContestUsersInSpanish(unittest.TestCase):
                 "Quitar participación",
                 "¿Seguro que quieres quitar al usuario ana del concurso "
                 "d1, incluidos todos sus datos relacionados?",
-                "Se borrarán 5 envío(s).", "Sí, quitar"):
+                "Se borrarán 5 envío(s).", "Sí, borrar"):
             self.assertIn(expected, text)
 
         text = page("participation_remove.html", SPANISH,

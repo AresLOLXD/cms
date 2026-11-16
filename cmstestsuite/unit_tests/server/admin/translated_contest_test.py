@@ -163,8 +163,8 @@ class TestContestPagesInSpanish(unittest.TestCase):
                 '#feedback-to-contestants" target="_blank">documentación'
                 '</a>)',
                 "Modo de token", "Número máximo de tokens", ">Límites</h2>",
-                "Decimales del puntaje", "Solo se usa si los tokens son "
-                "finitos."):
+                "Decimales del puntaje", "Se usa solo si los tokens son "
+                "limitados."):
             self.assertIn(expected, html)
 
     def test_the_groups_link_keeps_its_markup(self):
@@ -210,7 +210,7 @@ class TestContestPagesInSpanish(unittest.TestCase):
                 "¿Seguro que quieres borrar el concurso d1 de CMS, con "
                 "todos sus datos relacionados?",
                 "Esto borrará 0 participación(es) y 5 envío(s).",
-                "Esta operación no se puede deshacer.", "Sí, quitar"):
+                "Esta operación no se puede deshacer.", "Sí, borrar"):
             self.assertIn(expected, removal)
         self.assertNotIn("Are you sure", removal)
 

@@ -191,7 +191,7 @@ class TestRankingGroupRemovePage(unittest.TestCase):
                      "(OLIM)?",
                      "3 concurso(s) dejarán de enviarse a cualquier ranking.",
                      "Su marcador se vaciará. Esta operación no se puede "
-                     "deshacer.", "Sí, quitar", ">No</a>"):
+                     "deshacer.", "Sí, borrar", ">No</a>"):
             self.assertIn(text, html)
         self.assertIn("Ningún concurso se envía a este ranking.",
                       self.page(SPANISH, count=0))
