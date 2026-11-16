@@ -147,3 +147,12 @@ msgstr "Coincidencia desde"
 
 msgid "Overlap to"
 msgstr "Coincidencia hasta"
+
+msgid "Download as <a href=\"%(csv_url)s\">csv</a>, <a href=\"%(text_url)s\">text</a>."
+msgstr "Descarga en <a href=\"%(csv_url)s\">csv</a>, <a href=\"%(text_url)s\">texto</a>."
+
+msgid "Team"
+msgstr "Equipo"
+
+msgid "Global"
+msgstr "Total"

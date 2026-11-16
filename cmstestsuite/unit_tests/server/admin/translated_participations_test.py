@@ -272,3 +272,17 @@ class TestActivityInSpanish(unittest.TestCase):
         self.assertIn("No hay actividad registrada.", text)
         self.assertIn("Ninguno.", text)
         self.assertNotIn("None.", text)
+
+
+class TestRankingInSpanish(unittest.TestCase):
+
+    def test_the_ranking_page_in_spanish(self):
+        # Scenario: A page group in Spanish (ranking)
+        text = page("ranking.html", SPANISH,
+                    contest=SimpleNamespace(id=1, tasks=[], participations=[]),
+                    show_teams=True)
+
+        for expected in ("Descarga en csv", "texto", "Usuario", "Equipo",
+                         "Total"):
+            self.assertIn(expected, text)
+        self.assertNotIn("Download as", text)
