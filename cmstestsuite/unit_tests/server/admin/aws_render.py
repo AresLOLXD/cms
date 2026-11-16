@@ -18,10 +18,13 @@
 """Render every AWS page template without a database, for the guards.
 
 The data a page reads is replaced by a stand-in (``Anything``) that
-prints as a symbol, is true and iterates over two items ("full" mode),
-or is false and iterates over nothing ("empty" mode). Two things are
-extracted from the rendered html: the visible texts and the (name,
-value) pairs that the named controls would post.
+prints as a symbol. There are three modes: "full" (the stand-in is true
+and iterates over two items), "empty" (false, iterates over nothing)
+and "admin" (an admin is logged in, the stand-in is true, has six items
+and is ``none`` for the ``is none`` test, as a page without a contest
+or a dataset). Four things are extracted from the rendered html: the
+visible texts, the (name, value) pairs that the named controls would
+post, the inline scripts and the event attributes.
 
 """
 
@@ -36,6 +39,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from jinja2 import Environment, Undefined
+from jinja2.utils import LRUCache
 from markupsafe import Markup
 
 from cms.locale import DEFAULT_TRANSLATION, Translation
@@ -50,6 +54,10 @@ OPEN, CLOSE = "⟦", "⟧"
 SYMBOL = "§"
 # A word of two letters or more.
 WORD = re.compile(r"[^\W\d_]{2,}")
+# The attributes that show text.
+TEXT_ATTRS = ("title", "placeholder", "alt", "aria-label",
+              "aria-description", "aria-placeholder", "label", "summary")
+MODES = ("full", "empty", "admin")
 
 # Pages are the templates that are not reached through another page.
 ALL_TEMPLATES = sorted(
@@ -74,10 +82,12 @@ class Pseudo(Translation):
 PSEUDO = Pseudo()
 
 
-def make_undefined(full: bool) -> type[Undefined]:
-    """Return the stand-in class for the data a page does not get."""
+def make_stand_ins(mode: str) -> tuple[type[Undefined], type]:
+    """Return the classes of the stand-in for a datum that the page
+    does not get (Undefined) and for one that it does (a plain object)."""
+    items = {"full": 2, "empty": 0, "admin": 6}[mode]
 
-    class Anything(Undefined):
+    class Datum:
         """Stands for any datum: attribute, item, call, iteration."""
         __slots__ = ()
 
@@ -93,16 +103,16 @@ def make_undefined(full: bool) -> type[Undefined]:
             return self
 
         def __iter__(self):
-            return iter([self, self] if full else [])
+            return iter([self] * min(items, 2))
 
         def __str__(self):
             return SYMBOL
 
         def __bool__(self):
-            return full
+            return items > 0
 
         def __len__(self):
-            return 2 if full else 0
+            return items
 
         def __int__(self):
             return 1
@@ -138,7 +148,13 @@ def make_undefined(full: bool) -> type[Undefined]:
         __radd__ = __sub__ = __rsub__ = __mul__ = __rmul__ = __add__
         __truediv__ = __floordiv__ = __mod__ = __rmod__ = __add__
 
-    return Anything
+    class Anything(Datum, Undefined):
+        __slots__ = ()
+
+    class Defined(Datum):
+        __slots__ = ()
+
+    return Anything, Defined
 
 
 def _total(fn: Callable) -> Callable:
@@ -152,18 +168,28 @@ def _total(fn: Callable) -> Callable:
     return wrapper
 
 
-def environment(full: bool) -> Environment:
-    """Return the AWS environment with the stand-ins for "full" or "empty"."""
-    # No cache: an overlay starts with a copy of its parent's, whose
+@functools.cache
+def environment(mode: str) -> Environment:
+    """Return the AWS environment with the stand-ins of the mode."""
+    anything, defined = make_stand_ins(mode)
+    env = AWS_ENVIRONMENT.overlay(undefined=anything)
+    # An overlay starts with a copy of its parent's cache, whose
     # templates keep the parent's environment and would ignore ours.
-    env = AWS_ENVIRONMENT.overlay(
-        undefined=make_undefined(full), cache_size=0)
-    # An overlay shares the globals and filters of its parent: copy them.
+    env.cache = LRUCache(400)
+    # An overlay shares the globals, filters and tests of its parent.
     env.globals = dict(env.globals)
     env.filters = dict(env.filters)
+    env.tests = dict(env.tests)
     env.globals["clock_zones"] = lambda *args: []
     # The real one is random.
     env.globals["get_hex_random_key"] = lambda *args: "0000"
+    if mode == "admin":
+        # What a page has when an admin is logged in and no contest is
+        # chosen: the stand-ins are "none", the lists are long.
+        env.globals["admin"] = defined()
+        env.globals["contest_list"] = defined()
+        env.tests["none"] = lambda value: value is None \
+            or isinstance(value, (anything, defined))
     env.filters["tojson"] = lambda value, *args, **kwargs: Markup(
         json.dumps(value, default=lambda obj: SYMBOL))
     for name, fn in list(env.filters.items()):
@@ -208,42 +234,108 @@ def renders(page: str, translation: Translation = DEFAULT_TRANSLATION):
     page can use).
 
     """
-    for full in (True, False):
+    for mode in MODES:
         try:
-            yield render(environment(full), page, translation)
+            yield render(environment(mode), page, translation)
         except Exception:
             continue
 
 
+# Only these spaces count: a no-break space is text.
+_SPACE = re.compile(r"[ \t\r\n\f]+")
+# The elements that sit in a line of text: a space next to them shows.
+INLINE = frozenset(
+    "a abbr b bdi bdo big button cite code em font i img input kbd label "
+    "mark q s samp select small span strike strong sub sup textarea tt u "
+    "var".split())
+# Stand in a static skeleton for a jinja tag (it splits the text) and
+# for the numbered messages that are put back after the parse.
+TAG = "\ue002"
+SUBSTITUTION = re.compile("([\ue004\ue006])([0-9]+)[\ue005\ue007]")
+
+
 def _normalize(text: str) -> str:
-    return " ".join(text.split())
+    return _SPACE.sub(" ", text).strip(" ")
 
 
 class _Extractor(HTMLParser):
-    """Collect the visible texts and the posted pairs of a page."""
+    """Collect what a page shows and posts.
+
+    The texts are (line, kind, text): a text node or the text of an
+    attribute, a <br> and the raw content of <pre> and <textarea>. Runs
+    of spaces collapse, but a space next to an inline tag stays.
+
+    subs: the messages that a static skeleton numbered (see
+    aws_i18n_lint.static_skeleton).
+
+    """
 
     VOID = ("meta", "link", "br", "hr", "input", "img", "col")
 
-    def __init__(self):
+    def __init__(self, subs=()):
         super().__init__(convert_charrefs=True)
         self.texts: list[tuple[int, str, str]] = []
         self.posts: list[tuple[str, str]] = []
+        self.scripts: list[tuple[int, str]] = []
+        self.events: list[tuple[int, str, str]] = []
+        self._subs = subs
         self._stack: list[str] = []
         self._select: str | None = None
         self._option: list | None = None
+        self._script_buf: list[str] | None = None
+        self._open_text: tuple | None = None
+        self._after_inline = False
+
+    def _expand(self, text: str, keep_tag: bool = False) -> str:
+        def put_back(match):
+            message = self._subs[int(match.group(2))]
+            return json.dumps(message, ensure_ascii=False) \
+                if match.group(1) == "\ue006" else message
+        text = SUBSTITUTION.sub(put_back, text)
+        return text if keep_tag else text.replace(TAG, "")
+
+    def _boundary(self, before_inline: bool, after_inline: bool):
+        """A tag: close the text before it and remember what follows."""
+        self._flush(before_inline)
+        self._after_inline = after_inline
+
+    def _flush(self, before_inline: bool):
+        if self._open_text is None:
+            return
+        line, kind, core, lead, trail, after_inline = self._open_text
+        self._open_text = None
+        if core:
+            text = (" " if lead and after_inline else "") + core \
+                + (" " if trail and before_inline else "")
+        elif lead and after_inline and before_inline:
+            text = " "
+        else:
+            return
+        self.texts.append((line, kind, text))
 
     def handle_starttag(self, tag, attrs):
-        a = {k: v or "" for k, v in attrs}
+        a = {k: self._expand(v or "") for k, v in attrs}
         line = self.getpos()[0]
+        # A space shows between a text and an inline tag that starts (or
+        # after one that ends, or a void one), not inside the element.
+        self._boundary(tag in INLINE, tag in INLINE and tag in self.VOID)
         if tag not in self.VOID:
             self._stack.append(tag)
-        for kind in ("title", "placeholder", "alt", "aria-label"):
+        if tag == "br":
+            self.texts.append((line, "br", ""))
+        for kind in TEXT_ATTRS:
             if a.get(kind):
                 self.texts.append((line, kind, a[kind]))
+        for name, value in a.items():
+            if name.startswith("on") and value:
+                self.events.append((line, name, value))
+        if tag == "script" and "src" not in a:
+            self._script_buf = []
         if tag == "input":
             if a.get("type") in ("submit", "button", "reset") \
                     and a.get("value"):
-                self.texts.append((line, "value", a["value"]))
+                # The same kind as the text of a <button>.
+                self.texts.append((line, "label", a["value"]))
             if a.get("name"):
                 self.posts.append((a["name"], a.get("value", "")))
         elif tag == "button" and a.get("name"):
@@ -255,6 +347,11 @@ class _Extractor(HTMLParser):
             self._option = [self._select, a.get("value"), ""]
 
     def handle_endtag(self, tag):
+        self._boundary(False, tag in INLINE)
+        if tag == "script" and self._script_buf is not None:
+            self.scripts.append(
+                (self.getpos()[0], self._expand("".join(self._script_buf))))
+            self._script_buf = None
         if tag == "option" and self._option:
             name, value, text = self._option
             self.posts.append(
@@ -267,19 +364,46 @@ class _Extractor(HTMLParser):
                 pass
 
     def handle_data(self, data):
-        if self._stack and self._stack[-1] in ("script", "style"):
+        if self._script_buf is not None:
+            self._script_buf.append(data)
+            return
+        if self._stack and self._stack[-1] == "style":
             return
         if self._option:
             self._option[2] += data
-        self.texts.append((self.getpos()[0], "text", data))
+        line = self.getpos()[0]
+        raw = [t for t in ("textarea", "pre") if t in self._stack]
+        if raw:
+            self.texts.append((line, raw[-1], self._expand(data)))
+            return
+        kind = "label" if "button" in self._stack else "text"
+        pieces = self._expand(data, keep_tag=True).split(TAG)
+        for number, piece in enumerate(pieces):
+            if number:
+                self._boundary(False, False)
+            core = _normalize(piece)
+            self._open_text = (
+                line, kind, core, piece[:1] in " \t\r\n\f",
+                piece[-1:] in " \t\r\n\f", self._after_inline)
+
+    def finish(self):
+        self.close()
+        self._flush(False)
+
+
+def extract_all(html: str, subs=()) -> _Extractor:
+    """Return the extractor that has read the html."""
+    extractor = _Extractor(subs)
+    extractor.feed(html)
+    extractor.finish()
+    return extractor
 
 
 def extract(html: str) -> tuple[list[tuple[int, str, str]],
                                 list[tuple[str, str]]]:
     """Return the (line, kind, text) visible texts and the (name, value)
     pairs that the named controls of the html would post."""
-    extractor = _Extractor()
-    extractor.feed(html)
+    extractor = extract_all(html)
     return extractor.texts, extractor.posts
 
 
@@ -297,35 +421,3 @@ def english_left(html: str) -> list[tuple[int, str, str]]:
         if WORD.search(rest) and re.search(r"[a-z]", rest):
             out.append((line, kind, rest))
     return out
-
-
-def snapshot_page(name: str, full: bool, translation=DEFAULT_TRANSLATION):
-    """Return what the page shows and posts, as plain data for the
-    English snapshot (or {"error": ...} when it does not render)."""
-    try:
-        html = render(environment(full), name, translation)
-    except Exception as error:
-        return {"error": type(error).__name__}
-    texts, posts = extract(html)
-    return {
-        "texts": [t for t in (_normalize(x[2]) for x in texts) if t],
-        "posts": sorted([n, v] for n, v in posts),
-    }
-
-
-SNAPSHOT = Path(__file__).parent / "data" / "aws_english_snapshot.json"
-
-
-def build_snapshot() -> dict:
-    """Return the English snapshot of every page, in both modes."""
-    return {name: {mode: snapshot_page(name, mode == "full")
-                   for mode in ("full", "empty")}
-            for name in PAGES}
-
-
-if __name__ == "__main__":
-    # Regenerate the snapshot: only on a tree whose English is the
-    # reference (it is temporary: the work of aws-language-rest).
-    SNAPSHOT.write_text(
-        json.dumps(build_snapshot(), indent=1, ensure_ascii=False) + "\n",
-        encoding="utf-8")

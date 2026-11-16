@@ -51,7 +51,8 @@ from cms.grading.scoretypes import SCORE_TYPES
 from cms.grading.tasktypes import TASK_TYPES
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT as ENV
 from cmstestsuite.unit_tests.server.admin import aws_render
-from cmstestsuite.unit_tests.server.admin.aws_render import WORD
+from cmstestsuite.unit_tests.server.admin.aws_render import (
+    SYMBOL, TEXT_ATTRS, WORD)
 
 
 ADMIN = aws_render.TEMPLATES.parent
@@ -137,8 +138,6 @@ def allowed(rel: str, text: str) -> bool:
 # ---------------------------------------------------------------- templates
 # Private-use characters that stand for the jinja constructs.
 WRAPPED, EXPR, TAG = "\ue000", "\ue001", "\ue002"
-TEXT_ATTRS = {"title", "placeholder", "alt", "aria-label", "aria-description",
-              "aria-placeholder", "label", "summary"}
 GETTEXT = {"_", "gettext", "ngettext", "N_", "n_"}
 NON_TEXT_CALLS = {"url", "static_url", "xsrf_form_html", "make_timestamp"}
 
@@ -148,12 +147,79 @@ NON_TEXT_CALLS = {"url", "static_url", "xsrf_form_html", "make_timestamp"}
 _LEXER = ENV.overlay(trim_blocks=False, lstrip_blocks=False)
 
 
-def skeleton(src: str) -> str:
+def _trans_text(tokens) -> str:
+    """Return the text of a trans block, as its msgid would show it: a
+    symbol for each variable, a tag where the plural form starts."""
+    out, skip = [], None
+    for _, kind, value in tokens:
+        if skip:
+            skip = None if kind == skip else skip
+        elif kind == "data":
+            out.append(value)
+        elif kind == "variable_begin":
+            out.append(SYMBOL)
+            skip = "variable_end"
+        elif kind == "block_begin":
+            out.append(aws_render.TAG)
+            skip = "block_end"
+    return "".join(out)
+
+
+_PRINTF = re.compile(r"%%|%(?:\(\w+\))?[-+#0-9.]*[sdif]")
+
+
+def _text_of(node):
+    """Return the messages that the expression prints as they are (a
+    string or a gettext call, under filters and %), and whether it is
+    json encoded; None for any other expression."""
+    as_json = False
+    while True:
+        if isinstance(node, nodes.MarkSafeIfAutoescape):
+            node = node.expr
+        elif isinstance(node, nodes.Filter) and node.node is not None:
+            as_json = as_json or node.name == "tojson"
+            node = node.node
+        elif isinstance(node, nodes.Mod):
+            node = node.left
+        else:
+            break
+    if isinstance(node, nodes.Const) and isinstance(node.value, str):
+        return [node.value], as_json
+    if isinstance(node, nodes.Call) and isinstance(node.node, nodes.Name) \
+            and node.node.name in GETTEXT:
+        found = [a.value for a in node.args[:2]
+                 if isinstance(a, nodes.Const) and isinstance(a.value, str)]
+        if found:
+            return found, as_json
+    return None
+
+
+def _put_message(subs: list, messages, as_json: bool) -> str:
+    """Return the numbered stand-in for the messages (see aws_render)."""
+    out = []
+    for message in messages:
+        subs.append(_PRINTF.sub(
+            lambda m: "%" if m.group() == "%%" else SYMBOL, message))
+        mark = "\ue006%d\ue007" if as_json else "\ue004%d\ue005"
+        out.append(mark % (len(subs) - 1))
+    return aws_render.TAG.join(out)
+
+
+def skeleton(src: str, subs: list | None = None) -> str:
     """Return the html with each jinja construct replaced by a sentinel
     (WRAPPED for a trans block, EXPR for {{ }}, TAG for {% %}), keeping
-    the line numbers."""
+    the line numbers.
+
+    With a list in subs the skeleton is for the static snapshot: a trans
+    block, a string and a gettext call print their message (numbered
+    in subs, because it may hold quotes), so that wrapping a text does
+    not change the result and changing it does.
+
+    """
     out = []
     toks = list(_LEXER.lex(src))
+    # A base template has its js blocks inside its own script.
+    child = re.search(r"{%-?\s*extends\b", src) is not None
     in_js = False
     i = 0
     while i < len(toks):
@@ -169,70 +235,90 @@ def skeleton(src: str) -> str:
                 j += 1
             names = [t[2] for t in toks[i + 1:j] if t[1] == "name"]
             first = names[:1]
+            inner = None
             if kind == "block_begin" and first == ["trans"]:
                 # swallow until the block that holds 'endtrans'
-                k = j
+                start = k = j + 1
                 while not (toks[k][1] == "block_begin" and [
                         t[2] for t in toks[k + 1:k + 6] if t[1] == "name"][:1]
                         == ["endtrans"]):
                     text += toks[k][2]
                     k += 1
+                inner = _trans_text(toks[start:k])
                 while toks[k][1] != "block_end":
                     text += toks[k][2]
                     k += 1
                 j = k
                 sentinel = WRAPPED
-            elif kind == "block_begin" and first == ["block"] \
+            elif kind == "block_begin" and first == ["block"] and child \
                     and names[1:2] in (["js"], ["js_init"]):
                 # child templates have raw js in these blocks
                 sentinel, in_js = "<script>", True
-            elif kind == "block_begin" and first == ["endblock"] and in_js:
+            elif kind == "block_begin" and first == ["endblock"] and in_js \
+                    and child:
                 sentinel, in_js = "</script>", False
             else:
                 sentinel = {"variable_begin": EXPR, "block_begin": TAG,
                             "comment_begin": ""}[kind]
-            out.append(sentinel + "\n" * text.count("\n"))
+            if subs is not None:
+                if inner is not None:
+                    sentinel = inner
+                elif kind == "variable_begin":
+                    expression = "".join(t[2] for t in toks[i + 1:j])
+                    try:
+                        found = _text_of(ENV.parse(
+                            "{{" + expression + "}}").body[0].nodes[0])
+                    except Exception:
+                        found = None
+                    if found:
+                        sentinel = _put_message(subs, *found)
+            out.append(sentinel + (
+                "\n" * text.count("\n") if subs is None else ""))
             i = j
         i += 1
     return "".join(out)
 
 
-def _consts(node):
+def _consts(node, wrapped=False):
     """Yield the string constants whose value can reach the page:
-    through conditionals, concatenation, filters, call args, containers."""
+    through conditionals, concatenation, filters, call args, containers.
+    With wrapped, the messages of a gettext call count too."""
     if isinstance(node, nodes.Const):
         if isinstance(node.value, str):
             yield node
     elif isinstance(node, nodes.CondExpr):
-        yield from _consts(node.expr1)
+        yield from _consts(node.expr1, wrapped)
         if node.expr2 is not None:
-            yield from _consts(node.expr2)
+            yield from _consts(node.expr2, wrapped)
     elif isinstance(node, (nodes.Concat, nodes.Add)):
         for n in node.iter_child_nodes():
-            yield from _consts(n)
+            yield from _consts(n, wrapped)
     elif isinstance(node, nodes.Mod):
-        yield from _consts(node.left)
+        yield from _consts(node.left, wrapped)
     elif isinstance(node, nodes.Filter):
         if node.node is not None:
-            yield from _consts(node.node)
+            yield from _consts(node.node, wrapped)
     elif isinstance(node, nodes.Call):
         callee = node.node
         if isinstance(callee, nodes.Name) and (
                 callee.name in GETTEXT or callee.name in NON_TEXT_CALLS):
+            if wrapped and callee.name in GETTEXT:
+                for a in node.args[:2]:
+                    yield from _consts(a, wrapped)
             return                                   # wrapped, or a path
         if isinstance(callee, nodes.Getattr) and callee.attr in {
                 "get", "format"}:
             return
         for a in node.args:
-            yield from _consts(a)
+            yield from _consts(a, wrapped)
     elif isinstance(node, (nodes.List, nodes.Tuple)):
         for n in node.items:
-            yield from _consts(n)
+            yield from _consts(n, wrapped)
     elif isinstance(node, nodes.Dict):
         for p in node.items:
-            yield from _consts(p.value)
+            yield from _consts(p.value, wrapped)
     elif isinstance(node, nodes.MarkSafeIfAutoescape):
-        yield from _consts(node.expr)
+        yield from _consts(node.expr, wrapped)
 
 
 def expr_literals(src: str):
@@ -255,6 +341,28 @@ def expr_literals(src: str):
         for d in m.defaults:
             for c in _consts(d):
                 yield c.lineno, "macro-default-literal", c.value
+
+
+def static_literals(src: str) -> list[str]:
+    """Return the string literals of the expressions that are not a text
+    on their own (a conditional, a macro argument, a {% set %}), with
+    the messages of the gettext calls too, as the static snapshot
+    records them."""
+    tree = ENV.parse(src)
+    found = []
+    for out in tree.find_all(nodes.Output):
+        found += [c for child in out.nodes
+                  if not isinstance(child, nodes.TemplateData)
+                  and _text_of(child) is None
+                  for c in _consts(child, True)]
+    for a in tree.find_all(nodes.Assign):
+        found += _consts(a.node, True)
+    for call in tree.find_all(nodes.CallBlock):
+        found += [c for a in call.call.args for c in _consts(a, True)]
+    for m in tree.find_all(nodes.Macro):
+        found += [c for d in m.defaults for c in _consts(d, True)]
+    texts = (" ".join(_PRINTF.sub("", c.value).split()) for c in found)
+    return [text for text in texts if WORD.search(text)]
 
 
 class _Linter(HTMLParser):
@@ -297,7 +405,10 @@ class _Linter(HTMLParser):
     def handle_data(self, data):
         # scripts have their own scan
         if not (self.stack and self.stack[-1] in ("script", "style")):
-            self.add("text", data)
+            # a {% %} tag splits a text: the two branches of a conditional
+            # are two texts, not one
+            for part in data.split(TAG):
+                self.add("text", part)
 
 
 def template_texts(src: str) -> list[tuple[int, str, str]]:
@@ -360,6 +471,36 @@ def script_literals(js: str, first_line: int = 0) -> list[tuple[int, str, str]]:
                 (first_line + js.count("\n", 0, m.start()) + 1, "literal",
                  prose))
     return found
+
+
+def records(extractor) -> list[str]:
+    """Return what an extractor read as the records of the snapshot:
+    "kind: text" for each text, then the prose literals of the inline
+    scripts and of the event attributes."""
+    out = [f"{kind}: {text}" for _, kind, text in extractor.texts]
+    out += [f"js: {text}" for _, body in extractor.scripts
+            for _, _, text in script_literals(body)]
+    out += [f"js-attr: {text}" for _, _, value in extractor.events
+            for _, _, text in script_literals(value)]
+    return out
+
+
+def source_records(src: str) -> list[str]:
+    """Return the records of a template as written, whatever the data:
+    its texts (a trans block and a gettext call print their message),
+    scripts and literals, in order."""
+    subs: list[str] = []
+    html = skeleton(src, subs).replace(EXPR, SYMBOL)
+    extractor = aws_render.extract_all(html, subs)
+    return records(extractor) + ["lit: " + text for text in static_literals(src)]
+
+
+def static_records(rel: str) -> list[str]:
+    """Return the records of a template or a static script (see
+    source_records)."""
+    if rel.endswith(".js"):
+        return [f"js: {text}" for _, _, text in script_literals(read(rel))]
+    return source_records(read(rel))
 
 
 def inline_scripts(src: str):

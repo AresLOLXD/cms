@@ -20,7 +20,7 @@
 They need no database. A file is checked strictly when it carries the
 marker "aws-i18n: complete" (see aws_i18n_lint.py), or when the
 environment variable AWS_I18N_FILES lists it. Regenerate the English snapshot with
-"python -m cmstestsuite.unit_tests.server.admin.aws_render" only on a
+"python -m cmstestsuite.unit_tests.server.admin.aws_snapshot" only on a
 tree whose English is the reference.
 
 """
@@ -33,31 +33,114 @@ from jinja2 import nodes
 
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.server.admin import aws_i18n_lint as lint
-from cmstestsuite.unit_tests.server.admin import aws_render
+from cmstestsuite.unit_tests.server.admin import aws_render, aws_snapshot
 
 
-def _diff(name, mode, kind, old, new):
-    return [f"{name} ({mode}) {kind}: {line}" for line in difflib.unified_diff(
+# The pages that do not render in a mode: the stand-ins of the mode are
+# not data that the page can use. Pinned, so that a regenerated snapshot
+# cannot enshrine a new error silently.
+KNOWN_RENDER_ERRORS = {("submission.html", "empty"): "ValueError"}
+
+
+def _diff(name, kind, old, new):
+    return [f"{name} {kind}: {line}" for line in difflib.unified_diff(
         [str(x) for x in old], [str(x) for x in new], "snapshot", "now",
         lineterm="", n=0)]
 
 
+def _snapshot():
+    return json.loads(aws_snapshot.SNAPSHOT.read_text(encoding="utf-8"))
+
+
 def test_english_render_unchanged():
     # Scenario "A page in English is unchanged" (aws-language): the
-    # visible texts and the posted values of every page, in English,
-    # are those of the snapshot taken before any template changed.
-    snapshot = json.loads(aws_render.SNAPSHOT.read_text(encoding="utf-8"))
+    # visible texts, scripts and posted values of every page, in
+    # English, are those of the snapshot taken before any template
+    # changed (main 676a397b), in each mode.
+    snapshot = _snapshot()["rendered"]
+    unknown = sorted(set(aws_render.PAGES) - set(snapshot))
+    assert not unknown, (
+        f"pages {unknown} are not in the snapshot: a lane may not add a "
+        "page template (ask the coordinator)")
     assert sorted(snapshot) == aws_render.PAGES
 
-    problems = []
+    problems, errors = [], {}
     for name, modes in snapshot.items():
+        assert sorted(modes) == sorted(aws_render.MODES)
         for mode, old in modes.items():
-            new = aws_render.snapshot_page(name, mode == "full")
+            new = aws_snapshot.rendered_page(name, mode)
+            if "error" in new:
+                errors[(name, mode)] = new["error"]
             for kind in ("error", "texts", "posts"):
                 if old.get(kind) != new.get(kind):
-                    problems += _diff(name, mode, kind,
+                    problems += _diff(f"{name} ({mode})", kind,
                                       old.get(kind, []), new.get(kind, []))
+    assert errors == KNOWN_RENDER_ERRORS
     assert not problems, "English changed:\n" + "\n".join(problems[:60])
+
+
+def test_english_static_unchanged():
+    # Scenario "A page in English is unchanged" (aws-language): the
+    # texts of every template and static script as written, with a
+    # trans block or a gettext call as its message, are those of the
+    # snapshot, whichever branch a rendering reaches.
+    snapshot = _snapshot()["static"]
+    unknown = sorted(set(lint.TEMPLATE_FILES + lint.SCRIPT_FILES)
+                     - set(snapshot))
+    assert not unknown, (
+        f"files {unknown} are not in the snapshot: a lane may not add a "
+        "template (ask the coordinator)")
+    problems = []
+    for rel, old in snapshot.items():
+        new = lint.static_records(rel)
+        if old != new:
+            problems += _diff(rel, "static", old, new)
+    assert not problems, "English changed:\n" + "\n".join(problems[:60])
+
+
+def test_the_snapshot_sees_what_it_promises():
+    # Scenario "A page in English is unchanged" (aws-language): wrapping
+    # a text leaves its record as it was; changing it, losing a space
+    # next to a tag, a <br> or the kind of a text does not.
+    plain = (
+        'Download as <a href="x">csv</a>.<br>\n'
+        '<p title="Tip">Hello,   {{ name }}!</p>\n'
+        '<input type="submit" value="Send">\n'
+        '<button>Go</button>\n'
+        '<textarea>  Raw\n text </textarea>\n'
+        '<a onclick="return confirm(\'Really?\');">x</a>\n'
+        '<script>var m = "Done here.";</script>\n'
+        '{{ "Remove" if a else "Add" }}')
+    wrapped = (
+        '{% trans %}Download as{% endtrans %} <a href="x">csv</a>.<br>\n'
+        '<p title="{{ _("Tip") }}">{% trans name=name %}Hello, {{ name }}!'
+        '{% endtrans %}</p>\n'
+        '<input type="submit" value="{{ _("Send") }}">\n'
+        '<button>{% trans %}Go{% endtrans %}</button>\n'
+        '<textarea>  Raw\n text </textarea>\n'
+        '<a onclick="return confirm({{ _("Really?")|tojson|forceescape }});">'
+        'x</a>\n'
+        '<script>var m = {{ _("Done here.")|tojson }};</script>\n'
+        '{{ _("Remove") if a else _("Add") }}')
+    record = lint.source_records(plain)
+    assert record == lint.source_records(wrapped)
+    assert "js: Done here." in record and "js-attr: Really?" in record
+    assert "label: Send" in record and "label: Go" in record
+    assert "textarea:   Raw\n text " in record
+    for change in (
+            ("Download as <a", "Download as<a"),
+            ("</a>.<br>", "</a>."),
+            ("Hello,", "Hi,"),
+            ('title="Tip"', 'placeholder="Tip"'),
+            ("Download as", "Download\u00a0as"),
+            ("Raw\n text", "Raw text"),
+            ("Really?", "Sure?"),
+            ("Done here.", "Done there."),
+            ('"Add"', '"Plus"')):
+        assert lint.source_records(plain.replace(*change)) != record, change
+    # What a person reflowing the html does not change.
+    assert lint.source_records(plain.replace(
+        "Hello,   ", "Hello,\n ")) == record
 
 
 def test_macro_imports_take_the_context():
