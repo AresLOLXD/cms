@@ -171,3 +171,38 @@ msgstr "Información del grupo"
 
 msgid "The name of this user group."
 msgstr "Nombre de este grupo de usuarios."
+
+msgid "Error removing team"
+msgstr "Error al borrar el equipo"
+
+msgid "No team code specified."
+msgstr "No se indicó el código del equipo."
+
+msgid "Please select a valid contest"
+msgstr "Selecciona un concurso válido"
+
+msgid "Invalid operation"
+msgstr "Operación no válida"
+
+msgid "I do not understand the operation `%s'"
+msgstr "No se entiende la operación `%s'"
+
+msgid "Cannot delete group containing users"
+msgstr "No se puede borrar un grupo que contiene usuarios"
+
+msgid "The group `%(name)s' contains %(count)d users"
+msgid_plural "The group `%(name)s' contains %(count)d users"
+msgstr[0] "El grupo `%(name)s' contiene %(count)d usuario"
+msgstr[1] "El grupo `%(name)s' contiene %(count)d usuarios"
+
+msgid "Cannot delete a contest's main group."
+msgstr "No se puede borrar el grupo principal de un concurso."
+
+msgid "To delete '%s', change the main group of the contest first to another group."
+msgstr "Para borrar '%s', cambia primero el grupo principal del concurso a otro grupo."
+
+msgid "No name specified."
+msgstr "No se indicó el nombre."
+
+msgid "No group name specified."
+msgstr "No se indicó el nombre del grupo."

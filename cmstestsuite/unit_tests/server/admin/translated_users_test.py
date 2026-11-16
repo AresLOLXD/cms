@@ -28,7 +28,10 @@ import re
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+from cms.server.admin.handlers.user import AddTeamHandler, \
+    EditParticipationHandler, GroupListHandler, TeamListHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 from cmstestsuite.unit_tests.server.admin.users_pages_test import render, \
@@ -48,6 +51,41 @@ def page(name: str, translation=None, **params) -> str:
     text, attributes = visible(render(AWS_ENVIRONMENT, name, translation,
                                       **params))
     return " | ".join([text] + attributes)
+
+
+def run_post(handler_class, form: dict, translation=None, **attributes):
+    """Post the form to the handler, without a database, and return the
+    handler (its service holds the notifications)."""
+    handler = handler_class.__new__(handler_class)
+    if translation is not None:
+        handler._ = translation.gettext
+        handler.n_ = translation.ngettext
+
+    def get_argument(name, *default):
+        if name in form:
+            return form[name]
+        if default:
+            return default[0]
+        raise KeyError(name)
+
+    handler.application = MagicMock()
+    handler.sql_session = MagicMock()
+    handler.get_argument = get_argument
+    handler.redirect = MagicMock()
+    handler.url = lambda *parts: "/" + "/".join(str(p) for p in parts)
+    handler.try_commit = MagicMock(return_value=True)
+    handler.schedule_rpc = MagicMock()
+    handler.safe_get_item = MagicMock()
+    for name, value in attributes.items():
+        setattr(handler, name, value)
+    handler._post_sync(*attributes.get("args", ()))
+    return handler
+
+
+def notification(handler) -> tuple[str, str]:
+    (_when, subject, text), _kwargs = \
+        handler.service.add_notification.call_args
+    return subject, text
 
 
 def operation_buttons(html: str) -> list[tuple[str, str]]:
@@ -213,6 +251,104 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             html = render(AWS_ENVIRONMENT, name, SPANISH, admin=admin,
                           **params)
             self.assertEqual(operation_buttons(html), expected, msg=name)
+
+    def test_a_form_error_in_spanish(self):
+        # Scenario: Invalid field in Spanish (the team has no code)
+        handler = run_post(AddTeamHandler, {}, SPANISH)
+
+        self.assertEqual(
+            notification(handler),
+            ("Campos no válidos",
+             repr(AssertionError("No se indicó el código del equipo."))))
+
+    def test_a_form_error_in_english(self):
+        # Scenario: Invalid field in English (the same form, unchanged)
+        handler = run_post(AddTeamHandler, {})
+
+        self.assertEqual(
+            notification(handler),
+            ("Invalid field(s)",
+             repr(AssertionError("No team code specified."))))
+
+    def test_the_spanish_page_posts_the_remove_operation(self):
+        # Scenario: An operation posted from a Spanish page (the teams page
+        # and the user page post "Remove", which the handlers accept)
+        team_page = render(AWS_ENVIRONMENT, "teams.html", SPANISH,
+                           team_list=[], admin=SimpleNamespace(
+                               permission_all=True))
+        (value, label), = operation_buttons(team_page)
+        self.assertEqual(label, "Quitar")
+
+        handler = run_post(TeamListHandler,
+                           {"team_id": "3", "operation": value}, SPANISH)
+        handler.redirect.assert_called_once_with("/teams/3/remove")
+
+        user_page = render(
+            AWS_ENVIRONMENT, "user.html", SPANISH, user=user(),
+            unassigned_contests=[], admin=SimpleNamespace(
+                permission_all=True), participations=[SimpleNamespace(
+                    contest=SimpleNamespace(id=2, name="d1", description=""),
+                    user=user(), hidden=False, unrestricted=False,
+                    group=SimpleNamespace(name="g"))])
+        (value, label), = operation_buttons(user_page)
+        self.assertEqual(label, "Quitar")
+
+        handler = run_post(
+            EditParticipationHandler,
+            {"contest_id": "2", "operation": value}, SPANISH, args=(7,))
+        handler.service.add_notification.assert_not_called()
+        handler.sql_session.delete.assert_called_once()
+
+    def test_the_spanish_page_posts_the_group_operations(self):
+        # Scenario: An operation posted from a Spanish page (the groups
+        # page)
+        page_html = render(
+            AWS_ENVIRONMENT, "groups.html", SPANISH,
+            contest=SimpleNamespace(id=1, name="d1", groups=[]),
+            admin=SimpleNamespace(permission_all=True))
+        values = dict(operation_buttons(page_html))
+        contest = SimpleNamespace(id=1, name="d1", main_group_id=None)
+        group = SimpleNamespace(id=5, name="omi", participations=[1, 2])
+        items = {"Contest": contest, "Group": group}
+
+        def run(operation, **more):
+            return run_post(
+                GroupListHandler,
+                {"group_id": "5", "operation": operation}, SPANISH,
+                args=(1,),
+                safe_get_item=lambda cls, _id: items[cls.__name__], **more)
+
+        handler = run(next(v for v in values if v.startswith("Make")))
+        self.assertEqual(contest.main_group_id, 5)
+        handler.service.add_notification.assert_not_called()
+
+        # A group with users is not deleted (the notification agrees in
+        # number in Spanish, and is what it was in English).
+        handler = run(next(v for v in values if v.startswith("Delete")))
+        self.assertEqual(
+            notification(handler),
+            ("No se puede borrar un grupo que contiene usuarios",
+             "El grupo `omi' contiene 2 usuarios"))
+        group.participations = [1]
+        handler = run(next(v for v in values if v.startswith("Delete")))
+        self.assertEqual(notification(handler)[1],
+                         "El grupo `omi' contiene 1 usuario")
+
+    def test_a_group_with_users_in_english(self):
+        # Scenario: Invalid field in English (the notification of the
+        # group that cannot be deleted is what it was)
+        contest = SimpleNamespace(id=1, name="d1", main_group_id=None)
+        group = SimpleNamespace(id=5, name="omi", participations=[1])
+        items = {"Contest": contest, "Group": group}
+        handler = run_post(
+            GroupListHandler,
+            {"group_id": "5", "operation": "Delete selected group"},
+            args=(1,), safe_get_item=lambda cls, _id: items[cls.__name__])
+
+        self.assertEqual(
+            notification(handler),
+            ("Cannot delete group containing users",
+             "The group `omi' contains 1 users"))
 
 
 if __name__ == "__main__":
