@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 from cms.grading import format_status_text
 from cms.locale import DEFAULT_TRANSLATION, Translation
-from cms.server.admin.server import add_contestant_fallback
+from cms.server.admin.server import AdminWebServer, add_contestant_fallback
 from cmstestsuite.unit_tests.server.admin.aws_catalog import CMS_SPANISH, \
     SPANISH
 
@@ -60,3 +60,27 @@ class TestFallback(unittest.TestCase):
         self.assertIs(aws_es.translation._fallback, CMS_SPANISH.translation)
         # The default translation is shared with the contestant site.
         self.assertIsNone(DEFAULT_TRANSLATION.translation._fallback)
+
+    def test_the_server_constructor_wires_the_fallback(self):
+        # Scenario "Outcome in Spanish" (aws-language): AWS itself, not
+        # only the helper, adds the contestant-site catalog.
+        aws_es = Translation("es")
+
+        def translations(domain=None):
+            return {"en": DEFAULT_TRANSLATION, "es": CMS_SPANISH} \
+                if domain is None \
+                else {"en": DEFAULT_TRANSLATION, "es": aws_es}
+
+        with patch("cms.server.admin.server.WebService.__init__",
+                   return_value=None), \
+                patch.object(AdminWebServer, "connect_to"), \
+                patch("cms.server.admin.server.get_translations",
+                      side_effect=translations), \
+                patch("cms.server.admin.server.get_service_shards",
+                      return_value=0), \
+                patch("cms.server.admin.server.set_parse_body_config"), \
+                patch("cms.server.admin.server.EXPORT_JOBS"):
+            server = AdminWebServer(0)
+
+        self.assertIs(server.translations["es"], aws_es)
+        self.assertIs(aws_es.translation._fallback, CMS_SPANISH.translation)
