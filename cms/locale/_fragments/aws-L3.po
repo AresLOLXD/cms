@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 12:23-0600\n"
+"POT-Creation-Date: 2026-11-16 12:25-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L3\n"
 "Language: es\n"
@@ -223,4 +223,64 @@ msgstr "Nombre del archivo zip"
 
 msgid "Upload manager"
 msgstr "Subir manager"
+
+#, python-format
+msgid "Dataset name \"%s\" is already taken."
+msgstr "El nombre de dataset «%s» ya está en uso."
+
+msgid "Invalid data"
+msgstr "Datos no válidos"
+
+msgid "Please choose a manager file."
+msgstr "Elige un archivo de manager."
+
+msgid "Manager storage failed"
+msgstr "No se pudo guardar el manager"
+
+msgid "Please fill both input and output."
+msgstr "Completa la entrada y la salida."
+
+msgid "Testcase storage failed"
+msgstr "No se pudo guardar el caso de prueba"
+
+msgid "Please choose tests archive."
+msgstr "Elige el archivo con los casos de prueba."
+
+msgid "Invalid template format"
+msgstr "Formato de plantilla no válido"
+
+msgid "You must have exactly one '*' in input/output template."
+msgstr ""
+"Debes usar exactamente un '*' en la plantilla de entrada y en la de "
+"salida."
+
+#, python-format
+msgid "Reading testcase %s failed"
+msgstr "No se pudo leer el caso de prueba %s"
+
+#, python-format
+msgid "Couldn't add test %s"
+msgstr "No se pudo agregar el caso de prueba %s"
+
+msgid "The selected file is not a zip file. Please select a valid zip file."
+msgstr "El archivo seleccionado no es un .zip. Selecciona un archivo .zip válido."
+
+msgid "none"
+msgstr "ninguno"
+
+#, python-format
+msgid "Successfully added %(added)d and overwritten %(overwritten)d testcase(s)"
+msgstr ""
+"Se agregaron %(added)d y se sobrescribieron %(overwritten)d caso(s) de "
+"prueba"
+
+#, python-format
+msgid "Added: %(added)s; overwritten: %(overwritten)s; skipped: %(skipped)s"
+msgstr "Agregados: %(added)s; sobrescritos: %(overwritten)s; omitidos: %(skipped)s"
+
+#, python-format
+msgid "Messages sent to %(count)d users."
+msgid_plural "Messages sent to %(count)d users."
+msgstr[0] "Mensaje enviado a %(count)d usuario."
+msgstr[1] "Mensajes enviados a %(count)d usuarios."
 
