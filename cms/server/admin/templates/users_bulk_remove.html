@@ -26,7 +26,7 @@
 {% else %}
   {% trans count=plan.users|length, submissions=plan.submissions, user_tests=plan.user_tests %}%(count)s participation will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests.{% pluralize %}%(count)s participations will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests.{% endtrans %}
 {% endif %}
-  {% trans %}This operation cannot be undone.{% endtrans %}
+  {{ _("This operation cannot be undone.") }}
 </p>
 {% if plan.groups %}
 {% set group_names %}{% for group in plan.groups %}{{ _("root (/)") if group is none else group }}{% if not loop.last %}, {% endif %}{% endfor %}{% endset %}
