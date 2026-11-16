@@ -1,9 +1,10 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 
 <div class="core_title">
-  <h1>Users list</h1>
+  <h1>{% trans %}Users list{% endtrans %}</h1>
 </div>
 
 {% if admin.permission_all %}
@@ -24,9 +25,9 @@
     <thead>
       <tr>
         <th><input type="checkbox" id="select_all_users" title="{{ _("Select all") }}"/></th>
-        <th>Username</th>
-        <th>First name</th>
-        <th>Last name</th>
+        <th>{% trans %}Username{% endtrans %}</th>
+        <th>{% trans %}First name{% endtrans %}</th>
+        <th>{% trans %}Last name{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>

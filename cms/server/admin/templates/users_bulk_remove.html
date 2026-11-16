@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
@@ -35,11 +36,11 @@
 <table class="bordered">
   <thead>
     <tr>
-      <th>Username</th>
+      <th>{% trans %}Username{% endtrans %}</th>
       <th>{% trans %}First name{% endtrans %}</th>
       <th>{% trans %}Last name{% endtrans %}</th>
       <th>{% trans %}Submissions{% endtrans %}</th>
-      <th>User tests</th>
+      <th>{% trans %}User tests{% endtrans %}</th>
 {% if contest is none %}
       <th>{% trans %}Contests{% endtrans %}</th>
 {% endif %}

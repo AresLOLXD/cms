@@ -1,44 +1,45 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 <h1>{{ user.first_name }} {{ user.last_name }} ({{ user.username }})</h1>
 
-<h2 id="title_participations" class="toggling_on">Participations</h2>
+<h2 id="title_participations" class="toggling_on">{% trans %}Participations{% endtrans %}</h2>
 <div id="participations">
 
   <form action="{{ url("user", user.id, "add_participation") }}" method="POST">
     {{ xsrf_form_html|safe }}
-    Add a new participation (in main group):
+    {% trans %}Add a new participation (in main group):{% endtrans %}
     <select name="contest_id">
-      <option value="null" selected>Select a contest</option>
+      <option value="null" selected>{% trans %}Select a contest{% endtrans %}</option>
       {% for c in unassigned_contests %}
       <option value="{{ c.id }}">
         {{ c.name }}
       </option>
       {% endfor %}
     </select>
-    <input type="checkbox" name="hidden" id="hidden" /><label for="hidden">Hidden</label>
-    <input type="checkbox" name="unrestricted" id="unrestricted" /><label for="unrestricted">Unrestricted</label>
-    <input type="submit" value="Add participation" />
+    <input type="checkbox" name="hidden" id="hidden" /><label for="hidden">{% trans %}Hidden{% endtrans %}</label>
+    <input type="checkbox" name="unrestricted" id="unrestricted" /><label for="unrestricted">{% trans %}Unrestricted{% endtrans %}</label>
+    <input type="submit" value="{{ _("Add participation") }}" />
   </form>
 
   {% if participations == [] %}
-  <p>No participations found.</p>
+  <p>{% trans %}No participations found.{% endtrans %}</p>
   {% else %}
   <form action="{{ url("user", user.id, "edit_participation") }}" method="POST">
     {{ xsrf_form_html|safe }}
-    Edit selected participation:
-    <input type="submit" name="operation" value="Remove" />
+    {% trans %}Edit selected participation:{% endtrans %}
+    <button type="submit" name="operation" value="Remove">{% trans %}Remove{% endtrans %}</button>
     <table class="bordered">
       <thead>
         <tr>
           <th></th>
-          <th>Participation</th>
-          <th>Hidden?</th>
-          <th>Unrestricted?</th>
-          <th>Contest</th>
-          <th>Contest description</th>
-          <th>Group</th>
+          <th>{% trans %}Participation{% endtrans %}</th>
+          <th>{% trans %}Hidden?{% endtrans %}</th>
+          <th>{% trans %}Unrestricted?{% endtrans %}</th>
+          <th>{% trans %}Contest{% endtrans %}</th>
+          <th>{% trans %}Contest description{% endtrans %}</th>
+          <th>{% trans %}Group{% endtrans %}</th>
         </tr>
       </thead>
       <tbody>
@@ -63,7 +64,7 @@
 </div>
 
 
-<h2 id="title_general_info" class="toggling_on">General Information</h2>
+<h2 id="title_general_info" class="toggling_on">{% trans %}General Information{% endtrans %}</h2>
 <div id="general_info">
   <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
   <form enctype="multipart/form-data" action="{{ url("user", user.id) }}" method="POST" style="display:inline;">
@@ -71,29 +72,29 @@
     <table>
       <tr>
         <td>
-          <span class="info" title="First name of the contestant."></span>
-          First name
+          <span class="info" title="{{ _("First name of the contestant.") }}"></span>
+          {% trans %}First name{% endtrans %}
         </td>
         <td><input type="text" name="first_name" value="{{ user.first_name }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Last name of the contestant."></span>
-          Last name
+          <span class="info" title="{{ _("Last name of the contestant.") }}"></span>
+          {% trans %}Last name{% endtrans %}
         </td>
         <td><input type="text" name="last_name" value="{{ user.last_name }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Username of the contestant (used to log in)."></span>
-          Username
+          <span class="info" title="{{ _("Username of the contestant (used to log in).") }}"></span>
+          {% trans %}Username{% endtrans %}
         </td>
         <td><input type="text" name="username" value="{{ user.username }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Contestant password. Caution: stored in plain text."></span>
-          Password
+          <span class="info" title="{{ _("Contestant password. Caution: stored in plain text.") }}"></span>
+          {% trans %}Password{% endtrans %}
         </td>
         <td>
           {% set hashed_password = user.password %}
@@ -102,37 +103,37 @@
       </tr>
       <tr>
         <td>
-          <span class="info" title="Contestant e-mail address."></span>
-          E-mail
+          <span class="info" title="{{ _("Contestant e-mail address.") }}"></span>
+          {% trans %}E-mail{% endtrans %}
         </td>
         <td><input type="text" name="email" value="{{ user.email if user.email is not none else "" }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Timezone of the contestant, used to display start, end times and the current server time in local time.
-                                    Example: 'Europe/Rome', 'America/New_York', ..."></span>
-          Timezone
+          <span class="info" title="{% trans notrimmed %}Timezone of the contestant, used to display start, end times and the current server time in local time.
+                                    Example: 'Europe/Rome', 'America/New_York', ...{% endtrans %}"></span>
+          {% trans %}Timezone{% endtrans %}
         </td>
         <td><input type="text" name="timezone" value="{{ user.timezone if user.timezone is not none else "" }}"></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Comma-separated list of language codes, from the most to the least preferred.
-                                    Example: 'en, ja'."></span>
-          Preferred languages
+          <span class="info" title="{% trans notrimmed %}Comma-separated list of language codes, from the most to the least preferred.
+                                    Example: 'en, ja'.{% endtrans %}"></span>
+          {% trans %}Preferred languages{% endtrans %}
         </td>
         <td><input type="text" name="preferred_languages" value="{{ user.preferred_languages|join(", ") }}"></td>
       </tr>
     </table>
-    <input type="submit" value="Update" />
-    <input type="reset" value="Reset" />
+    <input type="submit" value="{{ _("Update") }}" />
+    <input type="reset" value="{{ _("Reset") }}" />
   </form>
   <form action="{{ url("users", "remove") }}" method="POST" style="display:inline;">
       {{ xsrf_form_html|safe }}
       <input type="hidden" name="action" value="preview"/>
       <input type="hidden" name="user_id" value="{{ user.id }}"/>
       <input type="submit"
-           value="Remove" style="float: right;"
+           value="{{ _("Remove") }}" style="float: right;"
   {% if not admin.permission_all %}
            disabled
   {% endif %}

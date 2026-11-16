@@ -98,6 +98,23 @@ def new_terms(page: tuple[str, list[str]]) -> tuple[str, list[str]]:
     return with_new_terms(page[0]), [with_new_terms(v) for v in page[1]]
 
 
+# The headers that main left in English and that the pages of today
+# translate (the users and the bulk removal pages only).
+HEADERS_OF_MAIN = [("Users list", "Lista de usuarios"),
+                   ("Username", "Usuario"), ("First name", "Nombre"),
+                   ("Last name", "Apellido")]
+
+
+def with_translated_headers(page: tuple[str, list[str]]) \
+        -> tuple[str, list[str]]:
+    """The page of main with the English headers in Spanish."""
+    def translate(text: str) -> str:
+        for old, new in HEADERS_OF_MAIN:
+            text = text.replace(old, new)
+        return text
+    return translate(page[0]), [translate(v) for v in page[1]]
+
+
 EVIL = 'Día "1" <b>&</b> 100%'
 
 
@@ -149,8 +166,9 @@ class TestBulkRemovalPageInSpanish(unittest.TestCase):
                         visible(render(AWS_ENVIRONMENT,
                                        "users_bulk_remove.html", SPANISH,
                                        plan=removal, **params)),
-                        visible(render(before, "users_bulk_remove.html",
-                                       plan=old, **params)),
+                        with_translated_headers(visible(render(
+                            before, "users_bulk_remove.html", plan=old,
+                            **params))),
                         msg="%s, contest=%s, error=%s" % (
                             label, contest is not None, error))
 
@@ -179,7 +197,8 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             self.assertEqual(
                 visible(render(AWS_ENVIRONMENT, "users.html", SPANISH,
                                **params)),
-                new_terms(visible(render(before, "users.html", **params))))
+                with_translated_headers(new_terms(
+                    visible(render(before, "users.html", **params)))))
 
     def test_the_contest_users_page_is_the_page_of_main(self):
         # Scenario: A page in Spanish is the page of main

@@ -1,0 +1,98 @@
+# Spanish translations of the new messages of lane L5 (users, teams, groups).
+msgid ""
+msgstr ""
+"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Participations"
+msgstr "Participaciones"
+
+msgid "Add a new participation (in main group):"
+msgstr "Agrega una participación nueva (en el grupo principal):"
+
+msgid "Select a contest"
+msgstr "Elige un concurso"
+
+msgid "Hidden"
+msgstr "Oculto"
+
+msgid "Unrestricted"
+msgstr "Sin restricciones"
+
+msgid "Add participation"
+msgstr "Agregar participación"
+
+msgid "No participations found."
+msgstr "No se encontraron participaciones."
+
+msgid "Edit selected participation:"
+msgstr "Editar la participación seleccionada:"
+
+msgid "Participation"
+msgstr "Participación"
+
+msgid "Hidden?"
+msgstr "¿Oculto?"
+
+msgid "Unrestricted?"
+msgstr "¿Sin restricciones?"
+
+msgid "Contest"
+msgstr "Concurso"
+
+msgid "Contest description"
+msgstr "Descripción del concurso"
+
+msgid "First name of the contestant."
+msgstr "Nombre del concursante."
+
+msgid "Last name of the contestant."
+msgstr "Apellido del concursante."
+
+msgid "Username of the contestant (used to log in)."
+msgstr "Usuario del concursante (sirve para iniciar sesión)."
+
+msgid "Contestant password. Caution: stored in plain text."
+msgstr "Contraseña del concursante. Atención: se guarda en texto plano."
+
+msgid "Contestant e-mail address."
+msgstr "Correo electrónico del concursante."
+
+msgid "E-mail"
+msgstr "Correo electrónico"
+
+msgid "Timezone of the contestant, used to display start, end times and the current server time in local time.\n                                    Example: 'Europe/Rome', 'America/New_York', ..."
+msgstr "Zona horaria del concursante, usada para mostrar las horas de inicio y fin y la hora actual del servidor en hora local. Ejemplo: 'Europe/Rome', 'America/New_York', …"
+
+msgid "Comma-separated list of language codes, from the most to the least preferred.\n                                    Example: 'en, ja'."
+msgstr "Lista de códigos de idioma separados por comas, del más al menos preferido. Ejemplo: 'en, ja'."
+
+msgid "Preferred languages"
+msgstr "Idiomas preferidos"
+
+msgid "New user"
+msgstr "Nuevo usuario"
+
+msgid "Plain text"
+msgstr "Texto plano"
+
+msgid "Hashed (bcrypt)"
+msgstr "Cifrada (bcrypt)"
+
+msgid "The password is hashed, type a new one in here to change it"
+msgstr "La contraseña está cifrada, escribe aquí una nueva para cambiarla"
+
+msgid "Remove User"
+msgstr "Borrar usuario"
+
+msgid "Are you sure you want to remove user %(username)s, including all related data?"
+msgstr "¿Seguro que quieres borrar el usuario %(username)s, incluidos todos sus datos relacionados?"
+
+msgid "This will remove %(participations)s participation(s) and %(submissions)s submission(s)."
+msgstr "Esto borrará %(participations)s participación(es) y %(submissions)s envío(s)."
+
+msgid "You do not have permission to remove a user."
+msgstr "No tienes permiso para borrar un usuario."
