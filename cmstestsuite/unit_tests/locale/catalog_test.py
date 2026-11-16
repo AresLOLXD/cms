@@ -243,7 +243,7 @@ NOT_USTED = {"Bloque", "Parque", "Cheque", "Clique", "Sigue", "Consigue",
 
 # A name between < > that is not html but a pattern of a URL, which the
 # translation may translate: (English, Spanish).
-TRANSLATED_ANGLES = {"<name>": "<nombre>"}
+TRANSLATED_ANGLES = {"<name>": "<nombre>", "<unknown>": "<desconocido>"}
 
 
 def usted_words(text):
@@ -439,6 +439,10 @@ def test_style_check_finds_what_it_promises():
     ("A <u>b</u>", "A <u>b</u>", []),
     ("A <u>b</u>", "A <u>b</u> <i>", ["tags differ"]),
     ("Used in (/<name>/)", "Se usa en (/<nombre>/)", []),
+    # the name shown for a deleted admin is translated too
+    ("<unknown>", "<desconocido>", []),
+    ("By: <unknown>", "Por: <desconocido>", []),
+    ("<unknown>", "<otro>", ["tags differ"]),
 ])
 def test_style_rules(source, target, expected):
     catalog = Catalog(locale="es")

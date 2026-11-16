@@ -51,7 +51,7 @@ USTED_SHAPE_RE = re.compile(r"\b[A-ZÁÉÍÓÚ][a-záéíóúñü]*(?:que|gue|g�
 NOT_USTED = {"Bloque", "Parque", "Cheque", "Clique", "Sigue", "Consigue",
              "Persigue", "Prosigue", "Distingue", "Averigua", "Dice"}
 # A name between < > that is a pattern of a URL, not html: (English, Spanish).
-TRANSLATED_ANGLES = {"<name>": "<nombre>"}
+TRANSLATED_ANGLES = {"<name>": "<nombre>", "<unknown>": "<desconocido>"}
 
 
 def unescape(text):
@@ -275,13 +275,16 @@ msgstr "Usa %.1f s, está listo."
 
 msgid "Define it."
 msgstr "Define esto."
+
+msgid "<unknown>"
+msgstr "<desconocido>"
 '''
 
 
 def selftest():
     rules, unchanged_ok = load_rules(GLOSSARY_PATH)
     entries = parse_po(SELFTEST_PO)
-    assert len(entries) == 10, len(entries)
+    assert len(entries) == 11, len(entries)
     found = {}
     for entry in entries:
         for _, code, _ in check_entry(entry, rules, unchanged_ok):
@@ -296,6 +299,7 @@ def selftest():
     assert "REGISTER" in found["Save the file."], found
     assert {"PLACEHOLDER", "MARKUP"} <= found["Use %.2f s, it&#39;s ready."], found
     assert "Define it." not in found, found
+    assert "<unknown>" not in found, found
     print("selftest ok")
     return 0
 

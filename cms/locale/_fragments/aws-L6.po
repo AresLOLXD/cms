@@ -239,4 +239,4 @@ msgid "No messages."
 msgstr "No hay mensajes."
 
 msgid "<unknown>"
-msgstr "<unknown>"
+msgstr "<desconocido>"
