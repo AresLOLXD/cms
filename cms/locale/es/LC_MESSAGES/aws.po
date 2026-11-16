@@ -237,16 +237,16 @@ msgid "Hide from"
 msgstr "Ocultar desde"
 
 msgid "Show again at"
-msgstr "Mostrar de nuevo a las"
+msgstr "Mostrar de nuevo"
 
 msgid "Freeze at"
-msgstr "Congelar a las"
+msgstr "Congelar"
 
 msgid "Unfreeze at"
-msgstr "Descongelar a las"
+msgstr "Descongelar"
 
 msgid "Archive at"
-msgstr "Archivar a las"
+msgstr "Archivar"
 
 msgid "The ranking is not hidden."
 msgstr "El ranking no está oculto."
@@ -306,14 +306,14 @@ msgid "Ranking group %r is archived: unarchive it before renaming it."
 msgstr "El grupo de ranking %r está archivado: desarchívalo antes de cambiarle el nombre."
 
 msgid "Ranking regeneration ignored"
-msgstr "Regeneración del ranking ignorada"
+msgstr "Se ignoró la regeneración del ranking"
 
 #, python-format
 msgid "Ranking %s is archived: nothing was sent. Unarchive it first to publish a correction."
 msgstr "El ranking %s está archivado: no se envió nada. Desarchívalo primero para publicar una corrección."
 
 msgid "Ranking regeneration requested"
-msgstr "Regeneración del ranking solicitada"
+msgstr "Se solicitó la regeneración del ranking"
 
 #, python-format
 msgid "Ranking %s is being emptied and sent again."
@@ -350,7 +350,7 @@ msgid "While hidden, the public scoreboard shows a notice and no data. The staff
 msgstr "Mientras está oculto, el marcador público muestra un aviso y ningún dato. El staff inicia sesión allí con la contraseña de staff para ver el ranking en vivo. Mientras está congelado, el marcador público sigue mostrando el estado que tenía al congelarse. Deja una hora vacía para no usarla."
 
 msgid "The staff use it to see the ranking while it is hidden. Leave empty for none: a hidden ranking is then visible to nobody."
-msgstr "El staff la usa para ver el ranking mientras está oculto. Déjala vacía para no usarla: un ranking oculto entonces no lo ve nadie."
+msgstr "El staff la usa para ver el ranking mientras está oculto. Déjala vacía si no quieres ninguna: entonces nadie puede ver un ranking oculto."
 
 msgid "Staff password"
 msgstr "Contraseña de staff"
@@ -699,7 +699,7 @@ msgstr "Ahora"
 
 #, python-format
 msgid "next: %(next_change)s"
-msgstr "siguiente: %(next_change)s"
+msgstr "próximo cambio: %(next_change)s"
 
 msgid "Show now"
 msgstr "Mostrar ahora"

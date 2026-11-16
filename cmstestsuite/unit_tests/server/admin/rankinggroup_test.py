@@ -118,13 +118,13 @@ class TestRegenerateRankingHandler(unittest.TestCase):
             SPANISH.gettext)
         self.assertEqual(
             self.notification(handler),
-            ("Regeneración del ranking ignorada",
+            ("Se ignoró la regeneración del ranking",
              "El ranking olim está archivado: no se envió nada. "
              "Desarchívalo primero para publicar una corrección."))
         handler = self.run_post("", gettext=SPANISH.gettext)
         self.assertEqual(
             self.notification(handler),
-            ("Regeneración del ranking solicitada",
+            ("Se solicitó la regeneración del ranking",
              "El ranking raíz se está vaciando y se enviará de nuevo."))
 
     def test_archived_group(self):
@@ -1535,7 +1535,7 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
             SPANISH, "add_ranking_group.html", window_fields=WINDOW_FIELDS)
 
         for text in ("Información general", "Nombre", "Descripción",
-                     "Ocultar desde (UTC)", "Archivar a las (UTC)",
+                     "Ocultar desde (UTC)", "Archivar (UTC)",
                      "Contraseña de staff", "(sin definir)",
                      "Quitar la contraseña de staff",
                      "Concursos de este grupo", 'value="Actualizar"',
@@ -1556,7 +1556,7 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
              "¿Vaciar y regenerar el ranking olim?",
              "¿Vaciar y regenerar el ranking omips?",
              "¿Vaciar y regenerar el ranking open?"])
-        for text in ("Nuevo grupo de ranking", "Mostrar de nuevo a las (UTC)",
+        for text in ("Nuevo grupo de ranking", "Mostrar de nuevo (UTC)",
                      "Contraseña de staff"):
             self.assertIn(text, add_page)
         # (the HTML comments of the templates are English and not shown)
