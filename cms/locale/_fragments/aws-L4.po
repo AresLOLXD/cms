@@ -1,0 +1,47 @@
+# Spanish translations of lane L4 (submissions and user tests) of
+# aws-language-rest. Merged into aws.po at integration.
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
+"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "All Submissions"
+msgstr "Todos los envíos"
+
+#, python-format
+msgid "Reevaluate all %(count)s submissions in this contest (for all datasets)"
+msgstr ""
+"Reevaluar todos los envíos de este concurso (%(count)s en total, para todos "
+"los datasets)"
+
+msgid "All user tests"
+msgstr "Todos los user tests"
+
+#, python-format
+msgid "There are %(count)s user tests in this contest"
+msgstr "Hay %(count)s user tests en este concurso"
+
+msgid "Pages:"
+msgstr "Páginas:"
+
+msgid "First"
+msgstr "Primera"
+
+msgid "Last"
+msgstr "Última"
+
+msgid "Do you really want to reevaluate?"
+msgstr "¿Seguro que quieres reevaluar?"
+
+msgid "Compilation"
+msgstr "Compilación"
+
+msgid "Evaluation"
+msgstr "Evaluación"
+
+msgid "Score"
+msgstr "Puntaje"

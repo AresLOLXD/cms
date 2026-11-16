@@ -1,13 +1,14 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 
-<h1>All user tests</h1>
+<h1>{% trans %}All user tests{% endtrans %}</h1>
 
 <div id="user_tests">
 
   <p>
-    There are {{ user_test_count }} user tests in this contest
+    {% trans count=user_test_count %}There are {{ count }} user tests in this contest{% endtrans %}
   </p>
 
   {% set page_url = url["contest"][contest.id]["user_tests"] %}
