@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 12:22-0600\n"
+"POT-Creation-Date: 2026-11-16 12:23-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L3\n"
 "Language: es\n"
@@ -191,4 +191,36 @@ msgstr "Edita la descripción (cada dataset debe tener una descripción única):
 
 msgid "Rename"
 msgstr "Renombrar"
+
+msgid "Upload testcase"
+msgstr "Subir caso de prueba"
+
+msgid "Upload testcases"
+msgstr "Subir casos de prueba"
+
+msgid "Archive (a zip file containing files only):"
+msgstr "Archivo (un .zip que contiene solo archivos):"
+
+msgid "Overwrite existing testcases"
+msgstr "Sobrescribir los casos de prueba existentes"
+
+msgid ""
+"Input file names template (use * as a testcase codename, for example: "
+"input.* or *.in)"
+msgstr ""
+"Plantilla de nombres de los archivos de entrada (usa * como nombre clave "
+"del caso de prueba, por ejemplo: input.* o *.in)"
+
+msgid ""
+"Output file names template (use * as a testcase codename, for example: "
+"output.* or *.out)"
+msgstr ""
+"Plantilla de nombres de los archivos de salida (usa * como nombre clave "
+"del caso de prueba, por ejemplo: output.* o *.out)"
+
+msgid "Zip file name"
+msgstr "Nombre del archivo zip"
+
+msgid "Upload manager"
+msgstr "Subir manager"
 
