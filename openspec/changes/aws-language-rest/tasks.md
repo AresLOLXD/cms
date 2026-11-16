@@ -20,11 +20,11 @@
 
 ## 3. Wave 2: L1, L3, L6, L7
 
-- [ ] 3.1 L1 contest settings and communication, with the quick-answer labels (Scenario "A quick answer from a Spanish page")
-- [ ] 3.2 L3 dataset
-- [ ] 3.3 L6 participations, contest tasks, activity and ranking (Scenario "An operation posted from a Spanish page")
-- [ ] 3.4 L7 system, admins and ranking-group leftovers (empties the named-controls allow-list)
-- [ ] 3.5 Wave 2 integration: merge, refresh the catalog, compile, run the checks, one fresh review of the integrated diff
+- [x] 3.1 L1 contest settings and communication, with the quick-answer labels (Scenario "A quick answer from a Spanish page")
+- [x] 3.2 L3 dataset
+- [x] 3.3 L6 participations, contest tasks, activity and ranking (Scenario "An operation posted from a Spanish page")
+- [x] 3.4 L7 system, admins and ranking-group leftovers (empties the named-controls allow-list)
+- [x] 3.5 Wave 2 integration: merge, refresh the catalog, compile, run the checks, one fresh review of the integrated diff
 
 ## 4. Final
 
