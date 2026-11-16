@@ -251,9 +251,18 @@ def test_the_stale_check_sees_script_literals():
     assert lint.stale_entries(allow, known) == [("x.html", "gone")]
 
 
-def test_the_guard_catches_what_it_promises():
+def test_the_guard_catches_what_it_promises(tmp_path, monkeypatch):
     # Scenario "A new untranslated text" (aws-language): the checks
     # find exactly the bare texts of a synthetic file, not the wrapped.
+    # A synthetic helper module returns bare prose, as the importer did
+    # before it was wrapped.
+    (tmp_path / "bare_prose_helper.py").write_text(
+        "def import_things(zip_file):\n"
+        "    if zip_file:\n"
+        '        return "Bare helper success %d", 1\n'
+        '    return "Bare helper failure", None\n',
+        encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
     template = (
         '<p title="Bare title">{% trans %}Wrapped{% endtrans %}</p>\n'
         "<p>Bare text</p>\n"
@@ -288,7 +297,7 @@ def test_the_guard_catches_what_it_promises():
         "var f = 'a.b'")] == ["done", "loading", "Done.", "Compiling..."]
 
     python = (
-        "from cmscommon.importers import import_testcases_from_zipfile\n"
+        "from bare_prose_helper import import_things\n"
         "def post(self):\n"
         "    self.service.add_notification(\n"
         '        make_datetime(), "Bare subject", self._("Wrapped"))\n'
@@ -298,7 +307,7 @@ def test_the_guard_catches_what_it_promises():
         '        timestamp=1)\n'
         '    message = "Bare assigned text"\n'
         '    self.service.add_notification(1, self._("Wrapped"), message)\n'
-        '    subject, text = import_testcases_from_zipfile(1)\n'
+        '    subject, text = import_things(1)\n'
         '    self.service.add_notification(1, subject, text)\n'
         '    self.write({"error": "Bare dict text", "code": 3})\n'
         '    self.r_params["a"][1] = "Bare params text"\n'
@@ -309,9 +318,8 @@ def test_the_guard_catches_what_it_promises():
             ("assert-text", "Bare assert"),
             ("notification-subject", "Bare keyword subject"),
             ("notification-text", "Bare assigned text"),
-            ("helper-return", "Successfully added %d and overwritten %d "
-             "testcase(s)"),
-            ("helper-return", "Added: %s; overwritten: %s; skipped: %s"),
+            ("helper-return", "Bare helper failure"),
+            ("helper-return", "Bare helper success %d"),
             ("dict-text", "Bare dict text"),
             ("r_params-text", "Bare params text"),
             ("r_params-text", "Bare %s params")]

@@ -140,11 +140,33 @@ ALLOW = [
      "cookie attribute, not shown text"),
     ("templates/fragments/lang_switch.html", "; path=/",
      "cookie attribute, not shown text"),
+    ("templates/announcements.html", "text",
+     "name of the form field passed to markdown_input"),
+    ("templates/macro/question.html", "answered", "CSS class name"),
+    ("templates/macro/question.html", "ignored", "CSS class name"),
+    ("templates/macro/question.html", "reply_question_text",
+     "name of a form field"),
+    ("templates/add_dataset.html", "TaskTypeOptions_%s_",
+     "prefix of the HTML ids of the parameter inputs, not shown"),
+    ("templates/add_dataset.html", "Options",
+     "end of a table id in the js_init script, not shown"),
+    ("templates/activate_dataset.html", "on", "CSS class suffix"),
+    ("templates/activate_dataset.html", "off", "CSS class suffix"),
+    ("templates/participation.html", "message_text",
+     "name of a form field passed to markdown_input"),
+    ("templates/overview.html", "not authorized",
+     "RPC status key compared in update_statuses, never shown"),
+    ("templates/overview.html", "submission <a href=\"",
+     "built around the English 'submission N' of LogService messages, "
+     "which is data"),
+    ("templates/resources.html", "_table > tbody",
+     "jQuery selector, not shown"),
 ]
 
-# Pages whose named controls may post a translated value. Empty: the
-# ranking group pages already post a fixed value.
-NAMED_CONTROLS_ALLOW: set[str] = set()
+# Pages whose named controls may post a translated value. The default
+# subject of the rejudge message is free text that the admin may edit,
+# not an operation key.
+NAMED_CONTROLS_ALLOW: set[str] = {"activate_dataset.html"}
 
 # English that a rendered page may keep: (page, exact text, reason);
 # the page "*" stands for every page.
