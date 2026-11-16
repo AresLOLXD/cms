@@ -67,7 +67,43 @@ $(document).ready(init);
 //-->
     </script>
   </head>
-  <body class="admin">
+  {# The texts of aws_utils.js, read by CMS.AWSUtils.t (keys are matched in
+     translated_chrome_test.py). #}
+  {% set aws_messages = {
+    "restored_draft": _("Restored your unsaved text."),
+    "file_request_failed": _("File request failed."),
+    "download": _("Download"),
+    "copy": _("copy"),
+    "private_message": _("Private message."),
+    "announcement": _("Announcement."),
+    "question_reply": _("Reply to your question."),
+    "new_question": _("New question:"),
+    "to_start_of_contest": _("To start of contest:"),
+    "to_end_of_contest": _("To end of contest:"),
+    "to_start_of_analysis": _("To start of analysis:"),
+    "to_end_of_analysis": _("To end of analysis:"),
+    "unable_to_invalidate": _("Unable to invalidate (%(reason)s)."),
+    "not_available": _("N/A"),
+    "worker_disabled": _("Worker disabled"),
+    "compiling_submission": _("Compiling the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "evaluating_submission": _("Evaluating the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "compiling_user_test": _("Compiling the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "evaluating_user_test": _("Evaluating the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "in_queue": _("[%(count)s time(s) in queue]"),
+    "testcase": _("[testcase: `%(codename)s']"),
+    "second(s)": _("second(s)"),
+    "minute(s)": _("minute(s)"),
+    "hour(s)": _("hour(s)"),
+    "unexpected_reply": _("Unexpected reply `%(status)s'. This should not happen."),
+    "service_not_connected": _("Service not connected."),
+    "not_authorized": _("You are not authorized to call this method."),
+    "service_call_failed": _("Call to service failed."),
+    "pages": _("Pages:"),
+    "hide_reply": _("Hide reply"),
+    "reply": _("Reply"),
+    "error": _("Error: %(error)s"),
+  } %}
+  <body class="admin" data-messages="{{ aws_messages|tojson|forceescape }}">
     <div id="global">
       <div id="sidebar">
         <div id="clock"></div>

@@ -24,8 +24,15 @@ Nothing here renders a page in a browser.
 
 """
 
+import html
+import importlib.resources
+import json
+import re
+import shutil
+import subprocess
 import threading
 import unittest
+from datetime import datetime
 from functools import partial
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -36,6 +43,40 @@ from cms.server.admin.handlers.base import BaseHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cms.server.admin.server import AdminWebServer
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
+from cmstestsuite.unit_tests.server.admin.theme_aws_test import render_page
+
+
+STATIC = importlib.resources.files("cms.server.admin").joinpath("static")
+AWS_UTILS = STATIC.joinpath("aws_utils.js").read_text(encoding="utf-8")
+
+
+def spanish(page: str, **params) -> str:
+    """Render the page as AWS does when Spanish is chosen."""
+    return render_page(page, translation=SPANISH, gettext=SPANISH.gettext,
+                       ngettext=SPANISH.ngettext, **params)
+
+
+def sidebar(contest=None, **params) -> dict:
+    """Return the parameters of a logged-in base page."""
+    config = SimpleNamespace(web_server=SimpleNamespace(
+        secret_key="key", DEFAULT_SECRET_KEY="default"))
+    named = [SimpleNamespace(id=i, name=f"n{i}", title=f"n{i}",
+                             description=f"d{i}") for i in (1, 2)]
+    return dict(
+        admin=SimpleNamespace(name="root", permission_all=True),
+        contest=contest, timestamp=datetime(2026, 1, 1), config=config,
+        contest_list=named, task_list=named, user_list=named,
+        team_list=named[:1], ranking_group_list=named[:1], **params)
+
+
+def a_contest() -> SimpleNamespace:
+    group = SimpleNamespace(
+        start=datetime(2026, 1, 1), stop=datetime(2026, 1, 2),
+        analysis_start=datetime(2026, 1, 3), analysis_stop=datetime(2026, 1, 4),
+        analysis_enabled=False)
+    return SimpleNamespace(
+        id=3, name="c", description="d", main_group=group, timezone=None,
+        allow_user_tests=True)
 
 
 class TestBaseHandlerTexts(unittest.TestCase):
@@ -218,6 +259,266 @@ class TestFormatDatasetAttrs(unittest.TestCase):
         self.assertEqual(
             template.render(dataset=dataset, gettext=SPANISH.gettext),
             " (En vivo)")
+
+
+# ----------------------------------------------------------------- scripts
+# Runs the script and then the scenario against stubs; the scenario's last
+# value is printed as json. Date is fixed, so the times are exact.
+HARNESS = r"""
+const vm = require("vm");
+const [source, messages, scenario] = process.argv.slice(1);
+const fixed = Date.UTC(2026, 0, 1, 12, 0, 0);
+class FixedDate extends Date {
+    constructor(...args) {
+        if (args.length) { super(...args); } else { super(fixed); }
+    }
+    static now() { return fixed; }
+}
+const context = {
+    Date: FixedDate,
+    window: { addEventListener() {} },
+    document: {
+        addEventListener() {},
+        // messages === "" stands for a page whose body does not exist yet.
+        body: messages === "" ? undefined : {
+            getAttribute(name) {
+                return name === "data-messages" ? messages : null;
+            },
+        },
+    },
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+console.log(JSON.stringify(vm.runInContext(scenario, context)));
+"""
+
+# What the shared script shows, with the stubs of the harness.
+SCENARIO = r"""
+var out = {};
+$ = function(sel) { return {text: function(v) { out[sel] = v; }}; };
+var alerts = [];
+alert = function(m) { alerts.push(m); };
+var u = new CMS.AWSUtils("/aws/", 1000, 2000, 3000, 4000, 5000, 1, 7);
+var texts = {};
+texts.na = u.repr_job(null);
+texts.disabled = u.repr_job("disabled");
+texts.compile = u.repr_job({type: "compile", object_id: 5, dataset_id: 2});
+texts.evaluate = u.repr_job({type: "evaluate", object_id: 5, dataset_id: 2,
+    multiplicity: 3, testcase_codename: "t<1>&"});
+texts.evaluate_plain = u.repr_job(
+    {type: "evaluate", object_id: 5, dataset_id: 2});
+texts.compile_test = u.repr_job(
+    {type: "compile_test", object_id: 6, dataset_id: 2});
+texts.evaluate_test = u.repr_job(
+    {type: "evaluate_test", object_id: 6, dataset_id: 2});
+var now = new Date().getTime() / 1000;
+texts.ago_s = u.repr_time_ago(now - 5);
+texts.ago_ms = u.repr_time_ago(now - 125);
+texts.ago_hms = u.repr_time_ago(now - 3725);
+texts.ago_none = u.repr_time_ago(null);
+texts.std_ok = u.standard_response({status: "ok"});
+texts.std_unconnected = u.standard_response({status: "unconnected"});
+texts.std_unauthorized = u.standard_response({status: "not authorized"});
+texts.std_fail = u.standard_response({status: "fail"});
+texts.std_other = u.standard_response({status: "<b>x"});
+u.redirect_if_ok("/next", {status: "fail"});
+u.file_received(null, "boom");
+u.timestamp = 1000; u.first_date = new Date();
+function remaining(a, b, c, d) {
+    u.contest_start = a; u.contest_stop = b;
+    u.analysis_start = c; u.analysis_stop = d;
+    u.update_remaining_time();
+    return out["#remaining_text"] + out["#remaining_value"];
+}
+texts.remaining_before = remaining(1100, 1200, 1300, 1400);
+texts.remaining_during = remaining(900, 1200, 1300, 1400);
+texts.analysis_before = remaining(800, 900, 1100, 1400);
+texts.analysis_during = remaining(800, 900, 1000, 1400);
+var box = {style: {display: "none"}};
+var invoker = {innerHTML: "", parentElement: {parentElement: {
+    querySelector: function() { return box; }}}};
+var event = {preventDefault: function() {}};
+u.question_reply_toggle(event, invoker); texts.reply_open = invoker.innerHTML;
+u.question_reply_toggle(event, invoker); texts.reply_closed = invoker.innerHTML;
+texts.alerts = alerts;
+texts;
+"""
+
+URLS = {
+    "result": '<a href="/aws/submission/5/2">',
+    "submission": '<a href="/aws/submission/5">',
+    "dataset": '<a href="/aws/dataset/2">',
+}
+
+ENGLISH = {
+    "na": "N/A",
+    "disabled": "Worker disabled",
+    "compile": 'Compiling the <a href="/aws/submission/5/2">result</a> of '
+               '<a href="/aws/submission/5">submission 5</a> on '
+               '<a href="/aws/dataset/2">dataset 2</a>',
+    # The codename is escaped now: it was put in the html as it came.
+    "evaluate": 'Evaluating the <a href="/aws/submission/5/2">result</a> of '
+                '<a href="/aws/submission/5">submission 5</a> on '
+                '<a href="/aws/dataset/2">dataset 2</a> '
+                "[3 time(s) in queue] [testcase: `t&lt;1&gt;&amp;']",
+    "evaluate_plain": 'Evaluating the <a href="/aws/submission/5/2">result'
+                      '</a> of <a href="/aws/submission/5">submission 5</a>'
+                      ' on <a href="/aws/dataset/2">dataset 2</a>',
+    "compile_test": "Compiling the result of user_test 6 on "
+                    '<a href="/aws/dataset/2">dataset 2</a>',
+    "evaluate_test": "Evaluating the result of user_test 6 on "
+                     '<a href="/aws/dataset/2">dataset 2</a>',
+    "ago_s": "5 second(s)",
+    "ago_ms": "2 minute(s), 5 second(s)",
+    "ago_hms": "1 hour(s), 2 minute(s), 5 second(s)",
+    "ago_none": "N/A",
+    "std_ok": "",
+    "std_unconnected": "Service not connected.",
+    "std_unauthorized": "You are not authorized to call this method.",
+    "std_fail": "Call to service failed.",
+    # Escaped, like the codename.
+    "std_other": "Unexpected reply `&lt;b&gt;x'. This should not happen.",
+    "remaining_before": "To start of contest: 0:01:40",
+    "remaining_during": "To end of contest: 0:03:20",
+    "analysis_before": "To start of analysis: 0:01:40",
+    "analysis_during": "To end of analysis: 0:06:40",
+    "reply_open": "Hide reply",
+    "reply_closed": "Reply",
+    "alerts": ["Unable to invalidate (Call to service failed.).",
+               "File request failed."],
+}
+
+SPANISH_PINS = {
+    "disabled": "Worker desactivado",
+    "compile": 'Compilando el <a href="/aws/submission/5/2">resultado</a> del'
+               ' <a href="/aws/submission/5">envío 5</a> en el '
+               '<a href="/aws/dataset/2">dataset 2</a>',
+    "evaluate": 'Evaluando el <a href="/aws/submission/5/2">resultado</a> del'
+                ' <a href="/aws/submission/5">envío 5</a> en el '
+                '<a href="/aws/dataset/2">dataset 2</a> '
+                "[3 vez(ces) en cola] [caso de prueba: `t&lt;1&gt;&amp;']",
+    "evaluate_test": "Evaluando el resultado de user_test 6 en el "
+                     '<a href="/aws/dataset/2">dataset 2</a>',
+    "ago_hms": "1 hora(s), 2 minuto(s), 5 segundo(s)",
+    "std_unauthorized": "No tienes autorización para llamar a este método.",
+    "std_other": "Respuesta inesperada `&lt;b&gt;x'. "
+                 "Esto no debería ocurrir.",
+    "remaining_before": "Para el inicio del concurso: 0:01:40",
+    "analysis_during": "Para el fin de la fase de análisis: 0:06:40",
+    "reply_open": "Ocultar respuesta",
+    "reply_closed": "Responder",
+    "alerts": ["No se pudo invalidar (Falló la llamada al servicio.).",
+               "Falló la solicitud del archivo."],
+}
+
+
+def page_messages(translated: bool) -> dict:
+    """Return the messages that base.html puts in the body, parsed as the
+    browser would."""
+    page = spanish if translated else render_page
+    found = re.search(
+        r'<body[^>]*data-messages="([^"]*)"',
+        page("base.html", **sidebar()))
+    assert found is not None
+    return json.loads(html.unescape(found.group(1)))
+
+
+def run_script(messages: str, scenario: str):
+    result = subprocess.run(
+        ["node", "-e", HARNESS, AWS_UTILS, messages, scenario],
+        capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
+
+
+@unittest.skipIf(shutil.which("node") is None, "node is not installed")
+class TestSharedScript(unittest.TestCase):
+
+    def test_the_english_texts_are_the_ones_it_had(self):
+        # Scenario "A page in English is unchanged" (aws-language)
+        shown = run_script(json.dumps(page_messages(False)), SCENARIO)
+
+        self.assertEqual(shown, ENGLISH)
+
+    def test_the_texts_in_spanish(self):
+        # Scenario "A shared script message in Spanish" (aws-language)
+        shown = run_script(json.dumps(page_messages(True)), SCENARIO)
+
+        for key, text in SPANISH_PINS.items():
+            self.assertEqual(shown[key], text, key)
+        # Same sentences, same links: only the words changed.
+        for key in ("compile", "evaluate", "compile_test"):
+            self.assertEqual(re.findall(r'href="[^"]*"', shown[key]),
+                             re.findall(r'href="[^"]*"', ENGLISH[key]), key)
+
+    def test_a_message_is_read_when_the_body_exists(self):
+        # Scenario "A shared script message in Spanish" (aws-language): the
+        # script loads in <head>, so t() must not read the body at load
+        # time, and must work at DOMContentLoaded
+        scenario = (
+            'CMS.AWSUtils.t("pages");'
+        )
+        # No body yet: the key comes back and nothing is cached.
+        self.assertEqual(run_script("", scenario), "pages")
+        lazy = (
+            "var before = CMS.AWSUtils.t('pages');"
+            "document.body = {getAttribute: function() {"
+            "return '{\"pages\": \"Páginas:\"}';}};"
+            "[before, CMS.AWSUtils.t('pages')];")
+        self.assertEqual(run_script("", lazy), ["pages", "Páginas:"])
+
+    def test_values_are_filled_in_one_pass(self):
+        # Scenario "A shared script message in Spanish" (aws-language)
+        messages = json.dumps({"k": "%(a)s and %(b)s, %(c)s"})
+        scenario = (
+            'CMS.AWSUtils.t("k", {a: "%(b)s", b: "$&", c: 7});')
+
+        # A value that looks like a placeholder is not filled again, "$&"
+        # is not a replacement pattern, a missing value stays as it is.
+        self.assertEqual(run_script(messages, scenario),
+                         "%(b)s and $&, 7")
+        self.assertEqual(
+            run_script(messages, 'CMS.AWSUtils.t("k", {a: 1});'),
+            "1 and %(b)s, %(c)s")
+        self.assertEqual(run_script(messages, 'CMS.AWSUtils.t("nope");'),
+                         "nope")
+
+
+class TestScriptKeys(unittest.TestCase):
+
+    @staticmethod
+    def used_keys() -> set[str]:
+        """Return the keys that aws_utils.js asks for."""
+        return set(re.findall(r'\bt\(\s*"([^"]+)"', AWS_UTILS))
+
+    def test_every_key_asked_is_in_the_page_and_the_reverse(self):
+        # Scenario "A shared script message in Spanish" (aws-language): the
+        # ratchet between aws_utils.js and base.html
+        provided = set(page_messages(False))
+
+        self.assertEqual(self.used_keys() - provided, set())
+        self.assertEqual(provided - self.used_keys(), set())
+
+    def test_every_message_is_translated(self):
+        # Scenario "A shared script message in Spanish" (aws-language)
+        english, translated = page_messages(False), page_messages(True)
+
+        self.assertEqual(set(english), set(translated))
+        # Only these stay as they are in Spanish.
+        same = {key for key in english if english[key] == translated[key]}
+        self.assertEqual(same, {"not_available", "error"})
+
+    def test_no_script_shows_a_literal_text(self):
+        # Scenario "A new untranslated text" (aws-language): no alert,
+        # confirm or prompt with a literal in a static script
+        found = []
+        for script in sorted(STATIC.iterdir(), key=lambda p: p.name):
+            if script.name.endswith(".js") and script.name not in (
+                    "prism.js", "jquery.min.js"):
+                for number, line in enumerate(
+                        script.read_text(encoding="utf-8").splitlines(), 1):
+                    if re.search(r"\b(alert|confirm|prompt)\(\s*[\"']", line):
+                        found.append(f"{script.name}:{number}: {line.strip()}")
+        self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

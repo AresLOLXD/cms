@@ -56,3 +56,96 @@ msgstr "No se indicó la hora de inicio del grupo principal."
 
 msgid "No main group stop time specified."
 msgstr "No se indicó la hora de fin del grupo principal."
+
+msgid "Restored your unsaved text."
+msgstr "Se restauró tu texto sin guardar."
+
+msgid "File request failed."
+msgstr "Falló la solicitud del archivo."
+
+msgid "Download"
+msgstr "Descargar"
+
+msgid "copy"
+msgstr "copiar"
+
+msgid "Private message."
+msgstr "Mensaje privado."
+
+msgid "Announcement."
+msgstr "Anuncio."
+
+msgid "Reply to your question."
+msgstr "Respuesta a tu pregunta."
+
+msgid "New question:"
+msgstr "Nueva pregunta:"
+
+msgid "To start of contest:"
+msgstr "Para el inicio del concurso:"
+
+msgid "To end of contest:"
+msgstr "Para el fin del concurso:"
+
+msgid "To start of analysis:"
+msgstr "Para el inicio de la fase de análisis:"
+
+msgid "To end of analysis:"
+msgstr "Para el fin de la fase de análisis:"
+
+msgid "Unable to invalidate (%(reason)s)."
+msgstr "No se pudo invalidar (%(reason)s)."
+
+msgid "N/A"
+msgstr "N/A"
+
+msgid "Worker disabled"
+msgstr "Worker desactivado"
+
+msgid "Compiling the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Compilando el <a href=\"%(result_url)s\">resultado</a> del <a href=\"%(submission_url)s\">envío %(object_id)s</a> en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+msgid "Evaluating the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Evaluando el <a href=\"%(result_url)s\">resultado</a> del <a href=\"%(submission_url)s\">envío %(object_id)s</a> en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+msgid "Compiling the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Compilando el resultado de user_test %(object_id)s en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+msgid "Evaluating the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Evaluando el resultado de user_test %(object_id)s en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+msgid "[%(count)s time(s) in queue]"
+msgstr "[%(count)s vez(ces) en cola]"
+
+msgid "[testcase: `%(codename)s']"
+msgstr "[caso de prueba: `%(codename)s']"
+
+msgid "second(s)"
+msgstr "segundo(s)"
+
+msgid "minute(s)"
+msgstr "minuto(s)"
+
+msgid "hour(s)"
+msgstr "hora(s)"
+
+msgid "Unexpected reply `%(status)s'. This should not happen."
+msgstr "Respuesta inesperada `%(status)s'. Esto no debería ocurrir."
+
+msgid "Service not connected."
+msgstr "Servicio no conectado."
+
+msgid "You are not authorized to call this method."
+msgstr "No tienes autorización para llamar a este método."
+
+msgid "Call to service failed."
+msgstr "Falló la llamada al servicio."
+
+msgid "Pages:"
+msgstr "Páginas:"
+
+msgid "Hide reply"
+msgstr "Ocultar respuesta"
+
+msgid "Reply"
+msgstr "Responder"
