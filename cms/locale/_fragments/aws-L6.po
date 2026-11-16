@@ -156,3 +156,87 @@ msgstr "Equipo"
 
 msgid "Global"
 msgstr "Total"
+
+msgid "Participation of <a href=\"%(user_url)s\">%(username)s</a> in <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+msgstr "Participación de <a href=\"%(user_url)s\">%(username)s</a> en <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+
+msgid "Reevaluate all %(count)s submissions for this user in this contest (for all datasets)"
+msgstr "Reevaluar todos los envíos de este usuario en este concurso (%(count)s en total, para todos los datasets)"
+
+msgid "Participation information"
+msgstr "Información de la participación"
+
+msgid "The group this contestant is part of. This determines the time window for participation."
+msgstr "El grupo al que pertenece el concursante. Determina la ventana de tiempo de la participación."
+
+msgid "Code of the team of the contestant in this contest. Only used in the external ranking."
+msgstr "Código del equipo del concursante en este concurso. Solo se usa en el ranking externo."
+
+msgid "Contestant password for this contest. If empty, the contestant's main password is used.\n                                     Caution: stored in plain text."
+msgstr "Contraseña del concursante para este concurso. Si está vacía, se usa la contraseña principal del concursante. Atención: se guarda en texto plano."
+
+msgid "Whether the contestant's results will be visible in the external ranking."
+msgstr "Si los resultados del concursante serán visibles en el ranking externo."
+
+msgid "Hidden participation"
+msgstr "Participación oculta"
+
+msgid "Whether the contestant is unrestricted by maximum number of submissions, user tests,\n                                    and minimum interval between submissions, user tests, and contest time."
+msgstr "Si el concursante queda libre del número máximo de envíos y de user tests, del intervalo mínimo entre envíos y entre user tests, y del tiempo del concurso."
+
+msgid "Unrestricted participation"
+msgstr "Participación sin restricciones"
+
+msgid "A comma-separated list of IP addresses (or subnets) of the contestant for this contest.\n                                    Used for IP-based login restrictions and/or for autologin (in this case, it must be a single address)."
+msgstr "Lista separada por comas de las direcciones IP (o subredes) del concursante para este concurso. Se usa para las restricciones de inicio de sesión por IP o para el autologin (en ese caso, debe ser una sola dirección)."
+
+msgid "IP address or subnet"
+msgstr "Dirección IP o subred"
+
+msgid "Time of first login during this contest, used for USACO-style contests.\n                                    Example: '2015-12-31 15:00:00'."
+msgstr "Hora del primer inicio de sesión en este concurso, usada en concursos al estilo USACO. Ejemplo: '2015-12-31 15:00:00'."
+
+msgid "Time of first login (in UTC)"
+msgstr "Hora del primer inicio de sesión (en UTC)"
+
+msgid "To be set (in seconds) to acknowledge that the contestant lost that amount of time at the beginning of the contest.\n                                    If this is non-zero, all the events (token generation, end of contest) for this contestant will be shifted of the appropriate amount."
+msgstr "Se define (en segundos) para reconocer que el concursante perdió esa cantidad de tiempo al inicio del concurso. Si no es cero, todos los eventos (generación de tokens, fin del concurso) de este concursante se desplazarán en la cantidad correspondiente."
+
+msgid "Delay"
+msgstr "Retraso"
+
+msgid "To be set (in seconds) to acknowledge that the contestant lost that amount of time during the contest.\n                                    If this is non-zero, the end of the contest will be shifted of the appropriate amount for this contestant."
+msgstr "Se define (en segundos) para reconocer que el concursante perdió esa cantidad de tiempo durante el concurso. Si no es cero, el fin del concurso se desplazará en la cantidad correspondiente para este concursante."
+
+msgid "Extra time"
+msgstr "Tiempo extra"
+
+msgid "The whole contest's log is under <a href=\"%(activity_url)s\">Activity</a>."
+msgstr "El registro completo del concurso está en <a href=\"%(activity_url)s\">Actividad</a>."
+
+msgid "<strong>Simultaneous activity</strong> (its intervals are highlighted below):"
+msgstr "<strong>Actividad simultánea</strong> (sus intervalos están resaltados abajo):"
+
+msgid "No questions."
+msgstr "No hay preguntas."
+
+msgid "Messages"
+msgstr "Mensajes"
+
+msgid "Subject:"
+msgstr "Asunto:"
+
+msgid "Text:"
+msgstr "Texto:"
+
+msgid "Send"
+msgstr "Enviar"
+
+msgid "By: %(admin_name)s"
+msgstr "Por: %(admin_name)s"
+
+msgid "No messages."
+msgstr "No hay mensajes."
+
+msgid "<unknown>"
+msgstr "<unknown>"

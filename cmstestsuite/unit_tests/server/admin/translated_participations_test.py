@@ -35,6 +35,7 @@ from cms.server.admin.handlers.contesttask import AddContestTaskHandler, \
     ContestTasksHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.server.admin import aws_render
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 from cmstestsuite.unit_tests.server.admin.translated_users_test import \
     notification, operation_buttons, run_post
@@ -286,3 +287,33 @@ class TestRankingInSpanish(unittest.TestCase):
                          "Total"):
             self.assertIn(expected, text)
         self.assertNotIn("Download as", text)
+
+
+class TestParticipationPageInSpanish(unittest.TestCase):
+
+    def test_the_participation_page_in_spanish(self):
+        # Scenario: A page group in Spanish (participations); the page is
+        # rendered with the stand-ins of aws_render, which fill the data.
+        html = aws_render.render(aws_render.environment("full"),
+                                 "participation.html", SPANISH)
+        text, attributes = visible(html)
+        tooltips = " | ".join(attributes)
+
+        for expected in (
+                "Participación de", "Información de la participación",
+                "Participación oculta", "Participación sin restricciones",
+                "Hora del primer inicio de sesión (en UTC)",
+                "Las horas están en la zona horaria del concurso",
+                "El registro completo del concurso está en",
+                "Mensajes", "Asunto:", "Por:"):
+            self.assertIn(expected, text)
+        for expected in (
+                "El grupo al que pertenece el concursante.",
+                "Contraseña del concursante para este concurso. Si está "
+                "vacía, se usa la contraseña principal del concursante.",
+                "Lista separada por comas de las direcciones IP",
+                "Hora del primer inicio de sesión en este concurso",
+                "Enviar", "Actualizar", "Limpiar"):
+            self.assertIn(expected, tooltips)
+        for english in ("Participation of", "Messages", "Subject:"):
+            self.assertNotIn(english, text)
