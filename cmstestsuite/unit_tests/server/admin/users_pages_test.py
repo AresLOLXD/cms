@@ -110,7 +110,7 @@ HEADERS_OF_MAIN = [("Users list", "Lista de usuarios"),
 ENGLISH_OF_CONTEST_USERS = [
     ("Users list", "Lista de usuarios"),
     ("Add a new user:", "Agrega un usuario nuevo:"),
-    ("Select a new user", "Elige un usuario nuevo"),
+    ("Select a new user", "Selecciona un usuario nuevo"),
     ("Add user", "Agregar usuario"), ("Username", "Usuario"),
     ("First name", "Nombre"), ("Last name", "Apellido"),
     ("Group", "Grupo")]

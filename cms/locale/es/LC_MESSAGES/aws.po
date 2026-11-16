@@ -327,7 +327,7 @@ msgstr "Selecciona un grupo válido"
 
 #, python-format
 msgid "Team with code '%s' does not exist"
-msgstr "No existe un equipo con el código '%s'"
+msgstr "No existe un equipo con el código «%s»"
 
 msgid "An import is running for this contest; wait for it to finish."
 msgstr "Hay una importación en curso para este concurso; espera a que termine."
@@ -1336,7 +1336,7 @@ msgid "Tokens parameters (<a href=\"%(link)s\" target=\"_blank\">documentation</
 msgstr "Parámetros de tokens (<a href=\"%(link)s\" target=\"_blank\">documentación</a>)"
 
 msgid "Select 'disabled' to remove tokens completely, 'infinite' for allowing any number of tokens, or 'finite' to specify the amount with the following parameters."
-msgstr "Elige «Desactivado» para quitar los tokens por completo, «Infinito» para permitir cualquier cantidad de tokens, o «Finito» para indicar la cantidad con los parámetros siguientes."
+msgstr "Selecciona «Desactivado» para quitar los tokens por completo, «Ilimitado» para permitir cualquier cantidad de tokens, o «Limitado» para indicar la cantidad con los parámetros siguientes."
 
 msgid "If you prefer to control tokens at the task level, select 'infinite' here."
 msgstr "Si prefieres controlar los tokens a nivel de problema, selecciona «Ilimitado» aquí."
@@ -1522,7 +1522,7 @@ msgid "Add a new task:"
 msgstr "Agrega un problema nuevo:"
 
 msgid "Select a new task"
-msgstr "Elige un problema nuevo"
+msgstr "Selecciona un problema nuevo"
 
 msgid "Add task"
 msgstr "Agregar problema"
@@ -1565,7 +1565,7 @@ msgid "Add a new user:"
 msgstr "Agrega un usuario nuevo:"
 
 msgid "Select a new user"
-msgstr "Elige un usuario nuevo"
+msgstr "Selecciona un usuario nuevo"
 
 msgid "Add user"
 msgstr "Agregar usuario"

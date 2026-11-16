@@ -92,7 +92,7 @@ class TestContestTasksInSpanish(DatabaseMixin, unittest.TestCase):
                     unassigned_tasks=[])
 
         for expected in (f"Lista de problemas de {self.contest.name}",
-                         "Agrega un problema nuevo:", "Elige un problema "
+                         "Agrega un problema nuevo:", "Selecciona un problema "
                          "nuevo", "Mover el problema seleccionado:",
                          "Quitar del concurso", "Título"):
             self.assertIn(expected, text)
@@ -153,7 +153,7 @@ class TestContestUsersInSpanish(unittest.TestCase):
                     unassigned_users=[])
 
         for expected in ("Lista de usuarios", "Agrega un usuario nuevo:",
-                         "Elige un usuario nuevo", "Agregar usuario",
+                         "Selecciona un usuario nuevo", "Agregar usuario",
                          "Quitar seleccionados del concurso"):
             self.assertIn(expected, text)
         self.assertNotIn("Add a new user", text)
@@ -198,7 +198,7 @@ class TestContestUsersInSpanish(unittest.TestCase):
             .side_effect = lambda: next(rows)
         for translation, subject, text in (
                 (SPANISH, "Campos no válidos",
-                 "No existe un equipo con el código 'zz'"),
+                 "No existe un equipo con el código «zz»"),
                 (None, "Invalid field(s)",
                  "Team with code 'zz' does not exist")):
             rows = iter([participation, None])
