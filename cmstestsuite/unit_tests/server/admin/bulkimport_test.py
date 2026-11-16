@@ -33,8 +33,8 @@ from sqlalchemy import event, inspect, select
 from cms.db import Participation, SessionGen, User
 from cms.server.admin.bulkimport import FIELDS, HASH_THREADS, MAX_ROWS, \
     USER_FIELDS, USER_REQUIRED, ImportPlan, ImportRow, UserImportPlan, \
-    apply_import, apply_user_import, hash_account_passwords, hash_passwords, plan_import, plan_user_import, \
-    read_rows
+    apply_import, apply_user_import, hash_account_passwords, hash_passwords, \
+    plan_import, plan_user_import, read_rows
 from cms.server.contest.authentication import authenticate_request, \
     validate_login
 from cmscommon.crypto import hash_password
@@ -415,7 +415,8 @@ class TestReadRows(unittest.TestCase):
                     "ana,Ana,López,%s,\n" % secret), MAPPING)
                 self.assertEqual(
                     errors,
-                    ["row 2: the password has characters that are not allowed"])
+                    ["row 2: the password has characters that are not "
+                     "allowed"])
                 self.assertFalse(any("s3c" in e for e in errors))
 
     def test_a_nul_byte_in_any_cell_is_refused(self):
@@ -443,7 +444,8 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(header + ",".join(cells) + "\n"),
                               mapping)
         self.assertEqual(
-            errors, ["row 2: the password has characters that are not allowed"])
+            errors,
+            ["row 2: the password has characters that are not allowed"])
 
     def test_the_72_bytes_are_counted_after_stripping(self):
         rows, errors = read_rows(csv_bytes(
@@ -454,7 +456,8 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
             "ana,Ana,López,  %sx  ,\n" % ("ñ" * 36)), MAPPING)
-        self.assertEqual(errors, ["row 2: the password is longer than 72 bytes"])
+        self.assertEqual(
+            errors, ["row 2: the password is longer than 72 bytes"])
 
     def test_blank_and_separator_only_rows_are_skipped(self):
         rows, errors = read_rows(csv_bytes(

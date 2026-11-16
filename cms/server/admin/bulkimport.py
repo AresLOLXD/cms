@@ -101,11 +101,6 @@ PASSWORD_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 T = TypeVar("T")
 
 
-def _identity(message: str) -> str:
-    """Return the message untranslated (the default gettext)."""
-    return message
-
-
 @dataclasses.dataclass(frozen=True)
 class ImportRow:
     """One data row of the file, already mapped to the import fields.
@@ -145,7 +140,7 @@ def _data_records(reader: Iterator[list[str]]
 def read_rows(data: bytes, mapping: dict[str, str],
               fields: tuple[str, ...] = FIELDS,
               required: frozenset[str] = REQUIRED,
-              gettext: Callable[[str], str] = _identity
+              gettext: Callable[[str], str] = N_
               ) -> tuple[list[ImportRow], list[str]]:
     """Parse the CSV and map its columns to the import fields.
 
@@ -337,7 +332,7 @@ class ImportPlan:
 
 
 def plan_import(session: Session, contest_id: int, rows: list[ImportRow],
-                gettext: Callable[[str], str] = _identity
+                gettext: Callable[[str], str] = N_
                 ) -> tuple[ImportPlan | None, list[str]]:
     """Check the rows against the database and plan the import.
 

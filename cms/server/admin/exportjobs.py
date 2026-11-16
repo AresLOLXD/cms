@@ -70,11 +70,6 @@ UNEXPECTED_FAILURE = N_("the export failed; nothing was generated")
 ArgvBuilder = Callable[[Sequence[int], Sequence[str], str], list[str]]
 
 
-def _identity(message: str) -> str:
-    """Return the message untranslated (the default gettext)."""
-    return message
-
-
 def dump_name(contest_ids: Sequence[int], today: date) -> str:
     """Name the dump of some contests, as its directory and its zip.
 
@@ -235,7 +230,7 @@ class ExportJobStore:
 
     def start(self, owner_id: int, contest_ids: Sequence[int],
               flags: Sequence[str],
-              gettext: Callable[[str], str] = _identity) -> ExportJob:
+              gettext: Callable[[str], str] = N_) -> ExportJob:
         """Start exporting some contests; call it in the event loop.
 
         owner_id: the admin who starts it.
@@ -317,7 +312,7 @@ class ExportJobStore:
         loop.call_later(JOB_TTL + 1, self._evict)
 
     async def _run(self, job: ExportJob,
-                   gettext: Callable[[str], str] = _identity) -> None:
+                   gettext: Callable[[str], str] = N_) -> None:
         """Export, pack and report; the body of the task of a job.
 
         A failure is logged with the exit code of the exporter, or the

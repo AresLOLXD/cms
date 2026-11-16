@@ -145,7 +145,9 @@ const realSetTimeout = setTimeout;
 function element(tag) {
     return {
         tag: tag, className: "", href: undefined, children: [], own: "",
-        set textContent(value) { this.own = String(value); this.children = []; },
+        set textContent(value) {
+            this.own = String(value); this.children = [];
+        },
         get textContent() {
             return this.own + this.children.map(c => c.textContent).join("");
         },
@@ -170,7 +172,8 @@ const context = {
         if (cfg.fail) { return Promise.reject(new Error("down")); }
         if (cfg.payloads.length === 0) { return new Promise(() => {}); }
         const payload = cfg.payloads.shift();
-        return Promise.resolve({ok: true, json: () => Promise.resolve(payload)});
+        return Promise.resolve(
+            {ok: true, json: () => Promise.resolve(payload)});
     },
     setTimeout: (fn) => realSetTimeout(fn, 0),
     console: console, String: String, JSON: JSON, Error: Error,

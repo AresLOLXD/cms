@@ -480,8 +480,8 @@ class TestConfirmationPage(unittest.TestCase):
 
         self.assertIn("ana", html)
         self.assertIn("dia1, dia2", html)
-        self.assertIn("2 users will be deleted, 3 submissions and 0 user tests.",
-                      html)
+        self.assertIn(
+            "2 users will be deleted, 3 submissions and 0 user tests.", html)
         self.assertIn("Rankings that will be emptied and sent again: "
                       "root (/), omi.", html)
         self.assertIn("nadie", html)
@@ -500,7 +500,8 @@ class TestConfirmationPage(unittest.TestCase):
         html = self.render(make_plan(entry(7, "ana"), running=True),
                            contest=contest)
 
-        self.assertIn("1 participation will be removed from this contest, with", html)
+        self.assertIn(
+            "1 participation will be removed from this contest, with", html)
         self.assertIn("bulk_remove_running", html)
         self.assertNotIn("Rankings that will be emptied", html)
 
@@ -514,7 +515,8 @@ class TestConfirmationPage(unittest.TestCase):
         html = self.render(make_plan(entry(7, "ana"), entry(9, "beto")),
                            contest=contest)
 
-        self.assertIn("2 participations will be removed from this contest", html)
+        self.assertIn(
+            "2 participations will be removed from this contest", html)
 
     def test_error_line(self):
         html = self.render(make_plan(entry(7, "ana")), error=WRONG_COUNT)

@@ -67,11 +67,6 @@ STATEMENT_TIMEOUT_MS = 180000
 _APPLY_LOCK = threading.Lock()
 
 
-def _identity(message: str) -> str:
-    """Return the message untranslated (the default gettext)."""
-    return message
-
-
 def _describe(job: "ImportJob") -> str:
     """Say what a job imports, for the log lines.
 
@@ -165,7 +160,7 @@ class ImportJobStore:
     def start(self, owner_id: int, contest_id: int | None,
               rows: list[ImportRow],
               on_done: Callable[[], None],
-              gettext: Callable[[str], str] = _identity) -> ImportJob:
+              gettext: Callable[[str], str] = N_) -> ImportJob:
         """Start importing rows into a contest, or the global users import
         when contest_id is None, in a thread.
 
@@ -197,7 +192,8 @@ class ImportJobStore:
                             contest_id=contest_id, total=len(rows),
                             created_at=self._clock())
             self._jobs[job.id] = job
-        thread = threading.Thread(target=self._run, args=(job, rows, on_done, gettext),
+        thread = threading.Thread(target=self._run,
+                                  args=(job, rows, on_done, gettext),
                                   name="aws-import-%s" % job.id[:8],
                                   daemon=True)
         try:
@@ -210,7 +206,7 @@ class ImportJobStore:
 
     def _run(self, job: ImportJob, rows: list[ImportRow],
              on_done: Callable[[], None],
-             gettext: Callable[[str], str] = _identity) -> None:
+             gettext: Callable[[str], str] = N_) -> None:
         """Import the rows of a job; the body of its thread.
 
         A failure is logged with what the job imports (the contest or the

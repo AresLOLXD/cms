@@ -54,7 +54,7 @@ _SEPARATORS = re.compile(r"[,;\t]")
 
 
 def parse_usernames(*sources: bytes,
-                    gettext: Callable[[str], str] = lambda s: s
+                    gettext: Callable[[str], str] = N_
                     ) -> list[str]:
     """Return the usernames listed in sources, in order, without repeats.
 

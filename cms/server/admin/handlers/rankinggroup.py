@@ -204,7 +204,7 @@ def read_ranking_group_visibility(handler: BaseHandler, attrs: dict,
 
 
 def visibility_view(group: RankingGroup, now: datetime,
-                    gettext: Callable[[str], str] = lambda msgid: msgid
+                    gettext: Callable[[str], str] = N_
                     ) -> dict:
     """Prepare what the group page shows about its visibility.
 

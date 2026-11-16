@@ -647,7 +647,8 @@ class TestArchiveView(unittest.TestCase):
         # Scenario: A group that will be archived
         view = self.view(archive_at=datetime(2026, 10, 11, 17, 0))
         self.assertFalse(view["archived_now"])
-        self.assertTrue(view["archive_summary"].startswith("will be archived on"))
+        self.assertTrue(
+            view["archive_summary"].startswith("will be archived on"))
         self.assertIn("2026-10-11 17:00:00 UTC", view["archive_summary"])
 
     def test_a_group_with_no_archive_at(self):
@@ -1131,7 +1132,8 @@ class TestArchiveBanner(unittest.TestCase):
 
 
 def render_core_block(page: str, **params) -> str:
-    """Render the "core" block of a page; gettext params choose the language."""
+    """Render the "core" block of a page; gettext params choose the
+    language."""
     template = AWS_ENVIRONMENT.get_template(page)
     params.setdefault(
         "url", lambda *parts: "/" + "/".join(str(p) for p in parts))

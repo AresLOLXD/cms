@@ -32,11 +32,10 @@ import zipfile
 from datetime import date
 from unittest import mock
 
-from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
-
 from cms.server.admin import exportjobs
 from cms.server.admin.exportjobs import JOB_TTL, ExportJobStore, \
     dump_name, export_argv, pack_zip
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 OWNER_ID = 3
 # Writes a dump like the exporter's in the directory it is given, then

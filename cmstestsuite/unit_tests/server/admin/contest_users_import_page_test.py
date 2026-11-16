@@ -161,7 +161,9 @@ const realSetTimeout = setTimeout;
 function element(tag) {
     return {
         tag: tag, className: "", href: undefined, children: [], own: "",
-        set textContent(value) { this.own = String(value); this.children = []; },
+        set textContent(value) {
+            this.own = String(value); this.children = [];
+        },
         get textContent() {
             return this.own + this.children.map(c => c.textContent).join("");
         },
@@ -183,7 +185,9 @@ const byId = {import_job: job, import_bar: bar, import_text: text,
 const document = {
     getElementById(id) { return byId[id] || null; },
     createElement: element,
-    createTextNode(value) { const n = element("#text"); n.own = value; return n; },
+    createTextNode(value) {
+        const n = element("#text"); n.own = value; return n;
+    },
 };
 const context = {
     document: document,
@@ -191,7 +195,8 @@ const context = {
         if (cfg.fail) { return Promise.reject(new Error("down")); }
         if (cfg.payloads.length === 0) { return new Promise(() => {}); }
         const payload = cfg.payloads.shift();
-        return Promise.resolve({ok: true, json: () => Promise.resolve(payload)});
+        return Promise.resolve(
+            {ok: true, json: () => Promise.resolve(payload)});
     },
     setTimeout: (fn) => realSetTimeout(fn, 0),
     console: console, String: String, JSON: JSON, Error: Error,
@@ -266,7 +271,8 @@ class TestPageInEnglish(unittest.TestCase):
         self.assertIn("Import CSV \u2014 Day 1", form)
         self.assertIn("One row per contestant: it creates the users that "
                       "are missing", form)
-        self.assertIn("User (username) * (unassigned) First name (first_name)", form)
+        self.assertIn(
+            "User (username) * (unassigned) First name (first_name)", form)
         self.assertIn("Password of the day (password)", form)
         self.assertIn("(unassigned)", form)
         self.assertIn("* required", form)
@@ -428,8 +434,9 @@ class TestScriptTexts(unittest.TestCase):
             ["Processing 4 of 10",
              "Error: fila 2: el usuario %(x)s está vacío",
              "User list", " | ", "Import another file"])
-        self.assertEqual(shown(html, [], fail=True),
-                         ["", "Could not check the progress; reload the page."])
+        self.assertEqual(
+            shown(html, [], fail=True),
+            ["", "Could not check the progress; reload the page."])
 
     @unittest.skipIf(shutil.which("node") is None, "node is not installed")
     def test_script_texts_in_spanish_are_those_of_main(self):
