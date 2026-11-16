@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 00:22-0600\n"
+"POT-Creation-Date: 2026-11-16 00:25-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L2\n"
 "Language: es\n"
@@ -509,4 +509,34 @@ msgstr "agregar"
 
 msgid "second(s)"
 msgstr "segundo(s)"
+
+msgid "[Disable background judging]"
+msgstr "[Desactivar evaluación en segundo plano]"
+
+msgid "[Enable background judging]"
+msgstr "[Activar evaluación en segundo plano]"
+
+#, python-format
+msgid "Task type `%s' not found."
+msgstr "No se encontró el tipo de problema `%s'."
+
+msgid ""
+"Please select another task type, or make the original one available and "
+"refresh the page without updating the task to avoid losing the "
+"parameters."
+msgstr ""
+"Elige otro tipo de problema, o habilita el original y recarga la página "
+"sin actualizar el problema para no perder los parámetros."
+
+#, python-format
+msgid "Score type `%s' not found."
+msgstr "No se encontró el tipo de puntaje `%s'."
+
+msgid ""
+"Please select another score type, or make the original one available and "
+"refresh the page without updating the task to avoid losing the "
+"parameters."
+msgstr ""
+"Elige otro tipo de puntaje, o habilita el original y recarga la página "
+"sin actualizar el problema para no perder los parámetros."
 
