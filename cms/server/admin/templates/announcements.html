@@ -1,12 +1,13 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 {% import 'macro/markdown_input.html' as macro_markdown with context %}
 
 {% block core %}
 <div class="core_title">
-  <h1>Announcements</h1>
+  <h1>{% trans %}Announcements{% endtrans %}</h1>
 </div>
 
-<h2 id="title_announcements" class="toggling_on">Announcements</h2>
+<h2 id="title_announcements" class="toggling_on">{% trans %}Announcements{% endtrans %}</h2>
 <div id="announcements">
   <div class="notifications">
 {% if admin.permission_all or admin.permission_messaging %}
@@ -15,7 +16,7 @@
         <form method="post" action="{{ url("contest", contest.id, "announcements", "add") }}">
           {{ xsrf_form_html|safe }}
           <div class="notification_subject">
-            <label for="new_subject">Subject</label>
+            <label for="new_subject">{% trans %}Subject{% endtrans %}</label>
             <input type="text" name="subject" id="new_subject" style="width: 100%" list="task_names_list" autocomplete="off">
             <datalist id="task_names_list">
               {% for task in contest.tasks %}
@@ -24,11 +25,11 @@
             </datalist>
           </div>
           <div class="notification_text">
-            <label for="text">Text</label>
+            <label for="text">{% trans %}Text{% endtrans %}</label>
             {{ macro_markdown.markdown_input("text") }}
           </div>
           <input type="submit"
-                 value="Add announcement" />
+                 value="{{ _("Add announcement") }}" />
           {{ macro_markdown.markdown_preview() }}
         </form>
       </div>
@@ -40,21 +41,23 @@
         <div class="notification_msg">
 
           <div class="announcement_remove">
-            <a onclick="CMS.AWSUtils.ajax_delete('{{ url("contest", contest.id, "announcement", msg.id) }}'); ">Remove</a>
+            <a onclick="CMS.AWSUtils.ajax_delete('{{ url("contest", contest.id, "announcement", msg.id) }}'); ">{% trans %}Remove{% endtrans %}</a>
           </div>
           <div class="notification_timestamp">{{ msg.timestamp|format_utc_time }}</div>
           <div class="notification_subject">{{ msg.subject }}</div>
           <div class="notification_text">{{ msg.text | markdown }}</div>
           <hr>
           <div class="notification_admin_owner">
-            By: {{ msg.admin.name if msg.admin is not none else "<unknown>" }}
+            {% set unknown %}{% trans %}&lt;unknown&gt;{% endtrans %}{% endset %}
+            {% set owner = msg.admin.name if msg.admin is not none else unknown %}
+            {% trans name=owner %}By: {{ name }}{% endtrans %}
           </div>
 
         </div>
       </div>
       {% endfor %}
     {% else %}
-      No announcements.
+      {% trans %}No announcements.{% endtrans %}
     {% endif %}
   </div>
 
