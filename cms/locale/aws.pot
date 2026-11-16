@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-15 18:39-0600\n"
+"POT-Creation-Date: 2026-11-16 00:39-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -160,6 +160,12 @@ msgstr ""
 msgid "the export failed; nothing was generated"
 msgstr ""
 
+msgid "(Live)"
+msgstr ""
+
+msgid "(Background judging)"
+msgstr ""
+
 #, python-format
 msgid "Can't cast %s to int."
 msgstr ""
@@ -174,6 +180,58 @@ msgstr ""
 
 #, python-format
 msgid "Can't cast %s to an IP network."
+msgstr ""
+
+msgid "The database did not answer, try again."
+msgstr ""
+
+msgid "Operation failed."
+msgstr ""
+
+msgid "Operation successful."
+msgstr ""
+
+#, python-format
+msgid "Can't cast %s to bool."
+msgstr ""
+
+msgid "Submission format not recognized."
+msgstr ""
+
+#, python-format
+msgid "Can't cast %s to float."
+msgstr ""
+
+msgid "Time limit out of range."
+msgstr ""
+
+msgid "Invalid memory limit."
+msgstr ""
+
+msgid "Task type not found."
+msgstr ""
+
+#, python-format
+msgid "Task type not recognized: %s."
+msgstr ""
+
+msgid "Score type not found."
+msgstr ""
+
+#, python-format
+msgid "Score type not recognized: %s."
+msgstr ""
+
+msgid "Score type parameters not found."
+msgstr ""
+
+msgid "Score type parameters are invalid JSON."
+msgstr ""
+
+msgid "No main group start time specified."
+msgstr ""
+
+msgid "No main group stop time specified."
 msgstr ""
 
 msgid "You did not choose any user."
@@ -337,6 +395,112 @@ msgstr ""
 msgid "root"
 msgstr ""
 
+#, python-format
+msgid "Submission ID %s not found."
+msgstr ""
+
+msgid "Cannot compare submissions: they are for different tasks and have more than 1 file."
+msgstr ""
+
+msgid "File not present in old submission"
+msgstr ""
+
+msgid "Old file is too big to diff"
+msgstr ""
+
+msgid "Old file has too many lines to diff"
+msgstr ""
+
+msgid "File not present in new submission"
+msgstr ""
+
+msgid "New file is too big to diff"
+msgstr ""
+
+msgid "New file has too many lines to diff"
+msgstr ""
+
+msgid "No changes"
+msgstr ""
+
+msgid "No task name specified."
+msgstr ""
+
+msgid "the score parameters could not be checked."
+msgstr ""
+
+msgid "Invalid score type parameters"
+msgstr ""
+
+msgid "No language code specified"
+msgstr ""
+
+msgid "The language code can be any string."
+msgstr ""
+
+msgid "Invalid task statement"
+msgstr ""
+
+msgid "The task statement must be a .pdf file."
+msgstr ""
+
+msgid "Task statement storage failed"
+msgstr ""
+
+msgid "Attachment storage failed"
+msgstr ""
+
+#, python-format
+msgid "Dataset name %r is already taken."
+msgstr ""
+
+msgid "Please choose a unique name for this dataset."
+msgstr ""
+
+msgid "No username specified."
+msgstr ""
+
+msgid "Error removing team"
+msgstr ""
+
+msgid "No team code specified."
+msgstr ""
+
+msgid "Please select a valid contest"
+msgstr ""
+
+msgid "Please select a valid operation"
+msgstr ""
+
+msgid "Invalid operation"
+msgstr ""
+
+#, python-format
+msgid "I do not understand the operation `%s'"
+msgstr ""
+
+msgid "Cannot delete group containing users"
+msgstr ""
+
+#, python-format
+msgid "The group `%(name)s' contains %(count)d users"
+msgid_plural "The group `%(name)s' contains %(count)d users"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Cannot delete a contest's main group."
+msgstr ""
+
+#, python-format
+msgid "To delete '%s', change the main group of the contest first to another group."
+msgstr ""
+
+msgid "No name specified."
+msgstr ""
+
+msgid "No group name specified."
+msgstr ""
+
 msgid "the import could not be applied; nothing was saved"
 msgstr ""
 
@@ -344,6 +508,12 @@ msgid "an import of users is already running"
 msgstr ""
 
 msgid "an import is already running for this contest"
+msgstr ""
+
+msgid "Upload attachment"
+msgstr ""
+
+msgid "Upload"
 msgstr ""
 
 msgid "New ranking group"
@@ -373,6 +543,327 @@ msgstr ""
 msgid "Reset"
 msgstr ""
 
+msgid "Upload statement"
+msgstr ""
+
+msgid "Language code:"
+msgstr ""
+
+msgid "New task"
+msgstr ""
+
+msgid "A short name for the task, preferably using only letters, numbers and underscores."
+msgstr ""
+
+msgid "Name:"
+msgstr ""
+
+msgid "New team"
+msgstr ""
+
+msgid "Code"
+msgstr ""
+
+msgid "New user"
+msgstr ""
+
+msgid "First name of the contestant."
+msgstr ""
+
+msgid "First name"
+msgstr ""
+
+msgid "Last name of the contestant."
+msgstr ""
+
+msgid "Last name"
+msgstr ""
+
+msgid "Username of the contestant (used to log in)."
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Contestant password. Caution: stored in plain text."
+msgstr ""
+
+msgid "Password"
+msgstr ""
+
+msgid "Plain text"
+msgstr ""
+
+msgid "Hashed (bcrypt)"
+msgstr ""
+
+msgid "Contestant e-mail address."
+msgstr ""
+
+msgid "E-mail"
+msgstr ""
+
+msgid ""
+"Timezone of the contestant, used to display start, end times and the current server time in local time.\n"
+"                                    Example: 'Europe/Rome', 'America/New_York', ..."
+msgstr ""
+
+msgid "Timezone"
+msgstr ""
+
+msgid ""
+"Comma-separated list of language codes, from the most to the least preferred.\n"
+"                                    Example: 'en, ja'."
+msgstr ""
+
+msgid "Preferred languages"
+msgstr ""
+
+msgid "Admin"
+msgstr ""
+
+#, python-format
+msgid "Admin: %(description)s"
+msgstr ""
+
+msgid "Restored your unsaved text."
+msgstr ""
+
+msgid "File request failed."
+msgstr ""
+
+msgid "Download"
+msgstr ""
+
+msgid "copy"
+msgstr ""
+
+msgid "Private message."
+msgstr ""
+
+msgid "Announcement."
+msgstr ""
+
+msgid "Reply to your question."
+msgstr ""
+
+msgid "New question:"
+msgstr ""
+
+msgid "To start of contest:"
+msgstr ""
+
+msgid "To end of contest:"
+msgstr ""
+
+msgid "To start of analysis:"
+msgstr ""
+
+msgid "To end of analysis:"
+msgstr ""
+
+#, python-format
+msgid "Unable to invalidate (%(reason)s)."
+msgstr ""
+
+msgid "N/A"
+msgstr ""
+
+msgid "Worker disabled"
+msgstr ""
+
+#, python-format
+msgid "Compiling the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr ""
+
+#, python-format
+msgid "Evaluating the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr ""
+
+#, python-format
+msgid "Compiling the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr ""
+
+#, python-format
+msgid "Evaluating the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr ""
+
+#, python-format
+msgid "[%(count)s time(s) in queue]"
+msgstr ""
+
+#, python-format
+msgid "[testcase: `%(codename)s']"
+msgstr ""
+
+msgid "second(s)"
+msgstr ""
+
+msgid "minute(s)"
+msgstr ""
+
+msgid "hour(s)"
+msgstr ""
+
+#, python-format
+msgid "Unexpected reply `%(status)s'. This should not happen."
+msgstr ""
+
+msgid "Service not connected."
+msgstr ""
+
+msgid "You are not authorized to call this method."
+msgstr ""
+
+msgid "Call to service failed."
+msgstr ""
+
+msgid "Pages:"
+msgstr ""
+
+msgid "Hide reply"
+msgstr ""
+
+msgid "Reply"
+msgstr ""
+
+#, python-format
+msgid "Error: %(error)s"
+msgstr ""
+
+msgid "Administration"
+msgstr ""
+
+#, python-format
+msgid "Hello, <a href=\"%(admins_url)s\">%(name)s</a>."
+msgstr ""
+
+msgid "Logout"
+msgstr ""
+
+msgid "Change secret_key in cms.toml!"
+msgstr ""
+
+msgid "For example,"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Resource usage"
+msgstr ""
+
+msgid "Export"
+msgstr ""
+
+msgid "Contests"
+msgstr ""
+
+msgid "(no contests available)"
+msgstr ""
+
+msgid "(show more...)"
+msgstr ""
+
+msgid "(create new contest...)"
+msgstr ""
+
+msgid "Tasks"
+msgstr ""
+
+msgid "(no tasks available)"
+msgstr ""
+
+msgid "(create new task...)"
+msgstr ""
+
+msgid "Users"
+msgstr ""
+
+msgid "(no user available)"
+msgstr ""
+
+#, python-format
+msgid "(show the only user...)"
+msgid_plural "(show the %(count)s users...)"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "(create new user...)"
+msgstr ""
+
+msgid "Teams"
+msgstr ""
+
+msgid "(no team available)"
+msgstr ""
+
+#, python-format
+msgid "(show the only team...)"
+msgid_plural "(show the %(count)s teams...)"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "(create new team...)"
+msgstr ""
+
+msgid "Ranking groups"
+msgstr ""
+
+#, python-format
+msgid "(show the %(count)s ranking groups...)"
+msgid_plural "(show the %(count)s ranking groups...)"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "(create new ranking group...)"
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "Ranking"
+msgstr ""
+
+msgid "Activity"
+msgstr ""
+
+msgid "Submissions"
+msgstr ""
+
+msgid "User tests"
+msgstr ""
+
+msgid "Groups"
+msgstr ""
+
+msgid "Announcements"
+msgstr ""
+
+msgid "Questions"
+msgstr ""
+
+msgid "CMS <a href=\"http://github.com/cms-dev/cms/\">codebase</a> is released under the<br/><a href=\"http://www.gnu.org/licenses/agpl.txt\">GNU Affero General Public License</a>."
+msgstr ""
+
+#, python-format
+msgid "The ranking group <a href=\"%(group_url)s\">%(name)s</a> is archived: changes made here do not reach the public ranking until the group is unarchived."
+msgstr ""
+
+msgid "All Submissions"
+msgstr ""
+
+#, python-format
+msgid "Reevaluate all %(count)s submissions in this contest (for all datasets)"
+msgstr ""
+
+msgid "All user tests"
+msgstr ""
+
+#, python-format
+msgid "There are %(count)s user tests in this contest"
+msgstr ""
+
 msgid "Import CSV"
 msgstr ""
 
@@ -392,9 +883,6 @@ msgid "One username per line, or a CSV whose first column is the username."
 msgstr ""
 
 msgid "Review list"
-msgstr ""
-
-msgid "Users"
 msgstr ""
 
 msgid "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved."
@@ -503,10 +991,6 @@ msgid "%(count)s participation was moved to the main group"
 msgid_plural "%(count)s participations were moved to the main group"
 msgstr[0] ""
 msgstr[1] ""
-
-#, python-format
-msgid "Error: %(error)s"
-msgstr ""
 
 msgid "User list"
 msgstr ""
@@ -642,9 +1126,6 @@ msgstr ""
 msgid "I understand the risk and want to export anyway"
 msgstr ""
 
-msgid "Export"
-msgstr ""
-
 msgid "Your exports"
 msgstr ""
 
@@ -657,11 +1138,15 @@ msgstr ""
 msgid "failed"
 msgstr ""
 
-msgid "Language"
+msgid "The password is hashed, type a new one in here to change it"
 msgstr ""
 
 #, python-format
 msgid "Automatic (%(lang)s)"
+msgstr ""
+
+#, python-format
+msgid "At the moment, you have %(ratio)s users for each ContestWebServer, on average.<br/>One CWS can reasonably handle about 100 simultaneous requests. This situation might cause long request delays or failures."
 msgstr ""
 
 msgid "Theme"
@@ -676,7 +1161,77 @@ msgstr ""
 msgid "Dark"
 msgstr ""
 
-msgid "Admin"
+msgid "[Unknown status]"
+msgstr ""
+
+msgid "Compilation output"
+msgstr ""
+
+msgid "See input"
+msgstr ""
+
+msgid "No user tests found."
+msgstr ""
+
+msgid "Time"
+msgstr ""
+
+msgid "User input"
+msgstr ""
+
+#, python-format
+msgid "Group %(group_name)s in <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+msgstr ""
+
+msgid "No users found."
+msgstr ""
+
+msgid "Group information"
+msgstr ""
+
+msgid "The name of this user group."
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Groups list"
+msgstr ""
+
+msgid "Add a new group named"
+msgstr ""
+
+msgid "Add group"
+msgstr ""
+
+msgid "Edit selected group:"
+msgstr ""
+
+msgid "Make main group"
+msgstr ""
+
+msgid "Delete selected group"
+msgstr ""
+
+msgid "Start (in UTC)"
+msgstr ""
+
+msgid "End (in UTC)"
+msgstr ""
+
+msgid "Max. contest length (in seconds)"
+msgstr ""
+
+msgid "Analysis"
+msgstr ""
+
+msgid "Analysis start"
+msgstr ""
+
+msgid "Analysis end"
+msgstr ""
+
+msgid "(main group)"
 msgstr ""
 
 msgid "Welcome"
@@ -688,19 +1243,50 @@ msgstr ""
 msgid "Please log in:"
 msgstr ""
 
-msgid "Username"
-msgstr ""
-
-msgid "Password"
-msgstr ""
-
 msgid "Login"
 msgstr ""
 
-msgid "General Information"
+#, python-format
+msgid "You are already logged in. <a href=\"%(logout_url)s\">Logout</a> or go to the <a href=\"%(overview_url)s\">overview</a>."
 msgstr ""
 
-msgid "Update"
+msgid "First"
+msgstr ""
+
+msgid "Last"
+msgstr ""
+
+msgid "Do you really want to reevaluate?"
+msgstr ""
+
+msgid "Score"
+msgstr ""
+
+msgid "No submissions found."
+msgstr ""
+
+msgid "Diff submissions..."
+msgstr ""
+
+msgid "Select two submissions from the table, or enter submission IDs:"
+msgstr ""
+
+msgid "old:"
+msgstr ""
+
+msgid "new:"
+msgstr ""
+
+msgid "Diff"
+msgstr ""
+
+msgid "Latency"
+msgstr ""
+
+msgid "Testcases"
+msgstr ""
+
+msgid "General Information"
 msgstr ""
 
 msgid "Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL."
@@ -773,16 +1359,7 @@ msgstr ""
 msgid "(inactive)"
 msgstr ""
 
-msgid "Ranking groups"
-msgstr ""
-
 msgid "Each ranking group is an independent public scoreboard, served by RWS at <code>/&lt;name&gt;/</code>. Assign a contest to a group from the contest's own page."
-msgstr ""
-
-msgid "Edit selected group:"
-msgstr ""
-
-msgid "Contests"
 msgstr ""
 
 msgid "State"
@@ -817,6 +1394,637 @@ msgstr ""
 msgid "Empty and regenerate the ranking %s?"
 msgstr ""
 
+#, python-format
+msgid "Submission %(id)s (Task: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+msgstr ""
+
+msgid "Submission details"
+msgstr ""
+
+msgid "Property"
+msgstr ""
+
+msgid "Value"
+msgstr ""
+
+msgid "Submission time"
+msgstr ""
+
+msgid "Id"
+msgstr ""
+
+msgid "Task"
+msgstr ""
+
+msgid "User"
+msgstr ""
+
+msgid "Files"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Token"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "Official"
+msgstr ""
+
+msgid "Make unofficial"
+msgstr ""
+
+msgid "Make official"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Compiling..."
+msgstr ""
+
+msgid "Compilation failed"
+msgstr ""
+
+msgid "Evaluating..."
+msgstr ""
+
+msgid "Scoring..."
+msgstr ""
+
+msgid "[Cannot get score type - see logs]"
+msgstr ""
+
+#, python-format
+msgid "Scored (%(score)s / %(max_score)s)"
+msgstr ""
+
+msgid "Score as seen by user"
+msgstr ""
+
+msgid "Latency as seen by user"
+msgstr ""
+
+msgid "Failures during compilation"
+msgstr ""
+
+msgid "Compilation shard"
+msgstr ""
+
+msgid "Compilation sandbox"
+msgstr ""
+
+msgid "Rerun and archive"
+msgstr ""
+
+msgid "Failures during evaluation"
+msgstr ""
+
+msgid "Max execution time"
+msgstr ""
+
+#, python-format
+msgid "%(time)s s"
+msgstr ""
+
+msgid "Max memory used"
+msgstr ""
+
+#, python-format
+msgid "%(memory)s MiB"
+msgstr ""
+
+msgid "Reevaluate"
+msgstr ""
+
+msgid "Comment"
+msgstr ""
+
+msgid "Evaluation (as seen by the user)"
+msgstr ""
+
+msgid "Evaluation (as seen by the admin)"
+msgstr ""
+
+msgid "Codename"
+msgstr ""
+
+msgid "Outcome"
+msgstr ""
+
+msgid "Visible"
+msgstr ""
+
+msgid "Details"
+msgstr ""
+
+msgid "Admin Details"
+msgstr ""
+
+msgid "Shard"
+msgstr ""
+
+msgid "Resources"
+msgstr ""
+
+msgid "Sandbox"
+msgstr ""
+
+msgid "Compilation"
+msgstr ""
+
+msgid "Standard output"
+msgstr ""
+
+msgid "Standard error"
+msgstr ""
+
+msgid "No submissions for this task yet."
+msgstr ""
+
+msgid "1 submission"
+msgstr ""
+
+#, python-format
+msgid "%(count)s submissions"
+msgstr ""
+
+msgid "Task configuration"
+msgstr ""
+
+msgid "Task information"
+msgstr ""
+
+msgid "The title of the task as seen by the contestants."
+msgstr ""
+
+msgid "Title"
+msgstr ""
+
+msgid "The index of the task within the contest, if the task is associated with a contest."
+msgstr ""
+
+msgid "Position"
+msgstr ""
+
+msgid "The statements of this task, by language code. Primary statements are shown prominently to contestants."
+msgstr ""
+
+msgid "Statements"
+msgstr ""
+
+msgid "add"
+msgstr ""
+
+msgid "No statements uploaded yet"
+msgstr ""
+
+#, python-format
+msgid "Statement for language \"%(language)s\""
+msgstr ""
+
+msgid "Primary?"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Attachments for this task. Contestant can view and download attachments from the task page."
+msgstr ""
+
+msgid "Attachments"
+msgstr ""
+
+msgid "No attachments."
+msgstr ""
+
+msgid "A comma-separated list with the names of the files that need to be submitted (with the language extensions changed to %l)."
+msgstr ""
+
+msgid "The task type dictates the submission format. Consult the task type documentation to know the requirements."
+msgstr ""
+
+msgid "Submission format"
+msgstr ""
+
+msgid "Programming languages that contestants can use to solve this task."
+msgstr ""
+
+msgid "If none are selected, all contest languages are allowed."
+msgstr ""
+
+msgid "Otherwise, only the selected languages are allowed."
+msgstr ""
+
+msgid "Allowed programming languages"
+msgstr ""
+
+msgid "With 'restricted' contestants only see limited technical information about each testcase; with 'full' they see more details, but malicious contestants might use this data to get some information about the test data."
+msgstr ""
+
+msgid "Feedback level"
+msgstr ""
+
+msgid "OI Restricted"
+msgstr ""
+
+msgid "Restricted"
+msgstr ""
+
+msgid "Full"
+msgstr ""
+
+#, python-format
+msgid "Tokens parameters (<a href=\"%(link)s\" target=\"_blank\">documentation</a>)"
+msgstr ""
+
+msgid "Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters."
+msgstr ""
+
+msgid "If you prefer to control tokens at the task level, select 'infinite' here."
+msgstr ""
+
+msgid "Token mode"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Finite"
+msgstr ""
+
+msgid "Infinite"
+msgstr ""
+
+msgid "The maximum number of tokens a contestant can use in this task."
+msgstr ""
+
+msgid "It is used only if tokens are finite."
+msgstr ""
+
+msgid "Maximum number of tokens"
+msgstr ""
+
+msgid "The minimum amount of time (in seconds) that a contestant needs to wait for this task after using a token before being able to use another."
+msgstr ""
+
+msgid "Minimum interval between tokens"
+msgstr ""
+
+msgid "The number of tokens that a contestant has available for this task when their contest time starts."
+msgstr ""
+
+msgid "Initial number of tokens"
+msgstr ""
+
+msgid "The number of tokens that are generated periodically for this task."
+msgstr ""
+
+msgid "Token generation number"
+msgstr ""
+
+msgid "The amount of time (in minutes) between two token generation events for this task."
+msgstr ""
+
+msgid "Token generation period"
+msgstr ""
+
+msgid "Maximum number of tokens for this task available to a contestant at any given time during the contest."
+msgstr ""
+
+msgid "Maximum accumulated tokens"
+msgstr ""
+
+msgid "Limits"
+msgstr ""
+
+msgid "Maximum number of submissions each contestant can submit for this task, for the whole contest."
+msgstr ""
+
+msgid "Leave empty for no limits."
+msgstr ""
+
+msgid "Maximum number of submissions"
+msgstr ""
+
+msgid "Maximum number of user tests each contestant can submit for this task, for the whole contest."
+msgstr ""
+
+msgid "Maximum number of user tests"
+msgstr ""
+
+msgid "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a submission before being able to submit another."
+msgstr ""
+
+msgid "Minimum interval between submissions"
+msgstr ""
+
+msgid "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a user test before being able to send another."
+msgstr ""
+
+msgid "Minimum interval between user tests"
+msgstr ""
+
+msgid "Score options"
+msgstr ""
+
+msgid "The number of decimal places the scores will be rounded to."
+msgstr ""
+
+msgid "Example: '2' to allow 98.76."
+msgstr ""
+
+msgid "Score decimal places"
+msgstr ""
+
+msgid "How the score for the task is computed from the score of each submission."
+msgstr ""
+
+msgid "Score mode"
+msgstr ""
+
+msgid "Use best among tokened and last submissions (IOI 2010-2012)"
+msgstr ""
+
+msgid "Use best among all submissions (IOI 2013-2016)"
+msgstr ""
+
+msgid "Use the sum over each subtask of the best result for that subtask across all submissions (IOI 2017-)"
+msgstr ""
+
+msgid "Datasets"
+msgstr ""
+
+msgid "No datasets have been created for this task."
+msgstr ""
+
+msgid "Create a new dataset"
+msgstr ""
+
+msgid "Dataset:"
+msgstr ""
+
+msgid "[Make Live ...]"
+msgstr ""
+
+msgid "[Clone]"
+msgstr ""
+
+msgid "[Rename]"
+msgstr ""
+
+msgid "[Delete]"
+msgstr ""
+
+msgid "[Disable background judging]"
+msgstr ""
+
+msgid "[Enable background judging]"
+msgstr ""
+
+msgid "[View results]"
+msgstr ""
+
+msgid "Dataset configuration"
+msgstr ""
+
+#, python-format
+msgid "Task type `%s' not found."
+msgstr ""
+
+msgid "Please select another task type, or make the original one available and refresh the page without updating the task to avoid losing the parameters."
+msgstr ""
+
+#, python-format
+msgid "Score type `%s' not found."
+msgstr ""
+
+msgid "Please select another score type, or make the original one available and refresh the page without updating the task to avoid losing the parameters."
+msgstr ""
+
+msgid "Total maximum time for each evaluation, in seconds."
+msgstr ""
+
+msgid "Time limit"
+msgstr ""
+
+msgid "Total maximum memory usage for each evaluation, in MiB (2^20 bytes)."
+msgstr ""
+
+msgid "Memory limit"
+msgstr ""
+
+msgid "MiB"
+msgstr ""
+
+#, python-format
+msgid "Task type settings (<a href=\"%(link)s\" target=\"_blank\">documentation</a>)"
+msgstr ""
+
+msgid "Please see the task type documentation."
+msgstr ""
+
+msgid "Task type"
+msgstr ""
+
+msgid "Managers for this task. Managers are sources, headers, libraries or binaries used during the evaluation."
+msgstr ""
+
+msgid "Managers"
+msgstr ""
+
+msgid "No managers."
+msgstr ""
+
+#, python-format
+msgid "Score type settings (<a href=\"%(link)s\" target=\"_blank\">documentation</a>)"
+msgstr ""
+
+msgid "Please see the score type documentation."
+msgstr ""
+
+msgid "Score Type"
+msgstr ""
+
+msgid "Please see the score type documentation. A subtask can list \"depends_on\": [subtask numbers]; see the subtask dependencies page of the documentation."
+msgstr ""
+
+msgid "Score Parameters"
+msgstr ""
+
+#, python-format
+msgid "Currently invalid: %(warning)s"
+msgstr ""
+
+msgid "Test cases"
+msgstr ""
+
+msgid "Add a testcase"
+msgstr ""
+
+msgid "Add multiple testcases"
+msgstr ""
+
+msgid "Download all testcases"
+msgstr ""
+
+msgid "Public"
+msgstr ""
+
+msgid "Input"
+msgstr ""
+
+msgid "Output"
+msgstr ""
+
+msgid "Ops"
+msgstr ""
+
+msgid "Show input"
+msgstr ""
+
+msgid "Show output"
+msgstr ""
+
+msgid "Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest."
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Remove Task"
+msgstr ""
+
+#, python-format
+msgid "Are you sure you want to remove task %(name)s from CMS, including all related data?"
+msgstr ""
+
+#, python-format
+msgid "This will remove %(count)s submission(s)."
+msgstr ""
+
+msgid "This operation cannot be undone."
+msgstr ""
+
+msgid "Yes, remove"
+msgstr ""
+
+msgid "You do not have permission to remove a task."
+msgstr ""
+
+msgid "Tasks list"
+msgstr ""
+
+msgid "Edit selected task:"
+msgstr ""
+
+msgid "Remove Team"
+msgstr ""
+
+#, python-format
+msgid "Are you sure you want to remove team %(code)s (%(name)s)?"
+msgstr ""
+
+#, python-format
+msgid "This will remove the team association from %(count)s participation(s). The participations will remain but will no longer be associated with this team."
+msgstr ""
+
+msgid "This team has no associated participations."
+msgstr ""
+
+msgid "You do not have permission to remove a team."
+msgstr ""
+
+msgid "Teams list"
+msgstr ""
+
+msgid "Edit selected team:"
+msgstr ""
+
+msgid "Participations"
+msgstr ""
+
+msgid "Add a new participation (in main group):"
+msgstr ""
+
+msgid "Select a contest"
+msgstr ""
+
+msgid "Hidden"
+msgstr ""
+
+msgid "Unrestricted"
+msgstr ""
+
+msgid "Add participation"
+msgstr ""
+
+msgid "No participations found."
+msgstr ""
+
+msgid "Edit selected participation:"
+msgstr ""
+
+msgid "Participation"
+msgstr ""
+
+msgid "Hidden?"
+msgstr ""
+
+msgid "Unrestricted?"
+msgstr ""
+
+msgid "Contest"
+msgstr ""
+
+msgid "Contest description"
+msgstr ""
+
+msgid "Group"
+msgstr ""
+
+msgid "Remove User"
+msgstr ""
+
+#, python-format
+msgid "Are you sure you want to remove user %(username)s, including all related data?"
+msgstr ""
+
+#, python-format
+msgid "This will remove %(participations)s participation(s) and %(submissions)s submission(s)."
+msgstr ""
+
+msgid "You do not have permission to remove a user."
+msgstr ""
+
+#, python-format
+msgid "User test %(id)s (Task: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+msgstr ""
+
+msgid "User test details"
+msgstr ""
+
+msgid "Evaluated"
+msgstr ""
+
+msgid "Evaluation sandbox"
+msgstr ""
+
+msgid "Evaluation"
+msgstr ""
+
+msgid "See output"
+msgstr ""
+
+msgid "Users list"
+msgstr ""
+
 msgid "Delete selected"
 msgstr ""
 
@@ -845,23 +2053,11 @@ msgid_plural "%(count)s participations will be removed from this contest, with %
 msgstr[0] ""
 msgstr[1] ""
 
-msgid "This operation cannot be undone."
-msgstr ""
-
 msgid "root (/)"
 msgstr ""
 
 #, python-format
 msgid "Rankings that will be emptied and sent again: %(groups)s."
-msgstr ""
-
-msgid "First name"
-msgstr ""
-
-msgid "Last name"
-msgstr ""
-
-msgid "Submissions"
 msgstr ""
 
 msgid "There is nothing to delete."
@@ -874,137 +2070,6 @@ msgstr ""
 msgid "Type %(count)s to confirm:"
 msgstr ""
 
-msgid "Delete"
-msgstr ""
-
-msgid "Remove"
-msgstr ""
-
 msgid "Cancel"
 msgstr ""
 
-msgid "Activity"
-msgstr ""
-
-msgid "Announcements"
-msgstr ""
-
-msgid "Codename"
-msgstr ""
-
-msgid "Create"
-msgstr ""
-
-msgid "Disabled"
-msgstr ""
-
-msgid "Enabled"
-msgstr ""
-
-msgid "Group"
-msgstr ""
-
-msgid "Id"
-msgstr ""
-
-msgid "Logout"
-msgstr ""
-
-msgid "Memory limit"
-msgstr ""
-
-msgid "No"
-msgstr ""
-
-msgid "Yes"
-msgstr ""
-
-msgid "Yes, remove"
-msgstr ""
-
-msgid "Operation failed."
-msgstr ""
-
-msgid "Operation successful."
-msgstr ""
-
-msgid "Output"
-msgstr ""
-
-msgid "Overview"
-msgstr ""
-
-msgid "Public"
-msgstr ""
-
-msgid "Questions"
-msgstr ""
-
-msgid "Ranking"
-msgstr ""
-
-msgid "Send"
-msgstr ""
-
-msgid "Settings"
-msgstr ""
-
-msgid "Status"
-msgstr ""
-
-msgid "Tasks"
-msgstr ""
-
-msgid "Time"
-msgstr ""
-
-msgid "Time limit"
-msgstr ""
-
-msgid "Timezone"
-msgstr ""
-
-msgid "Title"
-msgstr ""
-
-msgid "Upload"
-msgstr ""
-
-msgid "User"
-msgstr ""
-
-msgid "User tests"
-msgstr ""
-
-msgid "Users list"
-msgstr ""
-
-msgid "Please select a valid operation"
-msgstr ""
-
-msgid "No username specified."
-msgstr ""
-
-msgid "No questions."
-msgstr ""
-
-msgid "Subject:"
-msgstr ""
-
-msgid "Text:"
-msgstr ""
-
-msgid "Dataset:"
-msgstr ""
-
-msgid "By:"
-msgstr ""
-
-msgid "[View results]"
-msgstr ""
-
-msgid "Invalid field(s)."
-msgstr ""
-
-msgid "Shard"
-msgstr ""

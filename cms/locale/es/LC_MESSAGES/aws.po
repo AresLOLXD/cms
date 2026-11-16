@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-15 18:39-0600\n"
+"POT-Creation-Date: 2026-11-16 00:39-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -161,6 +161,12 @@ msgstr "la exportación falló (código de salida %d); no se generó nada"
 msgid "the export failed; nothing was generated"
 msgstr "la exportación falló; no se generó nada"
 
+msgid "(Live)"
+msgstr "(En vivo)"
+
+msgid "(Background judging)"
+msgstr "(Evaluación en segundo plano)"
+
 #, python-format
 msgid "Can't cast %s to int."
 msgstr "No se puede convertir %s a entero."
@@ -176,6 +182,58 @@ msgstr "No se puede convertir %s a fecha y hora."
 #, python-format
 msgid "Can't cast %s to an IP network."
 msgstr "No se puede convertir %s a red IP."
+
+msgid "The database did not answer, try again."
+msgstr "La base de datos no respondió. Inténtalo de nuevo."
+
+msgid "Operation failed."
+msgstr "La operación falló."
+
+msgid "Operation successful."
+msgstr "Operación correcta."
+
+#, python-format
+msgid "Can't cast %s to bool."
+msgstr "No se puede convertir %s a booleano."
+
+msgid "Submission format not recognized."
+msgstr "No se reconoce el formato de envío."
+
+#, python-format
+msgid "Can't cast %s to float."
+msgstr "No se puede convertir %s a número decimal."
+
+msgid "Time limit out of range."
+msgstr "El límite de tiempo está fuera de rango."
+
+msgid "Invalid memory limit."
+msgstr "Límite de memoria no válido."
+
+msgid "Task type not found."
+msgstr "No se encontró el tipo de problema."
+
+#, python-format
+msgid "Task type not recognized: %s."
+msgstr "No se reconoce el tipo de problema: %s."
+
+msgid "Score type not found."
+msgstr "No se encontró el tipo de puntaje."
+
+#, python-format
+msgid "Score type not recognized: %s."
+msgstr "No se reconoce el tipo de puntaje: %s."
+
+msgid "Score type parameters not found."
+msgstr "No se encontraron los parámetros del tipo de puntaje."
+
+msgid "Score type parameters are invalid JSON."
+msgstr "Los parámetros del tipo de puntaje no son un JSON válido."
+
+msgid "No main group start time specified."
+msgstr "No se indicó la hora de inicio del grupo principal."
+
+msgid "No main group stop time specified."
+msgstr "No se indicó la hora de fin del grupo principal."
 
 msgid "You did not choose any user."
 msgstr "No elegiste ningún usuario."
@@ -338,6 +396,112 @@ msgstr "El ranking %s se está vaciando y se enviará de nuevo."
 msgid "root"
 msgstr "raíz"
 
+#, python-format
+msgid "Submission ID %s not found."
+msgstr "No se encontró el envío con ID %s."
+
+msgid "Cannot compare submissions: they are for different tasks and have more than 1 file."
+msgstr "No se pueden comparar los envíos: son de problemas distintos y tienen más de un archivo."
+
+msgid "File not present in old submission"
+msgstr "El archivo no está en el envío anterior"
+
+msgid "Old file is too big to diff"
+msgstr "El archivo anterior es demasiado grande para compararlo"
+
+msgid "Old file has too many lines to diff"
+msgstr "El archivo anterior tiene demasiadas líneas para compararlo"
+
+msgid "File not present in new submission"
+msgstr "El archivo no está en el envío nuevo"
+
+msgid "New file is too big to diff"
+msgstr "El archivo nuevo es demasiado grande para compararlo"
+
+msgid "New file has too many lines to diff"
+msgstr "El archivo nuevo tiene demasiadas líneas para compararlo"
+
+msgid "No changes"
+msgstr "Sin cambios"
+
+msgid "No task name specified."
+msgstr "No se indicó el nombre del problema."
+
+msgid "the score parameters could not be checked."
+msgstr "no se pudieron revisar los parámetros del puntaje."
+
+msgid "Invalid score type parameters"
+msgstr "Parámetros del tipo de puntaje no válidos"
+
+msgid "No language code specified"
+msgstr "No se indicó el código de idioma"
+
+msgid "The language code can be any string."
+msgstr "El código de idioma puede ser cualquier cadena de texto."
+
+msgid "Invalid task statement"
+msgstr "Enunciado del problema no válido"
+
+msgid "The task statement must be a .pdf file."
+msgstr "El enunciado del problema debe ser un archivo .pdf."
+
+msgid "Task statement storage failed"
+msgstr "No se pudo guardar el enunciado del problema"
+
+msgid "Attachment storage failed"
+msgstr "No se pudo guardar el adjunto"
+
+#, python-format
+msgid "Dataset name %r is already taken."
+msgstr "El nombre de dataset %r ya está en uso."
+
+msgid "Please choose a unique name for this dataset."
+msgstr "Elige un nombre único para este dataset."
+
+msgid "No username specified."
+msgstr "No se indicó el usuario."
+
+msgid "Error removing team"
+msgstr "Error al borrar el equipo"
+
+msgid "No team code specified."
+msgstr "No se indicó el código del equipo."
+
+msgid "Please select a valid contest"
+msgstr "Selecciona un concurso válido"
+
+msgid "Please select a valid operation"
+msgstr "Selecciona una operación válida"
+
+msgid "Invalid operation"
+msgstr "Operación no válida"
+
+#, python-format
+msgid "I do not understand the operation `%s'"
+msgstr "No se entiende la operación `%s'"
+
+msgid "Cannot delete group containing users"
+msgstr "No se puede borrar un grupo que contiene usuarios"
+
+#, python-format
+msgid "The group `%(name)s' contains %(count)d users"
+msgid_plural "The group `%(name)s' contains %(count)d users"
+msgstr[0] "El grupo `%(name)s' contiene %(count)d usuario"
+msgstr[1] "El grupo `%(name)s' contiene %(count)d usuarios"
+
+msgid "Cannot delete a contest's main group."
+msgstr "No se puede borrar el grupo principal de un concurso."
+
+#, python-format
+msgid "To delete '%s', change the main group of the contest first to another group."
+msgstr "Para borrar '%s', cambia primero el grupo principal del concurso a otro grupo."
+
+msgid "No name specified."
+msgstr "No se indicó el nombre."
+
+msgid "No group name specified."
+msgstr "No se indicó el nombre del grupo."
+
 msgid "the import could not be applied; nothing was saved"
 msgstr "no se pudo aplicar la importación; no se guardó nada"
 
@@ -346,6 +510,12 @@ msgstr "ya hay una importación de usuarios en curso"
 
 msgid "an import is already running for this contest"
 msgstr "ya hay una importación en curso para este concurso"
+
+msgid "Upload attachment"
+msgstr "Subir adjunto"
+
+msgid "Upload"
+msgstr "Subir"
 
 msgid "New ranking group"
 msgstr "Nuevo grupo de ranking"
@@ -374,6 +544,327 @@ msgstr "Contraseña de staff"
 msgid "Reset"
 msgstr "Limpiar"
 
+msgid "Upload statement"
+msgstr "Subir enunciado"
+
+msgid "Language code:"
+msgstr "Código de idioma:"
+
+msgid "New task"
+msgstr "Nuevo problema"
+
+msgid "A short name for the task, preferably using only letters, numbers and underscores."
+msgstr "Un nombre corto para el problema, de preferencia solo con letras, números y guiones bajos."
+
+msgid "Name:"
+msgstr "Nombre:"
+
+msgid "New team"
+msgstr "Nuevo equipo"
+
+msgid "Code"
+msgstr "Código"
+
+msgid "New user"
+msgstr "Nuevo usuario"
+
+msgid "First name of the contestant."
+msgstr "Nombre del concursante."
+
+msgid "First name"
+msgstr "Nombre"
+
+msgid "Last name of the contestant."
+msgstr "Apellido del concursante."
+
+msgid "Last name"
+msgstr "Apellido"
+
+msgid "Username of the contestant (used to log in)."
+msgstr "Usuario del concursante (sirve para iniciar sesión)."
+
+msgid "Username"
+msgstr "Usuario"
+
+msgid "Contestant password. Caution: stored in plain text."
+msgstr "Contraseña del concursante. Atención: se guarda en texto plano."
+
+msgid "Password"
+msgstr "Contraseña"
+
+msgid "Plain text"
+msgstr "Texto plano"
+
+msgid "Hashed (bcrypt)"
+msgstr "Cifrada (bcrypt)"
+
+msgid "Contestant e-mail address."
+msgstr "Correo electrónico del concursante."
+
+msgid "E-mail"
+msgstr "Correo electrónico"
+
+msgid ""
+"Timezone of the contestant, used to display start, end times and the current server time in local time.\n"
+"                                    Example: 'Europe/Rome', 'America/New_York', ..."
+msgstr "Zona horaria del concursante, usada para mostrar las horas de inicio y fin y la hora actual del servidor en hora local. Ejemplo: 'Europe/Rome', 'America/New_York', …"
+
+msgid "Timezone"
+msgstr "Zona horaria"
+
+msgid ""
+"Comma-separated list of language codes, from the most to the least preferred.\n"
+"                                    Example: 'en, ja'."
+msgstr "Lista de códigos de idioma separados por comas, del más al menos preferido. Ejemplo: 'en, ja'."
+
+msgid "Preferred languages"
+msgstr "Idiomas preferidos"
+
+msgid "Admin"
+msgstr "Admin"
+
+#, python-format
+msgid "Admin: %(description)s"
+msgstr "Admin: %(description)s"
+
+msgid "Restored your unsaved text."
+msgstr "Se restauró tu texto sin guardar."
+
+msgid "File request failed."
+msgstr "Falló la solicitud del archivo."
+
+msgid "Download"
+msgstr "Descargar"
+
+msgid "copy"
+msgstr "copiar"
+
+msgid "Private message."
+msgstr "Mensaje privado."
+
+msgid "Announcement."
+msgstr "Anuncio."
+
+msgid "Reply to your question."
+msgstr "Respuesta a tu pregunta."
+
+msgid "New question:"
+msgstr "Nueva pregunta:"
+
+msgid "To start of contest:"
+msgstr "Para el inicio del concurso:"
+
+msgid "To end of contest:"
+msgstr "Para el fin del concurso:"
+
+msgid "To start of analysis:"
+msgstr "Para el inicio de la fase de análisis:"
+
+msgid "To end of analysis:"
+msgstr "Para el fin de la fase de análisis:"
+
+#, python-format
+msgid "Unable to invalidate (%(reason)s)."
+msgstr "No se pudo invalidar (%(reason)s)."
+
+msgid "N/A"
+msgstr "N/A"
+
+msgid "Worker disabled"
+msgstr "Worker desactivado"
+
+#, python-format
+msgid "Compiling the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Compilando el <a href=\"%(result_url)s\">resultado</a> del <a href=\"%(submission_url)s\">envío %(object_id)s</a> en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+#, python-format
+msgid "Evaluating the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Evaluando el <a href=\"%(result_url)s\">resultado</a> del <a href=\"%(submission_url)s\">envío %(object_id)s</a> en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+#, python-format
+msgid "Compiling the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Compilando el resultado de user_test %(object_id)s en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+#, python-format
+msgid "Evaluating the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+msgstr "Evaluando el resultado de user_test %(object_id)s en el <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"
+
+#, python-format
+msgid "[%(count)s time(s) in queue]"
+msgstr "[%(count)s vez(ces) en cola]"
+
+#, python-format
+msgid "[testcase: `%(codename)s']"
+msgstr "[caso de prueba: `%(codename)s']"
+
+msgid "second(s)"
+msgstr "segundo(s)"
+
+msgid "minute(s)"
+msgstr "minuto(s)"
+
+msgid "hour(s)"
+msgstr "hora(s)"
+
+#, python-format
+msgid "Unexpected reply `%(status)s'. This should not happen."
+msgstr "Respuesta inesperada `%(status)s'. Esto no debería ocurrir."
+
+msgid "Service not connected."
+msgstr "Servicio no conectado."
+
+msgid "You are not authorized to call this method."
+msgstr "No tienes autorización para llamar a este método."
+
+msgid "Call to service failed."
+msgstr "Falló la llamada al servicio."
+
+msgid "Pages:"
+msgstr "Páginas:"
+
+msgid "Hide reply"
+msgstr "Ocultar respuesta"
+
+msgid "Reply"
+msgstr "Responder"
+
+#, python-format
+msgid "Error: %(error)s"
+msgstr "Error: %(error)s"
+
+msgid "Administration"
+msgstr "Administración"
+
+#, python-format
+msgid "Hello, <a href=\"%(admins_url)s\">%(name)s</a>."
+msgstr "Hola, <a href=\"%(admins_url)s\">%(name)s</a>."
+
+msgid "Logout"
+msgstr "Cerrar sesión"
+
+msgid "Change secret_key in cms.toml!"
+msgstr "¡Cambia secret_key en cms.toml!"
+
+msgid "For example,"
+msgstr "Por ejemplo,"
+
+msgid "Overview"
+msgstr "Resumen"
+
+msgid "Resource usage"
+msgstr "Uso de recursos"
+
+msgid "Export"
+msgstr "Exportar"
+
+msgid "Contests"
+msgstr "Concursos"
+
+msgid "(no contests available)"
+msgstr "(no hay concursos)"
+
+msgid "(show more...)"
+msgstr "(mostrar más…)"
+
+msgid "(create new contest...)"
+msgstr "(crear concurso nuevo…)"
+
+msgid "Tasks"
+msgstr "Problemas"
+
+msgid "(no tasks available)"
+msgstr "(no hay problemas)"
+
+msgid "(create new task...)"
+msgstr "(crear problema nuevo…)"
+
+msgid "Users"
+msgstr "Usuarios"
+
+msgid "(no user available)"
+msgstr "(no hay usuarios)"
+
+#, python-format
+msgid "(show the only user...)"
+msgid_plural "(show the %(count)s users...)"
+msgstr[0] "(mostrar el único usuario…)"
+msgstr[1] "(mostrar los %(count)s usuarios…)"
+
+msgid "(create new user...)"
+msgstr "(crear usuario nuevo…)"
+
+msgid "Teams"
+msgstr "Equipos"
+
+msgid "(no team available)"
+msgstr "(no hay equipos)"
+
+#, python-format
+msgid "(show the only team...)"
+msgid_plural "(show the %(count)s teams...)"
+msgstr[0] "(mostrar el único equipo…)"
+msgstr[1] "(mostrar los %(count)s equipos…)"
+
+msgid "(create new team...)"
+msgstr "(crear equipo nuevo…)"
+
+msgid "Ranking groups"
+msgstr "Grupos de ranking"
+
+#, python-format
+msgid "(show the %(count)s ranking groups...)"
+msgid_plural "(show the %(count)s ranking groups...)"
+msgstr[0] "(mostrar %(count)s grupo de ranking…)"
+msgstr[1] "(mostrar los %(count)s grupos de ranking…)"
+
+msgid "(create new ranking group...)"
+msgstr "(crear grupo de ranking nuevo…)"
+
+msgid "General"
+msgstr "General"
+
+msgid "Ranking"
+msgstr "Ranking"
+
+msgid "Activity"
+msgstr "Actividad"
+
+msgid "Submissions"
+msgstr "Envíos"
+
+msgid "User tests"
+msgstr "User tests"
+
+msgid "Groups"
+msgstr "Grupos"
+
+msgid "Announcements"
+msgstr "Anuncios"
+
+msgid "Questions"
+msgstr "Preguntas"
+
+msgid "CMS <a href=\"http://github.com/cms-dev/cms/\">codebase</a> is released under the<br/><a href=\"http://www.gnu.org/licenses/agpl.txt\">GNU Affero General Public License</a>."
+msgstr "El <a href=\"http://github.com/cms-dev/cms/\">código</a> de CMS se publica bajo la<br/><a href=\"http://www.gnu.org/licenses/agpl.txt\">GNU Affero General Public License</a>."
+
+#, python-format
+msgid "The ranking group <a href=\"%(group_url)s\">%(name)s</a> is archived: changes made here do not reach the public ranking until the group is unarchived."
+msgstr "El grupo de ranking <a href=\"%(group_url)s\">%(name)s</a> está archivado: los cambios que hagas aquí no llegan al ranking público hasta que se desarchive el grupo."
+
+msgid "All Submissions"
+msgstr "Todos los envíos"
+
+#, python-format
+msgid "Reevaluate all %(count)s submissions in this contest (for all datasets)"
+msgstr "Reevaluar todos los envíos de este concurso (%(count)s en total, para todos los datasets)"
+
+msgid "All user tests"
+msgstr "Todos los user tests"
+
+#, python-format
+msgid "There are %(count)s user tests in this contest"
+msgstr "Hay %(count)s user tests en este concurso"
+
 msgid "Import CSV"
 msgstr "Importar CSV"
 
@@ -394,9 +885,6 @@ msgstr "Un usuario por línea, o un CSV cuya primera columna sea el usuario."
 
 msgid "Review list"
 msgstr "Revisar lista"
-
-msgid "Users"
-msgstr "Usuarios"
 
 msgid "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved."
 msgstr "Una fila por concursante: crea los usuarios que falten y registra su participación en este concurso con la contraseña del día. Sin columna de contraseña, solo inscribe usuarios que ya existen y las participaciones nuevas entran con la contraseña de su cuenta. Si el usuario o la participación ya existen, se actualizan. Si hay cualquier error, no se guarda nada."
@@ -504,10 +992,6 @@ msgid "%(count)s participation was moved to the main group"
 msgid_plural "%(count)s participations were moved to the main group"
 msgstr[0] "%(count)s participación pasó al grupo principal"
 msgstr[1] "%(count)s participaciones pasaron al grupo principal"
-
-#, python-format
-msgid "Error: %(error)s"
-msgstr "Error: %(error)s"
 
 msgid "User list"
 msgstr "Lista de usuarios"
@@ -643,9 +1127,6 @@ msgstr "Hay concursos en curso o en fase de análisis. El volcado se lee sin con
 msgid "I understand the risk and want to export anyway"
 msgstr "Entiendo el riesgo y quiero exportar de todos modos"
 
-msgid "Export"
-msgstr "Exportar"
-
 msgid "Your exports"
 msgstr "Tus exportaciones"
 
@@ -658,12 +1139,16 @@ msgstr "lista"
 msgid "failed"
 msgstr "falló"
 
-msgid "Language"
-msgstr "Idioma"
+msgid "The password is hashed, type a new one in here to change it"
+msgstr "La contraseña está cifrada, escribe aquí una nueva para cambiarla"
 
 #, python-format
 msgid "Automatic (%(lang)s)"
 msgstr "Automático (%(lang)s)"
+
+#, python-format
+msgid "At the moment, you have %(ratio)s users for each ContestWebServer, on average.<br/>One CWS can reasonably handle about 100 simultaneous requests. This situation might cause long request delays or failures."
+msgstr "Por ahora tienes %(ratio)s usuarios por cada ContestWebServer, en promedio.<br/>Un CWS puede atender razonablemente unas 100 solicitudes simultáneas. Esta situación podría causar demoras largas o fallas en las solicitudes."
 
 msgid "Theme"
 msgstr "Tema"
@@ -677,8 +1162,78 @@ msgstr "Claro"
 msgid "Dark"
 msgstr "Oscuro"
 
-msgid "Admin"
-msgstr "Admin"
+msgid "[Unknown status]"
+msgstr "[Estado desconocido]"
+
+msgid "Compilation output"
+msgstr "Salida de la compilación"
+
+msgid "See input"
+msgstr "Ver entrada"
+
+msgid "No user tests found."
+msgstr "No se encontraron user tests."
+
+msgid "Time"
+msgstr "Hora"
+
+msgid "User input"
+msgstr "Entrada del usuario"
+
+#, python-format
+msgid "Group %(group_name)s in <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+msgstr "Grupo %(group_name)s en <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+
+msgid "No users found."
+msgstr "No se encontraron usuarios."
+
+msgid "Group information"
+msgstr "Información del grupo"
+
+msgid "The name of this user group."
+msgstr "Nombre de este grupo de usuarios."
+
+msgid "Update"
+msgstr "Actualizar"
+
+msgid "Groups list"
+msgstr "Lista de grupos"
+
+msgid "Add a new group named"
+msgstr "Agrega un grupo nuevo llamado"
+
+msgid "Add group"
+msgstr "Agregar grupo"
+
+msgid "Edit selected group:"
+msgstr "Editar el grupo seleccionado:"
+
+msgid "Make main group"
+msgstr "Hacer grupo principal"
+
+msgid "Delete selected group"
+msgstr "Borrar el grupo seleccionado"
+
+msgid "Start (in UTC)"
+msgstr "Inicio (en UTC)"
+
+msgid "End (in UTC)"
+msgstr "Fin (en UTC)"
+
+msgid "Max. contest length (in seconds)"
+msgstr "Duración máxima del concurso (en segundos)"
+
+msgid "Analysis"
+msgstr "Análisis"
+
+msgid "Analysis start"
+msgstr "Inicio del análisis"
+
+msgid "Analysis end"
+msgstr "Fin del análisis"
+
+msgid "(main group)"
+msgstr "(grupo principal)"
 
 msgid "Welcome"
 msgstr "Te damos la bienvenida"
@@ -689,20 +1244,51 @@ msgstr "No se pudo iniciar sesión."
 msgid "Please log in:"
 msgstr "Inicia sesión:"
 
-msgid "Username"
-msgstr "Usuario"
-
-msgid "Password"
-msgstr "Contraseña"
-
 msgid "Login"
 msgstr "Iniciar sesión"
 
+#, python-format
+msgid "You are already logged in. <a href=\"%(logout_url)s\">Logout</a> or go to the <a href=\"%(overview_url)s\">overview</a>."
+msgstr "Ya iniciaste sesión. <a href=\"%(logout_url)s\">Cierra la sesión</a> o ve al <a href=\"%(overview_url)s\">resumen</a>."
+
+msgid "First"
+msgstr "Primera"
+
+msgid "Last"
+msgstr "Última"
+
+msgid "Do you really want to reevaluate?"
+msgstr "¿Seguro que quieres reevaluar?"
+
+msgid "Score"
+msgstr "Puntaje"
+
+msgid "No submissions found."
+msgstr "No se encontraron envíos."
+
+msgid "Diff submissions..."
+msgstr "Comparar envíos…"
+
+msgid "Select two submissions from the table, or enter submission IDs:"
+msgstr "Selecciona dos envíos de la tabla o escribe sus IDs:"
+
+msgid "old:"
+msgstr "anterior:"
+
+msgid "new:"
+msgstr "nuevo:"
+
+msgid "Diff"
+msgstr "Comparar"
+
+msgid "Latency"
+msgstr "Latencia"
+
+msgid "Testcases"
+msgstr "Casos de prueba"
+
 msgid "General Information"
 msgstr "Información general"
-
-msgid "Update"
-msgstr "Actualizar"
 
 msgid "Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL."
 msgstr "Se usa en la URL del marcador (/<nombre>/). Cambiar el nombre mueve el marcador a la nueva URL."
@@ -774,17 +1360,8 @@ msgstr "Ningún concurso se envía todavía a este ranking."
 msgid "(inactive)"
 msgstr "(inactivo)"
 
-msgid "Ranking groups"
-msgstr "Grupos de ranking"
-
 msgid "Each ranking group is an independent public scoreboard, served by RWS at <code>/&lt;name&gt;/</code>. Assign a contest to a group from the contest's own page."
 msgstr "Cada grupo de ranking es un marcador público independiente, servido por RWS en <code>/&lt;nombre&gt;/</code>. Asigna un concurso a un grupo desde la página del propio concurso."
-
-msgid "Edit selected group:"
-msgstr "Editar el grupo seleccionado:"
-
-msgid "Contests"
-msgstr "Concursos"
 
 msgid "State"
 msgstr "Estado"
@@ -818,6 +1395,637 @@ msgstr "Regenerar"
 msgid "Empty and regenerate the ranking %s?"
 msgstr "¿Vaciar y regenerar el ranking %s?"
 
+#, python-format
+msgid "Submission %(id)s (Task: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+msgstr "Envío %(id)s (Problema: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+
+msgid "Submission details"
+msgstr "Detalles del envío"
+
+msgid "Property"
+msgstr "Propiedad"
+
+msgid "Value"
+msgstr "Valor"
+
+msgid "Submission time"
+msgstr "Hora del envío"
+
+msgid "Id"
+msgstr "ID"
+
+msgid "Task"
+msgstr "Problema"
+
+msgid "User"
+msgstr "Usuario"
+
+msgid "Files"
+msgstr "Archivos"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "No"
+msgstr "No"
+
+msgid "Yes"
+msgstr "Sí"
+
+msgid "Official"
+msgstr "Oficial"
+
+msgid "Make unofficial"
+msgstr "Hacer no oficial"
+
+msgid "Make official"
+msgstr "Hacer oficial"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Compiling..."
+msgstr "Compilando…"
+
+msgid "Compilation failed"
+msgstr "Compilación fallida"
+
+msgid "Evaluating..."
+msgstr "Evaluando…"
+
+msgid "Scoring..."
+msgstr "Calculando puntaje…"
+
+msgid "[Cannot get score type - see logs]"
+msgstr "[No se pudo obtener el tipo de puntaje; consulta los registros]"
+
+#, python-format
+msgid "Scored (%(score)s / %(max_score)s)"
+msgstr "Puntaje asignado (%(score)s / %(max_score)s)"
+
+msgid "Score as seen by user"
+msgstr "Puntaje visto por el usuario"
+
+msgid "Latency as seen by user"
+msgstr "Latencia vista por el usuario"
+
+msgid "Failures during compilation"
+msgstr "Fallas durante la compilación"
+
+msgid "Compilation shard"
+msgstr "Shard de compilación"
+
+msgid "Compilation sandbox"
+msgstr "Sandbox de compilación"
+
+msgid "Rerun and archive"
+msgstr "Volver a ejecutar y archivar"
+
+msgid "Failures during evaluation"
+msgstr "Fallas durante la evaluación"
+
+msgid "Max execution time"
+msgstr "Tiempo máximo de ejecución"
+
+#, python-format
+msgid "%(time)s s"
+msgstr "%(time)s s"
+
+msgid "Max memory used"
+msgstr "Memoria máxima usada"
+
+#, python-format
+msgid "%(memory)s MiB"
+msgstr "%(memory)s MiB"
+
+msgid "Reevaluate"
+msgstr "Reevaluar"
+
+msgid "Comment"
+msgstr "Comentario"
+
+msgid "Evaluation (as seen by the user)"
+msgstr "Evaluación (vista por el usuario)"
+
+msgid "Evaluation (as seen by the admin)"
+msgstr "Evaluación (vista por el administrador)"
+
+msgid "Codename"
+msgstr "Nombre clave"
+
+msgid "Outcome"
+msgstr "Resultado"
+
+msgid "Visible"
+msgstr "Visible"
+
+msgid "Details"
+msgstr "Detalles"
+
+msgid "Admin Details"
+msgstr "Detalles de admin"
+
+msgid "Shard"
+msgstr "Shard"
+
+msgid "Resources"
+msgstr "Recursos"
+
+msgid "Sandbox"
+msgstr "Sandbox"
+
+msgid "Compilation"
+msgstr "Compilación"
+
+msgid "Standard output"
+msgstr "Salida estándar"
+
+msgid "Standard error"
+msgstr "Error estándar"
+
+msgid "No submissions for this task yet."
+msgstr "Aún no hay envíos para este problema."
+
+msgid "1 submission"
+msgstr "1 envío"
+
+#, python-format
+msgid "%(count)s submissions"
+msgstr "%(count)s envíos"
+
+msgid "Task configuration"
+msgstr "Configuración del problema"
+
+msgid "Task information"
+msgstr "Información del problema"
+
+msgid "The title of the task as seen by the contestants."
+msgstr "El título del problema tal como lo ven los concursantes."
+
+msgid "Title"
+msgstr "Título"
+
+msgid "The index of the task within the contest, if the task is associated with a contest."
+msgstr "El índice del problema dentro del concurso, si el problema está asociado a un concurso."
+
+msgid "Position"
+msgstr "Posición"
+
+msgid "The statements of this task, by language code. Primary statements are shown prominently to contestants."
+msgstr "Los enunciados de este problema, por código de idioma. Los enunciados principales se muestran de forma destacada a los concursantes."
+
+msgid "Statements"
+msgstr "Enunciados"
+
+msgid "add"
+msgstr "agregar"
+
+msgid "No statements uploaded yet"
+msgstr "Aún no se ha subido ningún enunciado"
+
+#, python-format
+msgid "Statement for language \"%(language)s\""
+msgstr "Enunciado en el idioma «%(language)s»"
+
+msgid "Primary?"
+msgstr "¿Principal?"
+
+msgid "Delete"
+msgstr "Borrar"
+
+msgid "Attachments for this task. Contestant can view and download attachments from the task page."
+msgstr "Adjuntos de este problema. Los concursantes pueden ver y descargar los adjuntos desde la página del problema."
+
+msgid "Attachments"
+msgstr "Adjuntos"
+
+msgid "No attachments."
+msgstr "No hay adjuntos."
+
+msgid "A comma-separated list with the names of the files that need to be submitted (with the language extensions changed to %l)."
+msgstr "Una lista separada por comas con los nombres de los archivos que se deben enviar (con las extensiones del lenguaje cambiadas por %l)."
+
+msgid "The task type dictates the submission format. Consult the task type documentation to know the requirements."
+msgstr "El tipo de problema determina el formato de envío. Consulta la documentación del tipo de problema para conocer los requisitos."
+
+msgid "Submission format"
+msgstr "Formato de envío"
+
+msgid "Programming languages that contestants can use to solve this task."
+msgstr "Lenguajes de programación que los concursantes pueden usar para resolver este problema."
+
+msgid "If none are selected, all contest languages are allowed."
+msgstr "Si no se selecciona ninguno, se permiten todos los lenguajes del concurso."
+
+msgid "Otherwise, only the selected languages are allowed."
+msgstr "De lo contrario, solo se permiten los lenguajes seleccionados."
+
+msgid "Allowed programming languages"
+msgstr "Lenguajes de programación permitidos"
+
+msgid "With 'restricted' contestants only see limited technical information about each testcase; with 'full' they see more details, but malicious contestants might use this data to get some information about the test data."
+msgstr "Con «Restringido» los concursantes solo ven información técnica limitada de cada caso de prueba; con «Completo» ven más detalles, pero un concursante malintencionado podría usar estos datos para obtener información sobre los datos de prueba."
+
+msgid "Feedback level"
+msgstr "Nivel de retroalimentación"
+
+msgid "OI Restricted"
+msgstr "OI restringido"
+
+msgid "Restricted"
+msgstr "Restringido"
+
+msgid "Full"
+msgstr "Completo"
+
+#, python-format
+msgid "Tokens parameters (<a href=\"%(link)s\" target=\"_blank\">documentation</a>)"
+msgstr "Parámetros de tokens (<a href=\"%(link)s\" target=\"_blank\">documentación</a>)"
+
+msgid "Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters."
+msgstr "Elige «Desactivado» para quitar los tokens por completo en este problema, «Infinito» para permitir cualquier cantidad de tokens en este problema, o «Finito» para indicar la cantidad con los parámetros siguientes."
+
+msgid "If you prefer to control tokens at the task level, select 'infinite' here."
+msgstr "Si prefieres controlar los tokens a nivel de problema, elige «Infinito» aquí."
+
+msgid "Token mode"
+msgstr "Modo de token"
+
+msgid "Disabled"
+msgstr "Desactivado"
+
+msgid "Finite"
+msgstr "Finito"
+
+msgid "Infinite"
+msgstr "Infinito"
+
+msgid "The maximum number of tokens a contestant can use in this task."
+msgstr "El número máximo de tokens que un concursante puede usar en este problema."
+
+msgid "It is used only if tokens are finite."
+msgstr "Solo se usa si los tokens son finitos."
+
+msgid "Maximum number of tokens"
+msgstr "Número máximo de tokens"
+
+msgid "The minimum amount of time (in seconds) that a contestant needs to wait for this task after using a token before being able to use another."
+msgstr "El tiempo mínimo (en segundos) que un concursante debe esperar en este problema después de usar un token antes de poder usar otro."
+
+msgid "Minimum interval between tokens"
+msgstr "Intervalo mínimo entre tokens"
+
+msgid "The number of tokens that a contestant has available for this task when their contest time starts."
+msgstr "El número de tokens que un concursante tiene disponibles para este problema cuando comienza su tiempo en el concurso."
+
+msgid "Initial number of tokens"
+msgstr "Número inicial de tokens"
+
+msgid "The number of tokens that are generated periodically for this task."
+msgstr "El número de tokens que se generan periódicamente para este problema."
+
+msgid "Token generation number"
+msgstr "Número de tokens generados"
+
+msgid "The amount of time (in minutes) between two token generation events for this task."
+msgstr "El tiempo (en minutos) entre dos eventos de generación de tokens para este problema."
+
+msgid "Token generation period"
+msgstr "Periodo de generación de tokens"
+
+msgid "Maximum number of tokens for this task available to a contestant at any given time during the contest."
+msgstr "Número máximo de tokens para este problema que un concursante puede tener disponibles en cualquier momento del concurso."
+
+msgid "Maximum accumulated tokens"
+msgstr "Máximo de tokens acumulados"
+
+msgid "Limits"
+msgstr "Límites"
+
+msgid "Maximum number of submissions each contestant can submit for this task, for the whole contest."
+msgstr "Número máximo de envíos que cada concursante puede hacer para este problema, en todo el concurso."
+
+msgid "Leave empty for no limits."
+msgstr "Déjalo vacío para no tener límites."
+
+msgid "Maximum number of submissions"
+msgstr "Número máximo de envíos"
+
+msgid "Maximum number of user tests each contestant can submit for this task, for the whole contest."
+msgstr "Número máximo de user tests que cada concursante puede enviar para este problema, en todo el concurso."
+
+msgid "Maximum number of user tests"
+msgstr "Número máximo de user tests"
+
+msgid "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a submission before being able to submit another."
+msgstr "El tiempo mínimo (en segundos) que un concursante debe esperar en este problema después de un envío antes de poder hacer otro."
+
+msgid "Minimum interval between submissions"
+msgstr "Intervalo mínimo entre envíos"
+
+msgid "The minimum amount of time (in seconds) for this task that a contestant needs to wait after a user test before being able to send another."
+msgstr "El tiempo mínimo (en segundos) que un concursante debe esperar en este problema después de un user test antes de poder enviar otro."
+
+msgid "Minimum interval between user tests"
+msgstr "Intervalo mínimo entre user tests"
+
+msgid "Score options"
+msgstr "Opciones de puntaje"
+
+msgid "The number of decimal places the scores will be rounded to."
+msgstr "El número de decimales a los que se redondearán los puntajes."
+
+msgid "Example: '2' to allow 98.76."
+msgstr "Ejemplo: '2' para permitir 98.76."
+
+msgid "Score decimal places"
+msgstr "Decimales del puntaje"
+
+msgid "How the score for the task is computed from the score of each submission."
+msgstr "Cómo se calcula el puntaje del problema a partir del puntaje de cada envío."
+
+msgid "Score mode"
+msgstr "Modo de puntaje"
+
+msgid "Use best among tokened and last submissions (IOI 2010-2012)"
+msgstr "Usar el mejor entre los envíos con token y el último envío (IOI 2010-2012)"
+
+msgid "Use best among all submissions (IOI 2013-2016)"
+msgstr "Usar el mejor entre todos los envíos (IOI 2013-2016)"
+
+msgid "Use the sum over each subtask of the best result for that subtask across all submissions (IOI 2017-)"
+msgstr "Usar la suma, sobre cada subtarea, del mejor resultado de esa subtarea entre todos los envíos (IOI 2017-)"
+
+msgid "Datasets"
+msgstr "Datasets"
+
+msgid "No datasets have been created for this task."
+msgstr "No se ha creado ningún dataset para este problema."
+
+msgid "Create a new dataset"
+msgstr "Crear un nuevo dataset"
+
+msgid "Dataset:"
+msgstr "Dataset:"
+
+msgid "[Make Live ...]"
+msgstr "[Poner en vivo…]"
+
+msgid "[Clone]"
+msgstr "[Clonar]"
+
+msgid "[Rename]"
+msgstr "[Renombrar]"
+
+msgid "[Delete]"
+msgstr "[Borrar]"
+
+msgid "[Disable background judging]"
+msgstr "[Desactivar evaluación en segundo plano]"
+
+msgid "[Enable background judging]"
+msgstr "[Activar evaluación en segundo plano]"
+
+msgid "[View results]"
+msgstr "[Ver resultados]"
+
+msgid "Dataset configuration"
+msgstr "Configuración del dataset"
+
+#, python-format
+msgid "Task type `%s' not found."
+msgstr "No se encontró el tipo de problema `%s'."
+
+msgid "Please select another task type, or make the original one available and refresh the page without updating the task to avoid losing the parameters."
+msgstr "Elige otro tipo de problema, o habilita el original y recarga la página sin actualizar el problema para no perder los parámetros."
+
+#, python-format
+msgid "Score type `%s' not found."
+msgstr "No se encontró el tipo de puntaje `%s'."
+
+msgid "Please select another score type, or make the original one available and refresh the page without updating the task to avoid losing the parameters."
+msgstr "Elige otro tipo de puntaje, o habilita el original y recarga la página sin actualizar el problema para no perder los parámetros."
+
+msgid "Total maximum time for each evaluation, in seconds."
+msgstr "Tiempo máximo total de cada evaluación, en segundos."
+
+msgid "Time limit"
+msgstr "Límite de tiempo"
+
+msgid "Total maximum memory usage for each evaluation, in MiB (2^20 bytes)."
+msgstr "Uso máximo total de memoria en cada evaluación, en MiB (2^20 bytes)."
+
+msgid "Memory limit"
+msgstr "Límite de memoria"
+
+msgid "MiB"
+msgstr "MiB"
+
+#, python-format
+msgid "Task type settings (<a href=\"%(link)s\" target=\"_blank\">documentation</a>)"
+msgstr "Configuración del tipo de problema (<a href=\"%(link)s\" target=\"_blank\">documentación</a>)"
+
+msgid "Please see the task type documentation."
+msgstr "Consulta la documentación del tipo de problema."
+
+msgid "Task type"
+msgstr "Tipo de problema"
+
+msgid "Managers for this task. Managers are sources, headers, libraries or binaries used during the evaluation."
+msgstr "Managers de este problema. Los managers son fuentes, encabezados, bibliotecas o binarios que se usan durante la evaluación."
+
+msgid "Managers"
+msgstr "Managers"
+
+msgid "No managers."
+msgstr "No hay managers."
+
+#, python-format
+msgid "Score type settings (<a href=\"%(link)s\" target=\"_blank\">documentation</a>)"
+msgstr "Configuración del tipo de puntaje (<a href=\"%(link)s\" target=\"_blank\">documentación</a>)"
+
+msgid "Please see the score type documentation."
+msgstr "Consulta la documentación del tipo de puntaje."
+
+msgid "Score Type"
+msgstr "Tipo de puntaje"
+
+msgid "Please see the score type documentation. A subtask can list \"depends_on\": [subtask numbers]; see the subtask dependencies page of the documentation."
+msgstr "Consulta la documentación del tipo de puntaje. Una subtarea puede incluir la clave depends_on: [números de subtarea]; consulta la página de dependencias entre subtareas de la documentación."
+
+msgid "Score Parameters"
+msgstr "Parámetros del puntaje"
+
+#, python-format
+msgid "Currently invalid: %(warning)s"
+msgstr "Actualmente no válido: %(warning)s"
+
+msgid "Test cases"
+msgstr "Casos de prueba"
+
+msgid "Add a testcase"
+msgstr "Agregar un caso de prueba"
+
+msgid "Add multiple testcases"
+msgstr "Agregar varios casos de prueba"
+
+msgid "Download all testcases"
+msgstr "Descargar todos los casos de prueba"
+
+msgid "Public"
+msgstr "Público"
+
+msgid "Input"
+msgstr "Entrada"
+
+msgid "Output"
+msgstr "Salida"
+
+msgid "Ops"
+msgstr "Operaciones"
+
+msgid "Show input"
+msgstr "Mostrar entrada"
+
+msgid "Show output"
+msgstr "Mostrar salida"
+
+msgid "Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest."
+msgstr "Actualizar no recalcula el puntaje de los envíos. Para recalcularlo, abre la página [Ver resultados] del dataset y pulsa S o E; consulta la página de dependencias entre subtareas de la documentación. No lo hagas con un problema en vivo durante un concurso."
+
+msgid "Remove"
+msgstr "Quitar"
+
+msgid "Remove Task"
+msgstr "Borrar problema"
+
+#, python-format
+msgid "Are you sure you want to remove task %(name)s from CMS, including all related data?"
+msgstr "¿Seguro que quieres borrar el problema %(name)s de CMS, con todos sus datos relacionados?"
+
+#, python-format
+msgid "This will remove %(count)s submission(s)."
+msgstr "Se borrarán %(count)s envío(s)."
+
+msgid "This operation cannot be undone."
+msgstr "Esta operación no se puede deshacer."
+
+msgid "Yes, remove"
+msgstr "Sí, quitar"
+
+msgid "You do not have permission to remove a task."
+msgstr "No tienes permiso para borrar un problema."
+
+msgid "Tasks list"
+msgstr "Lista de problemas"
+
+msgid "Edit selected task:"
+msgstr "Editar el problema seleccionado:"
+
+msgid "Remove Team"
+msgstr "Borrar equipo"
+
+#, python-format
+msgid "Are you sure you want to remove team %(code)s (%(name)s)?"
+msgstr "¿Seguro que quieres borrar el equipo %(code)s (%(name)s)?"
+
+#, python-format
+msgid "This will remove the team association from %(count)s participation(s). The participations will remain but will no longer be associated with this team."
+msgstr "Esto quitará la asociación con el equipo de %(count)s participación(es). Las participaciones se conservarán, pero ya no estarán asociadas a este equipo."
+
+msgid "This team has no associated participations."
+msgstr "Este equipo no tiene participaciones asociadas."
+
+msgid "You do not have permission to remove a team."
+msgstr "No tienes permiso para borrar un equipo."
+
+msgid "Teams list"
+msgstr "Lista de equipos"
+
+msgid "Edit selected team:"
+msgstr "Editar el equipo seleccionado:"
+
+msgid "Participations"
+msgstr "Participaciones"
+
+msgid "Add a new participation (in main group):"
+msgstr "Agrega una participación nueva (en el grupo principal):"
+
+msgid "Select a contest"
+msgstr "Elige un concurso"
+
+msgid "Hidden"
+msgstr "Oculto"
+
+msgid "Unrestricted"
+msgstr "Sin restricciones"
+
+msgid "Add participation"
+msgstr "Agregar participación"
+
+msgid "No participations found."
+msgstr "No se encontraron participaciones."
+
+msgid "Edit selected participation:"
+msgstr "Editar la participación seleccionada:"
+
+msgid "Participation"
+msgstr "Participación"
+
+msgid "Hidden?"
+msgstr "¿Oculto?"
+
+msgid "Unrestricted?"
+msgstr "¿Sin restricciones?"
+
+msgid "Contest"
+msgstr "Concurso"
+
+msgid "Contest description"
+msgstr "Descripción del concurso"
+
+msgid "Group"
+msgstr "Grupo"
+
+msgid "Remove User"
+msgstr "Borrar usuario"
+
+#, python-format
+msgid "Are you sure you want to remove user %(username)s, including all related data?"
+msgstr "¿Seguro que quieres borrar el usuario %(username)s, incluidos todos sus datos relacionados?"
+
+#, python-format
+msgid "This will remove %(participations)s participation(s) and %(submissions)s submission(s)."
+msgstr "Esto borrará %(participations)s participación(es) y %(submissions)s envío(s)."
+
+msgid "You do not have permission to remove a user."
+msgstr "No tienes permiso para borrar un usuario."
+
+#, python-format
+msgid "User test %(id)s (Task: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+msgstr "User test %(id)s (Problema: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+
+msgid "User test details"
+msgstr "Detalles del user test"
+
+msgid "Evaluated"
+msgstr "Evaluado"
+
+msgid "Evaluation sandbox"
+msgstr "Sandbox de evaluación"
+
+msgid "Evaluation"
+msgstr "Evaluación"
+
+msgid "See output"
+msgstr "Ver salida"
+
+msgid "Users list"
+msgstr "Lista de usuarios"
+
 msgid "Delete selected"
 msgstr "Borrar seleccionados"
 
@@ -846,24 +2054,12 @@ msgid_plural "%(count)s participations will be removed from this contest, with %
 msgstr[0] "Se quitará %(count)s participación de este concurso, con %(submissions)s envíos y %(user_tests)s user tests."
 msgstr[1] "Se quitarán %(count)s participaciones de este concurso, con %(submissions)s envíos y %(user_tests)s user tests."
 
-msgid "This operation cannot be undone."
-msgstr "Esta operación no se puede deshacer."
-
 msgid "root (/)"
 msgstr "raíz (/)"
 
 #, python-format
 msgid "Rankings that will be emptied and sent again: %(groups)s."
 msgstr "Rankings que se vaciarán y se enviarán otra vez: %(groups)s."
-
-msgid "First name"
-msgstr "Nombre"
-
-msgid "Last name"
-msgstr "Apellido"
-
-msgid "Submissions"
-msgstr "Envíos"
 
 msgid "There is nothing to delete."
 msgstr "No hay nada que borrar."
@@ -875,137 +2071,6 @@ msgstr "Ignorados:"
 msgid "Type %(count)s to confirm:"
 msgstr "Escribe %(count)s para confirmar:"
 
-msgid "Delete"
-msgstr "Borrar"
-
-msgid "Remove"
-msgstr "Quitar"
-
 msgid "Cancel"
 msgstr "Cancelar"
 
-msgid "Activity"
-msgstr "Actividad"
-
-msgid "Announcements"
-msgstr "Anuncios"
-
-msgid "Codename"
-msgstr "Nombre clave"
-
-msgid "Create"
-msgstr "Crear"
-
-msgid "Disabled"
-msgstr "Desactivado"
-
-msgid "Enabled"
-msgstr "Activado"
-
-msgid "Group"
-msgstr "Grupo"
-
-msgid "Id"
-msgstr "ID"
-
-msgid "Logout"
-msgstr "Cerrar sesión"
-
-msgid "Memory limit"
-msgstr "Límite de memoria"
-
-msgid "No"
-msgstr "No"
-
-msgid "Yes"
-msgstr "Sí"
-
-msgid "Yes, remove"
-msgstr "Sí, quitar"
-
-msgid "Operation failed."
-msgstr "La operación falló."
-
-msgid "Operation successful."
-msgstr "Operación correcta."
-
-msgid "Output"
-msgstr "Salida"
-
-msgid "Overview"
-msgstr "Resumen"
-
-msgid "Public"
-msgstr "Público"
-
-msgid "Questions"
-msgstr "Preguntas"
-
-msgid "Ranking"
-msgstr "Ranking"
-
-msgid "Send"
-msgstr "Enviar"
-
-msgid "Settings"
-msgstr "Configuración"
-
-msgid "Status"
-msgstr "Estado"
-
-msgid "Tasks"
-msgstr "Problemas"
-
-msgid "Time"
-msgstr "Hora"
-
-msgid "Time limit"
-msgstr "Límite de tiempo"
-
-msgid "Timezone"
-msgstr "Zona horaria"
-
-msgid "Title"
-msgstr "Título"
-
-msgid "Upload"
-msgstr "Subir"
-
-msgid "User"
-msgstr "Usuario"
-
-msgid "User tests"
-msgstr "User tests"
-
-msgid "Users list"
-msgstr "Lista de usuarios"
-
-msgid "Please select a valid operation"
-msgstr "Selecciona una operación válida"
-
-msgid "No username specified."
-msgstr "No se indicó el usuario."
-
-msgid "No questions."
-msgstr "No hay preguntas."
-
-msgid "Subject:"
-msgstr "Asunto:"
-
-msgid "Text:"
-msgstr "Texto:"
-
-msgid "Dataset:"
-msgstr "Dataset:"
-
-msgid "By:"
-msgstr "Por:"
-
-msgid "[View results]"
-msgstr "[Ver resultados]"
-
-msgid "Invalid field(s)."
-msgstr "Campos no válidos."
-
-msgid "Shard"
-msgstr "Shard"
