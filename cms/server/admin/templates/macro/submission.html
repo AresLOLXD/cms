@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {% import "macro/reevaluation_buttons.html" as macro_reevaluation_buttons with context %}
 {% import 'macro/pages.html' as macro_pages with context %}
 
@@ -17,16 +18,16 @@ dataset (Dataset|None): the dataset to show results for, or if not defined use
     the active one.
 #}
 {% if pages == 0 %}
-<p>No submissions found.</p>
+<p>{% trans %}No submissions found.{% endtrans %}</p>
 
 {% else %}
 
 <details id="diffchooser" ontoggle="utils.update_diffchooser()">
-  <summary>Diff submissions...</summary>
-  Select two submissions from the table, or enter submission IDs: <br>
-  old: <input type="number" size="5" id="diff-old-input">
-  new: <input type="number" size="5" id="diff-new-input">
-  <button onclick="utils.do_diff()">Diff</button>
+  <summary>{% trans %}Diff submissions...{% endtrans %}</summary>
+  {% trans %}Select two submissions from the table, or enter submission IDs:{% endtrans %} <br>
+  {% trans %}old:{% endtrans %} <input type="number" size="5" id="diff-old-input">
+  {% trans %}new:{% endtrans %} <input type="number" size="5" id="diff-new-input">
+  <button onclick="utils.do_diff()">{% trans %}Diff{% endtrans %}</button>
 </details>
 
 {{ macro_pages.selector(page_url, page, pages) }}
@@ -36,16 +37,16 @@ dataset (Dataset|None): the dataset to show results for, or if not defined use
     <tr>
       <th class="diff-only">-</th>
       <th class="diff-only">+</th>
-      <th>Time</th>
-      <th>User</th>
-      <th>Task</th>
-      <th>Status</th>
-      <th>Latency</th>
-      <th>Files</th>
-      <th>Token</th>
-      <th>Official</th>
-      <th>Comment</th>
-      <th>Reevaluate</th>
+      <th>{% trans %}Time{% endtrans %}</th>
+      <th>{% trans %}User{% endtrans %}</th>
+      <th>{% trans %}Task{% endtrans %}</th>
+      <th>{% trans %}Status{% endtrans %}</th>
+      <th>{% trans %}Latency{% endtrans %}</th>
+      <th>{% trans %}Files{% endtrans %}</th>
+      <th>{% trans %}Token{% endtrans %}</th>
+      <th>{% trans %}Official{% endtrans %}</th>
+      <th>{% trans %}Comment{% endtrans %}</th>
+      <th>{% trans %}Reevaluate{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>
@@ -89,31 +90,31 @@ dataset (Dataset|None): the dataset to show results for, or if not defined use
   <td><a href="{{ url("task", s.task.id) }}">{{ s.task.name }}</a></td>
   <td>
     {% if status == SubmissionResult.COMPILING %}
-    Compiling...
+    {% trans %}Compiling...{% endtrans %}
     {% else %}
     <div id="title_evaluation_{{ s.id }}" class="toggling_off">
 
       {% if status == SubmissionResult.COMPILATION_FAILED %}
-      Compilation failed
+      {% trans %}Compilation failed{% endtrans %}
       <div id="evaluation_{{ s.id }}" style="display: none;">
 
       {% elif status == SubmissionResult.EVALUATING %}
-      Evaluating...
+      {% trans %}Evaluating...{% endtrans %}
       <div id="evaluation_{{ s.id }}" style="display: none;">
 
       {% elif status == SubmissionResult.SCORING %}
-      Scoring...
+      {% trans %}Scoring...{% endtrans %}
       <div id="evaluation_{{ s.id }}" style="display: none;">
         {% if sr.evaluated() %}
-        <h3>Testcases</h3>
+        <h3>{% trans %}Testcases{% endtrans %}</h3>
         <table class="nested bordered">
           <thead>
             <tr>
               <th>#</th>
-              <th>Codename</th>
-              <th>Outcome</th>
-              <th>Visible</th>
-              <th>Details</th>
+              <th>{% trans %}Codename{% endtrans %}</th>
+              <th>{% trans %}Outcome{% endtrans %}</th>
+              <th>{% trans %}Visible{% endtrans %}</th>
+              <th>{% trans %}Details{% endtrans %}</th>
             </tr>
           </thead>
           <tbody>
@@ -136,22 +137,22 @@ dataset (Dataset|None): the dataset to show results for, or if not defined use
         {% if score_type is defined %}
           {% set max_score = score_type.max_score %}
         {% else %}
-          {% set max_score = "[Cannot get score type - see logs]" %}
+          {% set max_score = _("[Cannot get score type - see logs]") %}
         {% endif %}
-      Scored ({{ sr.score }} / {{ max_score }})
+      {% trans score=sr.score, max_score=max_score %}Scored ({{ score }} / {{ max_score }}){% endtrans %}
       <div id="evaluation_{{ s.id }}" class="score_details" style="display: none;">
         {% if score_type is defined %}
           {{ score_type.get_html_details(sr.score_details, FEEDBACK_LEVEL_FULL)|safe }}
         {% else %}
-        [Cannot get score type - see logs]
+        {% trans %}[Cannot get score type - see logs]{% endtrans %}
         {% endif %}
 
       {% else %}
-      [Unknown status]
+      {% trans %}[Unknown status]{% endtrans %}
       <div id="evaluation_{{ s.id }}" style="display: none;">
 
       {% endif %}
-        <h3>Compilation output</h3>{# TODO: trim long outputs and add facility to see raw #}
+        <h3>{% trans %}Compilation output{% endtrans %}</h3>{# TODO: trim long outputs and add facility to see raw #}
         <pre>{% if sr.compilation_text|length > 0 %}{{ sr.compilation_text|format_status_text }}{% endif %}</pre>
       </div>
     </div>
@@ -171,16 +172,16 @@ dataset (Dataset|None): the dataset to show results for, or if not defined use
   </td>
   <td>
     {% if s.token is none %}
-    No
+    {% trans %}No{% endtrans %}
     {% else %}
-    Yes
+    {% trans %}Yes{% endtrans %}
     {% endif %}
   </td>
   <td>
     {% if s.official %}
-    Yes
+    {% trans %}Yes{% endtrans %}
     {% else %}
-    No
+    {% trans %}No{% endtrans %}
     {% endif %}
   </td>
   <td>

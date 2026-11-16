@@ -26,8 +26,11 @@ lanes may include them.
 
 import json
 import unittest
+from datetime import datetime
 from html.parser import HTMLParser
+from types import SimpleNamespace
 
+from cms.db import SubmissionResult, UserTestResult
 from cms.locale import DEFAULT_TRANSLATION
 from cmstestsuite.unit_tests.server.admin import aws_render
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
@@ -45,6 +48,28 @@ def snippet(source, translation, mode="full", **params) -> str:
         url=lambda *p: "/" + "/".join(map(str, p)),
         translation=translation, gettext=translation.gettext,
         ngettext=translation.ngettext, **params)
+
+
+def submission_row(status, translation, score_type=None) -> str:
+    """Render the row of a submission whose result has that status."""
+    dataset = SimpleNamespace(id=2)
+    result = SimpleNamespace(
+        get_status=lambda: status, score=12.0, score_details=None,
+        scored_at=None, evaluations=[], compilation_text=[],
+        evaluated=lambda: True)
+    user = SimpleNamespace(id=4, username="ana")
+    submission = SimpleNamespace(
+        id=1, timestamp=datetime(2026, 1, 1), files={}, token=None,
+        official=True, short_comment="",
+        task=SimpleNamespace(id=3, name="sum", active_dataset=dataset),
+        participation=SimpleNamespace(
+            user=user, contest=SimpleNamespace(id=5)),
+        get_result=lambda dataset: result)
+    return snippet(
+        '{% import "macro/submission.html" as m with context %}'
+        "{{ m.row(admin, url, s, dataset) }}", translation,
+        admin=SimpleNamespace(permission_all=True), s=submission,
+        dataset=dataset, get_score_type=lambda dataset: score_type)
 
 
 class _Events(HTMLParser):
@@ -86,6 +111,23 @@ class TestSubmissionPages(unittest.TestCase):
         for text in ("All Submissions", "Reevaluate all"):
             self.assertNotIn(text, html)
 
+    def test_the_submission_table_in_spanish(self):
+        # Scenario "A page group in Spanish": the macro rows of
+        # macro/submission.html, inside the page of the contest.
+        html = page("contest_submissions.html", SPANISH)
+        for text in ("Comparar envíos…", "<th>Hora</th>", "<th>Problema</th>",
+                     "<th>Latencia</th>", "<th>Oficial</th>",
+                     "[Estado desconocido]", "Salida de la compilación"):
+            self.assertIn(text, html)
+        for text in ("Diff submissions", "<th>Latency</th>",
+                     "[Unknown status]", "Compilation output"):
+            self.assertNotIn(text, html)
+        # An empty table shows its own sentence.
+        html = snippet(
+            '{% import "macro/submission.html" as m with context %}'
+            "{{ m.rows(none, url, none, [], 0, 0) }}", SPANISH)
+        self.assertIn("No se encontraron envíos.", html)
+
     def test_the_contest_submissions_page_in_english(self):
         # Scenario "A page in English is unchanged"
         html = page("contest_submissions.html", DEFAULT_TRANSLATION)
@@ -96,9 +138,73 @@ class TestSubmissionPages(unittest.TestCase):
     def test_the_contest_user_tests_page_in_spanish(self):
         # Scenario "A page group in Spanish"
         html = page("contest_user_tests.html", SPANISH)
-        for text in ("Todos los user tests", "en este concurso"):
+        for text in ("Todos los user tests", "en este concurso",
+                     "<th>Entrada del usuario</th>", "<th>Archivos</th>",
+                     "Ver entrada", "[Estado desconocido]"):
             self.assertIn(text, html)
-        self.assertNotIn("All user tests", html)
+        for text in ("All user tests", "User input", "See input"):
+            self.assertNotIn(text, html)
+        html = snippet('{% include "fragments/user_test_rows.html" %}',
+                       SPANISH, user_test_count=0)
+        self.assertIn("No se encontraron user tests.", html)
+
+    def test_the_status_of_a_submission_in_spanish(self):
+        # Scenario "A page group in Spanish": the texts of a row (the
+        # outcomes of the grading are not ours and are not asserted).
+        scored = submission_row(SubmissionResult.SCORED, SPANISH,
+                                SimpleNamespace(
+                                    max_score=100.0, get_html_details=
+                                    lambda *args: ""))
+        for text in ("Puntaje asignado (12.0 / 100.0)", "Sí"):
+            self.assertIn(text, scored)
+        self.assertNotIn("Scored", scored)
+        for status, text in ((SubmissionResult.COMPILING, "Compilando…"),
+                             (SubmissionResult.COMPILATION_FAILED,
+                              "Compilación fallida"),
+                             (SubmissionResult.EVALUATING, "Evaluando…"),
+                             (SubmissionResult.SCORING,
+                              "Calculando puntaje…")):
+            self.assertIn(text, submission_row(status, SPANISH))
+        # Without a score type the row says so, in the language.
+        self.assertIn(
+            "[No se pudo obtener el tipo de puntaje; consulta los "
+            "registros]",
+            submission_row(SubmissionResult.SCORED, SPANISH,
+                           aws_render.environment("full").undefined()))
+
+    def test_the_status_of_a_submission_in_english(self):
+        # Scenario "A page in English is unchanged": the functional
+        # tests read these words.
+        scored = submission_row(SubmissionResult.SCORED, DEFAULT_TRANSLATION,
+                                SimpleNamespace(
+                                    max_score=100.0, get_html_details=
+                                    lambda *args: ""))
+        self.assertIn("Scored (12.0 / 100.0)", scored)
+        self.assertIn("Compiling...", submission_row(
+            SubmissionResult.COMPILING, DEFAULT_TRANSLATION))
+
+    def test_the_status_of_a_user_test_in_spanish(self):
+        # Scenario "A page group in Spanish": a row of fragments/
+        # user_test_row.html.
+        dataset = SimpleNamespace(id=2)
+        result = SimpleNamespace(
+            get_status=lambda: UserTestResult.EVALUATED, compilation_text=[])
+        user_test = SimpleNamespace(
+            id=1, timestamp=datetime(2026, 1, 1), files={}, input="abc",
+            task=SimpleNamespace(id=3, name="sum", active_dataset=dataset),
+            participation=SimpleNamespace(
+                user=SimpleNamespace(id=4, username="ana"),
+                contest=SimpleNamespace(id=5)),
+            get_result=lambda dataset: result)
+        render = lambda translation: snippet(
+            '{% include "fragments/user_test_row.html" %}', translation,
+            ut=user_test)
+        html = render(SPANISH)
+        for text in ("Evaluado", "Ver entrada", "Salida de la compilación"):
+            self.assertIn(text, html)
+        html = render(DEFAULT_TRANSLATION)
+        for text in ("Evaluated", "See input", "Compilation output"):
+            self.assertIn(text, html)
 
     def test_the_page_selector_in_spanish(self):
         # Scenario "A page group in Spanish": the macro of pages.html in

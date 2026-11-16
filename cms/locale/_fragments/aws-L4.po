@@ -45,3 +45,91 @@ msgstr "Evaluación"
 
 msgid "Score"
 msgstr "Puntaje"
+
+msgid "No submissions found."
+msgstr "No se encontraron envíos."
+
+msgid "Diff submissions..."
+msgstr "Comparar envíos…"
+
+msgid "Select two submissions from the table, or enter submission IDs:"
+msgstr "Selecciona dos envíos de la tabla o escribe sus IDs:"
+
+msgid "old:"
+msgstr "anterior:"
+
+msgid "new:"
+msgstr "nuevo:"
+
+msgid "Diff"
+msgstr "Comparar"
+
+msgid "Task"
+msgstr "Problema"
+
+msgid "Latency"
+msgstr "Latencia"
+
+msgid "Files"
+msgstr "Archivos"
+
+msgid "Token"
+msgstr "Token"
+
+msgid "Official"
+msgstr "Oficial"
+
+msgid "Comment"
+msgstr "Comentario"
+
+msgid "Reevaluate"
+msgstr "Reevaluar"
+
+msgid "Compiling..."
+msgstr "Compilando…"
+
+msgid "Compilation failed"
+msgstr "Compilación fallida"
+
+msgid "Evaluating..."
+msgstr "Evaluando…"
+
+msgid "Evaluated"
+msgstr "Evaluado"
+
+msgid "Scoring..."
+msgstr "Calculando puntaje…"
+
+msgid "Testcases"
+msgstr "Casos de prueba"
+
+msgid "Outcome"
+msgstr "Resultado"
+
+msgid "Visible"
+msgstr "Visible"
+
+msgid "Details"
+msgstr "Detalles"
+
+msgid "[Cannot get score type - see logs]"
+msgstr "[No se pudo obtener el tipo de puntaje; consulta los registros]"
+
+#, python-format
+msgid "Scored (%(score)s / %(max_score)s)"
+msgstr "Puntaje asignado (%(score)s / %(max_score)s)"
+
+msgid "[Unknown status]"
+msgstr "[Estado desconocido]"
+
+msgid "Compilation output"
+msgstr "Salida de la compilación"
+
+msgid "See input"
+msgstr "Ver entrada"
+
+msgid "No user tests found."
+msgstr "No se encontraron user tests."
+
+msgid "User input"
+msgstr "Entrada del usuario"
