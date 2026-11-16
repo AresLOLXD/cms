@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block js %}
@@ -6,14 +7,14 @@
 
 {% block core %}
 <div class="core_title">
-  <h1>New contest</h1>
+  <h1>{% trans %}New contest{% endtrans %}</h1>
 </div>
 
 <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
 <form enctype="multipart/form-data" action="{{ url("contests", "add") }}" method="POST" name="add_contest">
   {{ xsrf_form_html|safe }}
-  <span class="info" title="A short name for the contest, preferably using only letters, numbers and underscores."></span>
-  Name:
+  <span class="info" title="{{ _("A short name for the contest, preferably using only letters, numbers and underscores.") }}"></span>
+  {% trans %}Name:{% endtrans %}
   <input type="text" name="name">
 
   <input type="submit">

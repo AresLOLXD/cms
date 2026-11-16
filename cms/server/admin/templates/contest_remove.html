@@ -1,24 +1,25 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 <div class="core_title">
-  <h1>Remove Contest</h1>
+  <h1>{% trans %}Remove Contest{% endtrans %}</h1>
 </div>
 
 {% if admin.permission_all %}
 <p>
-  Are you sure you want to remove contest {{ contest.name }} from CMS, including all related data?
+  {% trans name=contest.name %}Are you sure you want to remove contest {{ name }} from CMS, including all related data?{% endtrans %}
   <br>
-  This will remove {{ contest.participations|length }} participation(s) and {{ submission_count }} submission(s).
+  {% trans participations=contest.participations|length, submissions=submission_count %}This will remove {{ participations }} participation(s) and {{ submissions }} submission(s).{% endtrans %}
   <br>
-  This operation cannot be undone.
+  {% trans %}This operation cannot be undone.{% endtrans %}
 </p>
 <br>
-<a onclick="CMS.AWSUtils.ajax_delete('{{ url("contests", contest.id, "remove") }}'); " class="button-link">Yes, remove</a>
-<a href="{{ url("contests") }}" class="button-link">No</a>
+<a onclick="CMS.AWSUtils.ajax_delete('{{ url("contests", contest.id, "remove") }}'); " class="button-link">{% trans %}Yes, remove{% endtrans %}</a>
+<a href="{{ url("contests") }}" class="button-link">{% trans %}No{% endtrans %}</a>
 
 {% else %}
-You do not have permission to remove a contest.
+{% trans %}You do not have permission to remove a contest.{% endtrans %}
 {% endif %}
 
 {% endblock core %}

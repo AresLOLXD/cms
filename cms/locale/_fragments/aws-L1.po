@@ -1,0 +1,53 @@
+# Spanish translations of the new messages of lane L1 (contest settings and communication).
+msgid ""
+msgstr ""
+"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "No contest name specified."
+msgstr "No se indicó el nombre del concurso."
+
+msgid "Unknown ranking group."
+msgstr "Grupo de ranking desconocido."
+
+msgid "Ranking group %r is archived: unarchive it before assigning a contest to it."
+msgstr "El grupo de ranking %r está archivado: desarchívalo antes de asignarle un concurso."
+
+msgid "Invalid field(s)."
+msgstr "Campos no válidos."
+
+msgid "New contest"
+msgstr "Nuevo concurso"
+
+msgid "A short name for the contest, preferably using only letters, numbers and underscores."
+msgstr "Un nombre corto para el concurso, de preferencia solo con letras, números y guiones bajos."
+
+msgid "Remove Contest"
+msgstr "Borrar concurso"
+
+msgid "Are you sure you want to remove contest %(name)s from CMS, including all related data?"
+msgstr "¿Seguro que quieres borrar el concurso %(name)s de CMS, con todos sus datos relacionados?"
+
+msgid "You do not have permission to remove a contest."
+msgstr "No tienes permiso para borrar un concurso."
+
+msgid "Contests list"
+msgstr "Lista de concursos"
+
+msgid "Edit selected contest:"
+msgstr "Editar el concurso seleccionado:"
+
+msgid "Active"
+msgstr "Activo"
+
+msgid "Ranking group"
+msgstr "Grupo de ranking"
+
+msgid "yes"
+msgstr "sí"
+
+msgid "no"
+msgstr "no"

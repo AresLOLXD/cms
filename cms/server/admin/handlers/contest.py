@@ -27,6 +27,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Contest-related handlers for AWS.
 
 """
@@ -56,7 +58,8 @@ class AddContestHandler(
             attrs = dict()
 
             self.get_string(attrs, "name", empty=None)
-            assert attrs.get("name") is not None, "No contest name specified."
+            assert attrs.get("name") is not None, \
+                self._("No contest name specified.")
             attrs["description"] = attrs["name"]
 
             # Create the contest.
@@ -71,7 +74,7 @@ class AddContestHandler(
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -98,7 +101,8 @@ class ContestHandler(SimpleContestHandler("contest.html")):
             self.get_string(attrs, "name", empty=None)
             self.get_string(attrs, "description")
 
-            assert attrs.get("name") is not None, "No contest name specified."
+            assert attrs.get("name") is not None, \
+                self._("No contest name specified.")
 
             allowed_localizations: str = self.get_argument("allowed_localizations", "")
             if allowed_localizations:
@@ -135,14 +139,14 @@ class ContestHandler(SimpleContestHandler("contest.html")):
                     ranking_group = RankingGroup.get_from_id(
                         ranking_group_id, self.sql_session)
                     if ranking_group is None:
-                        raise ValueError("Unknown ranking group.")
+                        raise ValueError(self._("Unknown ranking group."))
                     # An archived group is not sent: the contest would
                     # reach no public ranking. Staying in it is fine.
                     if ranking_group != contest.ranking_group \
                             and ranking_group.is_archived_at(make_datetime()):
-                        raise ValueError(
+                        raise ValueError(self._(
                             "Ranking group %r is archived: unarchive it "
-                            "before assigning a contest to it."
+                            "before assigning a contest to it.")
                             % ranking_group.name)
                     attrs["ranking_group"] = ranking_group
 
@@ -172,7 +176,8 @@ class ContestHandler(SimpleContestHandler("contest.html")):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s).", repr(error))
+                make_datetime(), self._("Invalid field(s)."),
+                repr(error))
             self.redirect(self.url("contest", contest_id))
             return
 
@@ -241,7 +246,8 @@ class ContestListHandler(SimpleHandler("contests.html")):
             self.redirect(asking_page)
         else:
             self.service.add_notification(
-                make_datetime(), "Invalid operation %s" % operation, "")
+                make_datetime(), self._("Invalid operation %s") % operation,
+                "")
             self.redirect(self.url("contests"))
 
     @require_permission(BaseHandler.AUTHENTICATED)
