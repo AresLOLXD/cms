@@ -54,6 +54,9 @@ NOT_USTED = {"Bloque", "Parque", "Cheque", "Clique", "Sigue", "Consigue",
 TRANSLATED_ANGLES = {"<name>": "<nombre>", "<unknown>": "<desconocido>"}
 
 
+SPACE_BEFORE_RE = re.compile(r"\s[,;:.!?](?!\w)")
+
+
 def unescape(text):
     """Undo the C-style escapes of a .po string."""
     out, i = [], 0
@@ -170,7 +173,8 @@ def check_form(source, target):
         problems.append(("MARKUP", "HTML entities differ"))
     if target != target.strip() or "  " in target:
         problems.append(("SPACE", "leading, trailing or double space"))
-    if re.search(r"\s[,;:.!?]", target) and not re.search(r"\s[,;:.!?]", source):
+    # A dot before a letter is a file extension (" .zip"), not punctuation.
+    if SPACE_BEFORE_RE.search(target) and not SPACE_BEFORE_RE.search(source):
         problems.append(("SPACE", "space before punctuation"))
     if terminal(source) != terminal(target):
         problems.append(("PUNCT-END", f"source ends {terminal(source)!r}, translation {terminal(target)!r}"))
@@ -191,7 +195,10 @@ def check_form(source, target):
         word for word in USTED_SHAPE_RE.findall(target) if word not in NOT_USTED]
     if usted:
         problems.append(("REGISTER", f"{usted[0]!r} is usted; use tú"))
-    if not starts_with_placeholder(source) and not starts_with_placeholder(target):
+    # A text in parentheses ("(Tokened)" -> "(con token)") is a state
+    # label, not a sentence: its case is the translator's call.
+    if not (starts_with_placeholder(source) or starts_with_placeholder(target)
+            or source.lstrip().startswith("(")):
         first_source, first_target = first_letter(source), first_letter(target)
         if first_source and first_target and first_source.isupper() != first_target.isupper():
             problems.append(("CASE", f"source starts {first_source!r}, translation {first_target!r}"))
@@ -278,13 +285,22 @@ msgstr "Define esto."
 
 msgid "<unknown>"
 msgstr "<desconocido>"
+
+msgid "(Tokened)"
+msgstr "(con token)"
+
+msgid "Archive (a zip file):"
+msgstr "Archivo (un .zip):"
+
+msgid "Wait."
+msgstr "Espera ."
 '''
 
 
 def selftest():
     rules, unchanged_ok = load_rules(GLOSSARY_PATH)
     entries = parse_po(SELFTEST_PO)
-    assert len(entries) == 11, len(entries)
+    assert len(entries) == 14, len(entries)
     found = {}
     for entry in entries:
         for _, code, _ in check_entry(entry, rules, unchanged_ok):
@@ -300,6 +316,8 @@ def selftest():
     assert {"PLACEHOLDER", "MARKUP"} <= found["Use %.2f s, it&#39;s ready."], found
     assert "Define it." not in found, found
     assert "<unknown>" not in found, found
+    assert "(Tokened)" not in found and "Archive (a zip file):" not in found, found
+    assert "SPACE" in found["Wait."], found
     print("selftest ok")
     return 0
 

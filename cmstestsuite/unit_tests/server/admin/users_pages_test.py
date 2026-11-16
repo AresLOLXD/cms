@@ -105,11 +105,23 @@ HEADERS_OF_MAIN = [("Users list", "Lista de usuarios"),
                    ("Last name", "Apellido")]
 
 
-def with_translated_headers(page: tuple[str, list[str]]) \
+# The English that main left on the contest users page, which lane L6
+# translated.
+ENGLISH_OF_CONTEST_USERS = [
+    ("Users list", "Lista de usuarios"),
+    ("Add a new user:", "Agrega un usuario nuevo:"),
+    ("Select a new user", "Elige un usuario nuevo"),
+    ("Add user", "Agregar usuario"), ("Username", "Usuario"),
+    ("First name", "Nombre"), ("Last name", "Apellido"),
+    ("Group", "Grupo")]
+
+
+def with_translated_headers(page: tuple[str, list[str]],
+                            headers=HEADERS_OF_MAIN) \
         -> tuple[str, list[str]]:
-    """The page of main with the English headers in Spanish."""
+    """The page of main with the English texts in Spanish."""
     def translate(text: str) -> str:
-        for old, new in HEADERS_OF_MAIN:
+        for old, new in headers:
             text = text.replace(old, new)
         return text
     return translate(page[0]), [translate(v) for v in page[1]]
@@ -211,8 +223,9 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             self.assertEqual(
                 visible(render(AWS_ENVIRONMENT, "contest_users.html",
                                SPANISH, **params)),
-                new_terms(
-                    visible(render(before, "contest_users.html", **params))))
+                with_translated_headers(new_terms(
+                    visible(render(before, "contest_users.html", **params))),
+                    ENGLISH_OF_CONTEST_USERS))
 
 
 if __name__ == "__main__":
