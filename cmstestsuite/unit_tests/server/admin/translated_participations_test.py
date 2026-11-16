@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+
+# Copyright © 2026 Ares Ulises Juárez Martínez <aresulises8@hotmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""Tests for the AWS pages of the participations, the contest tasks, the
+activity and the ranking in Spanish.
+
+The pages are rendered from the template with the Spanish translation
+built from the committed catalog and fragments. Nothing here says how a
+page looks.
+
+"""
+
+import unittest
+from unittest.mock import MagicMock
+
+from cms.server.admin.handlers.contesttask import AddContestTaskHandler, \
+    ContestTasksHandler
+from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
+from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
+from cmstestsuite.unit_tests.server.admin.translated_users_test import \
+    notification, operation_buttons, run_post
+from cmstestsuite.unit_tests.server.admin.users_pages_test import render, \
+    visible
+
+
+def page(name: str, translation=None, **params) -> str:
+    """The text of the core block of the page, with the attributes."""
+    text, attributes = visible(render(AWS_ENVIRONMENT, name, translation,
+                                      **params))
+    return " | ".join([text] + attributes)
+
+
+class TestContestTasksInSpanish(DatabaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.contest = self.add_contest()
+        self.tasks = [self.add_task(contest=self.contest, num=n)
+                      for n in range(3)]
+        self.session.commit()
+
+    def tearDown(self):
+        self.delete_data()
+        super().tearDown()
+
+    def post(self, translation, form: dict) -> ContestTasksHandler:
+        """Post the form to the handler, on the real session."""
+        handler = ContestTasksHandler.__new__(ContestTasksHandler)
+        handler._ = translation.gettext
+        handler.sql_session = self.session
+        handler.get_argument = lambda name, *default: form[name]
+        handler.url = lambda *parts: "/" + "/".join(map(str, parts))
+        handler.redirect = MagicMock()
+        handler.schedule_rpc = MagicMock()
+        handler.application = MagicMock()
+        handler._post_sync(str(self.contest.id))
+        return handler
+
+    def test_the_contest_tasks_page_in_spanish(self):
+        # Scenario: A page group in Spanish (participations and contest tasks)
+        self.session.refresh(self.contest)
+        text = page("contest_tasks.html", SPANISH, contest=self.contest,
+                    unassigned_tasks=[])
+
+        for expected in (f"Lista de problemas de {self.contest.name}",
+                         "Agrega un problema nuevo:", "Elige un problema "
+                         "nuevo", "Mover el problema seleccionado:",
+                         "Quitar del concurso", "Título"):
+            self.assertIn(expected, text)
+        self.assertNotIn("Tasks list of", text)
+
+    def test_an_operation_posted_from_a_spanish_page(self):
+        # Scenario: An operation posted from a Spanish page
+        self.session.refresh(self.contest)
+        html = render(AWS_ENVIRONMENT, "contest_tasks.html", SPANISH,
+                      contest=self.contest, unassigned_tasks=[])
+        buttons = dict((label, value)
+                       for value, label in operation_buttons(html))
+        self.assertEqual(
+            buttons,
+            {"Quitar del concurso": "Remove from contest",
+             "al principio": "to the top", "subir 1": "up by 1",
+             "bajar 1": "down by 1", "al final": "to the bottom"})
+
+        # The value the Spanish "subir 1" button posts moves the task.
+        self.post(SPANISH, {"task_id": str(self.tasks[2].id),
+                            "operation": buttons["subir 1"]})
+
+        self.session.expire_all()
+        self.assertEqual([t.num for t in self.tasks], [0, 2, 1])
+
+
+class TestContestTaskFormErrors(unittest.TestCase):
+
+    def test_a_form_error_in_spanish(self):
+        # Scenario: Invalid field in Spanish
+        handler = run_post(AddContestTaskHandler, {"task_id": "null"},
+                           SPANISH, args=("1",))
+
+        self.assertEqual(
+            notification(handler),
+            ("Campos no válidos",
+             repr(AssertionError("Selecciona un problema válido"))))
+
+    def test_a_form_error_in_english(self):
+        # Scenario: Invalid field in English (the same form, unchanged)
+        handler = run_post(AddContestTaskHandler, {"task_id": "null"},
+                           args=("1",))
+
+        self.assertEqual(
+            notification(handler),
+            ("Invalid field(s)",
+             repr(AssertionError("Please select a valid task"))))

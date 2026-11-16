@@ -1,0 +1,44 @@
+# Spanish translations of the new messages of lane L6 (participations, contest tasks, activity, ranking).
+msgid ""
+msgstr ""
+"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Tasks list of <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+msgstr "Lista de problemas de <a href=\"%(contest_url)s\">%(contest_name)s</a>"
+
+msgid "Add a new task:"
+msgstr "Agrega un problema nuevo:"
+
+msgid "Select a new task"
+msgstr "Elige un problema nuevo"
+
+msgid "Add task"
+msgstr "Agregar problema"
+
+msgid "Remove selected task from the contest:"
+msgstr "Quitar el problema seleccionado del concurso:"
+
+msgid "Remove from contest"
+msgstr "Quitar del concurso"
+
+msgid "Move selected task:"
+msgstr "Mover el problema seleccionado:"
+
+msgid "to the top"
+msgstr "al principio"
+
+msgid "up by 1"
+msgstr "subir 1"
+
+msgid "down by 1"
+msgstr "bajar 1"
+
+msgid "to the bottom"
+msgstr "al final"
+
+msgid "Please select a valid task"
+msgstr "Selecciona un problema válido"
