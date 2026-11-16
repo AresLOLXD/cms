@@ -1,24 +1,26 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 
+{% set contest_url = url("contest", contest.id) %}
 <h1>
-  Group {{ group.name }} in <a href="{{ url("contest", contest.id) }}">{{ contest.name }}</a>
+  {% trans group_name=group.name, contest_url=contest_url, contest_name=contest.name %}Group {{ group_name }} in <a href="{{ contest_url }}">{{ contest_name }}</a>{% endtrans %}
 </h1>
 
-<h2 id="title_users" class="toggling_on">Users</h2>
+<h2 id="title_users" class="toggling_on">{% trans %}Users{% endtrans %}</h2>
 <div id="users">
   {% if group.participations|length < 1 %}
-  <p>No users found.</p>
+  <p>{% trans %}No users found.{% endtrans %}</p>
 
   {% else %}
 
   <table class="bordered">
     <thead>
       <tr>
-        <th>Username</th>
-        <th>First name</th>
-        <th>Last name</th>
+        <th>{% trans %}Username{% endtrans %}</th>
+        <th>{% trans %}First name{% endtrans %}</th>
+        <th>{% trans %}Last name{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
@@ -37,7 +39,7 @@
 </div>
 
 
-<h2 id="title_group_info" class="toggling_on">Group information</h2>
+<h2 id="title_group_info" class="toggling_on">{% trans %}Group information{% endtrans %}</h2>
 <div id="group_info">
   <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
   <form enctype="multipart/form-data" action="{{ url("contest", contest.id, "group", group.id, "edit") }}" method="POST">
@@ -45,8 +47,8 @@
     <table>
       <tr>
         <td>
-          <span class="info" title="The name of this user group."></span>
-          Name
+          <span class="info" title="{{ _("The name of this user group.") }}"></span>
+          {% trans %}Name{% endtrans %}
         </td>
         <td>
           <input type="text" name="name" value="{{ group.name }}"/>
@@ -55,12 +57,12 @@
       {% include "fragments/group_settings.html" %}
     </table>
     <input type="submit"
-        value="Update"
+        value="{{ _("Update") }}"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
         />
-    <input type="reset" value="Reset" />
+    <input type="reset" value="{{ _("Reset") }}" />
   </form>
   <div class="hr"></div>
 </div>

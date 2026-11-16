@@ -673,7 +673,7 @@ class TestBulkRemovalInTwoLanguages(unittest.TestCase):
                 "Esta operación no se puede deshacer.",
                 "Rankings que se vaciarán y se enviarán otra vez: "
                 "raíz (/), omi.",
-                "<th>Username</th>", "<th>Nombre</th>",
+                "<th>Usuario</th>", "<th>Nombre</th>",
                 "<th>Apellido</th>", "<th>Envíos</th>",
                 "<th>User tests</th>", "<th>Concursos</th>",
                 "Ignorados:", "nadie \u2014 no existe",

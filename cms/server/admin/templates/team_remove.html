@@ -1,28 +1,29 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 <div class="core_title">
-  <h1>Remove Team</h1>
+  <h1>{% trans %}Remove Team{% endtrans %}</h1>
 </div>
 
 {% if admin.permission_all %}
 <p>
-  Are you sure you want to remove team {{ team.code }} ({{ team.name }})?
+  {% trans code=team.code, name=team.name %}Are you sure you want to remove team {{ code }} ({{ name }})?{% endtrans %}
   <br>
   {% if participation_count > 0 %}
-  This will remove the team association from {{ participation_count }} participation(s). The participations will remain but will no longer be associated with this team.
+  {% trans count=participation_count %}This will remove the team association from {{ count }} participation(s). The participations will remain but will no longer be associated with this team.{% endtrans %}
   {% else %}
-  This team has no associated participations.
+  {% trans %}This team has no associated participations.{% endtrans %}
   {% endif %}
   <br>
-  This operation cannot be undone.
+  {% trans %}This operation cannot be undone.{% endtrans %}
 </p>
 <br>
-<a onclick="CMS.AWSUtils.ajax_delete('{{ url("teams", team.id, "remove") }}');" class="button-link">Yes, remove</a>
-<a href="{{ url("teams") }}" class="button-link">No</a>
+<a onclick="CMS.AWSUtils.ajax_delete('{{ url("teams", team.id, "remove") }}');" class="button-link">{% trans %}Yes, remove{% endtrans %}</a>
+<a href="{{ url("teams") }}" class="button-link">{% trans %}No{% endtrans %}</a>
 
 {% else %}
-You do not have permission to remove a team.
+{% trans %}You do not have permission to remove a team.{% endtrans %}
 {% endif %}
 
 {% endblock core %}
