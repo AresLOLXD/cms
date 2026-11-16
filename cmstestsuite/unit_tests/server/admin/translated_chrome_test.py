@@ -490,12 +490,12 @@ SPANISH_PINS = {
     "evaluate": 'Evaluando el <a href="/aws/submission/5/2">resultado</a> del'
                 ' <a href="/aws/submission/5">envío 5</a> en el '
                 '<a href="/aws/dataset/2">dataset 2</a> '
-                "[3 vez(ces) en cola] [caso de prueba: `t&lt;1&gt;&amp;']",
+                "[3 vez/veces en la cola] [caso de prueba: «t&lt;1&gt;&amp;»]",
     "evaluate_test": "Evaluando el resultado de user_test 6 en el "
                      '<a href="/aws/dataset/2">dataset 2</a>',
     "ago_hms": "1 hora(s), 2 minuto(s), 5 segundo(s)",
     "std_unauthorized": "No tienes autorización para llamar a este método.",
-    "std_other": "Respuesta inesperada `&lt;b&gt;x'. "
+    "std_other": "Respuesta inesperada «&lt;b&gt;x». "
                  "Esto no debería ocurrir.",
     "remaining_before": "Para el inicio del concurso: 0:01:40",
     "analysis_during": "Para el fin de la fase de análisis: 0:06:40",

@@ -8,9 +8,9 @@ Files in this directory:
 
 Decisions of the owner, applied here: contest is "concurso" (AWS only; `cms.po` keeps
 "competencia"), "username" in prose is "usuario", "user tests" stays in English, the bare
-"Remove" is "Quitar" and "Yes, remove" is "Sí, quitar" (a msgid with its own effect is
-translated by it: "Remove Contest" is "Borrar concurso", "Remove Participation" is
-"Quitar participación"), the typo "occured" in `error.html` stays (the msgid is shared with
+"Remove" is "Quitar" and "Yes, remove" is "Sí, borrar" (the six pages that share it delete
+data and their titles say "Borrar …"; a msgid with its own effect is translated by it:
+"Remove Contest" is "Borrar concurso", "Remove Participation" is "Quitar participación"), the typo "occured" in `error.html` stays (the msgid is shared with
 the contestant site), staff password is "contraseña de staff", register is "tú".
 
 ## 0. Scope facts
@@ -82,7 +82,7 @@ from one list; a row that is missing from the JSON is not checked.
 | 11 | ranking | ranking | manual, aws.po (kept) |
 | 12 | scoreboard | marcador | CONFLICT. Manual merges scoreboard and ranking; aws.po splits them. DECIDED marcador = public page, ranking = data |
 | 13 | root ranking | ranking raíz | aws.po |
-| 14 | token | token | cms.po, manual |
+| 14 | token | token | cms.po, manual. Finite/Infinite tokens are "limitados" / "ilimitados" |
 | 15 | dataset | dataset (unchanged) | manual |
 | 16 | testcase | caso de prueba | manual |
 | 17 | subtask | subtarea | cms.po, manual |
@@ -110,13 +110,13 @@ from one list; a row that is missing from the JSON is not checked.
 | 39 | dump | volcado | aws.po |
 | 40 | screening | filtro | manual |
 | 41 | two-phase | en dos fases | manual ("Evaluación en dos fases") |
-| 42 | analysis mode | fase de análisis | CONFLICT. cms.po and manual say fase; aws.po says modo (3 times). DECIDED fase |
+| 42 | analysis mode, Analysis | fase de análisis | CONFLICT. cms.po and manual say fase; aws.po says modo (3 times). DECIDED fase |
 | 43 | running (contest) | en curso | aws.po |
 | 44 | freeze | congelar | aws.po, manual. Time-field label stays "Congelar a las" |
 | 45 | frozen | congelado | aws.po |
 | 46 | unfreeze | descongelar | aws.po, manual |
 | 47 | hide | ocultar | aws.po, manual |
-| 48 | hidden | oculto | aws.po |
+| 48 | hidden | oculto / oculta | aws.po. The participation labels "Hidden" and "Hidden?" are feminine: "Oculta", "¿Oculta?" |
 | 49 | show | mostrar | aws.po, manual |
 | 50 | visible | visible | aws.po |
 | 51 | archive (verb, state label) | archivar / archivado | manual; aws.po uses "Archivado" as a row label. A zip-file "Archive" needs msgctxt (section 3.6) |
@@ -161,10 +161,10 @@ from one list; a row that is missing from the JSON is not checked.
 | 90 | next | siguiente | aws.po |
 | 91 | now | ahora | aws.po |
 | 92 | empty | vacío / vacía; "vaciar" for "empty" as a verb | aws.po |
-| 93 | choose / pick | elige; "elegir" in infinitive contexts | aws.po |
+| 93 | choose / pick | elige; "elegir" in infinitive contexts | aws.po. DECIDED choose = elige, select = selecciona (never swap them) |
 | 94 | type (to confirm) | escribe | aws.po |
 | 95 | tick (a box) | marca | aws.po |
-| 96 | select all | seleccionar todo | aws.po |
+| 96 | select all | seleccionar todo | aws.po. The verb "select" is "selecciona" / "seleccionar" |
 | 97 | selected | seleccionados / seleccionadas | aws.po |
 | 98 | import | importar / importación | aws.po |
 | 99 | export | exportar / exportación | aws.po |
@@ -197,7 +197,7 @@ from one list; a row that is missing from the JSON is not checked.
 | 126 | schedule | programación | manual |
 | 127 | window (time window) | ventana | manual |
 | 128 | plain text | texto plano | aws.po |
-| 129 | hash (passwords) | cifrar / cifradas | aws.po |
+| 129 | hash (passwords) | cifrar (verb); "con hash", "guardada como hash" (noun) | aws.po. A hash is not encryption: "Hashed (bcrypt)" is "Con hash (bcrypt)" |
 | 130 | confidential | confidencial | aws.po |
 | 131 | theme | tema | aws.po |
 | 132 | system (theme) | sistema | aws.po |

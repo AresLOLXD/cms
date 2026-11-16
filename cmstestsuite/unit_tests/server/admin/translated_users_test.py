@@ -122,7 +122,7 @@ class TestUsersPagesInSpanish(unittest.TestCase):
         text = page("add_user.html", SPANISH)
 
         for expected in ("Nuevo usuario", "Correo electrónico",
-                         "Texto plano", "Cifrada (bcrypt)", "Limpiar"):
+                         "Texto plano", "Con hash (bcrypt)", "Limpiar"):
             self.assertIn(expected, text)
         self.assertNotIn("New user", text)
 
@@ -137,7 +137,7 @@ class TestUsersPagesInSpanish(unittest.TestCase):
                 "¿Seguro que quieres borrar el usuario ana, incluidos "
                 "todos sus datos relacionados?",
                 "Esto borrará 2 participación(es) y 5 envío(s).",
-                "Sí, quitar"):
+                "Sí, borrar"):
             self.assertIn(expected, text)
 
     def test_the_users_list_headers_in_spanish(self):
@@ -157,8 +157,8 @@ class TestUsersPagesInSpanish(unittest.TestCase):
 
         # tojson writes the literal of the script with ASCII escapes.
         self.assertIn(
-            json.dumps("La contraseña está cifrada, escribe aquí una nueva "
-                       "para cambiarla"), html)
+            json.dumps("La contraseña está guardada como hash; escribe una "
+                       "nueva aquí para cambiarla"), html)
         self.assertNotIn("The password is hashed", html)
 
     def test_the_teams_pages_in_spanish(self):
@@ -213,7 +213,7 @@ class TestUsersPagesInSpanish(unittest.TestCase):
         text = page("groups.html", SPANISH, contest=contest, admin=admin)
         for expected in ("Lista de grupos", "Agrega un grupo nuevo llamado",
                          "Editar el grupo seleccionado:", "Inicio (en UTC)",
-                         "Inicio del análisis", "(grupo principal)"):
+                         "Inicio de la fase de análisis", "(grupo principal)"):
             self.assertIn(expected, text)
         self.assertNotIn("Groups list", text)
 
@@ -328,11 +328,11 @@ class TestUsersPagesInSpanish(unittest.TestCase):
         self.assertEqual(
             notification(handler),
             ("No se puede borrar un grupo que contiene usuarios",
-             "El grupo `omi' contiene 2 usuarios"))
+             "El grupo «omi» contiene 2 usuarios"))
         group.participations = [1]
         handler = run(next(v for v in values if v.startswith("Delete")))
         self.assertEqual(notification(handler)[1],
-                         "El grupo `omi' contiene 1 usuario")
+                         "El grupo «omi» contiene 1 usuario")
 
     def test_a_group_with_users_in_english(self):
         # Scenario: Invalid field in English (the notification of the

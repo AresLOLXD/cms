@@ -478,7 +478,7 @@ msgstr "Operación no válida"
 
 #, python-format
 msgid "I do not understand the operation `%s'"
-msgstr "No se entiende la operación `%s'"
+msgstr "No se entiende la operación «%s»"
 
 msgid "Cannot delete group containing users"
 msgstr "No se puede borrar un grupo que contiene usuarios"
@@ -486,15 +486,15 @@ msgstr "No se puede borrar un grupo que contiene usuarios"
 #, python-format
 msgid "The group `%(name)s' contains %(count)d users"
 msgid_plural "The group `%(name)s' contains %(count)d users"
-msgstr[0] "El grupo `%(name)s' contiene %(count)d usuario"
-msgstr[1] "El grupo `%(name)s' contiene %(count)d usuarios"
+msgstr[0] "El grupo «%(name)s» contiene %(count)d usuario"
+msgstr[1] "El grupo «%(name)s» contiene %(count)d usuarios"
 
 msgid "Cannot delete a contest's main group."
 msgstr "No se puede borrar el grupo principal de un concurso."
 
 #, python-format
 msgid "To delete '%s', change the main group of the contest first to another group."
-msgstr "Para borrar '%s', cambia primero el grupo principal del concurso a otro grupo."
+msgstr "Para borrar «%s», cambia primero el grupo principal del concurso a otro grupo."
 
 msgid "No name specified."
 msgstr "No se indicó el nombre."
@@ -596,7 +596,7 @@ msgid "Plain text"
 msgstr "Texto plano"
 
 msgid "Hashed (bcrypt)"
-msgstr "Cifrada (bcrypt)"
+msgstr "Con hash (bcrypt)"
 
 msgid "Contestant e-mail address."
 msgstr "Correo electrónico del concursante."
@@ -691,11 +691,11 @@ msgstr "Evaluando el resultado de user_test %(object_id)s en el <a href=\"%(data
 
 #, python-format
 msgid "[%(count)s time(s) in queue]"
-msgstr "[%(count)s vez(ces) en cola]"
+msgstr "[%(count)s vez/veces en la cola]"
 
 #, python-format
 msgid "[testcase: `%(codename)s']"
-msgstr "[caso de prueba: `%(codename)s']"
+msgstr "[caso de prueba: «%(codename)s»]"
 
 msgid "second(s)"
 msgstr "segundo(s)"
@@ -708,7 +708,7 @@ msgstr "hora(s)"
 
 #, python-format
 msgid "Unexpected reply `%(status)s'. This should not happen."
-msgstr "Respuesta inesperada `%(status)s'. Esto no debería ocurrir."
+msgstr "Respuesta inesperada «%(status)s». Esto no debería ocurrir."
 
 msgid "Service not connected."
 msgstr "Servicio no conectado."
@@ -1140,7 +1140,7 @@ msgid "failed"
 msgstr "falló"
 
 msgid "The password is hashed, type a new one in here to change it"
-msgstr "La contraseña está cifrada, escribe aquí una nueva para cambiarla"
+msgstr "La contraseña está guardada como hash; escribe una nueva aquí para cambiarla"
 
 #, python-format
 msgid "Automatic (%(lang)s)"
@@ -1224,13 +1224,13 @@ msgid "Max. contest length (in seconds)"
 msgstr "Duración máxima del concurso (en segundos)"
 
 msgid "Analysis"
-msgstr "Análisis"
+msgstr "Fase de análisis"
 
 msgid "Analysis start"
-msgstr "Inicio del análisis"
+msgstr "Inicio de la fase de análisis"
 
 msgid "Analysis end"
-msgstr "Fin del análisis"
+msgstr "Fin de la fase de análisis"
 
 msgid "(main group)"
 msgstr "(grupo principal)"
@@ -1646,28 +1646,28 @@ msgid "Tokens parameters (<a href=\"%(link)s\" target=\"_blank\">documentation</
 msgstr "Parámetros de tokens (<a href=\"%(link)s\" target=\"_blank\">documentación</a>)"
 
 msgid "Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters."
-msgstr "Elige «Desactivado» para quitar los tokens por completo en este problema, «Infinito» para permitir cualquier cantidad de tokens en este problema, o «Finito» para indicar la cantidad con los parámetros siguientes."
+msgstr "Selecciona «Desactivado» para quitar los tokens por completo en este problema, «Ilimitado» para permitir cualquier cantidad de tokens en este problema, o «Limitado» para indicar la cantidad con los parámetros siguientes."
 
 msgid "If you prefer to control tokens at the task level, select 'infinite' here."
-msgstr "Si prefieres controlar los tokens a nivel de problema, elige «Infinito» aquí."
+msgstr "Si prefieres controlar los tokens a nivel de problema, selecciona «Ilimitado» aquí."
 
 msgid "Token mode"
-msgstr "Modo de token"
+msgstr "Modo de tokens"
 
 msgid "Disabled"
 msgstr "Desactivado"
 
 msgid "Finite"
-msgstr "Finito"
+msgstr "Limitado"
 
 msgid "Infinite"
-msgstr "Infinito"
+msgstr "Ilimitado"
 
 msgid "The maximum number of tokens a contestant can use in this task."
 msgstr "El número máximo de tokens que un concursante puede usar en este problema."
 
 msgid "It is used only if tokens are finite."
-msgstr "Solo se usa si los tokens son finitos."
+msgstr "Se usa solo si los tokens son limitados."
 
 msgid "Maximum number of tokens"
 msgstr "Número máximo de tokens"
@@ -1766,7 +1766,7 @@ msgid "No datasets have been created for this task."
 msgstr "No se ha creado ningún dataset para este problema."
 
 msgid "Create a new dataset"
-msgstr "Crear un nuevo dataset"
+msgstr "Crear un dataset nuevo"
 
 msgid "Dataset:"
 msgstr "Dataset:"
@@ -1797,17 +1797,17 @@ msgstr "Configuración del dataset"
 
 #, python-format
 msgid "Task type `%s' not found."
-msgstr "No se encontró el tipo de problema `%s'."
+msgstr "No se encontró el tipo de problema «%s»."
 
 msgid "Please select another task type, or make the original one available and refresh the page without updating the task to avoid losing the parameters."
-msgstr "Elige otro tipo de problema, o habilita el original y recarga la página sin actualizar el problema para no perder los parámetros."
+msgstr "Selecciona otro tipo de problema, o habilita el original y recarga la página sin actualizar el problema para no perder los parámetros."
 
 #, python-format
 msgid "Score type `%s' not found."
-msgstr "No se encontró el tipo de puntaje `%s'."
+msgstr "No se encontró el tipo de puntaje «%s»."
 
 msgid "Please select another score type, or make the original one available and refresh the page without updating the task to avoid losing the parameters."
-msgstr "Elige otro tipo de puntaje, o habilita el original y recarga la página sin actualizar el problema para no perder los parámetros."
+msgstr "Selecciona otro tipo de puntaje, o habilita el original y recarga la página sin actualizar el problema para no perder los parámetros."
 
 msgid "Total maximum time for each evaluation, in seconds."
 msgstr "Tiempo máximo total de cada evaluación, en segundos."
@@ -1914,7 +1914,7 @@ msgid "This operation cannot be undone."
 msgstr "Esta operación no se puede deshacer."
 
 msgid "Yes, remove"
-msgstr "Sí, quitar"
+msgstr "Sí, borrar"
 
 msgid "You do not have permission to remove a task."
 msgstr "No tienes permiso para borrar un problema."
@@ -1955,10 +1955,10 @@ msgid "Add a new participation (in main group):"
 msgstr "Agrega una participación nueva (en el grupo principal):"
 
 msgid "Select a contest"
-msgstr "Elige un concurso"
+msgstr "Selecciona un concurso"
 
 msgid "Hidden"
-msgstr "Oculto"
+msgstr "Oculta"
 
 msgid "Unrestricted"
 msgstr "Sin restricciones"
@@ -1976,7 +1976,7 @@ msgid "Participation"
 msgstr "Participación"
 
 msgid "Hidden?"
-msgstr "¿Oculto?"
+msgstr "¿Oculta?"
 
 msgid "Unrestricted?"
 msgstr "¿Sin restricciones?"

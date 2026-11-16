@@ -117,7 +117,7 @@ class TestTaskSmallPages(unittest.TestCase):
                      "con todos sus datos relacionados?",
                      "Se borrarán 3 envío(s).",
                      "Esta operación no se puede deshacer.",
-                     "Sí, quitar", ">No</a>"):
+                     "Sí, borrar", ">No</a>"):
             self.assertIn(text, html)
         self.assertNotIn("Are you sure", html)
 
