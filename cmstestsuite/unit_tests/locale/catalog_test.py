@@ -25,9 +25,19 @@ babel_mapping_aws.cfg -o cms/locale/aws.pot" to the first and "-D aws -i
 cms/locale/aws.pot" to the second, see docs/Localization.rst), then
 translate what is missing.
 
+While a change translates the AWS pages in parallel, each lane keeps
+its new messages in cms/locale/_fragments/aws-<lane>.po. For these
+tests the AWS catalog is aws.po plus the fragments (and the template
+is aws.pot plus their msgids); the integration merges them into
+aws.po and aws.pot and deletes the directory.
+
 """
 
+import fnmatch
 import io
+import re
+import sys
+from collections import Counter, defaultdict
 from configparser import RawConfigParser
 from pathlib import Path
 
@@ -35,7 +45,7 @@ import pytest
 from babel.messages import Catalog
 from babel.messages.extract import DEFAULT_KEYWORDS, extract_from_dir
 from babel.messages.mofile import write_mo
-from babel.messages.pofile import read_po
+from babel.messages.pofile import read_po, write_po
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -44,6 +54,7 @@ LOCALE_DIR = ROOT / "cms" / "locale"
 # which files hold their messages.
 MAPPING_FILES = {"cms": "babel_mapping.cfg", "aws": "babel_mapping_aws.cfg"}
 DOMAINS = list(MAPPING_FILES)
+FRAGMENTS_DIR = LOCALE_DIR / "_fragments"
 
 
 def _first(msgid):
@@ -54,6 +65,22 @@ def _first(msgid):
 def _read_catalog(path):
     with open(path, "rb") as f:
         return read_po(f)
+
+
+def _fragment_paths():
+    """Return the paths of the AWS fragments (none outside a change)."""
+    return sorted(FRAGMENTS_DIR.glob("aws-*.po"))
+
+
+def _read_with_fragments(path, domain):
+    """Read a catalog; for AWS, with the messages of the fragments too."""
+    catalog = _read_catalog(path)
+    if domain == "aws":
+        for fragment in _fragment_paths():
+            for message in _read_catalog(fragment):
+                if message.id:
+                    catalog[message.id] = message
+    return catalog
 
 
 def _strings(message):
@@ -136,8 +163,8 @@ def test_checker_finds_messages_missing_from_the_catalog():
 @pytest.mark.parametrize("domain", DOMAINS)
 def test_es_catalog_has_no_fuzzy_or_untranslated_messages(domain):
     # Scenario "Incomplete catalog" (aws-language) for the real catalogs.
-    open_messages = find_open_messages(
-        _read_catalog(LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po"))
+    open_messages = find_open_messages(_read_with_fragments(
+        LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po", domain))
 
     assert not open_messages, (
         f"es {domain} has fuzzy or untranslated messages:\n  "
@@ -155,7 +182,8 @@ def test_code_messages_are_in_pot_and_es(domain):
             (f"{domain}.pot", LOCALE_DIR / f"{domain}.pot"),
             (f"es {domain}",
              LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po")):
-        missing = find_missing_messages(code_msgids, _read_catalog(path))
+        missing = find_missing_messages(
+            code_msgids, _read_with_fragments(path, domain))
         assert not missing, (
             f"{name} lacks messages found in the code:\n  "
             + "\n  ".join(missing))
@@ -177,3 +205,193 @@ def test_both_catalogs_compile():
         mo = io.BytesIO()
         write_mo(mo, catalog)
         assert len(mo.getvalue()) > 0, f"{domain} did not compile"
+
+
+# The mechanical rules of the Spanish style guide (the glossary is left
+# to translation/check.py and a human: it has false positives).
+_PLACEHOLDER = re.compile(r"%\(\w+\)[sdrf]|%[sdrf]|\{\w*\}")
+_TAG = re.compile(
+    r"</?(?:code|b|i|strong|em|br|a|small|p|span|ul|li|pre|kbd|tt)\b[^>]*>",
+    re.IGNORECASE)
+_ENTITY = re.compile(r"&\w+;")
+# Imperatives in the "usted" form (the register is "tú").
+_USTED = re.compile(
+    r"\b(?:Usted|usted|Ustedes|ustedes|Ingrese|ingrese|Seleccione|seleccione|"
+    r"Presione|presione|Pulse|pulse|Escriba|escriba|Elija|elija|Haga|haga|"
+    r"Confirme|confirme|Espere|espere|Vuelva|vuelva|Marque|marque|"
+    r"Descargue|descargue|Cargue|cargue|Corrija|corrija|Revise|revise|"
+    r"Deje|deje|Quite|quite|Inténtelo|inténtelo|Avise|avise|Envíe|envíe)\b")
+
+
+def find_style_problems(catalog):
+    """Return the messages that break a mechanical rule of the style.
+
+    A translation must not use "usted" or "...", must open with ¿ or ¡
+    what ends with ? or !, and must keep the placeholders, HTML tags
+    and entities of its msgid.
+
+    """
+    problems = []
+    for message in catalog:
+        if not message.id:
+            continue
+        sources = message.id if isinstance(message.id, tuple) \
+            else (message.id, message.id)
+        for source, target in zip(sources, _strings(message)):
+            if not target:
+                continue
+            found = []
+            if _USTED.search(target):
+                found.append("usted")
+            if "..." in target and "..." not in source:
+                found.append("three dots instead of …")
+            if target.rstrip().endswith("?") and "¿" not in target:
+                found.append("? without ¿")
+            if target.rstrip().endswith("!") and "¡" not in target:
+                found.append("! without ¡")
+            for name, pattern in (("placeholders", _PLACEHOLDER),
+                                  ("tags", _TAG), ("entities", _ENTITY)):
+                if Counter(pattern.findall(source)) \
+                        != Counter(pattern.findall(target)):
+                    found.append(f"{name} differ")
+            problems += [f"{source!r}: {what}" for what in found]
+    return problems
+
+
+def find_repeated_msgids(fragment, merged):
+    """Return the msgids of a fragment that the merged catalog has."""
+    known = {_first(message.id) for message in merged if message.id}
+    return sorted(_first(message.id) for message in fragment
+                  if message.id and _first(message.id) in known)
+
+
+def find_conflicting_msgids(fragments):
+    """Return the msgids that two fragments translate differently.
+
+    fragments: the catalogs, by name.
+
+    """
+    seen = defaultdict(set)
+    for catalog in fragments.values():
+        for message in catalog:
+            if message.id:
+                seen[_first(message.id)].add(_strings(message))
+    return sorted(msgid for msgid, forms in seen.items() if len(forms) > 1)
+
+
+def find_check_errors(catalog):
+    """Return what Babel's check says about the placeholders."""
+    return [f"{_first(message.id)!r}: {error}"
+            for message, errors in catalog.check() for error in errors]
+
+
+def _es_aws_catalog():
+    return _read_with_fragments(
+        LOCALE_DIR / "es" / "LC_MESSAGES" / "aws.po", "aws")
+
+
+def test_style_check_finds_what_it_promises():
+    # Scenario "Spanish register" (aws-language): the check itself fails
+    # and lists each kind of message.
+    catalog = Catalog(locale="es")
+    catalog.add("Type it", "Escriba esto")
+    catalog.add("Wait", "Espere...")
+    catalog.add("Continue?", "Continuar?")
+    catalog.add("Done!", "Listo!")
+    catalog.add("Count %d", "Cuenta")
+    catalog.add("Use <code>x</code>", "Usa x")
+    catalog.add("A &amp; B", "A y B")
+    catalog.add(("%d file", "%d files"), ("%d archivo", "archivos"))
+    catalog.add("Fine: %s", "Bien: %s")
+
+    assert sorted(find_style_problems(catalog)) == sorted([
+        "'Type it': usted",
+        "'Wait': usted",
+        "'Wait': three dots instead of …",
+        "'Continue?': ? without ¿",
+        "'Done!': ! without ¡",
+        "'Count %d': placeholders differ",
+        "'Use <code>x</code>': tags differ",
+        "'A &amp; B': entities differ",
+        "'%d files': placeholders differ",
+    ])
+
+
+def test_fragment_checks_find_what_they_promise():
+    merged = Catalog(locale="es")
+    merged.add("Done", "Hecho")
+    first = Catalog(locale="es")
+    first.add("Done", "Hecho")
+    first.add("Send", "Enviar")
+    second = Catalog(locale="es")
+    second.add("Send", "Mandar")
+
+    assert find_repeated_msgids(first, merged) == ["Done"]
+    assert find_conflicting_msgids({"a": first, "b": second}) == ["Send"]
+    assert find_conflicting_msgids({"a": first, "b": first}) == []
+
+
+def test_babel_check_finds_a_lost_placeholder():
+    catalog = Catalog(locale="es")
+    catalog.add("Count %d", "Cuenta")
+
+    assert find_check_errors(catalog)
+
+
+def test_fragments_do_not_repeat_merged_msgids():
+    # A fragment holds only what aws.po does not have yet.
+    merged = _read_catalog(LOCALE_DIR / "es" / "LC_MESSAGES" / "aws.po")
+    repeated = {fragment.name: find_repeated_msgids(
+        _read_catalog(fragment), merged) for fragment in _fragment_paths()}
+
+    assert not any(repeated.values()), (
+        f"fragments repeat messages of aws.po: {repeated}")
+
+
+def test_fragments_agree_with_each_other():
+    fragments = {fragment.name: _read_catalog(fragment)
+                 for fragment in _fragment_paths()}
+
+    conflicts = find_conflicting_msgids(fragments)
+
+    assert not conflicts, (
+        "fragments translate these messages differently:\n  "
+        + "\n  ".join(conflicts))
+
+
+@pytest.mark.parametrize("domain", DOMAINS)
+def test_es_catalogs_pass_babel_checks(domain):
+    errors = find_check_errors(_read_with_fragments(
+        LOCALE_DIR / "es" / "LC_MESSAGES" / f"{domain}.po", domain))
+
+    assert not errors, "\n".join(errors)
+
+
+def test_aws_es_style():
+    # Scenario "Spanish register" (aws-language) for the real catalog.
+    problems = find_style_problems(_es_aws_catalog())
+
+    assert not problems, "\n".join(problems)
+
+
+def test_fragments_are_not_shipped():
+    # setup.py ships what matches the package_data pattern of cms.locale;
+    # a fragment is a file of an underscore directory, with no LC_MESSAGES.
+    pattern = re.search(r'"(\*/LC_MESSAGES/[^"]*)"',
+                        (ROOT / "setup.py").read_text(encoding="utf-8"))
+
+    assert pattern, "the package_data pattern of the catalogs changed"
+    assert not fnmatch.fnmatch("_fragments/aws-L3.po", pattern.group(1))
+
+
+def test_the_aws_catalog_includes_the_fragments(tmp_path, monkeypatch):
+    fragment = Catalog(locale="es")
+    fragment.add("From a fragment", "De un fragmento")
+    with open(tmp_path / "aws-L9.po", "wb") as f:
+        write_po(f, fragment)
+    monkeypatch.setattr(sys.modules[__name__], "FRAGMENTS_DIR", tmp_path)
+
+    merged = _es_aws_catalog()
+
+    assert merged["From a fragment"].string == "De un fragmento"
+    assert merged["Invalid field(s)"].string

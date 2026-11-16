@@ -75,3 +75,10 @@ def test_cms_domain_is_unchanged(locale_tree, caplog):
     assert translations["es"].gettext("Login") == "Acceder"
     assert [r.getMessage() for r in caplog.records] == [
         "Failed to load translation for de"]
+
+
+def test_underscore_directories_are_not_offered(locale_tree):
+    # The AWS catalog fragments of a change live in cms/locale/_fragments.
+    _write_catalog(locale_tree / "_fragments", "fr", "aws", "Login", "Entrer")
+
+    assert sorted(get_translations("aws")) == ["en", "es"]
