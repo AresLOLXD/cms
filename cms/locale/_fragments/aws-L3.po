@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 12:20-0600\n"
+"POT-Creation-Date: 2026-11-16 12:22-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L3\n"
 "Language: es\n"
@@ -60,4 +60,135 @@ msgstr "Clonar managers"
 
 msgid "Create"
 msgstr "Crear"
+
+#, python-format
+msgid ""
+"Preview dataset change for %(title)s (<a "
+"href=\"%(task_url)s\">%(name)s</a>)"
+msgstr ""
+"Vista previa del cambio de dataset para %(title)s (<a "
+"href=\"%(task_url)s\">%(name)s</a>)"
+
+msgid "Current dataset:"
+msgstr "Dataset actual:"
+
+msgid "New dataset:"
+msgstr "Dataset nuevo:"
+
+msgid ""
+"<b>NOTE</b>: The preview on this page uses the existing scoring "
+"information for both datasets. If you have made modifications to a "
+"dataset, you need to ensure that the scores are up to date. This may "
+"require re-compiling, re-evaluating or just re-scoring the entire "
+"dataset. To do so, use the buttons below, and wait for it to complete."
+msgstr ""
+"<b>NOTA</b>: La vista previa de esta página usa la información de puntaje"
+" que ya existe de ambos datasets. Si modificaste un dataset, asegúrate de"
+" que los puntajes estén al día. Esto puede requerir volver a compilar, "
+"reevaluar o solo recalcular el puntaje de todo el dataset. Para hacerlo, "
+"usa los botones de abajo y espera a que termine."
+
+#, python-format
+msgid "Reevaluate all submissions for the dataset \"%(description)s\":"
+msgstr "Reevaluar todos los envíos del dataset «%(description)s»:"
+
+msgid ""
+"Good news! At present, switching to this dataset will have no effect on "
+"the scores. No notifications will be sent."
+msgstr ""
+"¡Buenas noticias! Por ahora, cambiar a este dataset no afecta los "
+"puntajes. No se enviará ninguna notificación."
+
+msgid "Switching to this dataset will cause the following changes:"
+msgstr "Cambiar a este dataset provocará los siguientes cambios:"
+
+msgid "Notify"
+msgstr "Notificar"
+
+msgid "Submission id"
+msgstr "ID del envío"
+
+msgid "Change"
+msgstr "Cambio"
+
+msgid "(Tokened)"
+msgstr "(con token)"
+
+#, python-format
+msgid "Score: %(old)s -&gt; %(new)s"
+msgstr "Puntaje: %(old)s -&gt; %(new)s"
+
+#, python-format
+msgid "Public score: %(old)s -&gt; %(new)s"
+msgstr "Puntaje público: %(old)s -&gt; %(new)s"
+
+#, python-format
+msgid "Ranking score: %(old)s -&gt; %(new)s"
+msgstr "Puntaje de ranking: %(old)s -&gt; %(new)s"
+
+msgid "Notify:"
+msgstr "Notificar:"
+
+msgid "[All users]"
+msgstr "[Todos los usuarios]"
+
+msgid "[No users]"
+msgstr "[Ningún usuario]"
+
+msgid "[Users with visible changes only]"
+msgstr "[Solo los usuarios con cambios visibles]"
+
+msgid ""
+"By default, users with changes to their public score, or changes to the "
+"score of a tokened submission, will be notified."
+msgstr ""
+"De forma predeterminada, se notificará a los usuarios con cambios en su "
+"puntaje público o en el puntaje de un envío con token."
+
+msgid "The following message will be sent to the selected users:"
+msgstr "El siguiente mensaje se enviará a los usuarios seleccionados:"
+
+msgid "Subject:"
+msgstr "Asunto:"
+
+msgid "Text:"
+msgstr "Texto:"
+
+#, python-format
+msgid "Task %(name)s has been rejudged"
+msgstr "Se reevaluó el problema %(name)s"
+
+#, python-format
+msgid ""
+"The task \"%(name)s\" has been rejudged and the score on your submissions"
+" has been updated."
+msgstr ""
+"Se reevaluó el problema «%(name)s» y se actualizó el puntaje de tus "
+"envíos."
+
+msgid "Activate!"
+msgstr "¡Activar!"
+
+msgid "Abort!"
+msgstr "¡Abortar!"
+
+msgid "Delete dataset"
+msgstr "Borrar dataset"
+
+#, python-format
+msgid ""
+"Are you sure you want to delete the dataset \"%(description)s\" and all "
+"associated managers, test cases, and submission results?"
+msgstr ""
+"¿Seguro que quieres borrar el dataset «%(description)s» y todos sus "
+"managers, casos de prueba y resultados de envíos asociados?"
+
+msgid "Rename dataset"
+msgstr "Renombrar dataset"
+
+msgid "Edit description (each dataset must have a unique description):"
+msgstr "Edita la descripción (cada dataset debe tener una descripción única):"
+
+msgid "Rename"
+msgstr "Renombrar"
 
