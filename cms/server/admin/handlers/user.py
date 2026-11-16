@@ -27,6 +27,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # aws-i18n: complete
+
 """User-related handlers for AWS.
 
 """

@@ -72,7 +72,8 @@ def sidebar(contest=None, **params) -> dict:
 def a_contest() -> SimpleNamespace:
     group = SimpleNamespace(
         start=datetime(2026, 1, 1), stop=datetime(2026, 1, 2),
-        analysis_start=datetime(2026, 1, 3), analysis_stop=datetime(2026, 1, 4),
+        analysis_start=datetime(2026, 1, 3),
+        analysis_stop=datetime(2026, 1, 4),
         analysis_enabled=False)
     return SimpleNamespace(
         id=3, name="c", description="d", main_group=group, timezone=None,
@@ -90,7 +91,8 @@ class TestSidebar(unittest.TestCase):
                      "Exportar", "Concursos", "(crear concurso nuevo…)",
                      "Problemas",
                      "(crear problema nuevo…)", "Usuarios", "Equipos",
-                     "(crear equipo nuevo…)", "(crear grupo de ranking nuevo…)"):
+                     "(crear equipo nuevo…)",
+                     "(crear grupo de ranking nuevo…)"):
             self.assertIn(text, html_)
         # plurals: 2 users and 1 team, and the ranking group list of one
         for text in ("(mostrar los 2 usuarios…)", "(mostrar el único equipo…)",
@@ -129,7 +131,8 @@ class TestSidebar(unittest.TestCase):
         # Scenario "A page in English is unchanged" (aws-language)
         html_ = render_page("base.html", **sidebar())
 
-        for text in ("Administration", 'value="Logout"', "(show the 2 users...)",
+        for text in ("Administration", 'value="Logout"',
+                     "(show the 2 users...)",
                      "(show the only team...)",
                      "(show the 1 ranking groups...)",
                      "(create new ranking group...)", "<title>Admin</title>",
@@ -170,7 +173,8 @@ class TestSidebar(unittest.TestCase):
         self.assertIn("Por ahora tienes 150.0 usuarios por cada "
                       "ContestWebServer, en promedio.<br/>", spanish_html)
         self.assertIn("At the moment, you have 150.0 users for each "
-                      "ContestWebServer, on average.<br/>One CWS", english_html)
+                      "ContestWebServer, on average.<br/>One CWS",
+                      english_html)
 
 
 class TestBaseHandlerTexts(unittest.TestCase):
@@ -433,7 +437,8 @@ var invoker = {innerHTML: "", parentElement: {parentElement: {
     querySelector: function() { return box; }}}};
 var event = {preventDefault: function() {}};
 u.question_reply_toggle(event, invoker); texts.reply_open = invoker.innerHTML;
-u.question_reply_toggle(event, invoker); texts.reply_closed = invoker.innerHTML;
+u.question_reply_toggle(event, invoker);
+texts.reply_closed = invoker.innerHTML;
 texts.alerts = alerts;
 texts;
 """

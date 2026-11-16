@@ -258,7 +258,8 @@ class TestSubmissionPages(unittest.TestCase):
         self.assertIn("Primera</a>", html)
         self.assertIn("Última</a>", html)
         self.assertNotIn("Pages:", html)
-        self.assertIn("Pages:", snippet(source, DEFAULT_TRANSLATION, page_url=page_url))
+        self.assertIn("Pages:",
+                      snippet(source, DEFAULT_TRANSLATION, page_url=page_url))
 
     def test_the_reevaluate_confirmation_in_spanish(self):
         # Scenario "A confirmation in Spanish": the three buttons ask

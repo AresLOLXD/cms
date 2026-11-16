@@ -180,7 +180,8 @@ class SubmissionDiffHandler(BaseHandler):
                 continue
 
             if old_content == new_content:
-                result_files.append({"fname": real_fname, "status": self._("No changes")})
+                result_files.append(
+                    {"fname": real_fname, "status": self._("No changes")})
             else:
                 diff_iter = difflib.unified_diff(old_content, new_content, lineterm='')
                 # skip the "---" and "+++" lines.
