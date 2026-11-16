@@ -258,6 +258,8 @@ The lanes are disjoint, so the order only matters for the fragment tie-break (ea
   assertion per handler whose notifications changed, each commented with its Scenario.
 - The lane's existing tests pass unchanged, plus pyflakes and eslint (JS lanes L0, L2, L5, L7).
 - `git diff --stat main...lane` touches only the lane's file list, its fragment, its test file and its plan.
+  `tools/check_lane.py <lane>` checks it against `tools/lanes.json`. A lane may not add a page template or a
+  macro: the snapshot has no entry for it and the guards stop with a message (ask the coordinator).
 
 ---
 
@@ -369,7 +371,7 @@ Plans: `openspec/changes/aws-language-rest/plans/2026-11-DD-{prep,L0,…,L7,inte
 - Scenario *No translated posted values*: Test: `test_named_controls_post_untranslated_values`.
 
 **ADDED Requirement: Notifications and form errors use the admin's language.**
-- Scenario *Invalid field in Spanish*: a bad integer gives "Campo(s) inválido(s)" and `ValueError('No se puede …')`. Test: P parse test + L0.
+- Scenario *Invalid field in Spanish*: a bad integer gives "Campos no válidos" and `ValueError('No se puede …')`. Test: P parse test + L0.
 - Scenario *Invalid field in English*: unchanged text, including `repr(error)`. Tests: existing `contest_test`, `try_commit_test`.
 - Scenario *A notification read by another admin*: it keeps the actor's language (documented limit). Test: L0 notification test.
 

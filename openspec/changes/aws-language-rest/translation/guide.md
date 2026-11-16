@@ -230,6 +230,13 @@ These appear in the admin templates without wrapping. Use the glossary above whe
 "Contest configuration", "Allowed localizations", "Ranking group" (as a select label),
 "Active" (contest flag), "Submissions" (contest page), "Time limit".
 
+### 2.4 Shared msgids that must keep one meaning
+
+The msgid "Time" is shared by the pages, and its Spanish is «Hora»: it means a
+clock time (the field of a time of day). A duration (how long something takes)
+is a different message: give it its own msgid (for example "Duration", or a
+sentence), never reuse "Time" for it.
+
 ## 3. UI rules
 
 3.1 Button labels: infinitive, as in "Guardar", "Importar", "Cancelar", "Iniciar sesión", "Borrar",

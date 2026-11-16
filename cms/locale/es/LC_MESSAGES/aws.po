@@ -891,7 +891,7 @@ msgid "Announcements"
 msgstr "Anuncios"
 
 msgid "Codename"
-msgstr "Código"
+msgstr "Nombre clave"
 
 msgid "Create"
 msgstr "Crear"
@@ -924,10 +924,10 @@ msgid "Yes, remove"
 msgstr "Sí, quitar"
 
 msgid "Operation failed."
-msgstr "Falló la operación."
+msgstr "La operación falló."
 
 msgid "Operation successful."
-msgstr "Operación exitosa."
+msgstr "Operación correcta."
 
 msgid "Output"
 msgstr "Salida"
