@@ -50,13 +50,8 @@ class DatasetFormsTestCase(unittest.TestCase):
                 html,
                 r'<textarea name="score_type_parameters[^"]*" rows="12">',
                 name)
-            # task.html (L2) wraps the help for gettext; add_dataset.html
-            # (L3) is still English.
-            if name == "task.html":
-                span = ('<span class="info" title="{{ _(\'%s\') }}"></span>'
-                        % HELP)
-            else:
-                span = "<span class=\"info\" title='%s'></span>" % HELP
+            span = ('<span class="info" title="{{ _(\'%s\') }}"></span>'
+                    % HELP)
             self.assertIn(span, html, name)
 
     def test_update_has_the_no_rescore_hint(self):

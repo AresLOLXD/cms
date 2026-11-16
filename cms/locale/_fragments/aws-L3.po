@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 12:18-0600\n"
+"POT-Creation-Date: 2026-11-16 12:20-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L3\n"
 "Language: es\n"
@@ -32,4 +32,32 @@ msgstr ""
 #, python-format
 msgid "Reevaluate all %(count)s submissions for this dataset"
 msgstr "Reevaluar todos los envíos de este dataset (%(count)s en total)"
+
+msgid "Create dataset"
+msgstr "Crear dataset"
+
+#, python-format
+msgid "You are cloning the dataset \"%(description)s\"."
+msgstr "Estás clonando el dataset «%(description)s»."
+
+msgid "Dataset information"
+msgstr "Información del dataset"
+
+msgid "A (unique) description for this dataset."
+msgstr "Una descripción (única) para este dataset."
+
+msgid "Whether to copy over the evaluations from the original dataset."
+msgstr "Indica si se copian las evaluaciones del dataset original."
+
+msgid "Clone evaluation results"
+msgstr "Clonar resultados de evaluación"
+
+msgid "Whether to copy the managers from the original dataset."
+msgstr "Indica si se copian los managers del dataset original."
+
+msgid "Clone managers"
+msgstr "Clonar managers"
+
+msgid "Create"
+msgstr "Crear"
 
