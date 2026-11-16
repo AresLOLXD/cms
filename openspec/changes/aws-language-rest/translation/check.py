@@ -21,20 +21,37 @@ GLOSSARY_PATH = Path(__file__).resolve().parent / "glossary.json"
 
 MSG_RE = re.compile(r'^(msgctxt|msgid_plural|msgid|msgstr)(?:\[(\d+)\])?\s+"(.*)"$')
 CONT_RE = re.compile(r'^"(.*)"$')
-PLACEHOLDER_RE = re.compile(r"%\(\w+\)[sdrf]|%[sdrf]|\{\w*\}")
-TAG_RE = re.compile(
-    r"</?(?:code|b|i|strong|em|br|a|small|p|span|ul|li|pre|kbd|tt)\b[^>]*>", re.IGNORECASE
-)
-ENTITY_RE = re.compile(r"&\w+;")
+PLACEHOLDER_RE = re.compile(
+    r"%%|%(?:\(\w+\))?[-+#0]*\d*(?:\.\d+)?[sdifrxXeEgGc]|\{\w*\}")
+TAG_RE = re.compile(r"</?\w+[^>]*>")
+ENTITY_RE = re.compile(r"&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 TERMINALS = ".:?!…"
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
-USTED_RE = re.compile(
-    r"\b(?:Usted|usted|Ustedes|ustedes|Ingrese|ingrese|Seleccione|seleccione|"
-    r"Presione|presione|Pulse|pulse|Escriba|escriba|Elija|elija|Haga|haga|"
-    r"Confirme|confirme|Espere|espere|Vuelva|vuelva|Marque|marque|"
-    r"Descargue|descargue|Cargue|cargue|Corrija|corrija|Revise|revise|"
-    r"Deje|deje|Quite|quite|Inténtelo|inténtelo|Avise|avise|Envíe|envíe)\b"
-)
+# A ? or ! that ends a sentence: before a space, a closing mark, a tag
+# or the end.
+QUESTION_END_RE = re.compile(r"\?(?=\s|$|<|[)\]»\"'])")
+EXCLAMATION_END_RE = re.compile(r"!(?=\s|$|<|[)\]»\"'])")
+# Imperatives in the "usted" form. Keep in step with USTED_WORDS and
+# NOT_USTED of cmstestsuite/unit_tests/locale/catalog_test.py.
+USTED_WORDS = (
+    "Usted usted Ustedes ustedes Ingrese ingrese Seleccione seleccione "
+    "Presione presione Pulse pulse Escriba escriba Elija elija Haga haga "
+    "Confirme confirme Espere espere Vuelva vuelva Marque marque "
+    "Descargue descargue Cargue cargue Corrija corrija Revise revise "
+    "Deje deje Quite quite Inténtelo inténtelo Avise avise Envíe envíe "
+    # Only at the start of a sentence: in the middle the same form is a
+    # subjunctive ("hasta que guarde"), which is right.
+    "Introduzca Guarde Utilice Asegúrese Agregue Borre Cierre Verifique "
+    "Compruebe Proporcione Complete Vea Añada Elimine Cambie Escoja "
+    "Pruebe Intente Permita Rellene Suba Abra Tenga Recuerde Hágalo "
+    "Vuélvalo Active Desactive Siga Use").split()
+USTED_RE = re.compile(r"\b(?:%s)\b" % "|".join(USTED_WORDS))
+# The -ar verbs whose usted form ends in -que, -gue, -güe or -ice.
+USTED_SHAPE_RE = re.compile(r"\b[A-ZÁÉÍÓÚ][a-záéíóúñü]*(?:que|gue|güe|ice)\b")
+NOT_USTED = {"Bloque", "Parque", "Cheque", "Clique", "Sigue", "Consigue",
+             "Persigue", "Prosigue", "Distingue", "Averigua", "Dice"}
+# A name between < > that is a pattern of a URL, not html: (English, Spanish).
+TRANSLATED_ANGLES = {"<name>": "<nombre>"}
 
 
 def unescape(text):
@@ -144,7 +161,10 @@ def check_form(source, target):
         problems.append(("PLACEHOLDER", f"source {source_tokens}, translation {target_tokens}"))
     elif positional(source_tokens) != positional(target_tokens):
         problems.append(("PLACEHOLDER-ORDER", "positional %s/%d/%r must keep their order"))
-    if Counter(TAG_RE.findall(source)) != Counter(TAG_RE.findall(target)):
+    target_tags = target
+    for english, spanish in TRANSLATED_ANGLES.items():
+        target_tags = target_tags.replace(spanish, english)
+    if Counter(TAG_RE.findall(source)) != Counter(TAG_RE.findall(target_tags)):
         problems.append(("MARKUP", "HTML tags differ"))
     if Counter(ENTITY_RE.findall(source)) != Counter(ENTITY_RE.findall(target)):
         problems.append(("MARKUP", "HTML entities differ"))
@@ -154,17 +174,23 @@ def check_form(source, target):
         problems.append(("SPACE", "space before punctuation"))
     if terminal(source) != terminal(target):
         problems.append(("PUNCT-END", f"source ends {terminal(source)!r}, translation {terminal(target)!r}"))
-    if target.rstrip().endswith("?") and "¿" not in target:
-        problems.append(("INVERTED", "question without ¿"))
-    if target.rstrip().endswith("!") and "¡" not in target:
-        problems.append(("INVERTED", "exclamation without ¡"))
-    if "..." in target and "..." not in source:
+    bare = TAG_RE.sub("", target)
+    for mark, end_re, opening, name in (
+            ("?", QUESTION_END_RE, "¿", "question"),
+            ("!", EXCLAMATION_END_RE, "¡", "exclamation")):
+        ends = len(end_re.findall(bare))
+        if ends > bare.count(opening):
+            problems.append(("INVERTED", f"{name} without {opening}"))
+        elif ends < bare.count(opening):
+            problems.append(("INVERTED", f"{opening} without {mark}"))
+    if "..." in target:
         problems.append(("ELLIPSIS", "use … (U+2026) instead of three dots"))
     if '"' in target and '"' not in source:
         problems.append(("QUOTES", "use «» instead of straight quotes"))
-    usted = USTED_RE.search(target)
+    usted = USTED_RE.findall(target) + [
+        word for word in USTED_SHAPE_RE.findall(target) if word not in NOT_USTED]
     if usted:
-        problems.append(("REGISTER", f"{usted.group(0)!r} is usted; use tú"))
+        problems.append(("REGISTER", f"{usted[0]!r} is usted; use tú"))
     if not starts_with_placeholder(source) and not starts_with_placeholder(target):
         first_source, first_target = first_letter(source), first_letter(target)
         if first_source and first_target and first_source.isupper() != first_target.isupper():
@@ -234,13 +260,28 @@ msgstr "Cuenta %s"
 
 msgid "Done."
 msgstr "Listo."
+
+msgid "<b>Sure?</b> Yes!"
+msgstr "<b>Seguro?</b> ¡Sí!"
+
+msgid "Wait..."
+msgstr "Espera..."
+
+msgid "Save the file."
+msgstr "Guarde el archivo."
+
+msgid "Use %.2f s, it&#39;s ready."
+msgstr "Usa %.1f s, está listo."
+
+msgid "Define it."
+msgstr "Define esto."
 '''
 
 
 def selftest():
     rules, unchanged_ok = load_rules(GLOSSARY_PATH)
     entries = parse_po(SELFTEST_PO)
-    assert len(entries) == 5, len(entries)
+    assert len(entries) == 10, len(entries)
     found = {}
     for entry in entries:
         for _, code, _ in check_entry(entry, rules, unchanged_ok):
@@ -250,6 +291,11 @@ def selftest():
     assert "INVERTED" in found["Continue?"], found
     assert "PLACEHOLDER" in found["Count %d"], found
     assert "Done." not in found, found
+    assert "INVERTED" in found["<b>Sure?</b> Yes!"], found
+    assert "ELLIPSIS" in found["Wait..."], found
+    assert "REGISTER" in found["Save the file."], found
+    assert {"PLACEHOLDER", "MARKUP"} <= found["Use %.2f s, it&#39;s ready."], found
+    assert "Define it." not in found, found
     print("selftest ok")
     return 0
 

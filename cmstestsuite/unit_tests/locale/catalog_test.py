@@ -209,26 +209,72 @@ def test_both_catalogs_compile():
 
 # The mechanical rules of the Spanish style guide (the glossary is left
 # to translation/check.py and a human: it has false positives).
-_PLACEHOLDER = re.compile(r"%\(\w+\)[sdrf]|%[sdrf]|\{\w*\}")
-_TAG = re.compile(
-    r"</?(?:code|b|i|strong|em|br|a|small|p|span|ul|li|pre|kbd|tt)\b[^>]*>",
-    re.IGNORECASE)
-_ENTITY = re.compile(r"&\w+;")
-# Imperatives in the "usted" form (the register is "tú").
-_USTED = re.compile(
-    r"\b(?:Usted|usted|Ustedes|ustedes|Ingrese|ingrese|Seleccione|seleccione|"
-    r"Presione|presione|Pulse|pulse|Escriba|escriba|Elija|elija|Haga|haga|"
-    r"Confirme|confirme|Espere|espere|Vuelva|vuelva|Marque|marque|"
-    r"Descargue|descargue|Cargue|cargue|Corrija|corrija|Revise|revise|"
-    r"Deje|deje|Quite|quite|Inténtelo|inténtelo|Avise|avise|Envíe|envíe)\b")
+_PLACEHOLDER = re.compile(
+    r"%%|%(?:\(\w+\))?[-+#0]*\d*(?:\.\d+)?[sdifrxXeEgGc]|\{\w*\}")
+_TAG = re.compile(r"</?\w+[^>]*>")
+_ENTITY = re.compile(r"&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
+# A ? or ! that ends a sentence: before a space, a closing mark, a tag
+# or the end.
+_QUESTION_END = re.compile(r"\?(?=\s|$|<|[)\]»\"'])")
+_EXCLAMATION_END = re.compile(r"!(?=\s|$|<|[)\]»\"'])")
+# Imperatives in the "usted" form (the register is "tú"). The list is the
+# forms that cannot be anything else; the shape catches the -ar verbs
+# whose usted form ends in -que, -gue, -güe or -ice, and a word that has
+# that shape and is something else is allowed by name.
+_USTED_WORDS = (
+    "Usted usted Ustedes ustedes Ingrese ingrese Seleccione seleccione "
+    "Presione presione Pulse pulse Escriba escriba Elija elija Haga haga "
+    "Confirme confirme Espere espere Vuelva vuelva Marque marque "
+    "Descargue descargue Cargue cargue Corrija corrija Revise revise "
+    "Deje deje Quite quite Inténtelo inténtelo Avise avise Envíe envíe "
+    # Only at the start of a sentence: in the middle the same form is a
+    # subjunctive ("hasta que guarde"), which is right.
+    "Introduzca Guarde Utilice Asegúrese Agregue Borre Cierre Verifique "
+    "Compruebe Proporcione Complete Vea Añada Elimine Cambie Escoja "
+    "Pruebe Intente Permita Rellene Suba Abra Tenga Recuerde Hágalo "
+    "Vuélvalo Active Desactive Siga Use").split()
+_USTED = re.compile(r"\b(?:%s)\b" % "|".join(_USTED_WORDS))
+_USTED_SHAPE = re.compile(r"\b[A-ZÁÉÍÓÚ][a-záéíóúñü]*(?:que|gue|güe|ice)\b")
+# Words of that shape that are not an imperative of usted: nouns, and
+# the "tú" imperatives of -guir verbs.
+NOT_USTED = {"Bloque", "Parque", "Cheque", "Clique", "Sigue", "Consigue",
+             "Persigue", "Prosigue", "Distingue", "Averigua", "Dice"}
+
+
+# A name between < > that is not html but a pattern of a URL, which the
+# translation may translate: (English, Spanish).
+TRANSLATED_ANGLES = {"<name>": "<nombre>"}
+
+
+def usted_words(text):
+    """Return the words of the text that are a usted imperative."""
+    return _USTED.findall(text) + [
+        word for word in _USTED_SHAPE.findall(text)
+        if word not in NOT_USTED]
+
+
+def inverted_problems(text):
+    """Return what is wrong with the ¿ ¡ of the text: each ? or ! that
+    ends a sentence needs its own opening mark (the tags that close
+    the text do not count)."""
+    text = _TAG.sub("", text)
+    found = []
+    for name, end, opening in (("?", _QUESTION_END, "¿"),
+                               ("!", _EXCLAMATION_END, "¡")):
+        closing = len(end.findall(text))
+        if closing > text.count(opening):
+            found.append(f"{name} without {opening}")
+        elif closing < text.count(opening):
+            found.append(f"{opening} without {name}")
+    return found
 
 
 def find_style_problems(catalog):
     """Return the messages that break a mechanical rule of the style.
 
     A translation must not use "usted" or "...", must open with ¿ or ¡
-    what ends with ? or !, and must keep the placeholders, HTML tags
-    and entities of its msgid.
+    each sentence that ends with ? or !, and must keep the placeholders,
+    HTML tags and entities of its msgid.
 
     """
     problems = []
@@ -241,18 +287,19 @@ def find_style_problems(catalog):
             if not target:
                 continue
             found = []
-            if _USTED.search(target):
+            if usted_words(target):
                 found.append("usted")
-            if "..." in target and "..." not in source:
+            if "..." in target:
                 found.append("three dots instead of …")
-            if target.rstrip().endswith("?") and "¿" not in target:
-                found.append("? without ¿")
-            if target.rstrip().endswith("!") and "¡" not in target:
-                found.append("! without ¡")
+            found += inverted_problems(target)
+            target_tags = target
+            for english, spanish in TRANSLATED_ANGLES.items():
+                target_tags = target_tags.replace(spanish, english)
             for name, pattern in (("placeholders", _PLACEHOLDER),
                                   ("tags", _TAG), ("entities", _ENTITY)):
+                compared = target_tags if name == "tags" else target
                 if Counter(pattern.findall(source)) \
-                        != Counter(pattern.findall(target)):
+                        != Counter(pattern.findall(compared)):
                     found.append(f"{name} differ")
             problems += [f"{source!r}: {what}" for what in found]
     return problems
@@ -315,6 +362,53 @@ def test_style_check_finds_what_it_promises():
         "'A &amp; B': entities differ",
         "'%d files': placeholders differ",
     ])
+
+
+@pytest.mark.parametrize("source, target, expected", [
+    # usted, by name and by shape
+    ("Save it", "Guarde los cambios", ["usted"]),
+    ("Use it", "Utilice la clave", ["usted"]),
+    ("Check it", "Verifique el archivo", ["usted"]),
+    ("Add it", "Agregue un usuario", ["usted"]),
+    ("Make sure", "Asegúrese de guardar", ["usted"]),
+    ("Enter it", "Introduzca el valor", ["usted"]),
+    ("Close it", "Cierre la sesión", ["usted"]),
+    ("Until it saves", "Hasta que guarde", []),
+    # the "tú" imperatives and the nouns that look the same
+    ("Define it", "Define una clave", []),
+    ("Fix it", "Corrige esto", []),
+    ("Type it", "Escribe el nombre", []),
+    ("A block", "Bloque de datos", []),
+    ("Name", "Nombre", []),
+    # three dots are always a finding, English or not
+    ("Wait...", "Espera...", ["three dots instead of …"]),
+    ("Wait…", "Espera…", []),
+    # every sentence that ends with ? or ! needs its mark
+    ("<b>Sure?</b>", "<b>Seguro?</b>", ["? without ¿"]),
+    ("<b>Sure?</b>", "<b>¿Seguro?</b>", []),
+    ("Stop. Sure?", "Para. Seguro?", ["? without ¿"]),
+    ("Sure? Yes!", "¿Seguro? Sí!", ["! without ¡"]),
+    ("Sure? Yes!", "¿Seguro? ¡Sí!", []),
+    ("Sure", "¿Seguro", ["¿ without ?"]),
+    # a ? inside a url is not the end of a sentence
+    ("See /a?b=1 now.", "Mira /a?b=1 ahora.", []),
+    # placeholders, entities and tags: any of them
+    ("%.2f s", "%.1f s", ["placeholders differ"]),
+    ("%.2f s", "%.2f s", []),
+    ("%5d of %i", "%5d de", ["placeholders differ"]),
+    ("It&#39;s %(a)s", "Es %(a)s", ["entities differ"]),
+    ("It&#39;s", "Es &#39;", []),
+    ("A <u>b</u>", "A b", ["tags differ"]),
+    ("A <u>b</u>", "A <u>b</u>", []),
+    ("A <u>b</u>", "A <u>b</u> <i>", ["tags differ"]),
+    ("Used in (/<name>/)", "Se usa en (/<nombre>/)", []),
+])
+def test_style_rules(source, target, expected):
+    catalog = Catalog(locale="es")
+    catalog.add(source, target)
+
+    assert [problem.split(": ", 1)[1]
+            for problem in find_style_problems(catalog)] == expected
 
 
 def test_fragment_checks_find_what_they_promise():
