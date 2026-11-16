@@ -1,0 +1,75 @@
+# Spanish translations for Contest Management System.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the Contest Management
+# System project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-11-16 12:19-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: aws-L7\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.12.1\n"
+
+msgid "New admin"
+msgstr "Nuevo admin"
+
+msgid "Admin information"
+msgstr "Información del admin"
+
+msgid "Create"
+msgstr "Crear"
+
+msgid "Enabled"
+msgstr "Activado"
+
+msgid "Leaving the password field empty will keep the previous password."
+msgstr "Si dejas vacío el campo de contraseña, se conserva la contraseña anterior."
+
+msgid "Delete this admin"
+msgstr "Borrar este admin"
+
+msgid "Admins list"
+msgstr "Lista de admins"
+
+msgid "All permissions"
+msgstr "Todos los permisos"
+
+msgid "Messaging permissions"
+msgstr "Permisos de mensajería"
+
+msgid "Add a new admin"
+msgstr "Agregar un admin nuevo"
+
+msgid "Disabled admins cannot log in."
+msgstr "Los admins desactivados no pueden iniciar sesión."
+
+msgid ""
+"Admins with the \"All permissions\" bit set can do any operation, "
+"regardless of the status of the other permission bits."
+msgstr ""
+"Los admins con el permiso «Todos los permisos» activado pueden hacer "
+"cualquier operación, sin importar el estado de los demás permisos."
+
+msgid ""
+"The \"Messaging\" permissions allow the admin to communicate with the "
+"contestants, answering questions, sending private messages and "
+"announcements."
+msgstr ""
+"Los permisos de «Mensajería» permiten que el admin se comunique con los "
+"concursantes: responder preguntas, enviar mensajes privados y anuncios."
+
+msgid "No admin name specified."
+msgstr "No se indicó el nombre del admin."
+
+msgid "Empty password not permitted."
+msgstr "No se permite una contraseña vacía."
+

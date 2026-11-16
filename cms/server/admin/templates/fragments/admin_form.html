@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {# This snippet shows a form to add/edit an admin; if admin_being_edited is set, its data will be used as defaults. #}
 
 {% if admin_being_edited is defined %}
@@ -17,32 +18,32 @@
 <div>
   <table>
     <tr>
-      <td>Username</td>
+      <td>{% trans %}Username{% endtrans %}</td>
       <td><input type="text" name="username" value="{{ admin_username }}"/></td>
     </tr>
     <tr>
-      <td>Password</td>
+      <td>{% trans %}Password{% endtrans %}</td>
       <td><input type="password" name="password" value=""/></td>
     </tr>
     <tr>
-      <td>Name</td>
+      <td>{% trans %}Name{% endtrans %}</td>
       <td><input type="text" name="name" value="{{ admin_name }}"/></td>
     </tr>
     {% if admin.permission_all %}
     <tr>
-      <td>All permissions</td>
+      <td>{% trans %}All permissions{% endtrans %}</td>
       <td>
         <input type="checkbox" name="permission_all" {% if admin_permission_all %}checked{% endif %} />
       </td>
     </tr>
     <tr>
-      <td>Messaging permissions</td>
+      <td>{% trans %}Messaging permissions{% endtrans %}</td>
       <td>
         <input type="checkbox" name="permission_messaging" {% if admin_permission_messaging %}checked{% endif %} />
       </td>
     </tr>
     <tr>
-      <td>Enabled</td>
+      <td>{% trans %}Enabled{% endtrans %}</td>
       <td>
         <input type="checkbox" name="enabled" {% if admin_enabled %}checked{% endif %} />
       </td>
