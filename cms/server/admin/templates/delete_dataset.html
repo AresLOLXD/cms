@@ -1,16 +1,17 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block core %}
 <div class="core_title">
-  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - Delete dataset</h1>
+  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - {% trans %}Delete dataset{% endtrans %}</h1>
 </div>
 
 <form action="{{ url("dataset", dataset.id, "delete") }}" method="POST">
     {{ xsrf_form_html|safe }}
 
-    Are you sure you want to delete the dataset "{{ dataset.description }}" and all associated managers, test cases, and submission results?<br/>
+    {% trans description=dataset.description %}Are you sure you want to delete the dataset "{{ description }}" and all associated managers, test cases, and submission results?{% endtrans %}<br/>
 
-    <input type="submit" value="Delete">
-    <input type="button" value="Cancel" onclick="javascript:history.back();">
+    <input type="submit" value="{{ _("Delete") }}">
+    <input type="button" value="{{ _("Cancel") }}" onclick="javascript:history.back();">
 </form>
 {% endblock core %}

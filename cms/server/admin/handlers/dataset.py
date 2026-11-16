@@ -23,6 +23,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Dataset-related handlers for AWS.
 
 """
@@ -48,10 +50,26 @@ from cms.db import Dataset, Manager, Message, Participation, \
 from cms.grading.scoring import compute_changes_for_dataset
 from cmscommon.datetime import make_datetime
 from cmscommon.importers import import_testcases_from_zipfile
+from cms.locale.locale import N_
 from .base import BaseHandler, require_permission
 
 
 logger = logging.getLogger(__name__)
+
+
+# The messages of cmscommon.importers, which the extraction of the aws
+# catalog does not read: declared here so that they reach it. The
+# handler passes self._ to the importer, which translates them.
+N_("Reading testcase %s failed")
+N_("Testcase storage failed")
+N_("Couldn't add test %s")
+N_("The selected file is not a zip file. "
+   "Please select a valid zip file.")
+N_("none")
+N_("Successfully added %(added)d and overwritten "
+   "%(overwritten)d testcase(s)")
+N_("Added: %(added)s; overwritten: %(overwritten)s; "
+   "skipped: %(skipped)s")
 
 
 class DatasetSubmissionsHandler(BaseHandler):
@@ -149,8 +167,9 @@ class CloneDatasetHandler(BaseHandler):
                    for d in task.datasets):
                 self.service.add_notification(
                     make_datetime(),
-                    "Dataset name %r is already taken." % attrs["description"],
-                    "Please choose a unique name for this dataset.")
+                    self._("Dataset name %r is already taken.")
+                    % attrs["description"],
+                    self._("Please choose a unique name for this dataset."))
                 self.redirect(fallback_page)
                 return
 
@@ -168,7 +187,7 @@ class CloneDatasetHandler(BaseHandler):
         except Exception as error:
             logger.warning("Invalid field.", exc_info=True)
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -185,7 +204,7 @@ class CloneDatasetHandler(BaseHandler):
                 dataset.validate_score_type()
             except ValueError as error:
                 self.service.add_notification(
-                    make_datetime(), "Invalid score type parameters",
+                    make_datetime(), self._("Invalid score type parameters"),
                     str(error))
                 self.redirect(fallback_page)
                 return
@@ -238,8 +257,9 @@ class RenameDatasetHandler(BaseHandler):
                for d in task.datasets if d is not dataset):
             self.service.add_notification(
                 make_datetime(),
-                "Dataset name \"%s\" is already taken." % description,
-                "Please choose a unique name for this dataset.")
+                self._("Dataset name \"%s\" is already taken.")
+                % description,
+                self._("Please choose a unique name for this dataset."))
             self.redirect(fallback_page)
             return
 
@@ -368,7 +388,9 @@ class ActivateDatasetHandler(BaseHandler):
         if self.try_commit():
             self.service.add_notification(
                 make_datetime(),
-                "Messages sent to %d users." % count, "")
+                self.n_("Messages sent to %(count)d users.",
+                        "Messages sent to %(count)d users.", count)
+                % {"count": count}, "")
 
         self.redirect(self.url("task", task_id))
 
@@ -435,8 +457,8 @@ class AddManagerHandler(BaseHandler):
         except KeyError:
             self.service.add_notification(
                 make_datetime(),
-                "Invalid data",
-                "Please choose a manager file.")
+                self._("Invalid data"),
+                self._("Please choose a manager file."))
             self.redirect(fallback_page)
             return
 
@@ -450,7 +472,7 @@ class AddManagerHandler(BaseHandler):
         except Exception as error:
             self.service.add_notification(
                 make_datetime(),
-                "Manager storage failed",
+                self._("Manager storage failed"),
                 repr(error))
             self.redirect(fallback_page)
             return
@@ -531,8 +553,8 @@ class AddTestcaseHandler(BaseHandler):
         except KeyError:
             self.service.add_notification(
                 make_datetime(),
-                "Invalid data",
-                "Please fill both input and output.")
+                self._("Invalid data"),
+                self._("Please fill both input and output."))
             self.redirect(fallback_page)
             return
 
@@ -552,7 +574,7 @@ class AddTestcaseHandler(BaseHandler):
         except Exception as error:
             self.service.add_notification(
                 make_datetime(),
-                "Testcase storage failed",
+                self._("Testcase storage failed"),
                 repr(error))
             self.redirect(fallback_page)
             return
@@ -609,8 +631,8 @@ class AddTestcasesHandler(BaseHandler):
         except KeyError:
             self.service.add_notification(
                 make_datetime(),
-                "Invalid data",
-                "Please choose tests archive.")
+                self._("Invalid data"),
+                self._("Please choose tests archive."))
             self.redirect(fallback_page)
             return
 
@@ -631,7 +653,7 @@ class AddTestcasesHandler(BaseHandler):
                 import_testcases_from_zipfile(
                     self.sql_session,
                     self.service.file_cacher, dataset,
-                    fp, input_re, output_re, overwrite, public)
+                    fp, input_re, output_re, overwrite, public, self._)
         except Exception as error:
             self.service.add_notification(
                 make_datetime(), str(error), repr(error))
@@ -711,8 +733,9 @@ class DownloadTestcasesHandler(BaseHandler):
         if input_template.count('*') != 1 or output_template.count('*') != 1:
             self.service.add_notification(
                 make_datetime(),
-                "Invalid template format",
-                "You must have exactly one '*' in input/output template.")
+                self._("Invalid template format"),
+                self._("You must have exactly one '*' in input/output "
+                       "template."))
             self.redirect(fallback_page)
             return
 

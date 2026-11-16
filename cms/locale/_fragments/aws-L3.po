@@ -1,0 +1,286 @@
+# Spanish translations for Contest Management System.
+# Lane L3 of aws-language-rest.
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-11-16 12:25-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: aws-L3\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.12.1\n"
+
+msgid "No datasets exist for this task."
+msgstr "No hay datasets para este problema."
+
+#, python-format
+msgid "Current dataset: \"<strong>%(description)s</strong>\"."
+msgstr "Dataset actual: «<strong>%(description)s</strong>»."
+
+msgid ""
+"Click on one of the following items to view the results under a different"
+" dataset."
+msgstr ""
+"Haz clic en uno de los elementos siguientes para ver los resultados con "
+"otro dataset."
+
+#, python-format
+msgid "Reevaluate all %(count)s submissions for this dataset"
+msgstr "Reevaluar todos los envíos de este dataset (%(count)s en total)"
+
+msgid "Create dataset"
+msgstr "Crear dataset"
+
+#, python-format
+msgid "You are cloning the dataset \"%(description)s\"."
+msgstr "Estás clonando el dataset «%(description)s»."
+
+msgid "Dataset information"
+msgstr "Información del dataset"
+
+msgid "A (unique) description for this dataset."
+msgstr "Una descripción (única) para este dataset."
+
+msgid "Whether to copy over the evaluations from the original dataset."
+msgstr "Indica si se copian las evaluaciones del dataset original."
+
+msgid "Clone evaluation results"
+msgstr "Clonar resultados de evaluación"
+
+msgid "Whether to copy the managers from the original dataset."
+msgstr "Indica si se copian los managers del dataset original."
+
+msgid "Clone managers"
+msgstr "Clonar managers"
+
+msgid "Create"
+msgstr "Crear"
+
+#, python-format
+msgid ""
+"Preview dataset change for %(title)s (<a "
+"href=\"%(task_url)s\">%(name)s</a>)"
+msgstr ""
+"Vista previa del cambio de dataset para %(title)s (<a "
+"href=\"%(task_url)s\">%(name)s</a>)"
+
+msgid "Current dataset:"
+msgstr "Dataset actual:"
+
+msgid "New dataset:"
+msgstr "Dataset nuevo:"
+
+msgid ""
+"<b>NOTE</b>: The preview on this page uses the existing scoring "
+"information for both datasets. If you have made modifications to a "
+"dataset, you need to ensure that the scores are up to date. This may "
+"require re-compiling, re-evaluating or just re-scoring the entire "
+"dataset. To do so, use the buttons below, and wait for it to complete."
+msgstr ""
+"<b>NOTA</b>: La vista previa de esta página usa la información de puntaje"
+" que ya existe de ambos datasets. Si modificaste un dataset, asegúrate de"
+" que los puntajes estén al día. Esto puede requerir volver a compilar, "
+"reevaluar o solo recalcular el puntaje de todo el dataset. Para hacerlo, "
+"usa los botones de abajo y espera a que termine."
+
+#, python-format
+msgid "Reevaluate all submissions for the dataset \"%(description)s\":"
+msgstr "Reevaluar todos los envíos del dataset «%(description)s»:"
+
+msgid ""
+"Good news! At present, switching to this dataset will have no effect on "
+"the scores. No notifications will be sent."
+msgstr ""
+"¡Buenas noticias! Por ahora, cambiar a este dataset no afecta los "
+"puntajes. No se enviará ninguna notificación."
+
+msgid "Switching to this dataset will cause the following changes:"
+msgstr "Cambiar a este dataset provocará los siguientes cambios:"
+
+msgid "Notify"
+msgstr "Notificar"
+
+msgid "Submission id"
+msgstr "ID del envío"
+
+msgid "Change"
+msgstr "Cambio"
+
+msgid "(Tokened)"
+msgstr "(con token)"
+
+#, python-format
+msgid "Score: %(old)s -&gt; %(new)s"
+msgstr "Puntaje: %(old)s -&gt; %(new)s"
+
+#, python-format
+msgid "Public score: %(old)s -&gt; %(new)s"
+msgstr "Puntaje público: %(old)s -&gt; %(new)s"
+
+#, python-format
+msgid "Ranking score: %(old)s -&gt; %(new)s"
+msgstr "Puntaje de ranking: %(old)s -&gt; %(new)s"
+
+msgid "Notify:"
+msgstr "Notificar:"
+
+msgid "[All users]"
+msgstr "[Todos los usuarios]"
+
+msgid "[No users]"
+msgstr "[Ningún usuario]"
+
+msgid "[Users with visible changes only]"
+msgstr "[Solo los usuarios con cambios visibles]"
+
+msgid ""
+"By default, users with changes to their public score, or changes to the "
+"score of a tokened submission, will be notified."
+msgstr ""
+"De forma predeterminada, se notificará a los usuarios con cambios en su "
+"puntaje público o en el puntaje de un envío con token."
+
+msgid "The following message will be sent to the selected users:"
+msgstr "El siguiente mensaje se enviará a los usuarios seleccionados:"
+
+msgid "Subject:"
+msgstr "Asunto:"
+
+msgid "Text:"
+msgstr "Texto:"
+
+#, python-format
+msgid "Task %(name)s has been rejudged"
+msgstr "Se reevaluó el problema %(name)s"
+
+#, python-format
+msgid ""
+"The task \"%(name)s\" has been rejudged and the score on your submissions"
+" has been updated."
+msgstr ""
+"Se reevaluó el problema «%(name)s» y se actualizó el puntaje de tus "
+"envíos."
+
+msgid "Activate!"
+msgstr "¡Activar!"
+
+msgid "Abort!"
+msgstr "¡Abortar!"
+
+msgid "Delete dataset"
+msgstr "Borrar dataset"
+
+#, python-format
+msgid ""
+"Are you sure you want to delete the dataset \"%(description)s\" and all "
+"associated managers, test cases, and submission results?"
+msgstr ""
+"¿Seguro que quieres borrar el dataset «%(description)s» y todos sus "
+"managers, casos de prueba y resultados de envíos asociados?"
+
+msgid "Rename dataset"
+msgstr "Renombrar dataset"
+
+msgid "Edit description (each dataset must have a unique description):"
+msgstr "Edita la descripción (cada dataset debe tener una descripción única):"
+
+msgid "Rename"
+msgstr "Renombrar"
+
+msgid "Upload testcase"
+msgstr "Subir caso de prueba"
+
+msgid "Upload testcases"
+msgstr "Subir casos de prueba"
+
+msgid "Archive (a zip file containing files only):"
+msgstr "Archivo (un .zip que contiene solo archivos):"
+
+msgid "Overwrite existing testcases"
+msgstr "Sobrescribir los casos de prueba existentes"
+
+msgid ""
+"Input file names template (use * as a testcase codename, for example: "
+"input.* or *.in)"
+msgstr ""
+"Plantilla de nombres de los archivos de entrada (usa * como nombre clave "
+"del caso de prueba, por ejemplo: input.* o *.in)"
+
+msgid ""
+"Output file names template (use * as a testcase codename, for example: "
+"output.* or *.out)"
+msgstr ""
+"Plantilla de nombres de los archivos de salida (usa * como nombre clave "
+"del caso de prueba, por ejemplo: output.* o *.out)"
+
+msgid "Zip file name"
+msgstr "Nombre del archivo zip"
+
+msgid "Upload manager"
+msgstr "Subir manager"
+
+#, python-format
+msgid "Dataset name \"%s\" is already taken."
+msgstr "El nombre de dataset «%s» ya está en uso."
+
+msgid "Invalid data"
+msgstr "Datos no válidos"
+
+msgid "Please choose a manager file."
+msgstr "Elige un archivo de manager."
+
+msgid "Manager storage failed"
+msgstr "No se pudo guardar el manager"
+
+msgid "Please fill both input and output."
+msgstr "Completa la entrada y la salida."
+
+msgid "Testcase storage failed"
+msgstr "No se pudo guardar el caso de prueba"
+
+msgid "Please choose tests archive."
+msgstr "Elige el archivo con los casos de prueba."
+
+msgid "Invalid template format"
+msgstr "Formato de plantilla no válido"
+
+msgid "You must have exactly one '*' in input/output template."
+msgstr ""
+"Debes usar exactamente un '*' en la plantilla de entrada y en la de "
+"salida."
+
+#, python-format
+msgid "Reading testcase %s failed"
+msgstr "No se pudo leer el caso de prueba %s"
+
+#, python-format
+msgid "Couldn't add test %s"
+msgstr "No se pudo agregar el caso de prueba %s"
+
+msgid "The selected file is not a zip file. Please select a valid zip file."
+msgstr "El archivo seleccionado no es un .zip. Selecciona un archivo .zip válido."
+
+msgid "none"
+msgstr "ninguno"
+
+#, python-format
+msgid "Successfully added %(added)d and overwritten %(overwritten)d testcase(s)"
+msgstr ""
+"Se agregaron %(added)d y se sobrescribieron %(overwritten)d caso(s) de "
+"prueba"
+
+#, python-format
+msgid "Added: %(added)s; overwritten: %(overwritten)s; skipped: %(skipped)s"
+msgstr "Agregados: %(added)s; sobrescritos: %(overwritten)s; omitidos: %(skipped)s"
+
+#, python-format
+msgid "Messages sent to %(count)d users."
+msgid_plural "Messages sent to %(count)d users."
+msgstr[0] "Mensaje enviado a %(count)d usuario."
+msgstr[1] "Mensajes enviados a %(count)d usuarios."
+
