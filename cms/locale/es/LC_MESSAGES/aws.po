@@ -884,3 +884,128 @@ msgstr "Quitar"
 msgid "Cancel"
 msgstr "Cancelar"
 
+msgid "Activity"
+msgstr "Actividad"
+
+msgid "Announcements"
+msgstr "Anuncios"
+
+msgid "Codename"
+msgstr "Código"
+
+msgid "Create"
+msgstr "Crear"
+
+msgid "Disabled"
+msgstr "Desactivado"
+
+msgid "Enabled"
+msgstr "Activado"
+
+msgid "Group"
+msgstr "Grupo"
+
+msgid "Id"
+msgstr "ID"
+
+msgid "Logout"
+msgstr "Cerrar sesión"
+
+msgid "Memory limit"
+msgstr "Límite de memoria"
+
+msgid "No"
+msgstr "No"
+
+msgid "Yes"
+msgstr "Sí"
+
+msgid "Yes, remove"
+msgstr "Sí, quitar"
+
+msgid "Operation failed."
+msgstr "Falló la operación."
+
+msgid "Operation successful."
+msgstr "Operación exitosa."
+
+msgid "Output"
+msgstr "Salida"
+
+msgid "Overview"
+msgstr "Resumen"
+
+msgid "Public"
+msgstr "Público"
+
+msgid "Questions"
+msgstr "Preguntas"
+
+msgid "Ranking"
+msgstr "Ranking"
+
+msgid "Send"
+msgstr "Enviar"
+
+msgid "Settings"
+msgstr "Configuración"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Tasks"
+msgstr "Problemas"
+
+msgid "Time"
+msgstr "Hora"
+
+msgid "Time limit"
+msgstr "Límite de tiempo"
+
+msgid "Timezone"
+msgstr "Zona horaria"
+
+msgid "Title"
+msgstr "Título"
+
+msgid "Upload"
+msgstr "Subir"
+
+msgid "User"
+msgstr "Usuario"
+
+msgid "User tests"
+msgstr "User tests"
+
+msgid "Users list"
+msgstr "Lista de usuarios"
+
+msgid "Please select a valid operation"
+msgstr "Selecciona una operación válida"
+
+msgid "No username specified."
+msgstr "No se indicó el usuario."
+
+msgid "No questions."
+msgstr "No hay preguntas."
+
+msgid "Subject:"
+msgstr "Asunto:"
+
+msgid "Text:"
+msgstr "Texto:"
+
+msgid "Dataset:"
+msgstr "Dataset:"
+
+msgid "By:"
+msgstr "Por:"
+
+msgid "[View results]"
+msgstr "[Ver resultados]"
+
+msgid "Invalid field(s)."
+msgstr "Campos no válidos."
+
+msgid "Shard"
+msgstr "Shard"

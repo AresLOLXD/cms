@@ -883,3 +883,128 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
+msgid "Activity"
+msgstr ""
+
+msgid "Announcements"
+msgstr ""
+
+msgid "Codename"
+msgstr ""
+
+msgid "Create"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Group"
+msgstr ""
+
+msgid "Id"
+msgstr ""
+
+msgid "Logout"
+msgstr ""
+
+msgid "Memory limit"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "Yes, remove"
+msgstr ""
+
+msgid "Operation failed."
+msgstr ""
+
+msgid "Operation successful."
+msgstr ""
+
+msgid "Output"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Public"
+msgstr ""
+
+msgid "Questions"
+msgstr ""
+
+msgid "Ranking"
+msgstr ""
+
+msgid "Send"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Tasks"
+msgstr ""
+
+msgid "Time"
+msgstr ""
+
+msgid "Time limit"
+msgstr ""
+
+msgid "Timezone"
+msgstr ""
+
+msgid "Title"
+msgstr ""
+
+msgid "Upload"
+msgstr ""
+
+msgid "User"
+msgstr ""
+
+msgid "User tests"
+msgstr ""
+
+msgid "Users list"
+msgstr ""
+
+msgid "Please select a valid operation"
+msgstr ""
+
+msgid "No username specified."
+msgstr ""
+
+msgid "No questions."
+msgstr ""
+
+msgid "Subject:"
+msgstr ""
+
+msgid "Text:"
+msgstr ""
+
+msgid "Dataset:"
+msgstr ""
+
+msgid "By:"
+msgstr ""
+
+msgid "[View results]"
+msgstr ""
+
+msgid "Invalid field(s)."
+msgstr ""
+
+msgid "Shard"
+msgstr ""

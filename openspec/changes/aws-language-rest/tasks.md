@@ -6,7 +6,7 @@
 - [x] 1.4 Contestant-site fallback in the AWS translations and the test helper, with `aws_fallback_test.py` (Scenarios "Outcome in Spanish", "Outcome in English")
 - [x] 1.5 Catalog machinery: the catalog test reads `aws.po` plus `cms/locale/_fragments/aws-*.po`; fragment agreement tests; Babel `check()`; `test_aws_es_style` (Scenario "Spanish register")
 - [x] 1.6 Guards: `aws_i18n_lint.py` and `aws_i18n_guard_test.py`, markers on the nine complete files (Scenarios "A new untranslated text", "No translated posted values")
-- [ ] 1.7 Seed the shared messages in `aws.po` and list the shared sentence blocks and their owner lane
+- [x] 1.7 Seed the shared messages in `aws.po` and list the shared sentence blocks and their owner lane
 - [ ] 1.8 Fix the existing Spanish (fase de análisis, fila, concursantes, user tests, usuario) with the updated pins
 - [ ] 1.9 Copy the translation guide, glossary and checker into `translation/` of this change with the decisions applied
 
