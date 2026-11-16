@@ -17,6 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
 """Admin-related handlers for AWS.
 
 """
@@ -49,8 +50,10 @@ def _admin_attrs(handler: BaseHandler) -> dict:
     handler.get_string(attrs, "username", empty=None)
     handler.get_string(attrs, "name", empty=None)
 
-    assert attrs.get("username") is not None, "No username specified."
-    assert attrs.get("name") is not None, "No admin name specified."
+    assert attrs.get("username") is not None, \
+        handler._("No username specified.")
+    assert attrs.get("name") is not None, \
+        handler._("No admin name specified.")
 
     # Get the password and translate it to an authentication, if present.
     handler.get_string(attrs, "password", empty=None)
@@ -78,14 +81,14 @@ class AddAdminHandler(SimpleHandler("add_admin.html", permission_all=True)):
         try:
             attrs = _admin_attrs(self)
             assert attrs.get("authentication") is not None, \
-                "Empty password not permitted."
+                self._("Empty password not permitted.")
 
             admin = Admin(**attrs)
             self.sql_session.add(admin)
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -152,7 +155,7 @@ class AdminHandler(BaseHandler):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(self.url("admin", admin_id))
             return
 
