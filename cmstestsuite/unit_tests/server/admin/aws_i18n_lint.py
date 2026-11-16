@@ -681,8 +681,9 @@ def english_left(page: str, translated_pages: set[str]) -> list[str]:
                if rel not in translated_pages
                for _, _, text in template_texts(read(rel))}
     allowed_here = {_key(t) for p, t, _ in PSEUDO_ALLOW if p in ("*", page)}
-    html = aws_render.render(
-        aws_render.environment(True), page, aws_render.PSEUDO)
     skip = outside | allowed_here | grading_texts()
-    return [text for _, _, text in aws_render.english_left(html)
-            if _key(text) not in skip]
+    left = []
+    for html in aws_render.renders(page, aws_render.PSEUDO):
+        left += [text for _, _, text in aws_render.english_left(html)
+                 if _key(text) not in skip and text not in left]
+    return left

@@ -133,14 +133,13 @@ def test_named_controls_post_untranslated_values():
     # Scenario "No translated posted values" (aws-language): with every
     # message marked as translated, no named control posts a marked
     # value, because a handler compares it with an English key.
-    env = aws_render.environment(True)
     found = {}
     for page in aws_render.PAGES:
-        _, posts = aws_render.extract(
-            aws_render.render(env, page, aws_render.PSEUDO))
-        marked = [(n, v) for n, v in posts if aws_render.OPEN in v]
-        if marked:
-            found[page] = marked
+        for html in aws_render.renders(page, aws_render.PSEUDO):
+            _, posts = aws_render.extract(html)
+            marked = [(n, v) for n, v in posts if aws_render.OPEN in v]
+            if marked:
+                found.setdefault(page, []).extend(marked)
     assert set(found) <= lint.NAMED_CONTROLS_ALLOW, found
 
 

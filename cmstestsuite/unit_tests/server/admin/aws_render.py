@@ -200,6 +200,21 @@ def render(env: Environment, name: str,
         return env.get_template(name).render(**params)
 
 
+def renders(page: str, translation: Translation = DEFAULT_TRANSLATION):
+    """Yield the html of the page in each mode that renders.
+
+    A page that raises in a mode is skipped here: the snapshot test
+    pins which ones do (the stand-ins of that mode are not data the
+    page can use).
+
+    """
+    for full in (True, False):
+        try:
+            yield render(environment(full), page, translation)
+        except Exception:
+            continue
+
+
 def _normalize(text: str) -> str:
     return " ".join(text.split())
 
