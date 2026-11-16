@@ -26,6 +26,9 @@ tree whose English is the reference.
 import difflib
 import json
 
+from jinja2 import nodes
+
+from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.server.admin import aws_render
 
 
@@ -51,3 +54,16 @@ def test_english_render_unchanged():
                     problems += _diff(name, mode, kind,
                                       old.get(kind, []), new.get(kind, []))
     assert not problems, "English changed:\n" + "\n".join(problems[:60])
+
+
+def test_macro_imports_take_the_context():
+    # A macro imported without the context gets no per-request gettext
+    # and would show its texts in English whatever the language.
+    bare = []
+    for name in aws_render.ALL_TEMPLATES:
+        source = (aws_render.TEMPLATES / name).read_text(encoding="utf-8")
+        tree = AWS_ENVIRONMENT.parse(source)
+        bare += [f"{name}:{node.lineno}" for node
+                 in tree.find_all((nodes.Import, nodes.FromImport))
+                 if not node.with_context]
+    assert not bare, "imports without 'with context': " + ", ".join(bare)

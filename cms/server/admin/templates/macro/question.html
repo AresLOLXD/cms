@@ -1,6 +1,6 @@
 {# This macro should be imported "with context". #}
 
-{% import 'macro/markdown_input.html' as macro_markdown %}
+{% import 'macro/markdown_input.html' as macro_markdown with context %}
 
 {% macro question(msg, user_id) %}
 {#
