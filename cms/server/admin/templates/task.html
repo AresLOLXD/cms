@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block js_init %}
@@ -313,7 +314,7 @@ $("select[name=task_type_" + {{ dataset.id }} + "]").change(function() {
       <a href="{{ url("dataset", dataset.id, "delete") }}">{% trans %}[Delete]{% endtrans %}</a>
       {% endif %}
       {% if dataset is not sameas (task.active_dataset) %}
-        <a onclick="CMS.AWSUtils.ajax_post('{{ url("dataset", dataset.id, "autojudge") }}');">[{% if dataset.autojudge %}Disable{% else %}Enable{% endif %} background judging]</a>
+        <a onclick="CMS.AWSUtils.ajax_post('{{ url("dataset", dataset.id, "autojudge") }}');">{% if dataset.autojudge %}{% trans %}[Disable background judging]{% endtrans %}{% else %}{% trans %}[Enable background judging]{% endtrans %}{% endif %}</a>
       {% endif %}
 {% endif %}
       <a href="{{ url("dataset", dataset.id) }}">{% trans %}[View results]{% endtrans %}</a>
@@ -328,10 +329,8 @@ $("select[name=task_type_" + {{ dataset.id }} + "]").change(function() {
       $(document).ready(function() {
       utils.display_notification("notification",
           0,
-          "Task type `{{ dataset.task_type }}' not found.",
-          "Please select another task type, " +
-          "or make the original one available and refresh the page " +
-          "without updating the task to avoid losing the parameters.");
+          {{ (_("Task type `%s' not found.") % dataset.task_type)|tojson }},
+          {{ _("Please select another task type, or make the original one available and refresh the page without updating the task to avoid losing the parameters.")|tojson }});
       });
     </script>
     {% endif %}
@@ -341,10 +340,8 @@ $("select[name=task_type_" + {{ dataset.id }} + "]").change(function() {
       $(document).ready(function() {
       utils.display_notification("notification",
           0,
-          "Score type `{{ dataset.score_type }}' not found.",
-          "Please select another score type, " +
-          "or make the original one available and refresh the page " +
-          "without updating the task to avoid losing the parameters.");
+          {{ (_("Score type `%s' not found.") % dataset.score_type)|tojson }},
+          {{ _("Please select another score type, or make the original one available and refresh the page without updating the task to avoid losing the parameters.")|tojson }});
       });
     </script>
     {% endif %}
@@ -438,7 +435,7 @@ $("select[name=task_type_" + {{ dataset.id }} + "]").change(function() {
         </tr>
         <tr>
           <td>
-            <span class="info" title='Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.'></span>
+            <span class="info" title="{{ _('Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.') }}"></span>
             {% trans %}Score Parameters{% endtrans %}
           </td>
           <td>
@@ -502,7 +499,7 @@ $("select[name=task_type_" + {{ dataset.id }} + "]").change(function() {
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="Update" />
+         value="{{ _("Update") }}" />
   <input type="reset" value="{{ _("Reset") }}" />
   <span class="hint">{% trans %}Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest.{% endtrans %}</span>
 </form>

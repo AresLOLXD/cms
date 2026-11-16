@@ -228,9 +228,27 @@ def test_named_controls_post_untranslated_values():
 
 def test_the_allow_lists_have_no_stale_entry():
     # An entry for a text that is no longer there hides a future one.
-    stale = [(rel, text) for rel, text, _ in lint.ALLOW
-             if text not in [t for _, _, t in lint.raw_findings(rel)]]
+    # The texts of the inline scripts count too.
+    stale = lint.stale_entries(lint.ALLOW)
     assert not stale, f"entries that match nothing: {stale}"
+
+
+def test_the_stale_check_sees_script_literals():
+    # An entry for a literal of an inline script is not stale; one that
+    # matches nothing still is.
+    source = ('<p>Bare text</p>\n<script>document.cookie = "a="'
+              ' + "; path=/";</script>')
+
+    def known(rel):
+        return ({t for _, _, t in lint.template_texts(source)}
+                | {t for body in lint.inline_scripts(source)
+                   for _, _, t in lint.script_literals(body[1])})
+
+    allow = [("x.html", "; path=/", "cookie attribute"),
+             ("x.html", "Bare text", "template text"),
+             ("x.html", "gone", "nothing")]
+    assert "; path=/" in known("x.html")
+    assert lint.stale_entries(allow, known) == [("x.html", "gone")]
 
 
 def test_the_guard_catches_what_it_promises():

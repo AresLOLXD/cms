@@ -163,7 +163,10 @@
     "cms/server/admin/templates/fragments/hashed_password_form.html",
     "cms/server/admin/handlers/user.py"
    ],
-   "tests": []
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/users_pages_test.py",
+    "cmstestsuite/unit_tests/server/admin/bulkremove_handlers_test.py"
+   ]
   },
   "L6": {
    "test": "cmstestsuite/unit_tests/server/admin/translated_participations_test.py",

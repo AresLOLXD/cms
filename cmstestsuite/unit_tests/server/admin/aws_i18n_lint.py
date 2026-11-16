@@ -118,6 +118,28 @@ ALLOW = [
      "description of a file stored in the database"),
     ("handlers/task.py", "Task attachment for %s",
      "description of a file stored in the database"),
+    ("templates/fragments/hashed_password_form.html", "plaintext",
+     "hash method identifier, not shown"),
+    ("templates/submission.html",
+     "submission_%s_compilation_sandbox_%s.tar.gz",
+     "download file name in a URL, not shown text"),
+    ("templates/submission.html",
+     "submission_%s_testcase_%s_sandbox_%s.tar.gz",
+     "download file name in a URL, not shown text"),
+    ("templates/task.html", "TaskTypeOptions_%d_%s_",
+     "prefix of the HTML ids of the parameter inputs, not shown"),
+    ("templates/login.html", "next", "name of the query argument"),
+    ("static/aws_utils.js", "not authorized",
+     "RPC status key, never shown"),
+    ("static/web_rpc.js", "not authorized",
+     "RPC status key, never shown"),
+    ("templates/fragments/lang_switch.html",
+     "; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+     "cookie attribute, not shown text"),
+    ("templates/fragments/lang_switch.html", "; expires=",
+     "cookie attribute, not shown text"),
+    ("templates/fragments/lang_switch.html", "; path=/",
+     "cookie attribute, not shown text"),
 ]
 
 # Pages whose named controls may post a translated value. Empty: the
@@ -903,6 +925,22 @@ def raw_findings(rel: str) -> list[tuple[int, str, str]]:
     if rel.endswith(".js"):
         return script_texts(rel)
     return template_texts(read(rel))
+
+
+def known_texts(rel: str) -> set[str]:
+    """Return the texts that the static checks and the script scan
+    report for one file, before the allow-list."""
+    texts = {text for _, _, text in raw_findings(rel)}
+    if not rel.endswith(".py"):
+        texts |= {text for _, _, text in script_texts(rel)}
+    return texts
+
+
+def stale_entries(allow, known=known_texts) -> list[tuple[str, str]]:
+    """Return the entries of the allow-list that match no text of
+    their file (known maps a file to its texts)."""
+    return [(rel, text) for rel, text, _ in allow
+            if text not in known(rel)]
 
 
 def static_findings(rel: str) -> list[tuple[int, str, str]]:
