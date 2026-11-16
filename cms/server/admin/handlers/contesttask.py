@@ -21,6 +21,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
 """Task-related handlers for AWS for a specific contest.
 
 """
@@ -72,10 +73,10 @@ class ContestTasksHandler(BaseHandler):
                 self.MOVE_DOWN,
                 self.MOVE_TOP,
                 self.MOVE_BOTTOM
-            ), "Please select a valid operation"
+            ), self._("Please select a valid operation")
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -178,10 +179,10 @@ class AddContestTaskHandler(BaseHandler):
         try:
             task_id: str = self.get_argument("task_id")
             # Check that the admin selected some task.
-            assert task_id != "null", "Please select a valid task"
+            assert task_id != "null", self._("Please select a valid task")
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 

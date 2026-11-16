@@ -1,5 +1,6 @@
+{# aws-i18n: complete #}
 {% macro device(device_id) -%}
-{% if device_id is none %}<span title="No device: an API client, or a browser that did not present the device cookie">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
+{% if device_id is none %}<span title="{{ _("No device: an API client, or a browser that did not present the device cookie") }}">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
 {%- endmacro %}
 
 
@@ -15,13 +16,13 @@ show_user (bool): whether to add a username column.
 <table class="bordered">
   <thead>
     <tr>
-      {% if show_user %}<th>Username</th>{% endif %}
-      <th>Device</th>
-      <th>IP address</th>
-      <th>Start</th>
-      <th>Last activity</th>
-      <th>End</th>
-      <th>Started by</th>
+      {% if show_user %}<th>{% trans %}Username{% endtrans %}</th>{% endif %}
+      <th>{% trans %}Device{% endtrans %}</th>
+      <th>{% trans %}IP address{% endtrans %}</th>
+      <th>{% trans %}Start{% endtrans %}</th>
+      <th>{% trans %}Last activity{% endtrans %}</th>
+      <th>{% trans %}End{% endtrans %}</th>
+      <th>{% trans %}Started by{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>
@@ -39,7 +40,7 @@ show_user (bool): whether to add a username column.
   </tbody>
 </table>
 {% else %}
-No activity recorded.
+{% trans %}No activity recorded.{% endtrans %}
 {% endif %}
 {%- endmacro %}
 
@@ -53,11 +54,11 @@ find_simultaneous_activity.
 <table class="bordered">
   <thead>
     <tr>
-      <th>Username</th>
-      <th>First device / IP</th>
-      <th>Second device / IP</th>
-      <th>Overlap from</th>
-      <th>Overlap to</th>
+      <th>{% trans %}Username{% endtrans %}</th>
+      <th>{% trans %}First device / IP{% endtrans %}</th>
+      <th>{% trans %}Second device / IP{% endtrans %}</th>
+      <th>{% trans %}Overlap from{% endtrans %}</th>
+      <th>{% trans %}Overlap to{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>
@@ -73,6 +74,6 @@ find_simultaneous_activity.
   </tbody>
 </table>
 {% else %}
-None.
+{% trans %}None.{% endtrans %}
 {% endif %}
 {%- endmacro %}

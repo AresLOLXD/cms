@@ -8,13 +8,13 @@
 
 {% block core %}
 <h1>
-  Participation of <a href="{{ url("user", selected_user.id) }}">{{ selected_user.username }}</a> in <a href="{{ url("contest", contest.id) }}">{{ contest.name }}</a>
+  {% trans user_url=url("user", selected_user.id), username=selected_user.username, contest_url=url("contest", contest.id), contest_name=contest.name %}Participation of <a href="{{ user_url }}">{{ username }}</a> in <a href="{{ contest_url }}">{{ contest_name }}</a>{% endtrans %}
 </h1>
 
-<h2 id="title_submissions" class="toggling_on">Submissions</h2>
+<h2 id="title_submissions" class="toggling_on">{% trans %}Submissions{% endtrans %}</h2>
 <div id="submissions">
   <p>
-    Reevaluate all {{ submission_count }} submissions for this user in this contest (for all datasets)
+    {% trans count=submission_count %}Reevaluate all {{ count }} submissions for this user in this contest (for all datasets){% endtrans %}
     {{ macro_reevaluation_buttons.reevaluation_buttons(
            admin.permission_all,
            url("contest", contest.id, "user", participation.user_id, "edit"),
@@ -33,7 +33,7 @@
 </div>
 
 
-<h2 id="title_participation_info" class="toggling_on">Participation information</h2>
+<h2 id="title_participation_info" class="toggling_on">{% trans %}Participation information{% endtrans %}</h2>
 <div id="participation_info">
   <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
   <form enctype="multipart/form-data" action="{{ url("contest", contest.id, "user", selected_user.id, "edit") }}" method="POST">
@@ -41,8 +41,8 @@
     <table>
       <tr>
         <td>
-          <span class="info" title="The group this contestant is part of. This determines the time window for participation."></span>
-          Group
+          <span class="info" title="{{ _("The group this contestant is part of. This determines the time window for participation.") }}"></span>
+          {% trans %}Group{% endtrans %}
         </td>
         <td>
           <select name="group_id">
@@ -56,8 +56,8 @@
       </tr>
       <tr>
         <td>
-          <span class="info" title="Code of the team of the contestant in this contest. Only used in the external ranking."></span>
-          Team
+          <span class="info" title="{{ _("Code of the team of the contestant in this contest. Only used in the external ranking.") }}"></span>
+          {% trans %}Team{% endtrans %}
         </td>
         <td>
           <input list="teams" name="team" value="{{ participation.team.code if participation.team is not none else "" }}"/>
@@ -70,9 +70,9 @@
       </tr>
       <tr>
         <td>
-          <span class="info" title="Contestant password for this contest. If empty, the contestant's main password is used.
-                                     Caution: stored in plain text."></span>
-          Password
+          <span class="info" title="{% trans notrimmed %}Contestant password for this contest. If empty, the contestant's main password is used.
+                                     Caution: stored in plain text.{% endtrans %}"></span>
+          {% trans %}Password{% endtrans %}
         </td>
         <td>
           {% set hashed_password = participation.password %}
@@ -81,64 +81,64 @@
       </tr>
       <tr>
         <td>
-          <span class="info" title="Whether the contestant's results will be visible in the external ranking."></span>
-          Hidden participation
+          <span class="info" title="{% trans %}Whether the contestant's results will be visible in the external ranking.{% endtrans %}"></span>
+          {% trans %}Hidden participation{% endtrans %}
         </td>
         <td><input type="checkbox" name="hidden" {% if participation.hidden %}checked{% endif %}/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Whether the contestant is unrestricted by maximum number of submissions, user tests,
-                                    and minimum interval between submissions, user tests, and contest time."></span>
-          Unrestricted participation
+          <span class="info" title="{% trans notrimmed %}Whether the contestant is unrestricted by maximum number of submissions, user tests,
+                                    and minimum interval between submissions, user tests, and contest time.{% endtrans %}"></span>
+          {% trans %}Unrestricted participation{% endtrans %}
         </td>
         <td><input type="checkbox" name="unrestricted" {% if participation.unrestricted %}checked{% endif %}/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="A comma-separated list of IP addresses (or subnets) of the contestant for this contest.
-                                    Used for IP-based login restrictions and/or for autologin (in this case, it must be a single address)."></span>
-          IP address or subnet
+          <span class="info" title="{% trans notrimmed %}A comma-separated list of IP addresses (or subnets) of the contestant for this contest.
+                                    Used for IP-based login restrictions and/or for autologin (in this case, it must be a single address).{% endtrans %}"></span>
+          {% trans %}IP address or subnet{% endtrans %}
         </td>
         <td><input type="text" name="ip" value="{{ participation.ip|map("string")|join(", ") if participation.ip is not none else "" }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Time of first login during this contest, used for USACO-style contests.
-                                    Example: '2015-12-31 15:00:00'."></span>
-          Time of first login (in UTC)
+          <span class="info" title="{% trans notrimmed %}Time of first login during this contest, used for USACO-style contests.
+                                    Example: '2015-12-31 15:00:00'.{% endtrans %}"></span>
+          {% trans %}Time of first login (in UTC){% endtrans %}
         </td>
         <td><input type="text" name="starting_time" value="{{ participation.starting_time if participation.starting_time is not none else "" }}" data-utc-time></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="To be set (in seconds) to acknowledge that the contestant lost that amount of time at the beginning of the contest.
-                                    If this is non-zero, all the events (token generation, end of contest) for this contestant will be shifted of the appropriate amount."></span>
-          Delay
+          <span class="info" title="{% trans notrimmed %}To be set (in seconds) to acknowledge that the contestant lost that amount of time at the beginning of the contest.
+                                    If this is non-zero, all the events (token generation, end of contest) for this contestant will be shifted of the appropriate amount.{% endtrans %}"></span>
+          {% trans %}Delay{% endtrans %}
         </td>
         <td><input type="text" name="delay_time" value="{{ participation.delay_time.total_seconds()|int }}"></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="To be set (in seconds) to acknowledge that the contestant lost that amount of time during the contest.
-                                    If this is non-zero, the end of the contest will be shifted of the appropriate amount for this contestant."></span>
-          Extra time
+          <span class="info" title="{% trans notrimmed %}To be set (in seconds) to acknowledge that the contestant lost that amount of time during the contest.
+                                    If this is non-zero, the end of the contest will be shifted of the appropriate amount for this contestant.{% endtrans %}"></span>
+          {% trans %}Extra time{% endtrans %}
         </td>
         <td><input type="text" name="extra_time" value="{{ participation.extra_time.total_seconds()|int }}"></td>
       </tr>
     </table>
-    <input type="submit" value="Update" />
-    <input type="reset" value="Reset" />
+    <input type="submit" value="{{ _("Update") }}" />
+    <input type="reset" value="{{ _("Reset") }}" />
   </form>
   <div class="hr"></div>
 </div>
 
 
-<h2 id="title_activity" class="toggling_on">Activity</h2>
+<h2 id="title_activity" class="toggling_on">{% trans %}Activity{% endtrans %}</h2>
 <div id="activity">
-  <p>Times are in the contest's timezone ({{ timezone }}). The whole contest's log is under <a href="{{ url("contest", contest.id, "activity") }}">Activity</a>.</p>
+  <p>{% trans timezone=timezone %}Times are in the contest's timezone ({{ timezone }}).{% endtrans %} {% trans activity_url=url("contest", contest.id, "activity") %}The whole contest's log is under <a href="{{ activity_url }}">Activity</a>.{% endtrans %}</p>
   {% if activity_simultaneous %}
-  <p><strong>Simultaneous activity</strong> (its intervals are highlighted below):</p>
+  <p>{% trans %}<strong>Simultaneous activity</strong> (its intervals are highlighted below):{% endtrans %}</p>
   {{ macro_activity.simultaneous_table(url, contest, activity_simultaneous) }}
   {% endif %}
   {{ macro_activity.intervals_table(url, contest, activity_intervals, activity_end_reason, activity_flagged_ids, false) }}
@@ -146,7 +146,7 @@
 </div>
 
 
-<h2 id="title_questions" class="toggling_on">Questions</h2>
+<h2 id="title_questions" class="toggling_on">{% trans %}Questions{% endtrans %}</h2>
 <div id="questions">
   {% if participation.questions != [] %}
   <div class="notifications">
@@ -156,14 +156,14 @@
   </div>
 
   {% else %}
-  No questions.
+  {% trans %}No questions.{% endtrans %}
 
   {% endif %}
   <div class="hr"></div>
 </div>
 
 
-<h2 id="title_messages" class="toggling_on">Messages</h2>
+<h2 id="title_messages" class="toggling_on">{% trans %}Messages{% endtrans %}</h2>
 <div id="messages">
 
   <div class="notifications">
@@ -172,14 +172,14 @@
           {{ xsrf_form_html|safe }}
           <div class="notification_msg">
             <div class="notification_subject">
-              Subject:
+              {% trans %}Subject:{% endtrans %}
               <input id="send_message_subject" type="text" name="message_subject" style="width: 100%" />
             </div>
             <div class="notification_text">
-              Text:
+              {% trans %}Text:{% endtrans %}
               {{ macro_markdown.markdown_input("message_text") }}
             </div>
-          <input type="submit" value="Send"/>
+          <input type="submit" value="{{ _("Send") }}"/>
           {{ macro_markdown.markdown_preview() }}
           </div>
         </form>
@@ -195,14 +195,14 @@
           <div class="notification_text">{{ msg.text | markdown }}</div>
           <hr>
           <div class="notification_admin_owner">
-            By: {{ msg.admin.name if msg.admin is not none else "<unknown>" }}
+            {% set admin_name = msg.admin.name if msg.admin is not none else _("<unknown>") %}{% trans admin_name=admin_name %}By: {{ admin_name }}{% endtrans %}
           </div>
         </div>
       </div>
       {% endfor %}
 
     {% else %}
-      No messages.
+      {% trans %}No messages.{% endtrans %}
     {% endif %}
   </div>
   <div class="hr"></div>
