@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {# This snippet warns admins about too many users per contest server #}
 
 {#
@@ -12,9 +13,7 @@
   {% set ratio = (contest.participations|length / config.contest_web_server.listen_port|length)|round(2) %}
   {% if ratio > 100 %}
 <p>
-  At the moment, you have {{ ratio }} users for each ContestWebServer, on average.<br/>
-  One CWS can reasonably handle about 100 simultaneous requests. This situation might
-  cause long request delays or failures.
+  {% trans ratio=ratio %}At the moment, you have {{ ratio }} users for each ContestWebServer, on average.<br/>One CWS can reasonably handle about 100 simultaneous requests. This situation might cause long request delays or failures.{% endtrans %}
 </p>
   {% endif %}
 {% endif %}

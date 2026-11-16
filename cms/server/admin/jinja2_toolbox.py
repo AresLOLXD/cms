@@ -16,6 +16,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Provide a Jinja2 environment tailored to AWS.
 
 Extend the global generic Jinja2 environment to inject tools that are
@@ -23,7 +25,8 @@ useful specifically to the use that AWS makes of it.
 
 """
 
-from jinja2 import Environment, PackageLoader
+from jinja2 import Environment, PackageLoader, pass_context
+from jinja2.runtime import Context
 
 from cms.db.user import Question
 from cms.grading.languagemanager import LANGUAGES
@@ -53,8 +56,13 @@ def instrument_cms_toolbox(env: Environment):
     env.globals["clock_zones"] = clock_zones
 
 
+@pass_context
+def wrapped_format_dataset_attrs(ctx: Context, dataset):
+    return format_dataset_attrs(dataset, ctx.resolve("gettext"))
+
+
 def instrument_formatting_toolbox(env: Environment):
-    env.filters["format_dataset_attrs"] = format_dataset_attrs
+    env.filters["format_dataset_attrs"] = wrapped_format_dataset_attrs
     env.filters["format_utc_time"] = format_utc_time
 
 
