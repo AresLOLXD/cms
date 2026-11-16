@@ -689,6 +689,17 @@ def _helper_returns(module: str, name: str, index: int) -> list[str]:
     return found
 
 
+def _is_r_params_slot(target) -> bool:
+    """Return True for r_params[...] and self.r_params[...][...]: the
+    values that a handler gives to its template."""
+    if not isinstance(target, ast.Subscript):
+        return False
+    while isinstance(target, ast.Subscript):
+        target = target.value
+    return (isinstance(target, ast.Name) and target.id == "r_params") \
+        or (isinstance(target, ast.Attribute) and target.attr == "r_params")
+
+
 class _PythonVisitor(ast.NodeVisitor):
     """Collect the texts that reach the admin without gettext.
 
@@ -697,7 +708,8 @@ class _PythonVisitor(ast.NodeVisitor):
     result of an imported helper that returns literals), raise
     ValueError and the like, and assert ..., text (in handlers);
     self.write(text with spaces); a prose value of a dict in a handler
-    (the response of a request); prose module or
+    (the response of a request); a prose value assigned to
+    self.r_params[...] (the text the template shows); prose module or
     class constants not wrapped in N_. HTTP error reasons are English on
     purpose and are not sinks.
 
@@ -775,6 +787,11 @@ class _PythonVisitor(ast.NodeVisitor):
             for v in _unwrapped_constants(node.value):
                 if " " in v.strip() and v[:1].isupper():
                     self.found.append((node.lineno, "constant", v))
+        for target in node.targets:
+            if self.in_handler and _is_r_params_slot(target):
+                for text in _literal_texts(node.value):
+                    if " " in text.strip() or text[:1].isupper():
+                        self.found.append((node.lineno, "r_params-text", text))
         # remember what the names of the function are
         for target in node.targets:
             names = [target] if isinstance(target, ast.Name) else \

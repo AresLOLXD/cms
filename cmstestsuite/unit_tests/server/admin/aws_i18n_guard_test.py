@@ -300,7 +300,10 @@ def test_the_guard_catches_what_it_promises():
         '    self.service.add_notification(1, self._("Wrapped"), message)\n'
         '    subject, text = import_testcases_from_zipfile(1)\n'
         '    self.service.add_notification(1, subject, text)\n'
-        '    self.write({"error": "Bare dict text", "code": 3})\n')
+        '    self.write({"error": "Bare dict text", "code": 3})\n'
+        '    self.r_params["a"][1] = "Bare params text"\n'
+        '    self.r_params["b"] = self._("Wrapped params text")\n'
+        '    r_params["c"] = "Bare %s params" % 3\n')
     assert [(kind, text) for _, kind, text in lint.python_texts(python)] \
         == [("notification-subject", "Bare subject"),
             ("assert-text", "Bare assert"),
@@ -309,7 +312,9 @@ def test_the_guard_catches_what_it_promises():
             ("helper-return", "Successfully added %d and overwritten %d "
              "testcase(s)"),
             ("helper-return", "Added: %s; overwritten: %s; skipped: %s"),
-            ("dict-text", "Bare dict text")]
+            ("dict-text", "Bare dict text"),
+            ("r_params-text", "Bare params text"),
+            ("r_params-text", "Bare %s params")]
 
 
 def test_every_file_is_complete():
