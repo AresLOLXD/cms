@@ -2,7 +2,7 @@
 
 - [x] 1.1 English snapshot of every page generated on the untouched tree, and `test_english_render_unchanged`
 - [x] 1.2 `with context` on the 15 macro imports and `test_macro_imports_take_the_context`
-- [ ] 1.3 `gettext` parameter for the `parse_*` functions of `handlers/base.py` with their six messages in Spanish, and a test (Scenarios "Invalid field in Spanish", "Invalid field in English")
+- [x] 1.3 `gettext` parameter for the `parse_*` functions of `handlers/base.py` with their six messages in Spanish, and a test (Scenarios "Invalid field in Spanish", "Invalid field in English")
 - [ ] 1.4 Contestant-site fallback in the AWS translations and the test helper, with `aws_fallback_test.py` (Scenarios "Outcome in Spanish", "Outcome in English")
 - [ ] 1.5 Catalog machinery: the catalog test reads `aws.po` plus `cms/locale/_fragments/aws-*.po`; fragment agreement tests; Babel `check()`; `test_aws_es_style` (Scenario "Spanish register")
 - [ ] 1.6 Guards: `aws_i18n_lint.py` and `aws_i18n_guard_test.py`, markers on the nine complete files (Scenarios "A new untranslated text", "No translated posted values")

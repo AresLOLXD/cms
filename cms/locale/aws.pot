@@ -160,6 +160,22 @@ msgstr ""
 msgid "the export failed; nothing was generated"
 msgstr ""
 
+#, python-format
+msgid "Can't cast %s to int."
+msgstr ""
+
+#, python-format
+msgid "Can't cast %s to timedelta."
+msgstr ""
+
+#, python-format
+msgid "Can't cast %s to datetime."
+msgstr ""
+
+#, python-format
+msgid "Can't cast %s to an IP network."
+msgstr ""
+
 msgid "You did not choose any user."
 msgstr ""
 

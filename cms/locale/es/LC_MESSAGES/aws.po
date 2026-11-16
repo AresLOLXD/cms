@@ -161,6 +161,22 @@ msgstr "la exportación falló (código de salida %d); no se generó nada"
 msgid "the export failed; nothing was generated"
 msgstr "la exportación falló; no se generó nada"
 
+#, python-format
+msgid "Can't cast %s to int."
+msgstr "No se puede convertir %s a entero."
+
+#, python-format
+msgid "Can't cast %s to timedelta."
+msgstr "No se puede convertir %s a duración."
+
+#, python-format
+msgid "Can't cast %s to datetime."
+msgstr "No se puede convertir %s a fecha y hora."
+
+#, python-format
+msgid "Can't cast %s to an IP network."
+msgstr "No se puede convertir %s a red IP."
+
 msgid "You did not choose any user."
 msgstr "No elegiste ningún usuario."
 

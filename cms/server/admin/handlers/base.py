@@ -66,6 +66,7 @@ from cms.db.connect_options import describe_error, is_disconnect, \
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
 from cms.locale import DEFAULT_TRANSLATION, choose_language_code
+from cms.locale.locale import N_
 from cms.server import CommonRequestHandler, FileHandlerMixin
 from cmscommon.crypto import hash_password, parse_authentication
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -108,10 +109,14 @@ def _get_request_slots() -> asyncio.Semaphore:
     return _request_slots
 
 
-def argument_reader(func: Callable[[str], typing.Any], empty: object = None):
+def argument_reader(
+    func: Callable[[str, Callable[[str], str]], typing.Any],
+    empty: object = None,
+):
     """Return an helper method for reading and parsing form values.
 
-    func: the parser and validator for the value.
+    func: the parser and validator for the value; it gets the value and
+        the gettext of the handler, for the messages it raises.
     empty: the value to store if an empty string is retrieved.
 
     return: a function to be used as a method of a
@@ -136,52 +141,67 @@ def argument_reader(func: Callable[[str], typing.Any], empty: object = None):
         if len(value) == 0:
             dest[name] = empty
         else:
-            dest[name] = func(value)
+            dest[name] = func(value, self._)
 
     return helper
 
 
-def parse_string_list(value: str) -> list[str]:
-    """Parse a comma-separated list of strings."""
+def parse_string_list(
+    value: str, gettext: Callable[[str], str] = N_
+) -> list[str]:
+    """Parse a comma-separated list of strings.
+
+    The parse_* functions take the gettext used for the messages that
+    they raise; without it the messages stay in English.
+
+    """
     return list(x.strip() for x in value.split(",") if x.strip())
 
 
-def parse_int(value: str) -> int:
+def parse_int(
+    value: str, gettext: Callable[[str], str] = N_
+) -> int:
     """Parse and validate an integer."""
     try:
         return int(value)
     except:
-        raise ValueError("Can't cast %s to int." % value)
+        raise ValueError(gettext("Can't cast %s to int.") % value)
 
 
-def parse_timedelta_sec(value: str) -> timedelta:
+def parse_timedelta_sec(
+    value: str, gettext: Callable[[str], str] = N_
+) -> timedelta:
     """Parse and validate a timedelta (as number of seconds)."""
     try:
         return timedelta(seconds=float(value))
     except:
-        raise ValueError("Can't cast %s to timedelta." % value)
+        raise ValueError(gettext("Can't cast %s to timedelta.") % value)
 
 
-def parse_timedelta_min(value: str) -> timedelta:
+def parse_timedelta_min(
+    value: str, gettext: Callable[[str], str] = N_
+) -> timedelta:
     """Parse and validate a timedelta (as number of minutes)."""
     try:
         return timedelta(minutes=float(value))
     except:
-        raise ValueError("Can't cast %s to timedelta." % value)
+        raise ValueError(gettext("Can't cast %s to timedelta.") % value)
 
 
-def parse_datetime(value: str) -> datetime:
+def parse_datetime(
+    value: str, gettext: Callable[[str], str] = N_
+) -> datetime:
     """Parse and validate a datetime (in pseudo-ISO8601)."""
     if '.' not in value:
         value += ".0"
     try:
         return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
     except:
-        raise ValueError("Can't cast %s to datetime." % value)
+        raise ValueError(gettext("Can't cast %s to datetime.") % value)
 
 
 def parse_ip_networks(
-    networks: str,
+    networks: str, gettext: Callable[[str], str] = N_
 ) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     """Parse and validate a comma-separated list of IP networks.
 
@@ -200,7 +220,8 @@ def parse_ip_networks(
         try:
             result.append(ipaddress.ip_network(network))
         except ValueError:
-            raise ValueError("Can't cast %s to an IP network." % network)
+            raise ValueError(
+                gettext("Can't cast %s to an IP network.") % network)
     return result
 
 
@@ -693,7 +714,7 @@ class BaseHandler(CommonRequestHandler):
             return
         self.render("error.html", status_code=status_code, **self.r_params)
 
-    get_string = argument_reader(lambda a: a, empty="")
+    get_string = argument_reader(lambda a, _: a, empty="")
 
     get_string_list = argument_reader(parse_string_list, empty=[])
 
