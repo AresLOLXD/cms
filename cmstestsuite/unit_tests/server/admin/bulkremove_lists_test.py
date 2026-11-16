@@ -165,6 +165,6 @@ class TestListPagesInTwoLanguages(ListPageTestCase):
                          "Usuarios seleccionados:",
                          'title="Seleccionar todo"',
                          'value="Revisar lista"', "Importar CSV",
-                         "Un username por línea, o un CSV cuya primera "
-                         "columna sea el username."):
+                         "Un usuario por línea, o un CSV cuya primera "
+                         "columna sea el usuario."):
                 self.assertIn(text, html)

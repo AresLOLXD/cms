@@ -7,7 +7,7 @@
 - [x] 1.5 Catalog machinery: the catalog test reads `aws.po` plus `cms/locale/_fragments/aws-*.po`; fragment agreement tests; Babel `check()`; `test_aws_es_style` (Scenario "Spanish register")
 - [x] 1.6 Guards: `aws_i18n_lint.py` and `aws_i18n_guard_test.py`, markers on the nine complete files (Scenarios "A new untranslated text", "No translated posted values")
 - [x] 1.7 Seed the shared messages in `aws.po` and list the shared sentence blocks and their owner lane
-- [ ] 1.8 Fix the existing Spanish (fase de análisis, fila, concursantes, user tests, usuario) with the updated pins
+- [x] 1.8 Fix the existing Spanish (fase de análisis, fila, concursantes, user tests, usuario) with the updated pins
 - [ ] 1.9 Copy the translation guide, glossary and checker into `translation/` of this change with the decisions applied
 
 ## 2. Wave 1: L0, L4, L2, L5

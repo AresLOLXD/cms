@@ -243,7 +243,7 @@ msgstr "alguno de los concursos elegidos ya no existe"
 
 #, python-format
 msgid "These contests are running or in their analysis mode: %s. The dump is read without freezing the database: it may come out inconsistent and the load may affect the contest. Tick the confirmation to export them anyway."
-msgstr "Estos concursos están en curso o en su modo de análisis: %s. El volcado se lee sin congelar la base de datos: puede salir inconsistente y la carga puede afectar al concurso. Marca la confirmación para exportarlos de todos modos."
+msgstr "Estos concursos están en curso o en su fase de análisis: %s. El volcado se lee sin congelar la base de datos: puede salir inconsistente y la carga puede afectar al concurso. Marca la confirmación para exportarlos de todos modos."
 
 #, python-format
 msgid "Invalid ranking group name %r: use only lowercase letters, digits, '-' and '_', and none of: %s."
@@ -390,7 +390,7 @@ msgid "Remove by list"
 msgstr "Quitar por lista"
 
 msgid "One username per line, or a CSV whose first column is the username."
-msgstr "Un username por línea, o un CSV cuya primera columna sea el username."
+msgstr "Un usuario por línea, o un CSV cuya primera columna sea el usuario."
 
 msgid "Review list"
 msgstr "Revisar lista"
@@ -399,10 +399,10 @@ msgid "Users"
 msgstr "Usuarios"
 
 msgid "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved."
-msgstr "Un renglón por concursante: crea los usuarios que falten y registra su participación en este concurso con la contraseña del día. Sin columna de contraseña, solo inscribe usuarios que ya existen y las participaciones nuevas entran con la contraseña de su cuenta. Si el usuario o la participación ya existen, se actualizan. Si hay cualquier error, no se guarda nada."
+msgstr "Una fila por concursante: crea los usuarios que falten y registra su participación en este concurso con la contraseña del día. Sin columna de contraseña, solo inscribe usuarios que ya existen y las participaciones nuevas entran con la contraseña de su cuenta. Si el usuario o la participación ya existen, se actualizan. Si hay cualquier error, no se guarda nada."
 
 msgid "One row per user: it creates the accounts that are missing with their password and updates the first name, the last name and the password of those that already exist. It does not register anyone in any contest. If there is any error, nothing is saved."
-msgstr "Un renglón por usuario: crea las cuentas que falten con su contraseña y actualiza el nombre, el apellido y la contraseña de las que ya existen. No registra a nadie en ningún concurso. Si hay cualquier error, no se guarda nada."
+msgstr "Una fila por usuario: crea las cuentas que falten con su contraseña y actualiza el nombre, el apellido y la contraseña de las que ya existen. No registra a nadie en ningún concurso. Si hay cualquier error, no se guarda nada."
 
 msgid "The password of the account is only used in the contests where the participation has no password of its own."
 msgstr "La contraseña de la cuenta solo se usa en los concursos donde la participación no tiene contraseña propia."
@@ -565,7 +565,7 @@ msgid "The file contains the users' passwords (hashed or in plain text, as they 
 msgstr "El archivo contiene las contraseñas de los usuarios (cifradas o en texto plano, según estén guardadas) y todos los envíos: trátalo como información confidencial. Solo los administradores con todos los permisos pueden exportar y descargar."
 
 msgid "The dump may include more than you choose: <code>cmsDumpExporter</code> also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants."
-msgstr "El volcado puede incluir más de lo que eliges: <code>cmsDumpExporter</code> también exporta los usuarios de esos concursos y todos los concursos en los que participan. No incluye los grupos de ranking ni el registro de actividad de los participantes."
+msgstr "El volcado puede incluir más de lo que eliges: <code>cmsDumpExporter</code> también exporta los usuarios de esos concursos y todos los concursos en los que participan. No incluye los grupos de ranking ni el registro de actividad de los concursantes."
 
 msgid "It is not a backup of the whole database: for that use <code>backup.sh</code> (<code>pg_dump</code>)."
 msgstr "No es un respaldo de toda la base de datos: para eso usa <code>backup.sh</code> (<code>pg_dump</code>)."
@@ -608,7 +608,7 @@ msgid "(no contests)"
 msgstr "(no hay concursos)"
 
 msgid "(running or in analysis mode)"
-msgstr "(en curso o en modo de análisis)"
+msgstr "(en curso o en fase de análisis)"
 
 msgid "Content"
 msgstr "Contenido"
@@ -632,13 +632,13 @@ msgid "Do not export the submissions (<code>-S</code>)"
 msgstr "No exportar los envíos (<code>-S</code>)"
 
 msgid "Do not export the user tests (<code>-U</code>)"
-msgstr "No exportar las pruebas de usuario (<code>-U</code>)"
+msgstr "No exportar las user tests (<code>-U</code>)"
 
 msgid "Do not export the users (<code>-X</code>)"
 msgstr "No exportar los usuarios (<code>-X</code>)"
 
 msgid "There are contests running or in analysis mode. The dump is read without freezing the database: it may come out inconsistent, and the queries and the reading of files load the database that the contest uses."
-msgstr "Hay concursos en curso o en modo de análisis. El volcado se lee sin congelar la base de datos: puede salir inconsistente, y las consultas y la lectura de archivos cargan la base de datos que usa el concurso."
+msgstr "Hay concursos en curso o en fase de análisis. El volcado se lee sin congelar la base de datos: puede salir inconsistente, y las consultas y la lectura de archivos cargan la base de datos que usa el concurso."
 
 msgid "I understand the risk and want to export anyway"
 msgstr "Entiendo el riesgo y quiero exportar de todos modos"

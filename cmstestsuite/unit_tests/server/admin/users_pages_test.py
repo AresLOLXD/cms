@@ -37,7 +37,8 @@ from jinja2 import ChoiceLoader, DictLoader
 
 from cms.server.admin.bulkremove import NOT_FOUND, NOT_IN_CONTEST
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
-from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH, \
+    with_new_terms
 
 DATA = Path(__file__).parent / "data"
 
@@ -90,6 +91,11 @@ def visible(html: str) -> tuple[str, list[str]]:
     html = re.sub(r"<(script|style)\b.*?</\1>", "", html, flags=re.S)
     text = " ".join(unescape(re.sub(r"<[^>]+>", " ", html)).split())
     return text, [" ".join(v.split()) for v in attributes.values]
+
+
+def new_terms(page: tuple[str, list[str]]) -> tuple[str, list[str]]:
+    """The page of main with the terms of the style guide."""
+    return with_new_terms(page[0]), [with_new_terms(v) for v in page[1]]
 
 
 EVIL = 'Día "1" <b>&</b> 100%'
@@ -173,7 +179,7 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             self.assertEqual(
                 visible(render(AWS_ENVIRONMENT, "users.html", SPANISH,
                                **params)),
-                visible(render(before, "users.html", **params)))
+                new_terms(visible(render(before, "users.html", **params))))
 
     def test_the_contest_users_page_is_the_page_of_main(self):
         # Scenario: A page in Spanish is the page of main
@@ -186,7 +192,8 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             self.assertEqual(
                 visible(render(AWS_ENVIRONMENT, "contest_users.html",
                                SPANISH, **params)),
-                visible(render(before, "contest_users.html", **params)))
+                new_terms(
+                    visible(render(before, "contest_users.html", **params))))
 
 
 if __name__ == "__main__":

@@ -58,3 +58,23 @@ def _spanish(domain: str) -> Translation:
 CMS_SPANISH = _spanish("cms")
 SPANISH = _spanish("aws")
 SPANISH.translation.add_fallback(CMS_SPANISH.translation)
+
+
+# The Spanish of the pages as main had it, and the terms of the style
+# guide that replaced it (the frozen "before" pages are main's).
+MAIN_TERMS = [
+    ("modo de análisis", "fase de análisis"),
+    ("Un renglón por", "Una fila por"),
+    ("pruebas de usuario", "user tests"),
+    ("los participantes.", "los concursantes."),
+    ("Un username por línea, o un CSV cuya primera columna sea el username.",
+     "Un usuario por línea, o un CSV cuya primera columna sea el usuario."),
+]
+
+
+def with_new_terms(text: str) -> str:
+    """Return the text of a page of main with the terms of the style
+    guide, to compare it with the page of today."""
+    for old, new in MAIN_TERMS:
+        text = text.replace(old, new)
+    return text
