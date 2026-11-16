@@ -1,0 +1,542 @@
+# Spanish translations for Contest Management System.
+# Copyright (C) 2026 CMS development group
+# This file is distributed under the same license as the Contest Management
+# System project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Contest Management System 1.6\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-11-16 00:25-0600\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: aws-L2\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.12.1\n"
+
+msgid ""
+"A short name for the task, preferably using only letters, numbers and "
+"underscores."
+msgstr ""
+"Un nombre corto para el problema, de preferencia solo con letras, números"
+" y guiones bajos."
+
+#, python-format
+msgid ""
+"Are you sure you want to remove task %(name)s from CMS, including all "
+"related data?"
+msgstr ""
+"¿Seguro que quieres borrar el problema %(name)s de CMS, con todos sus "
+"datos relacionados?"
+
+msgid "Attachment storage failed"
+msgstr "No se pudo guardar el adjunto"
+
+#, python-format
+msgid "Dataset name %r is already taken."
+msgstr "El nombre de dataset %r ya está en uso."
+
+msgid "Edit selected task:"
+msgstr "Editar el problema seleccionado:"
+
+msgid "Invalid score type parameters"
+msgstr "Parámetros del tipo de puntaje no válidos"
+
+msgid "Invalid task statement"
+msgstr "Enunciado del problema no válido"
+
+msgid "Language code:"
+msgstr "Código de idioma:"
+
+msgid "Name:"
+msgstr "Nombre:"
+
+msgid "New task"
+msgstr "Nuevo problema"
+
+msgid "No language code specified"
+msgstr "No se indicó el código de idioma"
+
+msgid "No task name specified."
+msgstr "No se indicó el nombre del problema."
+
+msgid "Please choose a unique name for this dataset."
+msgstr "Elige un nombre único para este dataset."
+
+msgid "Remove Task"
+msgstr "Borrar problema"
+
+msgid "Task statement storage failed"
+msgstr "No se pudo guardar el enunciado del problema"
+
+msgid "Tasks list"
+msgstr "Lista de problemas"
+
+msgid "The language code can be any string."
+msgstr "El código de idioma puede ser cualquier cadena de texto."
+
+msgid "The task statement must be a .pdf file."
+msgstr "El enunciado del problema debe ser un archivo .pdf."
+
+#, python-format
+msgid "This will remove %(count)s submission(s)."
+msgstr "Se borrarán %(count)s envío(s)."
+
+msgid "Upload attachment"
+msgstr "Subir adjunto"
+
+msgid "Upload statement"
+msgstr "Subir enunciado"
+
+msgid "You do not have permission to remove a task."
+msgstr "No tienes permiso para borrar un problema."
+
+msgid "the score parameters could not be checked."
+msgstr "no se pudieron revisar los parámetros del puntaje."
+
+#, python-format
+msgid "%(count)s submissions"
+msgstr "%(count)s envíos"
+
+msgid "1 submission"
+msgstr "1 envío"
+
+msgid ""
+"A comma-separated list with the names of the files that need to be "
+"submitted (with the language extensions changed to %l)."
+msgstr ""
+"Una lista separada por comas con los nombres de los archivos que se deben"
+" enviar (con las extensiones del lenguaje cambiadas por %l)."
+
+msgid "Add a testcase"
+msgstr "Agregar un caso de prueba"
+
+msgid "Add multiple testcases"
+msgstr "Agregar varios casos de prueba"
+
+msgid "Allowed programming languages"
+msgstr "Lenguajes de programación permitidos"
+
+msgid "Attachments"
+msgstr "Adjuntos"
+
+msgid ""
+"Attachments for this task. Contestant can view and download attachments "
+"from the task page."
+msgstr ""
+"Adjuntos de este problema. Los concursantes pueden ver y descargar los "
+"adjuntos desde la página del problema."
+
+msgid "Create a new dataset"
+msgstr "Crear un nuevo dataset"
+
+#, python-format
+msgid "Currently invalid: %(warning)s"
+msgstr "Actualmente no válido: %(warning)s"
+
+msgid "Dataset configuration"
+msgstr "Configuración del dataset"
+
+msgid "Datasets"
+msgstr "Datasets"
+
+msgid "Download all testcases"
+msgstr "Descargar todos los casos de prueba"
+
+msgid "Example: '2' to allow 98.76."
+msgstr "Ejemplo: '2' para permitir 98.76."
+
+msgid "Feedback level"
+msgstr "Nivel de retroalimentación"
+
+msgid "Finite"
+msgstr "Finito"
+
+msgid "Full"
+msgstr "Completo"
+
+msgid "How the score for the task is computed from the score of each submission."
+msgstr ""
+"Cómo se calcula el puntaje del problema a partir del puntaje de cada "
+"envío."
+
+msgid "If none are selected, all contest languages are allowed."
+msgstr "Si no se selecciona ninguno, se permiten todos los lenguajes del concurso."
+
+msgid "If you prefer to control tokens at the task level, select 'infinite' here."
+msgstr ""
+"Si prefieres controlar los tokens a nivel de problema, elige «Infinito» "
+"aquí."
+
+msgid "Infinite"
+msgstr "Infinito"
+
+msgid "Initial number of tokens"
+msgstr "Número inicial de tokens"
+
+msgid "Input"
+msgstr "Entrada"
+
+msgid "It is used only if tokens are finite."
+msgstr "Solo se usa si los tokens son finitos."
+
+msgid "Leave empty for no limits."
+msgstr "Déjalo vacío para no tener límites."
+
+msgid "Limits"
+msgstr "Límites"
+
+msgid "Managers"
+msgstr "Managers"
+
+msgid ""
+"Managers for this task. Managers are sources, headers, libraries or "
+"binaries used during the evaluation."
+msgstr ""
+"Managers de este problema. Los managers son fuentes, encabezados, "
+"bibliotecas o binarios que se usan durante la evaluación."
+
+msgid "Maximum accumulated tokens"
+msgstr "Máximo de tokens acumulados"
+
+msgid "Maximum number of submissions"
+msgstr "Número máximo de envíos"
+
+msgid ""
+"Maximum number of submissions each contestant can submit for this task, "
+"for the whole contest."
+msgstr ""
+"Número máximo de envíos que cada concursante puede hacer para este "
+"problema, en todo el concurso."
+
+msgid "Maximum number of tokens"
+msgstr "Número máximo de tokens"
+
+msgid ""
+"Maximum number of tokens for this task available to a contestant at any "
+"given time during the contest."
+msgstr ""
+"Número máximo de tokens para este problema que un concursante puede tener"
+" disponibles en cualquier momento del concurso."
+
+msgid "Maximum number of user tests"
+msgstr "Número máximo de user tests"
+
+msgid ""
+"Maximum number of user tests each contestant can submit for this task, "
+"for the whole contest."
+msgstr ""
+"Número máximo de user tests que cada concursante puede enviar para este "
+"problema, en todo el concurso."
+
+msgid "MiB"
+msgstr "MiB"
+
+msgid "Minimum interval between submissions"
+msgstr "Intervalo mínimo entre envíos"
+
+msgid "Minimum interval between tokens"
+msgstr "Intervalo mínimo entre tokens"
+
+msgid "Minimum interval between user tests"
+msgstr "Intervalo mínimo entre user tests"
+
+msgid "No attachments."
+msgstr "No hay adjuntos."
+
+msgid "No datasets have been created for this task."
+msgstr "No se ha creado ningún dataset para este problema."
+
+msgid "No managers."
+msgstr "No hay managers."
+
+msgid "No statements uploaded yet"
+msgstr "Aún no se ha subido ningún enunciado"
+
+msgid "No submissions for this task yet."
+msgstr "Aún no hay envíos para este problema."
+
+msgid "OI Restricted"
+msgstr "OI restringido"
+
+msgid "Ops"
+msgstr "Operaciones"
+
+msgid "Otherwise, only the selected languages are allowed."
+msgstr "De lo contrario, solo se permiten los lenguajes seleccionados."
+
+msgid "Please see the score type documentation."
+msgstr "Consulta la documentación del tipo de puntaje."
+
+msgid ""
+"Please see the score type documentation. A subtask can list "
+"\"depends_on\": [subtask numbers]; see the subtask dependencies page of "
+"the documentation."
+msgstr ""
+"Consulta la documentación del tipo de puntaje. Una subtarea puede incluir"
+" la clave depends_on: [números de subtarea]; consulta la página de "
+"dependencias entre subtareas de la documentación."
+
+msgid "Please see the task type documentation."
+msgstr "Consulta la documentación del tipo de problema."
+
+msgid "Position"
+msgstr "Posición"
+
+msgid "Primary?"
+msgstr "¿Principal?"
+
+msgid "Programming languages that contestants can use to solve this task."
+msgstr ""
+"Lenguajes de programación que los concursantes pueden usar para resolver "
+"este problema."
+
+msgid "Restricted"
+msgstr "Restringido"
+
+msgid "Score Parameters"
+msgstr "Parámetros del puntaje"
+
+msgid "Score Type"
+msgstr "Tipo de puntaje"
+
+msgid "Score decimal places"
+msgstr "Decimales del puntaje"
+
+msgid "Score mode"
+msgstr "Modo de puntaje"
+
+msgid "Score options"
+msgstr "Opciones de puntaje"
+
+#, python-format
+msgid ""
+"Score type settings (<a href=\"%(link)s\" "
+"target=\"_blank\">documentation</a>)"
+msgstr ""
+"Configuración del tipo de puntaje (<a href=\"%(link)s\" "
+"target=\"_blank\">documentación</a>)"
+
+msgid ""
+"Select 'disabled' to remove tokens completely for this task, 'infinite' "
+"for allowing any number of tokens for this task, or 'finite' to specify "
+"the amount with the following parameters."
+msgstr ""
+"Elige «Desactivado» para quitar los tokens por completo en este problema,"
+" «Infinito» para permitir cualquier cantidad de tokens en este problema, "
+"o «Finito» para indicar la cantidad con los parámetros siguientes."
+
+msgid "Show input"
+msgstr "Mostrar entrada"
+
+msgid "Show output"
+msgstr "Mostrar salida"
+
+#, python-format
+msgid "Statement for language \"%(language)s\""
+msgstr "Enunciado en el idioma «%(language)s»"
+
+msgid "Statements"
+msgstr "Enunciados"
+
+msgid "Submission format"
+msgstr "Formato de envío"
+
+msgid "Task configuration"
+msgstr "Configuración del problema"
+
+msgid "Task information"
+msgstr "Información del problema"
+
+msgid "Task type"
+msgstr "Tipo de problema"
+
+#, python-format
+msgid ""
+"Task type settings (<a href=\"%(link)s\" "
+"target=\"_blank\">documentation</a>)"
+msgstr ""
+"Configuración del tipo de problema (<a href=\"%(link)s\" "
+"target=\"_blank\">documentación</a>)"
+
+msgid "Test cases"
+msgstr "Casos de prueba"
+
+msgid ""
+"The amount of time (in minutes) between two token generation events for "
+"this task."
+msgstr ""
+"El tiempo (en minutos) entre dos eventos de generación de tokens para "
+"este problema."
+
+msgid ""
+"The index of the task within the contest, if the task is associated with "
+"a contest."
+msgstr ""
+"El índice del problema dentro del concurso, si el problema está asociado "
+"a un concurso."
+
+msgid "The maximum number of tokens a contestant can use in this task."
+msgstr "El número máximo de tokens que un concursante puede usar en este problema."
+
+msgid ""
+"The minimum amount of time (in seconds) for this task that a contestant "
+"needs to wait after a submission before being able to submit another."
+msgstr ""
+"El tiempo mínimo (en segundos) que un concursante debe esperar en este "
+"problema después de un envío antes de poder hacer otro."
+
+msgid ""
+"The minimum amount of time (in seconds) for this task that a contestant "
+"needs to wait after a user test before being able to send another."
+msgstr ""
+"El tiempo mínimo (en segundos) que un concursante debe esperar en este "
+"problema después de un user test antes de poder enviar otro."
+
+msgid ""
+"The minimum amount of time (in seconds) that a contestant needs to wait "
+"for this task after using a token before being able to use another."
+msgstr ""
+"El tiempo mínimo (en segundos) que un concursante debe esperar en este "
+"problema después de usar un token antes de poder usar otro."
+
+msgid "The number of decimal places the scores will be rounded to."
+msgstr "El número de decimales a los que se redondearán los puntajes."
+
+msgid ""
+"The number of tokens that a contestant has available for this task when "
+"their contest time starts."
+msgstr ""
+"El número de tokens que un concursante tiene disponibles para este "
+"problema cuando comienza su tiempo en el concurso."
+
+msgid "The number of tokens that are generated periodically for this task."
+msgstr "El número de tokens que se generan periódicamente para este problema."
+
+msgid ""
+"The statements of this task, by language code. Primary statements are "
+"shown prominently to contestants."
+msgstr ""
+"Los enunciados de este problema, por código de idioma. Los enunciados "
+"principales se muestran de forma destacada a los concursantes."
+
+msgid ""
+"The task type dictates the submission format. Consult the task type "
+"documentation to know the requirements."
+msgstr ""
+"El tipo de problema determina el formato de envío. Consulta la "
+"documentación del tipo de problema para conocer los requisitos."
+
+msgid "The title of the task as seen by the contestants."
+msgstr "El título del problema tal como lo ven los concursantes."
+
+msgid "Token generation number"
+msgstr "Número de tokens generados"
+
+msgid "Token generation period"
+msgstr "Periodo de generación de tokens"
+
+msgid "Token mode"
+msgstr "Modo de token"
+
+#, python-format
+msgid ""
+"Tokens parameters (<a href=\"%(link)s\" "
+"target=\"_blank\">documentation</a>)"
+msgstr ""
+"Parámetros de tokens (<a href=\"%(link)s\" "
+"target=\"_blank\">documentación</a>)"
+
+msgid "Total maximum memory usage for each evaluation, in MiB (2^20 bytes)."
+msgstr "Uso máximo total de memoria en cada evaluación, en MiB (2^20 bytes)."
+
+msgid "Total maximum time for each evaluation, in seconds."
+msgstr "Tiempo máximo total de cada evaluación, en segundos."
+
+msgid ""
+"Update does not rescore the submissions. To rescore, open the dataset's "
+"[View results] page and press S or E; see the subtask dependencies page "
+"of the documentation. Do not do it on a live task during a contest."
+msgstr ""
+"Actualizar no recalcula el puntaje de los envíos. Para recalcularlo, abre"
+" la página [Ver resultados] del dataset y pulsa S o E; consulta la página"
+" de dependencias entre subtareas de la documentación. No lo hagas con un "
+"problema en vivo durante un concurso."
+
+msgid "Use best among all submissions (IOI 2013-2016)"
+msgstr "Usar el mejor entre todos los envíos (IOI 2013-2016)"
+
+msgid "Use best among tokened and last submissions (IOI 2010-2012)"
+msgstr "Usar el mejor entre los envíos con token y el último envío (IOI 2010-2012)"
+
+msgid ""
+"Use the sum over each subtask of the best result for that subtask across "
+"all submissions (IOI 2017-)"
+msgstr ""
+"Usar la suma, sobre cada subtarea, del mejor resultado de esa subtarea "
+"entre todos los envíos (IOI 2017-)"
+
+msgid ""
+"With 'restricted' contestants only see limited technical information "
+"about each testcase; with 'full' they see more details, but malicious "
+"contestants might use this data to get some information about the test "
+"data."
+msgstr ""
+"Con «Restringido» los concursantes solo ven información técnica limitada "
+"de cada caso de prueba; con «Completo» ven más detalles, pero un "
+"concursante malintencionado podría usar estos datos para obtener "
+"información sobre los datos de prueba."
+
+msgid "[Clone]"
+msgstr "[Clonar]"
+
+msgid "[Delete]"
+msgstr "[Borrar]"
+
+msgid "[Make Live ...]"
+msgstr "[Poner en vivo…]"
+
+msgid "[Rename]"
+msgstr "[Renombrar]"
+
+msgid "add"
+msgstr "agregar"
+
+msgid "second(s)"
+msgstr "segundo(s)"
+
+msgid "[Disable background judging]"
+msgstr "[Desactivar evaluación en segundo plano]"
+
+msgid "[Enable background judging]"
+msgstr "[Activar evaluación en segundo plano]"
+
+#, python-format
+msgid "Task type `%s' not found."
+msgstr "No se encontró el tipo de problema `%s'."
+
+msgid ""
+"Please select another task type, or make the original one available and "
+"refresh the page without updating the task to avoid losing the "
+"parameters."
+msgstr ""
+"Elige otro tipo de problema, o habilita el original y recarga la página "
+"sin actualizar el problema para no perder los parámetros."
+
+#, python-format
+msgid "Score type `%s' not found."
+msgstr "No se encontró el tipo de puntaje `%s'."
+
+msgid ""
+"Please select another score type, or make the original one available and "
+"refresh the page without updating the task to avoid losing the "
+"parameters."
+msgstr ""
+"Elige otro tipo de puntaje, o habilita el original y recarga la página "
+"sin actualizar el problema para no perder los parámetros."
+
