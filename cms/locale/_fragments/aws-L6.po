@@ -42,3 +42,30 @@ msgstr "al final"
 
 msgid "Please select a valid task"
 msgstr "Selecciona un problema válido"
+
+msgid "Please select a valid user"
+msgstr "Selecciona un usuario válido"
+
+msgid "Please select a valid group"
+msgstr "Selecciona un grupo válido"
+
+msgid "Team with code '%s' does not exist"
+msgstr "No existe un equipo con el código '%s'"
+
+msgid "Add a new user:"
+msgstr "Agrega un usuario nuevo:"
+
+msgid "Select a new user"
+msgstr "Elige un usuario nuevo"
+
+msgid "Add user"
+msgstr "Agregar usuario"
+
+msgid "Remove Participation"
+msgstr "Quitar participación"
+
+msgid "Are you sure you want to remove user %(username)s from contest %(contest_name)s, including all related data?"
+msgstr "¿Seguro que quieres quitar al usuario %(username)s del concurso %(contest_name)s, incluidos todos sus datos relacionados?"
+
+msgid "You do not have permission to remove a participation."
+msgstr "No tienes permiso para quitar una participación."

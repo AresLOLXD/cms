@@ -25,8 +25,11 @@ page looks.
 """
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from cms.server.admin.handlers.contestuser import AddContestUserHandler, \
+    ParticipationHandler
 from cms.server.admin.handlers.contesttask import AddContestTaskHandler, \
     ContestTasksHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
@@ -126,3 +129,76 @@ class TestContestTaskFormErrors(unittest.TestCase):
             notification(handler),
             ("Invalid field(s)",
              repr(AssertionError("Please select a valid task"))))
+
+
+class TestContestUsersInSpanish(unittest.TestCase):
+
+    def test_the_contest_users_page_in_spanish(self):
+        # Scenario: A page group in Spanish (participations)
+        group = SimpleNamespace(id=5, name="main")
+        contest = SimpleNamespace(id=1, name="d1", groups=[group],
+                                  main_group_id=5, participations=[])
+        text = page("contest_users.html", SPANISH, contest=contest,
+                    unassigned_users=[])
+
+        for expected in ("Lista de usuarios", "Agrega un usuario nuevo:",
+                         "Elige un usuario nuevo", "Agregar usuario",
+                         "Quitar seleccionados del concurso"):
+            self.assertIn(expected, text)
+        self.assertNotIn("Add a new user", text)
+
+    def test_the_participation_removal_page_in_spanish(self):
+        # Scenario: A page group in Spanish (participations)
+        params = {"user": SimpleNamespace(id=7, username="ana"),
+                  "contest": SimpleNamespace(id=1, name="d1"),
+                  "submission_count": 5}
+
+        text = page("participation_remove.html", SPANISH, **params)
+        for expected in (
+                "Quitar participación",
+                "¿Seguro que quieres quitar al usuario ana del concurso "
+                "d1, incluidos todos sus datos relacionados?",
+                "Se borrarán 5 envío(s).", "Sí, quitar"):
+            self.assertIn(expected, text)
+
+        text = page("participation_remove.html", SPANISH,
+                    admin=SimpleNamespace(permission_all=False), **params)
+        self.assertIn("No tienes permiso para quitar una participación.",
+                      text)
+
+    def test_a_form_error_in_spanish_and_in_english(self):
+        # Scenario: Invalid field in Spanish, Invalid field in English
+        for translation, subject, text in (
+                (SPANISH, "Campos no válidos", "Selecciona un usuario válido"),
+                (None, "Invalid field(s)", "Please select a valid user")):
+            handler = run_post(AddContestUserHandler, {"user_id": "null"},
+                               translation, args=("1",))
+
+            self.assertEqual(
+                notification(handler),
+                (subject, repr(AssertionError(text))))
+
+    def test_an_unknown_team_in_spanish_and_in_english(self):
+        # Scenario: Invalid field in Spanish, Invalid field in English
+        participation = MagicMock()
+        participation.get_attrs.return_value = {}
+        session = MagicMock()
+        session.execute.return_value.scalars.return_value.first \
+            .side_effect = lambda: next(rows)
+        for translation, subject, text in (
+                (SPANISH, "Campos no válidos",
+                 "No existe un equipo con el código 'zz'"),
+                (None, "Invalid field(s)",
+                 "Team with code 'zz' does not exist")):
+            rows = iter([participation, None])
+            handler = run_post(
+                ParticipationHandler, {"group_id": "1"}, translation,
+                args=("1", "7"), sql_session=session,
+                get_password=MagicMock(), get_ip_networks=MagicMock(),
+                get_datetime=MagicMock(), get_timedelta_sec=MagicMock(),
+                get_bool=MagicMock(),
+                get_string=lambda attrs, name: attrs.update({name: "zz"}))
+
+            self.assertEqual(
+                notification(handler),
+                (subject, repr(ValueError(text))))
