@@ -51,3 +51,204 @@ msgstr "sí"
 
 msgid "no"
 msgstr "no"
+
+msgid "Contest configuration"
+msgstr "Configuración del concurso"
+
+msgid "Contest information"
+msgstr "Información del concurso"
+
+msgid "The name of the contest as seen by the contestants."
+msgstr "El nombre del concurso tal como lo ven los concursantes."
+
+msgid "When CWS serves all contests (CMS_CONTEST_ID=ALL), only active contests are listed and can be entered. Ignored when CWS serves a single contest."
+msgstr "Cuando CWS atiende todos los concursos (CMS_CONTEST_ID=ALL), solo los concursos activos aparecen en la lista y se puede entrar a ellos. Se ignora cuando CWS atiende un solo concurso."
+
+msgid "The public scoreboard (RWS /<group>/) this contest is sent to. Contests of the same group are ranked together. Deactivating a contest does not remove it from its ranking; choose 'none' for that."
+msgstr "El marcador público (RWS /<group>/) al que se envía este concurso. Los concursos del mismo grupo se ordenan juntos. Desactivar un concurso no lo quita de su ranking; para eso elige «ninguno»."
+
+msgid "(none)"
+msgstr "(ninguno)"
+
+msgid "The list of languages that contestants can use, or empty for allowing any language."
+msgstr "La lista de idiomas que pueden usar los concursantes, o vacía para permitir cualquier idioma."
+
+msgid "Example: 'en,ja' (without quotes)."
+msgstr "Ejemplo: 'en,ja' (sin comillas)."
+
+msgid "Allowed localizations"
+msgstr "Localizaciones permitidas"
+
+msgid "Programming languages that contestants can use to solve the tasks."
+msgstr "Lenguajes de programación que los concursantes pueden usar para resolver los problemas."
+
+msgid "All the allowed languages must have task support, for example in managed tasks."
+msgstr "Todos los lenguajes permitidos deben tener soporte en los problemas, por ejemplo en los problemas con managers."
+
+msgid "Whether contestants can download their own submissions."
+msgstr "Si los concursantes pueden descargar sus propios envíos."
+
+msgid "Submissions download allowed"
+msgstr "Descarga de envíos permitida"
+
+msgid "Whether contestants can submit questions."
+msgstr "Si los concursantes pueden enviar preguntas."
+
+msgid "Allow questions"
+msgstr "Permitir preguntas"
+
+msgid "Whether contestants can submit user tests."
+msgstr "Si los concursantes pueden enviar user tests."
+
+msgid "Allow user tests"
+msgstr "Permitir user tests"
+
+msgid "Allow contestant to make unofficial submission before analysis mode"
+msgstr "Permite envíos no oficiales del concursante antes de la fase de análisis"
+
+msgid "Allow unofficial submission before analysis mode"
+msgstr "Permitir envíos no oficiales antes de la fase de análisis"
+
+msgid "Timezone in which contestants see the start and end times and the current time. If empty, the timezone of the server is used."
+msgstr "Zona horaria en la que los concursantes ven las horas de inicio y fin y la hora actual. Si está vacía, se usa la zona horaria del servidor."
+
+msgid "Example: 'Europe/Rome', 'America/New_York', ..."
+msgstr "Ejemplo: 'Europe/Rome', 'America/New_York', …"
+
+msgid "Logging in"
+msgstr "Inicio de sesión"
+
+msgid "If checked, contestants that are marked as hidden in this contest will not be able to log in."
+msgstr "Si está marcada, los concursantes marcados como ocultos en este concurso no podrán iniciar sesión."
+
+msgid "Block hidden participations"
+msgstr "Bloquear participaciones ocultas"
+
+msgid "If checked, contestants will be able to log in using username and password."
+msgstr "Si está marcada, los concursantes podrán iniciar sesión con usuario y contraseña."
+
+msgid "Allow password authentication"
+msgstr "Permitir autenticación con contraseña"
+
+msgid "If checked, contestants will be able to autonomously create a user account and a participation in the contest."
+msgstr "Si está marcada, los concursantes podrán crear por su cuenta una cuenta de usuario y una participación en el concurso."
+
+msgid "Allow registration"
+msgstr "Permitir registro"
+
+msgid "If true, contestants with an IP address specified for this contest will only be able to log in from that address."
+msgstr "Si está activada, los concursantes con una dirección IP indicada para este concurso solo podrán iniciar sesión desde esa dirección."
+
+msgid "IP based login restriction"
+msgstr "Restricción por IP para iniciar sesión"
+
+msgid "If true, contestants with an IP address specified for this contest will be automatically logged in when connecting from that address."
+msgstr "Si está activada, los concursantes con una dirección IP indicada para este concurso iniciarán sesión automáticamente al conectarse desde esa dirección."
+
+msgid "IP based autologin"
+msgstr "Inicio de sesión automático por IP"
+
+msgid "Select 'disabled' to remove tokens completely, 'infinite' for allowing any number of tokens, or 'finite' to specify the amount with the following parameters."
+msgstr "Elige «Desactivado» para quitar los tokens por completo, «Infinito» para permitir cualquier cantidad de tokens, o «Finito» para indicar la cantidad con los parámetros siguientes."
+
+msgid "The maximum number of tokens a contestant can use in the whole contest."
+msgstr "El número máximo de tokens que un concursante puede usar en todo el concurso."
+
+msgid "The minimum amount of time (in seconds) that a contestant needs to wait after using a token before being able to use another."
+msgstr "El tiempo mínimo (en segundos) que un concursante debe esperar después de usar un token antes de poder usar otro."
+
+msgid "The number of tokens that a contestant has available when their contest time starts."
+msgstr "El número de tokens que un concursante tiene disponibles cuando comienza su tiempo en el concurso."
+
+msgid "The number of tokens that are generated periodically."
+msgstr "El número de tokens que se generan periódicamente."
+
+msgid "The amount of time (in minutes) between two token generation events."
+msgstr "El tiempo (en minutos) entre dos eventos de generación de tokens."
+
+msgid "Maximum number of tokens available to a contestant at any given time during the contest."
+msgstr "Número máximo de tokens que un concursante puede tener disponibles en cualquier momento del concurso."
+
+msgid "Main group settings"
+msgstr "Configuración del grupo principal"
+
+msgid "The group used for time calculations in the admin and ranking interface."
+msgstr "El grupo que se usa para los cálculos de tiempo en la interfaz de admin y de ranking."
+
+msgid "Main group"
+msgstr "Grupo principal"
+
+msgid "To change start and end times or analysis mode for other groups, or change the main group, please use the <a href='%(link)s'>groups</a> section."
+msgstr "Para cambiar las horas de inicio y fin o la fase de análisis de otros grupos, o para cambiar el grupo principal, usa la sección de <a href='%(link)s'>grupos</a>."
+
+msgid "Maximum number of submissions each contestant can submit, for the whole contest."
+msgstr "Número máximo de envíos que cada concursante puede hacer, en todo el concurso."
+
+msgid "Maximum number of user tests each contestant can submit, for the whole contest."
+msgstr "Número máximo de user tests que cada concursante puede enviar, en todo el concurso."
+
+msgid "The minimum amount of time (in seconds) that a contestant needs to wait after a submission before being able to submit another."
+msgstr "El tiempo mínimo (en segundos) que un concursante debe esperar después de un envío antes de poder hacer otro."
+
+msgid "The amount of time (in seconds) until the end of participation in which the minimum interval between submissions is not enforced."
+msgstr "El tiempo (en segundos) hasta el final de la participación durante el cual no se exige el intervalo mínimo entre envíos."
+
+msgid "Minimum submission interval grace period"
+msgstr "Periodo de gracia del intervalo mínimo entre envíos"
+
+msgid "The minimum amount of time (in seconds) that a contestant needs to wait after a user test before being able to send another."
+msgstr "El tiempo mínimo (en segundos) que un concursante debe esperar después de un user test antes de poder enviar otro."
+
+msgid "Contest time"
+msgstr "Horario del concurso"
+
+msgid "Start time of the contest for users in this group in the UTC timezone."
+msgstr "Hora de inicio del concurso para los usuarios de este grupo, en la zona horaria UTC."
+
+msgid "Example: '2015-12-31 15:00:00'."
+msgstr "Ejemplo: '2015-12-31 15:00:00'."
+
+msgid "Start time (in UTC)"
+msgstr "Hora de inicio (en UTC)"
+
+msgid "End time of the contest for users in this group in the UTC timezone."
+msgstr "Hora de fin del concurso para los usuarios de este grupo, en la zona horaria UTC."
+
+msgid "Example: '2015-12-31 18:00:00'."
+msgstr "Ejemplo: '2015-12-31 18:00:00'."
+
+msgid "End time (in UTC)"
+msgstr "Hora de fin (en UTC)"
+
+msgid "Length of the contest (in seconds) for each contestant."
+msgstr "Duración del concurso (en segundos) para cada concursante."
+
+msgid "If not specified, each contestant can submit solutions for the whole duration of the contest."
+msgstr "Si no se indica, cada concursante puede enviar soluciones durante toda la duración del concurso."
+
+msgid "If specified, only up to this length after the first log in (or up to the end of the contest, whichever comes first)."
+msgstr "Si se indica, solo hasta esta duración después de iniciar sesión por primera vez (o hasta el fin del concurso, lo que ocurra primero)."
+
+msgid "Length of the contest"
+msgstr "Duración del concurso"
+
+msgid "Analysis mode"
+msgstr "Fase de análisis"
+
+msgid "If true, analysis mode for this contest will be enabled."
+msgstr "Si está activada, se habilitará la fase de análisis de este concurso."
+
+msgid "Enabled"
+msgstr "Activado"
+
+msgid "Start time of the analysis mode in the UTC timezone."
+msgstr "Hora de inicio de la fase de análisis, en la zona horaria UTC."
+
+msgid "Analysis mode start time (in UTC)"
+msgstr "Hora de inicio de la fase de análisis (en UTC)"
+
+msgid "End time of the analysis mode in the UTC timezone."
+msgstr "Hora de fin de la fase de análisis, en la zona horaria UTC."
+
+msgid "Analysis mode end time (in UTC)"
+msgstr "Hora de fin de la fase de análisis (en UTC)"
