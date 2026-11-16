@@ -35,6 +35,7 @@ from unittest import mock
 from cms.server.admin import exportjobs
 from cms.server.admin.exportjobs import JOB_TTL, ExportJobStore, \
     dump_name, export_argv, pack_zip
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 OWNER_ID = 3
 # Writes a dump like the exporter's in the directory it is given, then
@@ -159,6 +160,25 @@ class TestExportJobStore(unittest.IsolatedAsyncioTestCase):
         # The admin can still ask why it failed.
         self.assertIs(store.get(job.id, OWNER_ID), job)
 
+    async def test_the_errors_of_a_job_are_in_english_by_default(self):
+        # Scenario: A page in English (the texts of the job without a
+        # translation are the message ids).
+        store = self.make_store(build_argv=fake_argv(code=3))
+        job = store.start(OWNER_ID, [1], ())
+        await job.task
+        self.assertEqual(
+            job.error,
+            "the export failed (exit code 3); nothing was generated")
+
+        store = self.make_store(build_argv=fake_argv(code=3))
+        with mock.patch.object(store, "_build_argv",
+                               side_effect=OSError("no exporter")), \
+                self.assertLogs(exportjobs.logger, "ERROR"):
+            job = store.start(OWNER_ID, [1], ())
+            await job.task
+        self.assertEqual(job.error,
+                         "the export failed; nothing was generated")
+
     async def test_a_second_export_is_refused_until_the_first_ends(self):
         gate = os.path.join(os.path.dirname(self.directory), "gate")
         store = self.make_store(build_argv=fake_argv(gate=gate))
@@ -223,9 +243,51 @@ class TestExportJobStore(unittest.IsolatedAsyncioTestCase):
                 self.assertRaises(ValueError) as caught:
             store.start(OWNER_ID, [1], ())
 
-        self.assertIn("espacio", str(caught.exception))
+        self.assertIn("not enough free space", str(caught.exception))
         self.assertEqual(os.listdir(self.directory), [])
         self.assertIsNone(store.running_job())
+
+    async def test_the_texts_of_a_job_are_those_of_main_in_spanish(self):
+        # Scenario: A page in Spanish (the Spanish is the text of main for
+        # each message of the job) and Scenario: A job polled by another
+        # admin (the error is stored translated, so any poll reads it).
+        gate = os.path.join(os.path.dirname(self.directory), "gate")
+        store = self.make_store(build_argv=fake_argv(gate=gate))
+        first = store.start(OWNER_ID, [1], (), gettext=SPANISH.gettext)
+        with self.assertRaises(ValueError) as busy:
+            store.start(OWNER_ID, [2], (), gettext=SPANISH.gettext)
+        self.assertEqual(str(busy.exception),
+                         "ya hay una exportación en curso; espera a que "
+                         "termine")
+        open(gate, "w").close()
+        await first.task
+
+        with mock.patch.object(exportjobs, "MIN_FREE_BYTES", 10 ** 30), \
+                self.assertRaises(ValueError) as no_space:
+            store.start(OWNER_ID, [1], (), gettext=SPANISH.gettext)
+        self.assertEqual(
+            str(no_space.exception),
+            "no hay espacio libre suficiente en el disco de AWS para "
+            "exportar (se necesitan al menos %d GB libres, tanto en el "
+            "directorio de exportaciones como en el temp_dir)" %
+            (10 ** 30 // 1024 ** 3))
+
+        failing = self.make_store(build_argv=fake_argv(code=3))
+        job = failing.start(OWNER_ID, [1], (), gettext=SPANISH.gettext)
+        await job.task
+        self.assertEqual(
+            job.as_json()["error"],
+            "la exportación falló (código de salida 3); no se generó nada")
+
+        unexpected = self.make_store(build_argv=fake_argv())
+        with mock.patch.object(unexpected, "_build_argv",
+                               side_effect=OSError("no exporter")), \
+                self.assertLogs(exportjobs.logger, "ERROR"):
+            job = unexpected.start(OWNER_ID, [1], (),
+                                   gettext=SPANISH.gettext)
+            await job.task
+        self.assertEqual(job.as_json()["error"],
+                         "la exportación falló; no se generó nada")
 
     async def test_the_temp_dir_of_the_exporter_needs_space_too(self):
         store = self.make_store(build_argv=fake_argv())

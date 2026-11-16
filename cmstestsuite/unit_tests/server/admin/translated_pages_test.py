@@ -22,32 +22,13 @@ compiled .mo file is needed. Nothing here says how a page looks.
 
 """
 
-import importlib.resources
 import re
 import unittest
-from io import BytesIO
 from unittest.mock import MagicMock
 
-from babel.messages.mofile import write_mo
-from babel.messages.pofile import read_po
-
-from cms.locale import Translation
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 from cmstestsuite.unit_tests.server.admin.lang_switch_test import \
     error_page, login_page
-
-
-def _spanish() -> Translation:
-    po = importlib.resources.files("cms.locale").joinpath(
-        "es", "LC_MESSAGES", "aws.po")
-    with po.open("rb") as f:
-        catalog = read_po(f)
-    mo = BytesIO()
-    write_mo(mo, catalog)
-    mo.seek(0)
-    return Translation("es", mo, "aws")
-
-
-SPANISH = _spanish()
 
 
 def spanish(page, **params) -> str:

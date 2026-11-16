@@ -25,6 +25,10 @@ process, like those of importjobs.py: they are lost if it restarts (and
 the files they left are removed at start), and they expire after JOB_TTL
 counted from their end, deleting their file.
 
+The language of a job is the one of the admin who starts it: the job gets
+the gettext of that request, and its error is stored already translated, so
+whoever polls the job reads the same text.
+
 Everything here runs in the event loop of AWS, so no lock is needed.
 
 """
@@ -43,6 +47,7 @@ from collections.abc import Callable, Sequence
 from datetime import date
 
 from cms import config
+from cms.locale.locale import N_
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +57,13 @@ JOB_TTL = 3600.0
 # them reads all their pages); upgrade it to a real estimate if exports
 # bigger than this start to fill the disk.
 MIN_FREE_BYTES = 5 * 1024 ** 3
-BUSY = "ya hay una exportación en curso; espera a que termine"
-NO_SPACE = ("no hay espacio libre suficiente en el disco de AWS para "
-            "exportar (se necesitan al menos %d GB libres, tanto en el "
-            "directorio de exportaciones como en el temp_dir)")
-EXPORT_FAILED = "la exportación falló (código de salida %d); no se generó nada"
-UNEXPECTED_FAILURE = "la exportación falló; no se generó nada"
+# Message ids: a job translates them with the gettext of its starter.
+BUSY = N_("an export is already running; wait for it to finish")
+NO_SPACE = N_("there is not enough free space on the AWS disk to export "
+              "(at least %d GB must be free, both in the exports directory "
+              "and in the temp_dir)")
+EXPORT_FAILED = N_("the export failed (exit code %d); nothing was generated")
+UNEXPECTED_FAILURE = N_("the export failed; nothing was generated")
 
 # Builds the command of the exporter: the contests, its flags and the
 # directory to export into (which must not exist).
@@ -223,12 +229,16 @@ class ExportJobStore:
                      if j.status == "running"), None)
 
     def start(self, owner_id: int, contest_ids: Sequence[int],
-              flags: Sequence[str]) -> ExportJob:
+              flags: Sequence[str],
+              gettext: Callable[[str], str] = N_) -> ExportJob:
         """Start exporting some contests; call it in the event loop.
 
         owner_id: the admin who starts it.
         contest_ids: the contests, already checked to exist.
         flags: the flags for the exporter, chosen by the code.
+        gettext: the translation of the admin who starts the job; the
+            job keeps that language, and its task uses only this
+            function, never the handler.
 
         return: the job.
 
@@ -237,13 +247,14 @@ class ExportJobStore:
 
         """
         if self.running_job() is not None:
-            raise ValueError(BUSY)
+            raise ValueError(gettext(BUSY))
         os.makedirs(self._directory, mode=0o700, exist_ok=True)
         # The exporter's FileCacher also keeps a copy of every file it reads
         # in the temp_dir of the configuration, until it exits.
         for path in (self._directory, config.global_.temp_dir):
             if shutil.disk_usage(path).free < MIN_FREE_BYTES:
-                raise ValueError(NO_SPACE % (MIN_FREE_BYTES // 1024 ** 3))
+                raise ValueError(
+                    gettext(NO_SPACE) % (MIN_FREE_BYTES // 1024 ** 3))
         job = ExportJob(
             id=secrets.token_urlsafe(16), owner_id=owner_id,
             contest_ids=tuple(contest_ids), flags=tuple(flags),
@@ -251,7 +262,8 @@ class ExportJobStore:
             directory=tempfile.mkdtemp(dir=self._directory),
             name=dump_name(contest_ids, date.today()))
         self._jobs[job.id] = job
-        job.task = asyncio.get_running_loop().create_task(self._run(job))
+        job.task = asyncio.get_running_loop().create_task(
+            self._run(job, gettext))
         return job
 
     def get(self, job_id: str, owner_id: int) -> ExportJob | None:
@@ -299,7 +311,8 @@ class ExportJobStore:
         # So that the file goes away even if nobody asks for the job again.
         loop.call_later(JOB_TTL + 1, self._evict)
 
-    async def _run(self, job: ExportJob) -> None:
+    async def _run(self, job: ExportJob,
+                   gettext: Callable[[str], str] = N_) -> None:
         """Export, pack and report; the body of the task of a job.
 
         A failure is logged with the exit code of the exporter, or the
@@ -307,6 +320,7 @@ class ExportJobStore:
         exporter or the database say may carry the data of the contest.
 
         job: the job to run, updated as it goes.
+        gettext: the translation of the admin who started the job.
 
         """
         loop = asyncio.get_running_loop()
@@ -324,7 +338,7 @@ class ExportJobStore:
             if code != 0:
                 logger.error("Dump export by admin %d failed: the exporter "
                              "exited with code %d.", job.owner_id, code)
-                await self._finish(job, EXPORT_FAILED % code)
+                await self._finish(job, gettext(EXPORT_FAILED) % code)
                 return
             job.phase = "packing"
             await loop.run_in_executor(None, pack_zip, job.directory,
@@ -343,7 +357,7 @@ class ExportJobStore:
             logger.error("Dump export by admin %d failed with %s.\n%s",
                          job.owner_id, type(exc).__name__,
                          "".join(traceback.format_tb(exc.__traceback__)))
-            await self._finish(job, UNEXPECTED_FAILURE)
+            await self._finish(job, gettext(UNEXPECTED_FAILURE))
             return
         await self._finish(job, None)
         logger.info("Dump export %s by admin %d finished: %d bytes in "

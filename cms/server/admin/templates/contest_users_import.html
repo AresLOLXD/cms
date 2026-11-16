@@ -28,36 +28,27 @@ td.import-note {
 }
 </style>
 <div class="core_title">
-  <h1>Importar CSV &mdash; {{ contest.name if contest else "Usuarios" }}</h1>
+  <h1>{% trans %}Import CSV{% endtrans %} &mdash; {{ contest.name if contest else _("Users") }}</h1>
 </div>
 
 {% if contest %}
-<p>Un renglón por concursante: crea los usuarios que falten y registra su
-participación en este concurso con la contraseña del día. Sin columna de
-contraseña, solo inscribe usuarios que ya existen y las participaciones
-nuevas entran con la contraseña de su cuenta. Si el usuario o la
-participación ya existen, se actualizan. Si hay cualquier error, no se
-guarda nada.</p>
+<p>{% trans %}One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved.{% endtrans %}</p>
 {% else %}
-<p>Un renglón por usuario: crea las cuentas que falten con su contraseña y
-actualiza el nombre, el apellido y la contraseña de las que ya existen. No
-registra a nadie en ningún concurso. Si hay cualquier error, no se guarda
-nada.</p>
-<p>La contraseña de la cuenta solo se usa en los concursos donde la
-participación no tiene contraseña propia.</p>
+<p>{% trans %}One row per user: it creates the accounts that are missing with their password and updates the first name, the last name and the password of those that already exist. It does not register anyone in any contest. If there is any error, nothing is saved.{% endtrans %}</p>
+<p>{% trans %}The password of the account is only used in the contests where the participation has no password of its own.{% endtrans %}</p>
 {% endif %}
 {% set import_url = url("contest", contest.id, "users", "import") if contest else url("users", "import") %}
 {% set users_url = url("contest", contest.id, "users") if contest else url("users") %}
-{% set labels = {"username": "Usuario (username)", "first_name": "Nombre (first_name)", "last_name": "Apellidos (last_name)", "password": "Contraseña del día (password)" if contest else "Contraseña (password)", "team": "Equipo (team)", "group": "Grupo (group)"} %}
+{% set labels = {"username": _("User (username)"), "first_name": _("First name (first_name)"), "last_name": _("Last names (last_name)"), "password": _("Password of the day (password)") if contest else _("Password (password)"), "team": _("Team (team)"), "group": _("Group (group)")} %}
 
 {% if errors %}
 <div class="import-box import-error">
-  <p>No se aplicó nada. Corrige estos errores y vuelve a subir el archivo:</p>
+  <p>{% trans %}Nothing was applied. Fix these errors and upload the file again:{% endtrans %}</p>
   {# A file of thousands of bad rows would give a page as long. #}
   {% set max_errors = 50 %}
-  <h3>{{ errors|length }} error{% if errors|length != 1 %}es{% endif %}</h3>
+  <h3>{% trans count=errors|length %}{{ count }} error{% pluralize %}{{ count }} errors{% endtrans %}</h3>
   <ul>{% for e in errors[:max_errors] %}<li>{{ e }}</li>{% endfor %}</ul>
-  {% if errors|length > max_errors %}<p>y {{ errors|length - max_errors }} más</p>{% endif %}
+  {% if errors|length > max_errors %}<p>{% trans count=errors|length - max_errors %}and {{ count }} more{% endtrans %}</p>{% endif %}
 </div>
 {% endif %}
 
@@ -67,44 +58,59 @@ participación no tiene contraseña propia.</p>
 </div>
 {% endif %}
 
-{% macro count_of(count, one, many) %}{% if count == 1 %}1 {{ one }}{% else %}{{ count }} {{ many }}{% endif %}{% endmacro %}
 {% if summary %}
 <div class="import-box import-summary">
-  <p>El archivo es válido. Al importarlo:</p>
+  <p>{% trans %}The file is valid. When it is imported:{% endtrans %}</p>
   <ul>
-    <li>Usuarios nuevos: {{ summary.usuarios_nuevos }}</li>
-    <li>Usuarios ya existentes (se sobrescriben): {{ summary.usuarios_actualizados }}</li>
+    <li>{% trans count=summary.usuarios_nuevos %}New users: {{ count }}{% endtrans %}</li>
+    <li>{% trans count=summary.usuarios_actualizados %}Existing users (overwritten): {{ count }}{% endtrans %}</li>
     {% if summary.participaciones_nuevas is defined %}
-    <li>Participaciones nuevas: {{ summary.participaciones_nuevas }}</li>
-    <li>Participaciones ya existentes (se sobrescriben): {{ summary.participaciones_actualizadas }}</li>
+    <li>{% trans count=summary.participaciones_nuevas %}New participations: {{ count }}{% endtrans %}</li>
+    <li>{% trans count=summary.participaciones_actualizadas %}Existing participations (overwritten): {{ count }}{% endtrans %}</li>
     {% endif %}
   </ul>
 </div>
 {% if summary.equipos_quitados is defined and (summary.equipos_quitados or summary.movidas_al_grupo_principal) %}
 <div class="import-box import-warning">
-  {% if summary.equipos_quitados %}<p>{{ count_of(summary.equipos_quitados, "participación perderá su equipo", "participaciones perderán su equipo") }}</p>{% endif %}
-  {% if summary.movidas_al_grupo_principal %}<p>{{ count_of(summary.movidas_al_grupo_principal, "participación pasará al grupo principal", "participaciones pasarán al grupo principal") }}</p>{% endif %}
+  {% if summary.equipos_quitados %}<p>{% trans count=summary.equipos_quitados %}{{ count }} participation will lose its team{% pluralize %}{{ count }} participations will lose their team{% endtrans %}</p>{% endif %}
+  {% if summary.movidas_al_grupo_principal %}<p>{% trans count=summary.movidas_al_grupo_principal %}{{ count }} participation will move to the main group{% pluralize %}{{ count }} participations will move to the main group{% endtrans %}</p>{% endif %}
 </div>
 {% endif %}
 {% endif %}
 
 {% if preview %}
 <div class="import-box import-preview">
-  <p>Primera fila del archivo; comprueba que las columnas son las correctas:</p>
+  <p>{% trans %}First row of the file; check that the columns are the right ones:{% endtrans %}</p>
   <ul>
     {% for field, value in preview.items() %}
-    <li>{{ labels[field] }}: {{ value or "(vacío)" }}</li>
+    <li>{{ labels[field] }}: {{ value or _("(empty)") }}</li>
     {% endfor %}
   </ul>
 </div>
 {% endif %}
 
 {% if job %}
-<div id="import_job" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") if contest else url("users", "import", job.id, "status") }}"
+{# The texts of the script, in the page language. Plurals are a pair
+   (one, many) that the script picks from. shortcut: the pair is the forms
+   for 1 and 2, which is all that English and Spanish have; a language with
+   more forms needs the count sent to the server. #}
+{% set messages = {
+    "processing": _("Processing %(processed)s of %(total)s"),
+    "done": _("Done."),
+    "users_done": _("New users: %(new)s, existing (overwritten): %(updated)s."),
+    "participations_done": _("New participations: %(new)s, existing (overwritten): %(updated)s."),
+    "teams_lost": [ngettext("%(count)s participation lost its team", "%(count)s participations lost their team", 1), ngettext("%(count)s participation lost its team", "%(count)s participations lost their team", 2)],
+    "moved_to_main_group": [ngettext("%(count)s participation was moved to the main group", "%(count)s participations were moved to the main group", 1), ngettext("%(count)s participation was moved to the main group", "%(count)s participations were moved to the main group", 2)],
+    "error": _("Error: %(error)s"),
+    "users_list": _("User list"),
+    "import_another": _("Import another file"),
+    "progress_lost": _("Could not check the progress; reload the page."),
+} %}
+<div id="import_job" data-messages="{{ messages|tojson|forceescape }}" data-status-url="{{ url("contest", contest.id, "users", "import", job.id, "status") if contest else url("users", "import", job.id, "status") }}"
      data-users-url="{{ users_url }}"
      data-import-url="{{ import_url }}">
-  <p id="import_text" aria-live="polite">Procesando {{ job.processed }} de {{ job.total }}</p>
-  <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" aria-label="Progreso de la importación" style="width: 100%"></progress>
+  <p id="import_text" aria-live="polite">{% trans processed=job.processed, total=job.total %}Processing {{ processed }} of {{ total }}{% endtrans %}</p>
+  <progress id="import_bar" value="{{ job.processed }}" max="{{ job.total }}" aria-label="{{ _("Import progress") }}" style="width: 100%"></progress>
   <div id="import_result" aria-live="polite"></div>
 </div>
 {% else %}
@@ -112,10 +118,10 @@ participación no tiene contraseña propia.</p>
       action="{{ import_url }}">
   {{ xsrf_form_html|safe }}
   {% if mapping %}
-  <p>Vuelve a elegir el archivo para importarlo. Se conservan las columnas asignadas, salvo la de la contraseña: revísala.</p>
+  <p>{% trans %}Pick the file again to import it. The assigned columns are kept, except the password one: check it.{% endtrans %}</p>
   {% endif %}
-  <p>* obligatorio</p>
-  <p><label for="import_file">Archivo CSV *</label>
+  <p>{% trans %}* required{% endtrans %}</p>
+  <p><label for="import_file">{% trans %}CSV file *{% endtrans %}</label>
     <input type="file" name="file" id="import_file" accept=".csv,text/csv" required /></p>
   {# The header chosen for the password is not echoed back: in a file without
      a header row it would be a contestant's password. Only a flag is: on the
@@ -125,15 +131,15 @@ participación no tiene contraseña propia.</p>
     {% for field in fields %}
     <tr>
       <td><label for="map_{{ field }}">{{ labels[field] }}{% if field in required %} *{% endif %}</label></td>
-      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"{% if field == "password" and contest and mapping and not mapping.get("password") %} data-unassigned="1"{% endif %}><option value="">(sin asignar)</option></select></td>
-      {% if field == "password" and contest %}<td class="import-note">Sin asignar: las participaciones nuevas entran con la contraseña de su cuenta y las existentes conservan la suya. Los usuarios deben existir.</td>{% endif %}
-      {% if field == "team" %}<td rowspan="2" class="import-note">Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal.</td>{% endif %}
+      <td><select name="map_{{ field }}" data-field="{{ field }}" data-selected="{% if field != "password" %}{{ (mapping or {}).get(field, "") }}{% endif %}" id="map_{{ field }}"{% if field == "password" and contest and mapping and not mapping.get("password") %} data-unassigned="1"{% endif %}><option value="">{{ _("(unassigned)") }}</option></select></td>
+      {% if field == "password" and contest %}<td class="import-note">{% trans %}Unassigned: new participations get the password of their account and existing ones keep theirs. The users must exist.{% endtrans %}</td>{% endif %}
+      {% if field == "team" %}<td rowspan="2" class="import-note">{% trans %}Empty or unassigned: the participation is left without a team / in the main group.{% endtrans %}</td>{% endif %}
     </tr>
     {% endfor %}
   </table>
-  <p>La importación cifra las contraseñas y puede tardar de 20 a 40 s por cada 300 concursantes.</p>
-  <button type="submit" name="action" value="validate">Solo validar</button>
-  <button type="submit" name="action" value="import">Importar</button>
+  <p>{% trans %}The import hashes the passwords and can take 20 to 40 s for every 300 contestants.{% endtrans %}</p>
+  <button type="submit" name="action" value="validate">{% trans %}Only validate{% endtrans %}</button>
+  <button type="submit" name="action" value="import">{% trans %}Import{% endtrans %}</button>
 </form>
 {% endif %}
 
@@ -239,19 +245,29 @@ participación no tiene contraseña propia.</p>
         link.textContent = text;
         return link;
     }
-    function countOf(count, one, many) {
-        return count === 1 ? "1 " + one : count + " " + many;
-    }
     var job = document.getElementById("import_job");
+    // The texts come from the server in the page language; only the job
+    // container carries them, and the rest of the script needs none.
+    var messages = job ? JSON.parse(job.getAttribute("data-messages")) : null;
+    // Fills the %(name)s placeholders of a message in a single pass, so a
+    // value that contains one is never filled again.
+    function fill(text, values) {
+        return text.replace(/%\((\w+)\)s/g, function (match, name) {
+            return values[name];
+        });
+    }
+    function countOf(count, pair) {
+        return fill(count === 1 ? pair[0] : pair[1], {count: count});
+    }
     // Not a dead end, whether the import is done or failed: back to the
     // users, or to another file.
     function addLinks(parent) {
         var links = document.createElement("p");
         links.appendChild(makeLink(job.getAttribute("data-users-url"),
-            "Lista de usuarios"));
+            messages.users_list));
         links.appendChild(document.createTextNode(" | "));
         links.appendChild(makeLink(job.getAttribute("data-import-url"),
-            "Importar otro archivo"));
+            messages.import_another));
         parent.appendChild(links);
     }
     if (job) {
@@ -267,7 +283,7 @@ participación no tiene contraseña propia.</p>
                 document.getElementById("import_bar").value = s.processed;
                 document.getElementById("import_bar").max = s.total;
                 document.getElementById("import_text").textContent =
-                    "Procesando " + s.processed + " de " + s.total;
+                    fill(messages.processing, {processed: s.processed, total: s.total});
                 var out = document.getElementById("import_result");
                 // Written again from scratch each time, so that a failure
                 // half way through never leaves a duplicate behind.
@@ -276,14 +292,16 @@ participación no tiene contraseña propia.</p>
                     var lead = document.createElement("p");
                     lead.className = "import-box import-done";
                     var strong = document.createElement("strong");
-                    strong.textContent = "Listo.";
+                    strong.textContent = messages.done;
                     lead.appendChild(strong);
-                    var counts = " Usuarios nuevos: " + s.summary.usuarios_nuevos +
-                        ", ya existentes (se sobrescribieron): " + s.summary.usuarios_actualizados + ".";
+                    var counts = " " + fill(messages.users_done, {
+                        new: s.summary.usuarios_nuevos,
+                        updated: s.summary.usuarios_actualizados});
                     // The global import of users has no participations.
                     if (s.summary.participaciones_nuevas !== undefined) {
-                        counts += " Participaciones nuevas: " + s.summary.participaciones_nuevas +
-                            ", ya existentes (se sobrescribieron): " + s.summary.participaciones_actualizadas + ".";
+                        counts += " " + fill(messages.participations_done, {
+                            new: s.summary.participaciones_nuevas,
+                            updated: s.summary.participaciones_actualizadas});
                     }
                     lead.appendChild(document.createTextNode(counts));
                     out.appendChild(lead);
@@ -292,18 +310,17 @@ participación no tiene contraseña propia.</p>
                     losses.className = "import-box import-warning";
                     if (s.summary.equipos_quitados > 0) {
                         addLine(losses, countOf(s.summary.equipos_quitados,
-                            "participación perdió su equipo",
-                            "participaciones perdieron su equipo"));
+                            messages.teams_lost));
                     }
                     if (s.summary.movidas_al_grupo_principal > 0) {
                         addLine(losses, countOf(s.summary.movidas_al_grupo_principal,
-                            "participación pasó al grupo principal",
-                            "participaciones pasaron al grupo principal"));
+                            messages.moved_to_main_group));
                     }
                     if (losses.firstChild) { out.appendChild(losses); }
                     addLinks(out);
                 } else if (s.status === "error") {
-                    addLine(out, "Error: " + s.error, "import-box import-error");
+                    addLine(out, fill(messages.error, {error: s.error}),
+                        "import-box import-error");
                     addLinks(out);
                 } else {
                     setTimeout(poll, 500);
@@ -317,8 +334,7 @@ participación no tiene contraseña propia.</p>
                 }
                 var lost = document.getElementById("import_result");
                 lost.textContent = "";
-                addLine(lost, "No se pudo consultar el progreso; recarga la página.",
-                    "import-box import-notice");
+                addLine(lost, messages.progress_lost, "import-box import-notice");
             });
         };
         poll();

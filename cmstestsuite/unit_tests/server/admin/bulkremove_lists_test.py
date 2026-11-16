@@ -26,7 +26,9 @@ import re
 import unittest
 from types import SimpleNamespace
 
+from cms.locale import DEFAULT_TRANSLATION
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 
 def fake_url(*parts):
@@ -40,14 +42,17 @@ def user(user_id, username):
 
 class ListPageTestCase(unittest.TestCase):
 
-    def render(self, name, permission_all=True, **params):
+    def render(self, name, permission_all=True, translation=None, **params):
         template = AWS_ENVIRONMENT.get_template(name)
+        if translation is not None:
+            params.update({"gettext": translation.gettext,
+                           "ngettext": translation.ngettext})
         params.update({"url": fake_url, "xsrf_form_html": "",
                        "admin": SimpleNamespace(
                            permission_all=permission_all)})
         return "".join(template.blocks["core"](template.new_context(params)))
 
-    def assert_bulk_forms(self, html, action, button):
+    def assert_bulk_forms(self, html, action, button, review="Review list"):
         self.assertNotIn('type="radio"', html)
         self.assertIn('action="%s" method="POST"' % action, html)
         self.assertIn('name="action" value="preview"', html)
@@ -56,7 +61,7 @@ class ListPageTestCase(unittest.TestCase):
         self.assertIn('enctype="multipart/form-data"', html)
         self.assertIn('<textarea name="usernames"', html)
         self.assertIn('type="file" name="file"', html)
-        self.assertIn('value="Revisar lista"', html)
+        self.assertIn('value="%s"' % review, html)
 
 
 class TestUsersPage(ListPageTestCase):
@@ -65,7 +70,7 @@ class TestUsersPage(ListPageTestCase):
         html = self.render("users.html",
                            user_list=[user(7, "ana"), user(9, "beto")])
 
-        self.assert_bulk_forms(html, "/users/remove", "Borrar seleccionados")
+        self.assert_bulk_forms(html, "/users/remove", "Delete selected")
         self.assertIn('type="checkbox" name="user_id" value="7"', html)
         self.assertIn('type="checkbox" name="user_id" value="9"', html)
 
@@ -93,11 +98,11 @@ class TestContestUsersPage(ListPageTestCase):
                            unassigned_users=[], config=config)
 
         self.assert_bulk_forms(html, "/contest/4/users/remove",
-                               "Quitar seleccionados del concurso")
+                               "Remove selected from the contest")
         self.assertIn('type="checkbox" name="user_id" value="7"', html)
         # The rest of the page is still there.
         self.assertIn('value="Add user"', html)
-        self.assertIn("Importar CSV", html)
+        self.assertIn("Import CSV", html)
 
     def test_functional_framework_pattern_matches(self):
         # Same pattern as FunctionalTestFramework.add_user uses to check
@@ -110,3 +115,56 @@ class TestContestUsersPage(ListPageTestCase):
         self.assertTrue(re.search(
             '<input type="checkbox" name="user_id" value="' + str(7) + '"/>',
             html))
+
+
+class TestListPagesInTwoLanguages(ListPageTestCase):
+    """The user list pages in English and in Spanish."""
+
+    CONFIG = SimpleNamespace(
+        contest_web_server=SimpleNamespace(listen_port=[8888]))
+
+    def users_page(self, translation):
+        return self.render("users.html", translation=translation,
+                           user_list=[user(7, "ana")])
+
+    def contest_page(self, translation):
+        group = SimpleNamespace(id=1, name="main")
+        contest = SimpleNamespace(
+            id=4, name="dia1", groups=[group], main_group_id=1,
+            participations=[SimpleNamespace(user=user(7, "ana"),
+                                            group=group)])
+        return self.render("contest_users.html", translation=translation,
+                           contest=contest, unassigned_users=[],
+                           config=self.CONFIG)
+
+    def test_a_page_in_english(self):
+        # Scenario: A page in English
+        for html, button, heading in (
+                (self.users_page(DEFAULT_TRANSLATION), "Delete selected",
+                 "Delete by list"),
+                (self.contest_page(DEFAULT_TRANSLATION),
+                 "Remove selected from the contest", "Remove by list")):
+            for text in ('value="%s"' % button, "<h2>%s</h2>" % heading,
+                         "Selected users:", 'title="Select all"',
+                         'value="Review list"', "Import CSV",
+                         "One username per line, or a CSV whose first "
+                         "column is the username."):
+                self.assertIn(text, html)
+            for spanish in ("seleccionados", "por lista", "Revisar",
+                            "Importar", "Seleccionar"):
+                self.assertNotIn(spanish, html)
+
+    def test_a_page_in_spanish(self):
+        # Scenario: A page in Spanish
+        for html, button, heading in (
+                (self.users_page(SPANISH), "Borrar seleccionados",
+                 "Borrar por lista"),
+                (self.contest_page(SPANISH),
+                 "Quitar seleccionados del concurso", "Quitar por lista")):
+            for text in ('value="%s"' % button, "<h2>%s</h2>" % heading,
+                         "Usuarios seleccionados:",
+                         'title="Seleccionar todo"',
+                         'value="Revisar lista"', "Importar CSV",
+                         "Un username por línea, o un CSV cuya primera "
+                         "columna sea el username."):
+                self.assertIn(text, html)

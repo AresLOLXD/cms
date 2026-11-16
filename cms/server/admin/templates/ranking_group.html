@@ -4,31 +4,31 @@
 
 <h1>{{ ranking_group.description }} ({{ ranking_group.name }})</h1>
 
-<h2 id="title_general_info" class="toggling_on">General Information</h2>
+<h2 id="title_general_info" class="toggling_on">{% trans %}General Information{% endtrans %}</h2>
 <div id="general_info">
   <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
   <form enctype="multipart/form-data" action="{{ url("ranking_group", ranking_group.id) }}" method="POST" style="display:inline;">
     {{ xsrf_form_html|safe }}
     <!-- Pressing Enter in a field submits with the first submit button of the form: it must be Update, not one of the "now" buttons below. -->
-    <input type="submit" value="Update" tabindex="-1" aria-hidden="true" style="position:absolute; left:-9999px;" />
+    <input type="submit" value="{{ _("Update") }}" tabindex="-1" aria-hidden="true" style="position:absolute; left:-9999px;" />
     <table>
       <tr>
         <td>
-          <span class="info" title="Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL."></span>
-          Name
+          <span class="info" title="{{ _("Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL.") }}"></span>
+          {% trans %}Name{% endtrans %}
         </td>
         <td><input type="text" name="name" value="{{ ranking_group.name }}" /></td>
       </tr>
       <tr>
-        <td>Description</td>
+        <td>{% trans %}Description{% endtrans %}</td>
         <td><input type="text" name="description" value="{{ ranking_group.description }}" /></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Times are UTC; the local time is shown next to each."></span>
-          Now
+          <span class="info" title="{{ _("While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Times are UTC; the local time is shown next to each.") }}"></span>
+          {% trans %}Now{% endtrans %}
         </td>
-        <td><strong>{{ view.summary }}</strong>{% if view.next_change %} &middot; next: {{ view.next_change }}{% endif %}</td>
+        <td><strong>{{ view.summary }}</strong>{% if view.next_change %} &middot; {% trans next_change=view.next_change %}next: {{ next_change }}{% endtrans %}{% endif %}</td>
       </tr>
       {% for f in view.fields %}
       <tr>
@@ -44,22 +44,22 @@
         <td></td>
         <td>
           {% if view.hidden_now %}
-          <button type="submit" name="visibility_action" value="show_now">Mostrar ahora</button>
+          <button type="submit" name="visibility_action" value="show_now">{% trans %}Show now{% endtrans %}</button>
           {% else %}
-          <button type="submit" name="visibility_action" value="hide_now">Ocultar ahora</button>
+          <button type="submit" name="visibility_action" value="hide_now">{% trans %}Hide now{% endtrans %}</button>
           {% endif %}
           {% if view.frozen_now %}
-          <button type="submit" name="visibility_action" value="unfreeze_now">Descongelar ahora</button>
+          <button type="submit" name="visibility_action" value="unfreeze_now">{% trans %}Unfreeze now{% endtrans %}</button>
           {% else %}
-          <button type="submit" name="visibility_action" value="freeze_now">Congelar ahora</button>
+          <button type="submit" name="visibility_action" value="freeze_now">{% trans %}Freeze now{% endtrans %}</button>
           {% endif %}
-          <br/><small>Un botón «… ahora» reemplaza la hora escrita en ese campo.</small>
+          <br/><small>{% trans %}A "… now" button replaces the time typed in that field.{% endtrans %}</small>
         </td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. If ProxyService was down when you pressed Unarchive, press Regenerate for this group. Times are UTC; the local time is shown next to each."></span>
-          Archive
+          <span class="info" title="{{ _("Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. If ProxyService was down when you pressed Unarchive, press Regenerate for this group. Times are UTC; the local time is shown next to each.") }}"></span>
+          {% trans %}Archive{% endtrans %}
         </td>
         <td><strong>{{ view.archive_summary }}</strong></td>
       </tr>
@@ -74,43 +74,43 @@
         <td></td>
         <td>
           {% if view.archived_now %}
-          <button type="submit" name="visibility_action" value="unarchive" onclick="return confirm('The whole group will be sent to the public ranking again. Continue?');">Desarchivar</button>
+          <button type="submit" name="visibility_action" value="unarchive" onclick="return confirm({{ _("The whole group will be sent to the public ranking again. Continue?")|tojson|forceescape }});">{% trans %}Unarchive{% endtrans %}</button>
           {% else %}
-          <button type="submit" name="visibility_action" value="archive_now"{% if view.hidden_now or view.frozen_now %} onclick="return confirm('This ranking is hidden or frozen now: archiving it will show it in full to the public. Continue?');"{% endif %}>Archivar ahora</button>
+          <button type="submit" name="visibility_action" value="archive_now"{% if view.hidden_now or view.frozen_now %} onclick="return confirm({{ _("This ranking is hidden or frozen now: archiving it will show it in full to the public. Continue?")|tojson|forceescape }});"{% endif %}>{% trans %}Archive now{% endtrans %}</button>
           {% endif %}
         </td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Leave empty to keep the current password."></span>
-          Staff password
+          <span class="info" title="{{ _("Leave empty to keep the current password.") }}"></span>
+          {% trans %}Staff password{% endtrans %}
         </td>
         <td>
           <input type="password" name="staff_password" autocomplete="new-password"/>
-          {% if ranking_group.staff_password %}(set){% else %}(not set){% endif %}
-          <label><input type="checkbox" name="remove_staff_password"/> Remove staff password</label>
+          {% if ranking_group.staff_password %}{% trans %}(set){% endtrans %}{% else %}{% trans %}(not set){% endtrans %}{% endif %}
+          <label><input type="checkbox" name="remove_staff_password"/> {% trans %}Remove staff password{% endtrans %}</label>
         </td>
       </tr>
     </table>
-    <input type="submit" value="Update" />
-    <input type="reset" value="Reset" />
+    <input type="submit" value="{{ _("Update") }}" />
+    <input type="reset" value="{{ _("Reset") }}" />
   </form>
   <form action="{{ url("ranking_groups") }}" method="POST" style="display:inline; float: right;">
     {{ xsrf_form_html|safe }}
     <input type="hidden" name="ranking_group_id" value="{{ ranking_group.id }}" />
-    <input type="submit" name="operation" value="Remove" {% if not admin.permission_all %}
-      disabled {% endif %} />
+    <button type="submit" name="operation" value="Remove" {% if not admin.permission_all %}
+      disabled {% endif %}>{{ _("Delete group") }}</button>
   </form>
   <div class="hr"></div>
 </div>
 
-<h2>Contests in this group</h2>
+<h2>{% trans %}Contests in this group{% endtrans %}</h2>
 {% if group_contests|length == 0 %}
-<p>No contest is sent to this ranking yet.</p>
+<p>{% trans %}No contest is sent to this ranking yet.{% endtrans %}</p>
 {% else %}
 <ul>
   {% for c in group_contests %}
-  <li><a href="{{ url("contest", c.id) }}">{{ c.name }}</a>{% if not c.active %} (inactive){% endif %}</li>
+  <li><a href="{{ url("contest", c.id) }}">{{ c.name }}</a>{% if not c.active %} {% trans %}(inactive){% endtrans %}{% endif %}</li>
   {% endfor %}
 </ul>
 {% endif %}

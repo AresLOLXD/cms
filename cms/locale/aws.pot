@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-04 22:23-0600\n"
+"POT-Creation-Date: 2026-11-15 18:39-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,11 +17,628 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.12.1\n"
 
+msgid "no column is assigned to the username (username)"
+msgstr ""
+
+msgid "no column is assigned to the first name (first_name)"
+msgstr ""
+
+msgid "no column is assigned to the last name (last_name)"
+msgstr ""
+
+msgid "no column is assigned to the password (password)"
+msgstr ""
+
+msgid "no column is assigned to the team (team)"
+msgstr ""
+
+msgid "no column is assigned to the group (group)"
+msgstr ""
+
+#, python-format
+msgid "row %d: the username is empty"
+msgstr ""
+
+#, python-format
+msgid "row %d: the first name is empty"
+msgstr ""
+
+#, python-format
+msgid "row %d: the last name is empty"
+msgstr ""
+
+#, python-format
+msgid "row %d: the password is empty"
+msgstr ""
+
+#, python-format
+msgid "row %d: the username cell has characters that are not allowed"
+msgstr ""
+
+#, python-format
+msgid "row %d: the first name cell has characters that are not allowed"
+msgstr ""
+
+#, python-format
+msgid "row %d: the last name cell has characters that are not allowed"
+msgstr ""
+
+#, python-format
+msgid "row %d: the team cell has characters that are not allowed"
+msgstr ""
+
+#, python-format
+msgid "row %d: the group cell has characters that are not allowed"
+msgstr ""
+
+msgid "the file is larger than 2 MB"
+msgstr ""
+
+msgid "the file is not in UTF-8"
+msgstr ""
+
+msgid "the file is not a valid CSV"
+msgstr ""
+
+msgid "the file is empty"
+msgstr ""
+
+#, python-format
+msgid "the file has more than %d rows"
+msgstr ""
+
+msgid "the column assigned to the password is not in the file"
+msgstr ""
+
+#, python-format
+msgid "the column %s is not in the file"
+msgstr ""
+
+msgid "the password column is assigned to more than one field"
+msgstr ""
+
+#, python-format
+msgid "row %d: the password is longer than %d bytes"
+msgstr ""
+
+#, python-format
+msgid "row %d: the password has characters that are not allowed"
+msgstr ""
+
+#, python-format
+msgid "row %d: the username %s has characters that are not allowed (only letters without accents, digits, _ and -)"
+msgstr ""
+
+#, python-format
+msgid "row %d: the username %s is repeated (row %d)"
+msgstr ""
+
+msgid "the file has no data rows"
+msgstr ""
+
+msgid "the contest does not exist"
+msgstr ""
+
+msgid "the contest has no main group"
+msgstr ""
+
+#, python-format
+msgid "row %d: the team %s does not exist"
+msgstr ""
+
+#, python-format
+msgid "row %d: the group %s does not exist in this contest"
+msgstr ""
+
+#, python-format
+msgid "row %d: the username %s does not exist; without a password column only users that already exist can be registered"
+msgstr ""
+
+msgid "does not exist"
+msgstr ""
+
+msgid "does not take part in the contest"
+msgstr ""
+
+msgid "the list is over 1 MB"
+msgstr ""
+
+msgid "the list is not in UTF-8"
+msgstr ""
+
+msgid "an export is already running; wait for it to finish"
+msgstr ""
+
+#, python-format
+msgid "there is not enough free space on the AWS disk to export (at least %d GB must be free, both in the exports directory and in the temp_dir)"
+msgstr ""
+
+#, python-format
+msgid "the export failed (exit code %d); nothing was generated"
+msgstr ""
+
+msgid "the export failed; nothing was generated"
+msgstr ""
+
+msgid "You did not choose any user."
+msgstr ""
+
+msgid "The number typed does not match the number of users. Nothing was deleted."
+msgstr ""
+
+msgid "The selection changed since the preview (the users, their contests or submissions, or whether a contest is running): review the list and confirm again. Nothing was deleted."
+msgstr ""
+
+msgid "The selection is too large"
+msgstr ""
+
+#, python-format
+msgid "There are %d users and the most at a time is %d. Split it into smaller lists."
+msgstr ""
+
+msgid "Invalid field(s)"
+msgstr ""
+
+msgid "The list could not be read"
+msgstr ""
+
+msgid "Nothing was deleted"
+msgstr ""
+
+#, python-format
+msgid "%d user was deleted"
+msgid_plural "%d users were deleted"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%d participation was removed"
+msgid_plural "%d participations were removed"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "An import is running for this contest; wait for it to finish."
+msgstr ""
+
+msgid "You already had an import running in this contest; this is its progress. The file you just sent was not imported."
+msgstr ""
+
+msgid "The import was not found: it does not exist or it has expired. Check the list of users to see whether it was applied."
+msgstr ""
+
+msgid "choose a CSV file"
+msgstr ""
+
+msgid "A users import is running; wait for it to finish."
+msgstr ""
+
+msgid "You already had a users import running; this is its progress. The file you just sent was not imported."
+msgstr ""
+
+msgid "The export was not found: it does not exist or it has expired."
+msgstr ""
+
+msgid "choose at least one contest"
+msgstr ""
+
+msgid "one of the chosen contests no longer exists"
+msgstr ""
+
+#, python-format
+msgid "These contests are running or in their analysis mode: %s. The dump is read without freezing the database: it may come out inconsistent and the load may affect the contest. Tick the confirmation to export them anyway."
+msgstr ""
+
+#, python-format
+msgid "Invalid ranking group name %r: use only lowercase letters, digits, '-' and '_', and none of: %s."
+msgstr ""
+
+msgid "Hide from"
+msgstr ""
+
+msgid "Show again at"
+msgstr ""
+
+msgid "Freeze at"
+msgstr ""
+
+msgid "Unfreeze at"
+msgstr ""
+
+msgid "Archive at"
+msgstr ""
+
+msgid "The ranking is not hidden."
+msgstr ""
+
+msgid "The ranking is already frozen."
+msgstr ""
+
+msgid "The ranking is not frozen."
+msgstr ""
+
+msgid "The group is already archived."
+msgstr ""
+
+msgid "The group is not archived."
+msgstr ""
+
+#, python-format
+msgid "Unknown action %r."
+msgstr ""
+
+msgid "Set a new staff password or remove it, not both."
+msgstr ""
+
+#, python-format
+msgid "The staff password is too long (at most %d bytes)."
+msgstr ""
+
+msgid "hidden (frozen)"
+msgstr ""
+
+msgid "hidden"
+msgstr ""
+
+msgid "frozen"
+msgstr ""
+
+msgid "visible"
+msgstr ""
+
+msgid "never archived"
+msgstr ""
+
+#, python-format
+msgid "archived since %s UTC (%s)"
+msgstr ""
+
+#, python-format
+msgid "will be archived on %s UTC (%s)"
+msgstr ""
+
+#, python-format
+msgid "Invalid operation %s"
+msgstr ""
+
+#, python-format
+msgid "Ranking group %r is archived: unarchive it before renaming it."
+msgstr ""
+
+msgid "Ranking regeneration ignored"
+msgstr ""
+
+#, python-format
+msgid "Ranking %s is archived: nothing was sent. Unarchive it first to publish a correction."
+msgstr ""
+
+msgid "Ranking regeneration requested"
+msgstr ""
+
+#, python-format
+msgid "Ranking %s is being emptied and sent again."
+msgstr ""
+
+msgid "root"
+msgstr ""
+
+msgid "the import could not be applied; nothing was saved"
+msgstr ""
+
+msgid "an import of users is already running"
+msgstr ""
+
+msgid "an import is already running for this contest"
+msgstr ""
+
+msgid "New ranking group"
+msgstr ""
+
+msgid "General information"
+msgstr ""
+
+msgid "Used in the scoreboard URL (/<name>/): lowercase letters, digits, '-' and '_'."
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Description"
+msgstr ""
+
+msgid "While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Leave a time empty for none."
+msgstr ""
+
+msgid "The staff use it to see the ranking while it is hidden. Leave empty for none: a hidden ranking is then visible to nobody."
+msgstr ""
+
+msgid "Staff password"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Import CSV"
+msgstr ""
+
+msgid "Selected users:"
+msgstr ""
+
+msgid "Remove selected from the contest"
+msgstr ""
+
+msgid "Select all"
+msgstr ""
+
+msgid "Remove by list"
+msgstr ""
+
+msgid "One username per line, or a CSV whose first column is the username."
+msgstr ""
+
+msgid "Review list"
+msgstr ""
+
+msgid "Users"
+msgstr ""
+
+msgid "One row per contestant: it creates the users that are missing and registers their participation in this contest with the password of the day. Without a password column, it only enrolls users that already exist, and new participations get the password of their account. If the user or the participation already exists, it is updated. If there is any error, nothing is saved."
+msgstr ""
+
+msgid "One row per user: it creates the accounts that are missing with their password and updates the first name, the last name and the password of those that already exist. It does not register anyone in any contest. If there is any error, nothing is saved."
+msgstr ""
+
+msgid "The password of the account is only used in the contests where the participation has no password of its own."
+msgstr ""
+
+msgid "User (username)"
+msgstr ""
+
+msgid "First name (first_name)"
+msgstr ""
+
+msgid "Last names (last_name)"
+msgstr ""
+
+msgid "Password of the day (password)"
+msgstr ""
+
+msgid "Password (password)"
+msgstr ""
+
+msgid "Team (team)"
+msgstr ""
+
+msgid "Group (group)"
+msgstr ""
+
+msgid "Nothing was applied. Fix these errors and upload the file again:"
+msgstr ""
+
+#, python-format
+msgid "%(count)s error"
+msgid_plural "%(count)s errors"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "and %(count)s more"
+msgstr ""
+
+msgid "The file is valid. When it is imported:"
+msgstr ""
+
+#, python-format
+msgid "New users: %(count)s"
+msgstr ""
+
+#, python-format
+msgid "Existing users (overwritten): %(count)s"
+msgstr ""
+
+#, python-format
+msgid "New participations: %(count)s"
+msgstr ""
+
+#, python-format
+msgid "Existing participations (overwritten): %(count)s"
+msgstr ""
+
+#, python-format
+msgid "%(count)s participation will lose its team"
+msgid_plural "%(count)s participations will lose their team"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(count)s participation will move to the main group"
+msgid_plural "%(count)s participations will move to the main group"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "First row of the file; check that the columns are the right ones:"
+msgstr ""
+
+msgid "(empty)"
+msgstr ""
+
+#, python-format
+msgid "Processing %(processed)s of %(total)s"
+msgstr ""
+
+msgid "Done."
+msgstr ""
+
+#, python-format
+msgid "New users: %(new)s, existing (overwritten): %(updated)s."
+msgstr ""
+
+#, python-format
+msgid "New participations: %(new)s, existing (overwritten): %(updated)s."
+msgstr ""
+
+#, python-format
+msgid "%(count)s participation lost its team"
+msgid_plural "%(count)s participations lost their team"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(count)s participation was moved to the main group"
+msgid_plural "%(count)s participations were moved to the main group"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "Error: %(error)s"
+msgstr ""
+
+msgid "User list"
+msgstr ""
+
+msgid "Import another file"
+msgstr ""
+
+msgid "Could not check the progress; reload the page."
+msgstr ""
+
+msgid "Import progress"
+msgstr ""
+
+msgid "Pick the file again to import it. The assigned columns are kept, except the password one: check it."
+msgstr ""
+
+msgid "* required"
+msgstr ""
+
+msgid "CSV file *"
+msgstr ""
+
+msgid "(unassigned)"
+msgstr ""
+
+msgid "Unassigned: new participations get the password of their account and existing ones keep theirs. The users must exist."
+msgstr ""
+
+msgid "Empty or unassigned: the participation is left without a team / in the main group."
+msgstr ""
+
+msgid "The import hashes the passwords and can take 20 to 40 s for every 300 contestants."
+msgstr ""
+
+msgid "Only validate"
+msgstr ""
+
+msgid "Import"
+msgstr ""
+
 #, python-format
 msgid "Error %(status_code)s"
 msgstr ""
 
 msgid "An error occured while the server was handling your request."
+msgstr ""
+
+msgid "Export contests"
+msgstr ""
+
+msgid "Download a <code>.zip</code> file with the contests you choose: the same content and format that <code>cmsDumpExporter</code> generates, which can be imported again unchanged with <code>cmsDumpImporter</code>."
+msgstr ""
+
+msgid "The file contains the users' passwords (hashed or in plain text, as they are stored) and all the submissions: treat it as confidential information. Only admins with all the permissions can export and download."
+msgstr ""
+
+msgid "The dump may include more than you choose: <code>cmsDumpExporter</code> also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants."
+msgstr ""
+
+msgid "It is not a backup of the whole database: for that use <code>backup.sh</code> (<code>pg_dump</code>)."
+msgstr ""
+
+msgid "Only one export runs at a time in the whole of AWS. The file is deleted one hour after it ends."
+msgstr ""
+
+msgid "The export was not started:"
+msgstr ""
+
+#, python-format
+msgid "Download the .zip (%(size)s MB)"
+msgstr ""
+
+msgid "The file will be available for one hour."
+msgstr ""
+
+msgid "The export failed."
+msgstr ""
+
+msgid "Packing the .zip…"
+msgstr ""
+
+msgid "Exporting… it may take several minutes; you can close this page and come back from the list of exports."
+msgstr ""
+
+msgid "Export other contests"
+msgstr ""
+
+msgid "Could not check the state; reload the page."
+msgstr ""
+
+msgid "Checking the state…"
+msgstr ""
+
+msgid "Contests *"
+msgstr ""
+
+msgid "(no contests)"
+msgstr ""
+
+msgid "(running or in analysis mode)"
+msgstr ""
+
+msgid "Content"
+msgstr ""
+
+msgid "Database and files"
+msgstr ""
+
+msgid "Only the database, without files (<code>-F</code>)"
+msgstr ""
+
+msgid "Only the files, without the database (<code>-f</code>; it cannot be imported again)"
+msgstr ""
+
+msgid "Options"
+msgstr ""
+
+msgid "Do not export what can be regenerated: results and executables (<code>-G</code>, recommended)"
+msgstr ""
+
+msgid "Do not export the submissions (<code>-S</code>)"
+msgstr ""
+
+msgid "Do not export the user tests (<code>-U</code>)"
+msgstr ""
+
+msgid "Do not export the users (<code>-X</code>)"
+msgstr ""
+
+msgid "There are contests running or in analysis mode. The dump is read without freezing the database: it may come out inconsistent, and the queries and the reading of files load the database that the contest uses."
+msgstr ""
+
+msgid "I understand the risk and want to export anyway"
+msgstr ""
+
+msgid "Export"
+msgstr ""
+
+msgid "Your exports"
+msgstr ""
+
+msgid "running"
+msgstr ""
+
+msgid "ready"
+msgstr ""
+
+msgid "failed"
 msgstr ""
 
 msgid "Language"
@@ -64,6 +681,189 @@ msgstr ""
 msgid "Login"
 msgstr ""
 
-msgid "Reset"
+msgid "General Information"
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Used in the scoreboard URL (/<name>/). Renaming moves the scoreboard to the new URL."
+msgstr ""
+
+msgid "While hidden, the public scoreboard shows a notice and no data. The staff log in there with the staff password to see the live ranking. While frozen, the public scoreboard keeps showing the state it had at the freeze. Times are UTC; the local time is shown next to each."
+msgstr ""
+
+msgid "Now"
+msgstr ""
+
+#, python-format
+msgid "next: %(next_change)s"
+msgstr ""
+
+msgid "Show now"
+msgstr ""
+
+msgid "Hide now"
+msgstr ""
+
+msgid "Unfreeze now"
+msgstr ""
+
+msgid "Freeze now"
+msgstr ""
+
+msgid "A \"… now\" button replaces the time typed in that field."
+msgstr ""
+
+msgid "Once archived, the group stops being sent to the public ranking and its data stays as it is. Unarchiving sends the whole group again and archives it again 24 hours later. If ProxyService was down when you pressed Unarchive, press Regenerate for this group. Times are UTC; the local time is shown next to each."
+msgstr ""
+
+msgid "Archive"
+msgstr ""
+
+msgid "The whole group will be sent to the public ranking again. Continue?"
+msgstr ""
+
+msgid "Unarchive"
+msgstr ""
+
+msgid "This ranking is hidden or frozen now: archiving it will show it in full to the public. Continue?"
+msgstr ""
+
+msgid "Archive now"
+msgstr ""
+
+msgid "Leave empty to keep the current password."
+msgstr ""
+
+msgid "(set)"
+msgstr ""
+
+msgid "(not set)"
+msgstr ""
+
+msgid "Remove staff password"
+msgstr ""
+
+msgid "Delete group"
+msgstr ""
+
+msgid "Contests in this group"
+msgstr ""
+
+msgid "No contest is sent to this ranking yet."
+msgstr ""
+
+msgid "(inactive)"
+msgstr ""
+
+msgid "Ranking groups"
+msgstr ""
+
+msgid "Each ranking group is an independent public scoreboard, served by RWS at <code>/&lt;name&gt;/</code>. Assign a contest to a group from the contest's own page."
+msgstr ""
+
+msgid "Edit selected group:"
+msgstr ""
+
+msgid "Contests"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+#, python-format
+msgid "%(summary)s (nobody can see it: no staff password)"
+msgstr ""
+
+msgid "set"
+msgstr ""
+
+msgid "not set"
+msgstr ""
+
+msgid "Regenerate a ranking"
+msgstr ""
+
+msgid "Regenerating empties a scoreboard and sends all of its data again from the database. Use it when a scoreboard does not match the database. The root ranking is the one at <code>/</code>: it is used when ProxyService runs for a single contest, and regenerating it while using groups leaves it empty."
+msgstr ""
+
+msgid "Root ranking (<code>/</code>)"
+msgstr ""
+
+msgid "Empty and regenerate the root ranking?"
+msgstr ""
+
+msgid "Regenerate"
+msgstr ""
+
+#, python-format
+msgid "Empty and regenerate the ranking %s?"
+msgstr ""
+
+msgid "Delete selected"
+msgstr ""
+
+msgid "Delete by list"
+msgstr ""
+
+msgid "Delete users"
+msgstr ""
+
+#, python-format
+msgid "Remove participations from %(name)s"
+msgstr ""
+
+msgid "Warning: a contest that is running is among those affected. Submissions made during the contest will be lost, and emptying and sending a ranking again in the middle of a contest is heavy."
+msgstr ""
+
+#, python-format
+msgid "%(count)s user will be deleted, %(submissions)s submissions and %(user_tests)s user tests."
+msgid_plural "%(count)s users will be deleted, %(submissions)s submissions and %(user_tests)s user tests."
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(count)s participation will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests."
+msgid_plural "%(count)s participations will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests."
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "This operation cannot be undone."
+msgstr ""
+
+msgid "root (/)"
+msgstr ""
+
+#, python-format
+msgid "Rankings that will be emptied and sent again: %(groups)s."
+msgstr ""
+
+msgid "First name"
+msgstr ""
+
+msgid "Last name"
+msgstr ""
+
+msgid "Submissions"
+msgstr ""
+
+msgid "There is nothing to delete."
+msgstr ""
+
+msgid "Ignored:"
+msgstr ""
+
+#, python-format
+msgid "Type %(count)s to confirm:"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Cancel"
 msgstr ""
 

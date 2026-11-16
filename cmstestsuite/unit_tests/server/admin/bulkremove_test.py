@@ -20,8 +20,10 @@
 
 import unittest
 
+from cms.locale import DEFAULT_TRANSLATION
 from cms.server.admin.bulkremove import MAX_LIST_BYTES, RemovalEntry, \
     RemovalPlan, parse_usernames
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 
 class TestParseUsernames(unittest.TestCase):
@@ -74,7 +76,7 @@ class TestParseUsernames(unittest.TestCase):
         half = b"a" * (MAX_LIST_BYTES // 2 + 1)
         with self.assertRaises(ValueError) as caught:
             parse_usernames(half, half)
-        self.assertEqual(str(caught.exception), "la lista pasa de 1 MB")
+        self.assertEqual(str(caught.exception), "the list is over 1 MB")
 
     def test_exactly_the_limit_is_accepted(self):
         self.assertEqual(parse_usernames(b"a" * MAX_LIST_BYTES),
@@ -84,7 +86,7 @@ class TestParseUsernames(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             parse_usernames("josé\n".encode("latin-1"))
         self.assertEqual(str(caught.exception),
-                         "la lista no está en UTF-8")
+                         "the list is not in UTF-8")
 
 
 class TestFingerprint(unittest.TestCase):
@@ -111,3 +113,27 @@ class TestFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.plan(1, 3, running=True).fingerprint)
         self.assertNotEqual(
             base, self.plan(1, 3, contests=("dia1", "dia2")).fingerprint)
+
+
+class TestParseUsernamesErrorsInSpanish(unittest.TestCase):
+
+    def message(self, source, translation):
+        with self.assertRaises(ValueError) as caught:
+            parse_usernames(*source, gettext=translation.gettext)
+        return str(caught.exception)
+
+    def test_the_errors_in_spanish(self):
+        # Scenario: A page in Spanish (the reasons a list is not read)
+        half = b"a" * (MAX_LIST_BYTES // 2 + 1)
+
+        self.assertEqual(self.message([half, half], SPANISH),
+                         "la lista pasa de 1 MB")
+        self.assertEqual(self.message(["josé".encode("latin-1")], SPANISH),
+                         "la lista no está en UTF-8")
+
+    def test_the_errors_in_english(self):
+        # Scenario: A page in English
+        half = b"a" * (MAX_LIST_BYTES // 2 + 1)
+
+        self.assertEqual(self.message([half, half], DEFAULT_TRANSLATION),
+                         "the list is over 1 MB")

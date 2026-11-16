@@ -31,15 +31,16 @@ from unittest import mock
 from sqlalchemy import event, inspect, select
 
 from cms.db import Participation, SessionGen, User
-from cms.server.admin.bulkimport import HASH_THREADS, MAX_ROWS, USER_FIELDS, \
-    USER_REQUIRED, ImportRow, apply_import, apply_user_import, \
-    hash_account_passwords, hash_passwords, plan_import, plan_user_import, \
-    read_rows
+from cms.server.admin.bulkimport import FIELDS, HASH_THREADS, MAX_ROWS, \
+    USER_FIELDS, USER_REQUIRED, ImportPlan, ImportRow, UserImportPlan, \
+    apply_import, apply_user_import, hash_account_passwords, hash_passwords, \
+    plan_import, plan_user_import, read_rows
 from cms.server.contest.authentication import authenticate_request, \
     validate_login
 from cmscommon.crypto import hash_password
 from cmscommon.datetime import make_datetime
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 MAPPING = {"username": "usuario", "first_name": "nombre",
            "last_name": "apellido", "password": "contraseña",
@@ -89,17 +90,19 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes("usuario,nombre,apellido\n"),
                               mapping)
         self.assertIn(
-            "falta asignar la columna para el usuario (username)", errors)
+            "no column is assigned to the username (username)", errors)
 
-    def test_unmapped_required_fields_read_well_in_spanish(self):
+    def test_unmapped_required_fields_name_each_field(self):
         for fields, required, mapping, cases in (
                 (None, None, MAPPING, (
-                    ("username", "el usuario"), ("first_name", "el nombre"),
-                    ("last_name", "el apellido"))),
+                    ("username", "the username"),
+                    ("first_name", "the first name"),
+                    ("last_name", "the last name"))),
                 (USER_FIELDS, USER_REQUIRED, USER_MAPPING, (
-                    ("username", "el usuario"), ("first_name", "el nombre"),
-                    ("last_name", "el apellido"),
-                    ("password", "la contraseña")))):
+                    ("username", "the username"),
+                    ("first_name", "the first name"),
+                    ("last_name", "the last name"),
+                    ("password", "the password")))):
             for field, text in cases:
                 with self.subTest(fields=fields, field=field):
                     args = () if fields is None else (fields, required)
@@ -109,8 +112,7 @@ class TestReadRows(unittest.TestCase):
                         dict(mapping, **{field: ""}), *args)
                     self.assertEqual(
                         errors,
-                        ["falta asignar la columna para %s (%s)"
-                         % (text, field)])
+                        ["no column is assigned to %s (%s)" % (text, field)])
 
     def test_the_contest_password_may_be_left_unmapped(self):
         rows, errors = read_rows(csv_bytes(
@@ -124,7 +126,7 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
             "ana,Ana,López,,\n"), MAPPING)
-        self.assertEqual(errors, ["fila 2: la contraseña está vacía"])
+        self.assertEqual(errors, ["row 2: the password is empty"])
 
     def test_the_global_fields(self):
         # Extra columns, a team among them, are ignored.
@@ -143,8 +145,8 @@ class TestReadRows(unittest.TestCase):
                    "last_name": "López", "password": "S3CRET"}
         rows, errors = read_user_rows(text, mapping)
         self.assertEqual(rows, [])
-        self.assertEqual(errors, ["la columna de la contraseña está "
-                                  "asignada a más de un campo"])
+        self.assertEqual(errors, ["the password column is assigned to "
+                                  "more than one field"])
 
     def test_the_global_rows_check_the_password_as_the_contest_does(self):
         _, errors = read_user_rows(
@@ -153,9 +155,9 @@ class TestReadRows(unittest.TestCase):
             "beto,Beto,Ruiz,%s\n"
             "carla,Carla,Sanz,a\tb\n" % ("ñ" * 37))
         self.assertEqual(errors, [
-            "fila 2: la contraseña está vacía",
-            "fila 3: la contraseña pasa de 72 bytes",
-            "fila 4: la contraseña tiene caracteres no permitidos"])
+            "row 2: the password is empty",
+            "row 3: the password is longer than 72 bytes",
+            "row 4: the password has characters that are not allowed"])
 
     def test_headerless_file_with_two_fields_on_one_column(self):
         # The team and the group read the same column; the password has
@@ -180,8 +182,8 @@ class TestReadRows(unittest.TestCase):
             "usuario,nombre,apellido,contraseña,estado\n"
             "ana,Ana,López,,\n"
             "ana,Ana,López,pw,\n"), MAPPING)
-        self.assertIn("fila 2: la contraseña está vacía", errors)
-        self.assertIn("fila 3: el usuario ana está repetido (fila 2)",
+        self.assertIn("row 2: the password is empty", errors)
+        self.assertIn("row 3: the username ana is repeated (row 2)",
                       errors)
 
     def test_password_too_long_does_not_echo_it(self):
@@ -191,7 +193,7 @@ class TestReadRows(unittest.TestCase):
             "ana,A,L,%s,\n" % secret), MAPPING)
         self.assertEqual(len(errors), 1)
         self.assertNotIn(secret, errors[0])
-        self.assertIn("fila 2", errors[0])
+        self.assertIn("row 2", errors[0])
 
     def test_limits(self):
         _, errors = read_rows(b"x" * (2 * 1024 * 1024 + 1), MAPPING)
@@ -217,7 +219,7 @@ class TestReadRows(unittest.TestCase):
         # The page gets a fixed message; the reason of the csv module (a
         # developer text in English) only goes to the DEBUG log, and
         # neither of them echoes the content of a cell.
-        self.assertEqual(errors, ["el archivo no es un CSV válido"])
+        self.assertEqual(errors, ["the file is not a valid CSV"])
         self.assertEqual([r.levelno for r in logs.records],
                          [logging.DEBUG])
         self.assertIn("field limit", logs.output[0])
@@ -229,10 +231,10 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
             ",,,,JAL\n"), MAPPING)
-        self.assertEqual(errors, ["fila 2: el usuario está vacío",
-                                  "fila 2: el nombre está vacío",
-                                  "fila 2: el apellido está vacío",
-                                  "fila 2: la contraseña está vacía"])
+        self.assertEqual(errors, ["row 2: the username is empty",
+                                  "row 2: the first name is empty",
+                                  "row 2: the last name is empty",
+                                  "row 2: the password is empty"])
 
     def test_column_mapped_twice_is_an_error(self):
         # With the username and the password in the same column, two rows
@@ -246,7 +248,7 @@ class TestReadRows(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(
             errors,
-            ["la columna de la contraseña está asignada a más de un campo"])
+            ["the password column is assigned to more than one field"])
         self.assertFalse(any("SECRETPW" in e for e in errors))
 
     def test_a_column_other_than_the_password_can_feed_several_fields(self):
@@ -278,7 +280,7 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña\nana,A,L,pw\n"), dict(
                 MAPPING, team="equipo", group="equipo", last_name="equipo"))
-        self.assertEqual(errors, ["la columna equipo no está en el archivo"])
+        self.assertEqual(errors, ["the column equipo is not in the file"])
 
     def test_password_column_used_by_several_fields_is_reported_once(self):
         mapping = dict(MAPPING, username="contraseña", team="contraseña")
@@ -288,7 +290,7 @@ class TestReadRows(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(
             errors,
-            ["la columna de la contraseña está asignada a más de un campo"])
+            ["the password column is assigned to more than one field"])
 
     def test_password_header_is_never_echoed_when_mapped_twice(self):
         # Without a header row, the "header" is the first contestant's row,
@@ -303,8 +305,8 @@ class TestReadRows(unittest.TestCase):
                 rows, errors = read_rows(csv_bytes(text), mapping)
                 self.assertEqual(rows, [])
                 self.assertEqual(
-                    errors, ["la columna de la contraseña está asignada a "
-                             "más de un campo"])
+                    errors, ["the password column is assigned to "
+                             "more than one field"])
                 self.assertFalse(any("s3cret" in e for e in errors))
 
     def test_password_header_missing_from_the_file_is_never_echoed(self):
@@ -314,7 +316,7 @@ class TestReadRows(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(
             errors,
-            ["la columna asignada a la contraseña no está en el archivo"])
+            ["the column assigned to the password is not in the file"])
         self.assertFalse(any("s3cret" in e for e in errors))
 
     def test_password_header_is_never_echoed_when_another_field_has_it(self):
@@ -326,15 +328,15 @@ class TestReadRows(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(
             errors,
-            ["la columna asignada a la contraseña no está en el archivo",
-             "la columna de la contraseña está asignada a más de un campo"])
+            ["the column assigned to the password is not in the file",
+             "the password column is assigned to more than one field"])
         self.assertFalse(any("s3cret" in e for e in errors))
 
     def test_other_headers_are_still_echoed(self):
         text = "usuario,nombre,apellido,contraseña,estado\nana,A,L,pw,\n"
         _, errors = read_rows(csv_bytes(text), dict(
             MAPPING, team="equipo", group="equipo"))
-        self.assertEqual(errors, ["la columna equipo no está en el archivo"])
+        self.assertEqual(errors, ["the column equipo is not in the file"])
 
     def test_usernames_the_database_refuses(self):
         # The Codename domain of the database: letters without accents,
@@ -347,8 +349,9 @@ class TestReadRows(unittest.TestCase):
                     '"%s",Ana,López,pw,\n' % username), MAPPING)
                 self.assertEqual(
                     errors,
-                    ["fila 3: el usuario %s tiene caracteres no permitidos "
-                     "(solo letras sin acentos, números, _ y -)" % username])
+                    ["row 3: the username %s has characters that are not "
+                     "allowed (only letters without accents, digits, _ and "
+                     "-)" % username])
 
     def test_username_with_every_allowed_character_passes(self):
         rows, errors = read_rows(csv_bytes(
@@ -364,16 +367,17 @@ class TestReadRows(unittest.TestCase):
                 "Ana_01-b,Ana,López,pw,\n"
                 "josé,Ana,López,,\n"
                 "ana.perez,Ana,López,pw,\n")
-        message = ("fila %d: el usuario %s tiene caracteres no permitidos "
-                   "(solo letras sin acentos, números, _ y -)")
+        message = ("row %d: the username %s has characters that are not "
+                   "allowed (only letters without accents, digits, _ and "
+                   "-)")
         expected = [
             message % (2, "ana.perez"),
             # An empty username is only empty; it is not also refused.
-            "fila 3: el usuario está vacío",
-            "fila 5: la contraseña está vacía",
+            "row 3: the username is empty",
+            "row 5: the password is empty",
             message % (5, "josé"),
             message % (6, "ana.perez"),
-            "fila 6: el usuario ana.perez está repetido (fila 2)"]
+            "row 6: the username ana.perez is repeated (row 2)"]
         for _ in range(3):
             _, errors = read_rows(csv_bytes(text), MAPPING)
             self.assertEqual(errors, expected)
@@ -382,7 +386,7 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
             "ana,Ana,López,   ,\n"), MAPPING)
-        self.assertEqual(errors, ["fila 2: la contraseña está vacía"])
+        self.assertEqual(errors, ["row 2: the password is empty"])
 
     def test_the_password_is_stripped_as_cws_does(self):
         # The same str.strip() as Tornado's get_argument, which CWS uses
@@ -411,7 +415,8 @@ class TestReadRows(unittest.TestCase):
                     "ana,Ana,López,%s,\n" % secret), MAPPING)
                 self.assertEqual(
                     errors,
-                    ["fila 2: la contraseña tiene caracteres no permitidos"])
+                    ["row 2: the password has characters that are not "
+                     "allowed"])
                 self.assertFalse(any("s3c" in e for e in errors))
 
     def test_a_nul_byte_in_any_cell_is_refused(self):
@@ -421,9 +426,8 @@ class TestReadRows(unittest.TestCase):
         header = "usuario,nombre,apellido,contraseña,estado,grupo\n"
         mapping = dict(MAPPING, group="grupo")
         good = ["ana", "Ana", "López", "pw", "JAL", "tarde"]
-        for index, name in ((0, "del usuario"), (1, "del nombre"),
-                            (2, "del apellido"), (4, "del equipo"),
-                            (5, "del grupo")):
+        for index, name in ((0, "username"), (1, "first name"),
+                            (2, "last name"), (4, "team"), (5, "group")):
             cells = list(good)
             cells[index] = "Sec\x00reto"
             with self.subTest(name=name):
@@ -431,8 +435,8 @@ class TestReadRows(unittest.TestCase):
                     csv_bytes(header + ",".join(cells) + "\n"), mapping)
                 self.assertEqual(
                     errors,
-                    ["fila 2: la celda %s tiene caracteres no permitidos"
-                     % name])
+                    ["row 2: the %s cell has characters that are not "
+                     "allowed" % name])
                 self.assertFalse(any("Sec" in e for e in errors))
         # The password has a message of its own, and only that one.
         cells = list(good)
@@ -440,7 +444,8 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(header + ",".join(cells) + "\n"),
                               mapping)
         self.assertEqual(
-            errors, ["fila 2: la contraseña tiene caracteres no permitidos"])
+            errors,
+            ["row 2: the password has characters that are not allowed"])
 
     def test_the_72_bytes_are_counted_after_stripping(self):
         rows, errors = read_rows(csv_bytes(
@@ -451,7 +456,8 @@ class TestReadRows(unittest.TestCase):
         _, errors = read_rows(csv_bytes(
             "usuario,nombre,apellido,contraseña,estado\n"
             "ana,Ana,López,  %sx  ,\n" % ("ñ" * 36)), MAPPING)
-        self.assertEqual(errors, ["fila 2: la contraseña pasa de 72 bytes"])
+        self.assertEqual(
+            errors, ["row 2: the password is longer than 72 bytes"])
 
     def test_blank_and_separator_only_rows_are_skipped(self):
         rows, errors = read_rows(csv_bytes(
@@ -498,19 +504,19 @@ class TestReadRows(unittest.TestCase):
             "beto,Beto,Pérez\n"), MAPPING)
         # A missing optional cell is None; a missing required one is empty.
         self.assertEqual(rows[0].team, None)
-        self.assertEqual(errors, ["fila 3: la contraseña está vacía"])
+        self.assertEqual(errors, ["row 3: the password is empty"])
 
     def test_header_only_file(self):
         header = "usuario,nombre,apellido,contraseña,estado\n"
         for text in (header, header + "\n,,,,\n  ,  ,  ,  ,  \n"):
             rows, errors = read_rows(csv_bytes(text), MAPPING)
             self.assertEqual(rows, [])
-            self.assertEqual(errors, ["el archivo no tiene filas de datos"])
+            self.assertEqual(errors, ["the file has no data rows"])
 
     def test_empty_file(self):
         rows, errors = read_rows(b"", MAPPING)
         self.assertEqual(rows, [])
-        self.assertEqual(errors, ["el archivo está vacío"])
+        self.assertEqual(errors, ["the file is empty"])
 
 
 def import_row(line: int, username: str, team: str | None = None,
@@ -565,8 +571,9 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         result = plan_import(self.session, self.contest.id, [
             import_row(2, "carla", team="XYZ", group="tarde")])
         self.assertEqual(result, (None, [
-            "fila 2: el equipo XYZ no existe",
-            "fila 2: el grupo tarde no existe en este concurso"]))
+            "row 2: the team XYZ does not exist",
+            "row 2: the group tarde does not exist in this "
+            "contest"]))
         self.assertEqual(self.session.query(User).count(), users_before)
         self.assertEqual(self.session.query(Participation).count(),
                          participations_before)
@@ -580,11 +587,11 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
                 import_row(5, "dora", password=None)]
         result = plan_import(self.session, self.contest.id, rows)
         self.assertEqual(result, (None, [
-            "fila 3: el equipo XYZ no existe",
-            "fila 3: el usuario carla no existe; sin columna de contraseña "
-            "solo se pueden inscribir usuarios que ya existen",
-            "fila 5: el usuario dora no existe; sin columna de contraseña "
-            "solo se pueden inscribir usuarios que ya existen"]))
+            "row 3: the team XYZ does not exist",
+            "row 3: the username carla does not exist; without a password "
+            "column only users that already exist can be registered",
+            "row 5: the username dora does not exist; without a password "
+            "column only users that already exist can be registered"]))
 
     def test_without_a_password_existing_users_are_planned(self):
         plan, errors = plan_import(self.session, self.contest.id, [
@@ -633,9 +640,34 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         self.assertEqual(plan.new_participations, ["dora"])
         self.assertEqual(plan.updated_participations, [])
 
+    def test_plan_errors_in_spanish(self):
+        # Scenario "A page in Spanish": the errors of the plan are the text
+        # that main showed.
+        spanish = SPANISH.gettext
+        self.assertEqual(
+            plan_import(self.session, -1, [import_row(2, "carla")],
+                        gettext=spanish),
+            (None, ["el concurso no existe"]))
+        self.assertEqual(
+            plan_import(self.session, self.contest.id, [
+                import_row(2, "carla", team="XYZ", group="tarde"),
+                import_row(3, "dora", password=None)], gettext=spanish),
+            (None, [
+                "fila 2: el equipo XYZ no existe",
+                "fila 2: el grupo tarde no existe en este concurso",
+                "fila 3: el usuario dora no existe; sin columna de "
+                "contraseña solo se pueden inscribir usuarios que ya "
+                "existen"]))
+        contest = self.add_contest(main_group=None)
+        self.session.flush()
+        self.assertEqual(
+            plan_import(self.session, contest.id, [import_row(2, "carla")],
+                        gettext=spanish),
+            (None, ["el concurso no tiene grupo principal"]))
+
     def test_unknown_contest(self):
         result = plan_import(self.session, -1, [import_row(2, "carla")])
-        self.assertEqual(result, (None, ["el concurso no existe"]))
+        self.assertEqual(result, (None, ["the contest does not exist"]))
 
     def test_groups_are_those_of_the_contest(self):
         afternoon = self.get_group(name="tarde", contest=self.contest)
@@ -654,7 +686,8 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         result = plan_import(self.session, self.contest.id, [
             import_row(2, "carla", group="noche")])
         self.assertEqual(result, (None, [
-            "fila 2: el grupo noche no existe en este concurso"]))
+            "row 2: the group noche does not exist in this "
+            "contest"]))
 
     def test_contest_without_main_group(self):
         contest = self.add_contest(main_group=None)
@@ -663,7 +696,7 @@ class TestPlanImport(ImportFixtureMixin, unittest.TestCase):
         result = plan_import(self.session, contest.id, [
             import_row(2, "carla")])
         self.assertEqual(result,
-                         (None, ["el concurso no tiene grupo principal"]))
+                         (None, ["the contest has no main group"]))
 
     def test_the_stored_passwords_of_the_contest_are_kept_out_of_sight(self):
         # ana has a password in this contest; beto has one only in another
@@ -1443,6 +1476,152 @@ class TestGlobalReimportAndTheContestCookie(ImportFixtureMixin,
 
         self.assertFalse(self.cookie_authenticates(cookie))
         self.log_in("beto", "cuenta-beto-2")
+
+
+HEADER = "usuario,nombre,apellido,contraseña,estado,grupo\n"
+ALL_MAPPING = dict(MAPPING, group="grupo")
+# What ana's row holds in each field; a test spoils one cell of it.
+GOOD_CELLS = {"username": "ana", "first_name": "Ana", "last_name": "López",
+              "password": "pw", "team": "JAL", "group": "tarde"}
+
+
+def row_with(**cells: str) -> str:
+    """Return the CSV of one row, with some cells replaced."""
+    merged = dict(GOOD_CELLS, **cells)
+    return HEADER + ",".join(merged[field] for field in FIELDS) + "\n"
+
+
+class TestMessagesInTwoLanguages(unittest.TestCase):
+    """The errors of the CSV in English (no gettext) and in Spanish, which
+    is word for word what main showed before they were translated."""
+
+    def test_spanish_per_field_messages(self):
+        # Scenario "A page in Spanish": one message per field, each with its
+        # own grammar (el usuario / del usuario, la contraseña, ...).
+        unassigned = {
+            "username": "falta asignar la columna para el usuario "
+                        "(username)",
+            "first_name": "falta asignar la columna para el nombre "
+                          "(first_name)",
+            "last_name": "falta asignar la columna para el apellido "
+                         "(last_name)",
+            "password": "falta asignar la columna para la contraseña "
+                        "(password)",
+            "team": "falta asignar la columna para el equipo (team)",
+            "group": "falta asignar la columna para el grupo (group)"}
+        empty = {"username": "fila 2: el usuario está vacío",
+                 "first_name": "fila 2: el nombre está vacío",
+                 "last_name": "fila 2: el apellido está vacío",
+                 "password": "fila 2: la contraseña está vacía"}
+        bad_cell = {
+            "username": "fila 2: la celda del usuario tiene caracteres no "
+                        "permitidos",
+            "first_name": "fila 2: la celda del nombre tiene caracteres no "
+                          "permitidos",
+            "last_name": "fila 2: la celda del apellido tiene caracteres "
+                         "no permitidos",
+            "password": "fila 2: la contraseña tiene caracteres no "
+                        "permitidos",
+            "team": "fila 2: la celda del equipo tiene caracteres no "
+                    "permitidos",
+            "group": "fila 2: la celda del grupo tiene caracteres no "
+                     "permitidos"}
+        for field in FIELDS:
+            with self.subTest(field=field):
+                _, errors = read_rows(
+                    csv_bytes(HEADER), dict(ALL_MAPPING, **{field: ""}),
+                    FIELDS, frozenset(FIELDS), gettext=SPANISH.gettext)
+                self.assertEqual(errors, [unassigned[field]])
+                if field in empty:
+                    _, errors = read_rows(
+                        csv_bytes(row_with(**{field: ""})), ALL_MAPPING,
+                        gettext=SPANISH.gettext)
+                    self.assertEqual(errors, [empty[field]])
+                _, errors = read_rows(
+                    csv_bytes(row_with(**{field: "a\x00b"})), ALL_MAPPING,
+                    gettext=SPANISH.gettext)
+                self.assertEqual(errors, [bad_cell[field]])
+
+    def test_spanish_messages_with_placeholders(self):
+        # Scenario "A page in Spanish": placeholders and numbers.
+        def spanish(text, mapping=MAPPING):
+            return read_rows(csv_bytes(text), mapping,
+                             gettext=SPANISH.gettext)[1]
+
+        header = "usuario,nombre,apellido,contraseña,estado\n"
+        self.assertEqual(spanish(header + "ana,A,L,p,\nana,A,L,p,\n"),
+                         ["fila 3: el usuario ana está repetido (fila 2)"])
+        self.assertEqual(
+            spanish(header + "josé,A,L,p,\n"),
+            ["fila 2: el usuario josé tiene caracteres no permitidos "
+             "(solo letras sin acentos, números, _ y -)"])
+        self.assertEqual(
+            spanish(header + "ana,A,L,%s,\n" % ("ñ" * 37)),
+            ["fila 2: la contraseña pasa de 72 bytes"])
+        self.assertEqual(
+            spanish(header + "ana,A,L,p,\n", dict(MAPPING, team="zzz")),
+            ["la columna zzz no está en el archivo"])
+        self.assertEqual(
+            spanish(header + "ana,A,L,p,\n", dict(MAPPING, password="x")),
+            ["la columna asignada a la contraseña no está en el archivo"])
+        self.assertEqual(
+            spanish(header + "ana,A,L,p,\n",
+                    dict(MAPPING, username="contraseña")),
+            ["la columna de la contraseña está asignada a más de un "
+             "campo"])
+
+    def test_spanish_whole_file_messages(self):
+        # Scenario "A page in Spanish"; "One and several" does not apply:
+        # the row limit is a fixed number (5000), always several.
+        def spanish(data):
+            return read_rows(data, MAPPING, gettext=SPANISH.gettext)[1]
+
+        header = "usuario,nombre,apellido,contraseña,estado\n"
+        self.assertEqual(spanish(b"x" * (2 * 1024 * 1024 + 1)),
+                         ["el archivo pasa de 2 MB"])
+        self.assertEqual(spanish("usuario\nñ\n".encode("latin-1")),
+                         ["el archivo no está en UTF-8"])
+        self.assertEqual(spanish(b""), ["el archivo está vacío"])
+        self.assertEqual(spanish(header.encode()),
+                         ["el archivo no tiene filas de datos"])
+        self.assertEqual(
+            spanish(csv_bytes(header + "".join(
+                "u%d,A,L,p,\n" % i for i in range(MAX_ROWS + 1)))),
+            ["el archivo pasa de 5000 filas"])
+        self.assertEqual(spanish(b'usuario\n"' + b"x" * 200000 + b'"\n'),
+                         ["el archivo no es un CSV válido"])
+
+    def test_english_messages_need_no_catalog(self):
+        # Scenario "The import summary in English", Python side: the errors
+        # that build the labels are English with no gettext at all.
+        _, errors = read_rows(csv_bytes(row_with(username="")),
+                              ALL_MAPPING)
+        self.assertEqual(errors, ["row 2: the username is empty"])
+
+    def test_the_spanish_header_alias_is_still_recognized_in_english(self):
+        # Scenario "CSV aliases": the header «contraseña» maps to the
+        # password whatever the language of the messages.
+        rows, errors = read_rows(
+            csv_bytes("usuario,nombre,apellido,contraseña\n"
+                      "ana,Ana,López, s3cr3t \n"),
+            {"username": "usuario", "first_name": "nombre",
+             "last_name": "apellido", "password": "contraseña"},
+            gettext=lambda message: message)
+        self.assertEqual(errors, [])
+        self.assertEqual(rows[0].password, "s3cr3t")
+
+    def test_the_summary_keys_do_not_change(self):
+        # Scenario "The import summary in English": the data fields of the
+        # summary are the same in every language.
+        plan = ImportPlan(new_users=[], updated_users=[],
+                          new_participations=[], updated_participations=[],
+                          teams={}, groups={}, main_group_id=1)
+        self.assertEqual(list(plan.summary()), [
+            "usuarios_nuevos", "usuarios_actualizados",
+            "participaciones_nuevas", "participaciones_actualizadas",
+            "equipos_quitados", "movidas_al_grupo_principal"])
+        self.assertEqual(list(UserImportPlan([], []).summary()), [
+            "usuarios_nuevos", "usuarios_actualizados"])
 
 
 if __name__ == "__main__":

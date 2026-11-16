@@ -25,7 +25,9 @@ The global users import takes a CSV of accounts, each with its own password,
 and registers nobody in any contest.
 
 The error messages are meant to be shown as they are in the page, so they
-never contain a data cell of the column mapped to the password.
+never contain a data cell of the column mapped to the password. They are
+written in English and translated with the gettext that the caller passes
+(by default, none), each one as a whole sentence.
 
 """
 
@@ -45,6 +47,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cms.db import Contest, Group, Participation, Team, User
+from cms.locale.locale import N_
 from cmscommon.crypto import generate_random_password, hash_password, \
     validate_password
 
@@ -60,13 +63,32 @@ REQUIRED: frozenset[str] = frozenset({"username", "first_name",
 USER_FIELDS: tuple[str, ...] = ("username", "first_name", "last_name",
                                 "password")
 USER_REQUIRED: frozenset[str] = frozenset(USER_FIELDS)
-LABELS = {"username": "el usuario", "first_name": "el nombre",
-          "last_name": "el apellido", "password": "la contraseña",
-          "team": "el equipo", "group": "el grupo"}
-EMPTY_MESSAGES = {"username": "el usuario está vacío",
-                  "first_name": "el nombre está vacío",
-                  "last_name": "el apellido está vacío",
-                  "password": "la contraseña está vacía"}
+# One whole sentence per field, as a message id: the translation of each
+# has its own grammar. The page translates them where it uses them.
+NOT_ASSIGNED = {
+    "username": N_("no column is assigned to the username (username)"),
+    "first_name": N_("no column is assigned to the first name "
+                     "(first_name)"),
+    "last_name": N_("no column is assigned to the last name (last_name)"),
+    "password": N_("no column is assigned to the password (password)"),
+    "team": N_("no column is assigned to the team (team)"),
+    "group": N_("no column is assigned to the group (group)")}
+EMPTY_MESSAGES = {
+    "username": N_("row %d: the username is empty"),
+    "first_name": N_("row %d: the first name is empty"),
+    "last_name": N_("row %d: the last name is empty"),
+    "password": N_("row %d: the password is empty")}
+BAD_CELL_MESSAGES = {
+    "username": N_("row %d: the username cell has characters that are "
+                   "not allowed"),
+    "first_name": N_("row %d: the first name cell has characters that "
+                     "are not allowed"),
+    "last_name": N_("row %d: the last name cell has characters that are "
+                    "not allowed"),
+    "team": N_("row %d: the team cell has characters that are not "
+               "allowed"),
+    "group": N_("row %d: the group cell has characters that are not "
+                "allowed")}
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 5000
 MAX_PASSWORD_BYTES = 72
@@ -117,7 +139,8 @@ def _data_records(reader: Iterator[list[str]]
 
 def read_rows(data: bytes, mapping: dict[str, str],
               fields: tuple[str, ...] = FIELDS,
-              required: frozenset[str] = REQUIRED
+              required: frozenset[str] = REQUIRED,
+              gettext: Callable[[str], str] = N_
               ) -> tuple[list[ImportRow], list[str]]:
     """Parse the CSV and map its columns to the import fields.
 
@@ -128,6 +151,7 @@ def read_rows(data: bytes, mapping: dict[str, str],
         last_name and password. A field out of them reads as None.
     required: the fields that must be mapped and filled in every row. A
         mapped password must be filled in every row too.
+    gettext: translates the messages of the errors.
 
     return: the rows and the list of errors; if there is any error the
         rows must not be used. Errors never contain a data cell of the
@@ -135,11 +159,11 @@ def read_rows(data: bytes, mapping: dict[str, str],
 
     """
     if len(data) > MAX_BYTES:
-        return [], ["el archivo pasa de 2 MB"]
+        return [], [gettext("the file is larger than 2 MB")]
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return [], ["el archivo no está en UTF-8"]
+        return [], [gettext("the file is not in UTF-8")]
     first_line = text.split("\n", 1)[0]
     delimiter = ";" if first_line.count(";") > first_line.count(",") \
         else ","
@@ -154,11 +178,11 @@ def read_rows(data: bytes, mapping: dict[str, str],
         # The reason is a developer text in English, so it only goes to
         # the log; the page gets a fixed message.
         logger.debug("Bulk import file is not a valid CSV: %s", error)
-        return [], ["el archivo no es un CSV válido"]
+        return [], [gettext("the file is not a valid CSV")]
     if header_cells is None:
-        return [], ["el archivo está vacío"]
+        return [], [gettext("the file is empty")]
     if len(records) > MAX_ROWS:
-        return [], ["el archivo pasa de %d filas" % MAX_ROWS]
+        return [], [gettext("the file has more than %d rows") % MAX_ROWS]
     header = [h.strip() for h in header_cells]
 
     errors: list[str] = []
@@ -177,20 +201,20 @@ def read_rows(data: bytes, mapping: dict[str, str],
         name = (mapping.get(field) or "").strip()
         if not name:
             if field in required:
-                errors.append("falta asignar la columna para %s (%s)"
-                              % (LABELS[field], field))
+                errors.append(gettext(NOT_ASSIGNED[field]))
             continue
         if name not in header:
             report(
-                "la columna asignada a la contraseña no está en el archivo"
+                gettext("the column assigned to the password is not in "
+                        "the file")
                 if name == password_name
-                else "la columna %s no está en el archivo" % name)
+                else gettext("the column %s is not in the file") % name)
         # Any column may feed several fields, except the password column:
         # a cell of it read by another field could reach an error message,
         # for example as a repeated user.
         if name == password_name and field != "password":
-            report("la columna de la contraseña está asignada a más de un "
-                   "campo")
+            report(gettext("the password column is assigned to more than "
+                           "one field"))
         if name in header:
             columns[field] = header.index(name)
     if errors:
@@ -214,20 +238,18 @@ def read_rows(data: bytes, mapping: dict[str, str],
         values = {field: cell(field) for field in fields}
         for field in fields:
             if field in must_fill and not values[field]:
-                errors.append("fila %d: %s" % (line, EMPTY_MESSAGES[field]))
+                errors.append(gettext(EMPTY_MESSAGES[field]) % line)
             elif field != "password" and "\x00" in values[field]:
                 # The database refuses NUL in a text, so the job would
                 # fail at the commit. The password has a check of its own
-                # below. Spanish contracts "de el" into "del".
-                of_label = ("de " + LABELS[field]).replace("de el ", "del ")
-                errors.append("fila %d: la celda %s tiene caracteres no "
-                              "permitidos" % (line, of_label))
+                # below.
+                errors.append(gettext(BAD_CELL_MESSAGES[field]) % line)
         if len(values["password"].encode("utf-8")) > MAX_PASSWORD_BYTES:
-            errors.append("fila %d: la contraseña pasa de %d bytes"
-                          % (line, MAX_PASSWORD_BYTES))
+            errors.append(gettext("row %d: the password is longer than %d "
+                                  "bytes") % (line, MAX_PASSWORD_BYTES))
         if PASSWORD_CONTROL_CHARACTERS.search(values["password"]):
-            errors.append("fila %d: la contraseña tiene caracteres no "
-                          "permitidos" % line)
+            errors.append(gettext("row %d: the password has characters "
+                                  "that are not allowed") % line)
         username = values["username"]
         # A NUL is reported above; the checks below would echo it.
         if username and "\x00" not in username:
@@ -235,12 +257,14 @@ def read_rows(data: bytes, mapping: dict[str, str],
             # accept the accented letters.
             if not re.fullmatch(r"[A-Za-z0-9_-]+", username):
                 errors.append(
-                    "fila %d: el usuario %s tiene caracteres no permitidos "
-                    "(solo letras sin acentos, números, _ y -)"
+                    gettext("row %d: the username %s has characters that "
+                            "are not allowed (only letters without "
+                            "accents, digits, _ and -)")
                     % (line, username))
             if username in seen:
-                errors.append("fila %d: el usuario %s está repetido "
-                              "(fila %d)" % (line, username, seen[username]))
+                errors.append(gettext("row %d: the username %s is repeated "
+                                      "(row %d)")
+                              % (line, username, seen[username]))
             else:
                 seen[username] = line
         rows.append(ImportRow(
@@ -251,7 +275,7 @@ def read_rows(data: bytes, mapping: dict[str, str],
             team=values.get("team") or None,
             group=values.get("group") or None))
     if not rows:
-        return [], ["el archivo no tiene filas de datos"]
+        return [], [gettext("the file has no data rows")]
     return rows, errors
 
 
@@ -307,7 +331,8 @@ class ImportPlan:
                 "movidas_al_grupo_principal": self.moved_to_main_group}
 
 
-def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
+def plan_import(session: Session, contest_id: int, rows: list[ImportRow],
+                gettext: Callable[[str], str] = N_
                 ) -> tuple[ImportPlan | None, list[str]]:
     """Check the rows against the database and plan the import.
 
@@ -315,6 +340,7 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         not even what the caller has left pending in it.
     contest_id: the contest the participations go to.
     rows: the rows from read_rows, without errors.
+    gettext: translates the messages of the errors.
 
     return: the plan, or None and the errors (the contest does not exist
         or has no main group, or a team or a group is unknown, or a user
@@ -324,9 +350,9 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
     with session.no_autoflush:
         contest = session.get(Contest, contest_id)
         if contest is None:
-            return None, ["el concurso no existe"]
+            return None, [gettext("the contest does not exist")]
         if contest.main_group_id is None:
-            return None, ["el concurso no tiene grupo principal"]
+            return None, [gettext("the contest has no main group")]
         teams = dict(session.execute(select(Team.code, Team.id)).all())
         groups = dict(session.execute(
             select(Group.name, Group.id)
@@ -338,18 +364,20 @@ def plan_import(session: Session, contest_id: int, rows: list[ImportRow]
         errors: list[str] = []
         for row in rows:
             if row.team is not None and row.team not in teams:
-                errors.append("fila %d: el equipo %s no existe"
+                errors.append(gettext("row %d: the team %s does not exist")
                               % (row.line, row.team))
             if row.group is not None and row.group not in groups:
-                errors.append("fila %d: el grupo %s no existe en este "
-                              "concurso" % (row.line, row.group))
+                errors.append(gettext("row %d: the group %s does not exist "
+                                      "in this contest")
+                              % (row.line, row.group))
             # A new user would get a random account password, and with no
             # participation password nothing could log in.
             if row.password is None and row.username not in existing:
                 errors.append(
-                    "fila %d: el usuario %s no existe; sin columna de "
-                    "contraseña solo se pueden inscribir usuarios que ya "
-                    "existen" % (row.line, row.username))
+                    gettext("row %d: the username %s does not exist; "
+                            "without a password column only users that "
+                            "already exist can be registered")
+                    % (row.line, row.username))
         if errors:
             return None, errors
         current = session.execute(

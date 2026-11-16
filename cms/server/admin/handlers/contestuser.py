@@ -48,6 +48,7 @@ from sqlalchemy import select
 
 from cms.db import ActivityInterval, Contest, Group, Message, Participation, \
     Submission, User, Team
+from cms.locale.locale import N_
 from cms.server.admin.bulkimport import FIELDS, REQUIRED, USER_FIELDS, \
     USER_REQUIRED, plan_import, plan_user_import, read_rows
 from cms.server.admin.importjobs import IMPORT_JOBS, ImportJob
@@ -349,13 +350,14 @@ class ImportPageHandler(BaseHandler):
     required: frozenset[str] = REQUIRED
     # Said when an import of the same kind is running; the file is fine,
     # so it is not one of the errors that say that nothing was applied.
-    running_notice = ("Hay una importación en curso para este concurso; "
-                      "espera a que termine.")
+    # The notices are message ids, translated where they are shown.
+    running_notice = N_("An import is running for this contest; wait for "
+                        "it to finish.")
     # Said with the progress of the admin's own running import, when a
     # second file was sent while it ran: that file was not imported.
-    repeated_notice = ("Ya tenías una importación en curso en este "
-                       "concurso; este es su progreso. El archivo que "
-                       "acabas de enviar no se importó.")
+    repeated_notice = N_("You already had an import running in this "
+                         "contest; this is its progress. The file you "
+                         "just sent was not imported.")
     contest: Contest | None
 
     def _plan(self, rows: list) -> tuple[object | None, list[str]]:
@@ -423,15 +425,16 @@ class ImportPageHandler(BaseHandler):
             # A notice, not an error: the job may have been saved before it
             # expired or the AWS restarted, so "nothing was applied" would
             # be false.
-            self._render_page(notice=(
-                "No se encontró la importación: no existe o ya expiró. "
-                "Revisa la lista de usuarios para ver si se aplicó."))
+            self._render_page(notice=self._(
+                "The import was not found: it does not exist or it has "
+                "expired. Check the list of users to see whether it was "
+                "applied."))
             return
         # A second file was sent while this import ran and was refused: the
         # admin must not take the progress for the one of that file.
         repeated = bool(self.get_argument("repetido", None))
         self._render_page(job=job, notice=(
-            self.repeated_notice if repeated else None))
+            self._(self.repeated_notice) if repeated else None))
 
     def _upload(self) -> None:
         """Validate the file sent, and start its import if asked to."""
@@ -443,10 +446,10 @@ class ImportPageHandler(BaseHandler):
                    for field in self.fields}
         files = self.request.files.get("file")
         if not files:
-            self._render_page(mapping, errors=["elige un archivo CSV"])
+            self._render_page(mapping, errors=[self._("choose a CSV file")])
             return
         rows, errors = read_rows(files[0]["body"], mapping, self.fields,
-                                 self.required)
+                                 self.required, gettext=self._)
         plan = None
         if not errors:
             plan, errors = self._plan(rows)
@@ -467,7 +470,7 @@ class ImportPageHandler(BaseHandler):
 
         try:
             job = IMPORT_JOBS.start(self.current_user.id, self._contest_id(),
-                                    rows, on_done)
+                                    rows, on_done, gettext=self._)
         except ValueError:
             # An import of the same kind is running. If it is this admin's,
             # follow it instead of losing its progress page. The file just
@@ -479,7 +482,7 @@ class ImportPageHandler(BaseHandler):
                     and running.owner_id == self.current_user.id:
                 self.redirect(self._job_url(running) + "&repetido=1")
                 return
-            self._render_page(mapping, notice=self.running_notice)
+            self._render_page(mapping, notice=self._(self.running_notice))
             return
         self.redirect(self._job_url(job))
 
@@ -488,7 +491,8 @@ class ImportUsersHandler(ImportPageHandler):
     """Bulk import of users and participations into a contest (CSV)."""
 
     def _plan(self, rows: list) -> tuple[object | None, list[str]]:
-        return plan_import(self.sql_session, self.contest.id, rows)
+        return plan_import(self.sql_session, self.contest.id, rows,
+                           gettext=self._)
 
     def _import_url(self) -> str:
         return self.url("contest", self.contest.id, "users", "import")
@@ -546,11 +550,10 @@ class ImportGlobalUsersHandler(ImportPageHandler):
     """
     fields = USER_FIELDS
     required = USER_REQUIRED
-    running_notice = ("Hay una importación de usuarios en curso; espera a "
-                      "que termine.")
-    repeated_notice = ("Ya tenías una importación de usuarios en curso; "
-                       "este es su progreso. El archivo que acabas de "
-                       "enviar no se importó.")
+    running_notice = N_("A users import is running; wait for it to finish.")
+    repeated_notice = N_("You already had a users import running; this is "
+                         "its progress. The file you just sent was not "
+                         "imported.")
 
     def _plan(self, rows: list) -> tuple[object | None, list[str]]:
         return plan_user_import(self.sql_session, rows)

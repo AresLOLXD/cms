@@ -7,15 +7,15 @@
 </div>
 
 {% if admin.permission_all %}
-<p><a href="{{ url("users", "import") }}">Importar CSV</a></p>
+<p><a href="{{ url("users", "import") }}">{% trans %}Import CSV{% endtrans %}</a></p>
 {% endif %}
 
 <form action="{{ url("users", "remove") }}" method="POST">
   {{ xsrf_form_html|safe }}
   <input type="hidden" name="action" value="preview"/>
-  Usuarios seleccionados:
+  {% trans %}Selected users:{% endtrans %}
   <input type="submit"
-         value="Borrar seleccionados"
+         value="{{ _("Delete selected") }}"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
@@ -23,7 +23,7 @@
   <table class="bordered">
     <thead>
       <tr>
-        <th><input type="checkbox" id="select_all_users" title="Seleccionar todo"/></th>
+        <th><input type="checkbox" id="select_all_users" title="{{ _("Select all") }}"/></th>
         <th>Username</th>
         <th>First name</th>
         <th>Last name</th>
@@ -44,16 +44,16 @@
   </table>
 </form>
 
-<h2>Borrar por lista</h2>
+<h2>{% trans %}Delete by list{% endtrans %}</h2>
 <form action="{{ url("users", "remove") }}" method="POST"
       enctype="multipart/form-data">
   {{ xsrf_form_html|safe }}
   <input type="hidden" name="action" value="preview"/>
-  <p>Un username por línea, o un CSV cuya primera columna sea el username.</p>
+  <p>{% trans %}One username per line, or a CSV whose first column is the username.{% endtrans %}</p>
   <textarea name="usernames" rows="6" cols="40"></textarea><br>
   <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain"/><br>
   <input type="submit"
-         value="Revisar lista"
+         value="{{ _("Review list") }}"
 {% if not admin.permission_all %}
          disabled
 {% endif %}

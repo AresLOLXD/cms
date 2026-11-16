@@ -3,9 +3,9 @@
 {% block core %}
 <div class="core_title">
 {% if contest is none %}
-  <h1>Borrar usuarios</h1>
+  <h1>{% trans %}Delete users{% endtrans %}</h1>
 {% else %}
-  <h1>Quitar participaciones de {{ contest.name }}</h1>
+  <h1>{% trans name=contest.name %}Remove participations from {{ name }}{% endtrans %}</h1>
 {% endif %}
 </div>
 
@@ -15,34 +15,33 @@
 
 {% if plan.running %}
 <p class="bulk_remove_running"><strong>
-  Atención: hay un concurso en curso entre los afectados. Se perderán
-  envíos hechos durante el concurso, y vaciar y volver a enviar un ranking
-  en pleno concurso es pesado.
+  {% trans %}Warning: a contest that is running is among those affected. Submissions made during the contest will be lost, and emptying and sending a ranking again in the middle of a contest is heavy.{% endtrans %}
 </strong></p>
 {% endif %}
 
 {% if plan.users %}
 <p>
 {% if contest is none %}
-  {% if plan.users|length == 1 %}Se borrará 1 usuario{% else %}Se borrarán {{ plan.users|length }} usuarios{% endif %}, {{ plan.submissions }} envíos y {{ plan.user_tests }} user tests.
+  {% trans count=plan.users|length, submissions=plan.submissions, user_tests=plan.user_tests %}%(count)s user will be deleted, %(submissions)s submissions and %(user_tests)s user tests.{% pluralize %}%(count)s users will be deleted, %(submissions)s submissions and %(user_tests)s user tests.{% endtrans %}
 {% else %}
-  {% if plan.users|length == 1 %}Se quitará 1 participación{% else %}Se quitarán {{ plan.users|length }} participaciones{% endif %} de este concurso, con {{ plan.submissions }} envíos y {{ plan.user_tests }} user tests.
+  {% trans count=plan.users|length, submissions=plan.submissions, user_tests=plan.user_tests %}%(count)s participation will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests.{% pluralize %}%(count)s participations will be removed from this contest, with %(submissions)s submissions and %(user_tests)s user tests.{% endtrans %}
 {% endif %}
-  Esta operación no se puede deshacer.
+  {{ _("This operation cannot be undone.") }}
 </p>
 {% if plan.groups %}
-<p>Rankings que se vaciarán y se enviarán otra vez: {% for group in plan.groups %}{{ "raíz (/)" if group is none else group }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+{% set group_names %}{% for group in plan.groups %}{{ _("root (/)") if group is none else group }}{% if not loop.last %}, {% endif %}{% endfor %}{% endset %}
+<p>{% trans groups=group_names %}Rankings that will be emptied and sent again: {{ groups }}.{% endtrans %}</p>
 {% endif %}
 <table class="bordered">
   <thead>
     <tr>
       <th>Username</th>
-      <th>Nombre</th>
-      <th>Apellido</th>
-      <th>Envíos</th>
+      <th>{% trans %}First name{% endtrans %}</th>
+      <th>{% trans %}Last name{% endtrans %}</th>
+      <th>{% trans %}Submissions{% endtrans %}</th>
       <th>User tests</th>
 {% if contest is none %}
-      <th>Concursos</th>
+      <th>{% trans %}Contests{% endtrans %}</th>
 {% endif %}
     </tr>
   </thead>
@@ -62,14 +61,14 @@
   </tbody>
 </table>
 {% else %}
-<p>No hay nada que borrar.</p>
+<p>{% trans %}There is nothing to delete.{% endtrans %}</p>
 {% endif %}
 
 {% if plan.ignored %}
-<p>Ignorados:</p>
+<p>{% trans %}Ignored:{% endtrans %}</p>
 <ul>
 {% for value, reason in plan.ignored %}
-  <li>{{ value }} — {{ reason }}</li>
+  <li>{{ value }} — {{ _(reason) }}</li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -82,13 +81,13 @@
 {% for user_id in plan.user_ids %}
   <input type="hidden" name="user_id" value="{{ user_id }}"/>
 {% endfor %}
-  <label>Escribe {{ plan.users|length }} para confirmar:
+  <label>{% trans count=plan.users|length %}Type {{ count }} to confirm:{% endtrans %}
     <input type="text" name="expected_count" autocomplete="off"/>
   </label>
   <input type="submit"
-         value="{% if contest is none %}Borrar{% else %}Quitar{% endif %}"/>
+         value="{% if contest is none %}{{ _("Delete") }}{% else %}{{ _("Remove") }}{% endif %}"/>
 </form>
 {% endif %}
-<p><a href="{{ back_url }}">Cancelar</a></p>
+<p><a href="{{ back_url }}">{% trans %}Cancel{% endtrans %}</a></p>
 
 {% endblock core %}

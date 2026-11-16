@@ -19,30 +19,30 @@ p.export-box { padding: 0.75em 1em; }
 ul.export-list { list-style: disc; margin: 0 0 0.75em 1.5em; }
 </style>
 <div class="core_title">
-  <h1>Exportar concursos</h1>
+  <h1>{% trans %}Export contests{% endtrans %}</h1>
 </div>
 
-<p>Descarga un archivo <code>.zip</code> con los concursos que elijas: el
-mismo contenido y formato que genera <code>cmsDumpExporter</code>, que se
-reimporta sin cambios con <code>cmsDumpImporter</code>.</p>
+<p>{% trans %}Download a <code>.zip</code> file with the contests you choose: the
+same content and format that <code>cmsDumpExporter</code> generates, which can be
+imported again unchanged with <code>cmsDumpImporter</code>.{% endtrans %}</p>
 <ul class="export-list">
-  <li>El archivo contiene las contraseñas de los usuarios (cifradas o en texto
-  plano, según estén guardadas) y todos los envíos: trátalo como información
-  confidencial. Solo los administradores con todos los permisos pueden
-  exportar y descargar.</li>
-  <li>El volcado puede incluir más de lo que eliges: <code>cmsDumpExporter</code>
-  también exporta los usuarios de esos concursos y todos los concursos en los
-  que participan. No incluye los grupos de ranking ni el registro de actividad
-  de los participantes.</li>
-  <li>No es un respaldo de toda la base de datos: para eso usa
-  <code>backup.sh</code> (<code>pg_dump</code>).</li>
-  <li>Solo corre una exportación a la vez en todo AWS. El archivo se borra una
-  hora después de que termina.</li>
+  <li>{% trans %}The file contains the users' passwords (hashed or in plain text,
+  as they are stored) and all the submissions: treat it as confidential
+  information. Only admins with all the permissions can export and
+  download.{% endtrans %}</li>
+  <li>{% trans %}The dump may include more than you choose: <code>cmsDumpExporter</code>
+  also exports the users of those contests and all the contests they take part
+  in. It does not include the ranking groups or the activity log of the
+  participants.{% endtrans %}</li>
+  <li>{% trans %}It is not a backup of the whole database: for that use
+  <code>backup.sh</code> (<code>pg_dump</code>).{% endtrans %}</li>
+  <li>{% trans %}Only one export runs at a time in the whole of AWS. The file is deleted one
+  hour after it ends.{% endtrans %}</li>
 </ul>
 
 {% if errors %}
 <div class="export-box export-error">
-  <p>No se inició la exportación:</p>
+  <p>{% trans %}The export was not started:{% endtrans %}</p>
   <ul class="export-list">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
@@ -54,63 +54,75 @@ reimporta sin cambios con <code>cmsDumpImporter</code>.</p>
 {% endif %}
 
 {% if job %}
-<div id="export_job" data-status-url="{{ url("export", job.id, "status") }}"
+{# The texts of the script, in the page language. #}
+{% set messages = {
+    "done": _("Done."),
+    "download": _("Download the .zip (%(size)s MB)"),
+    "available_one_hour": _("The file will be available for one hour."),
+    "failed": _("The export failed."),
+    "error": _("Error: %(error)s"),
+    "packing": _("Packing the .zip…"),
+    "exporting": _("Exporting… it may take several minutes; you can close this page and come back from the list of exports."),
+    "export_others": _("Export other contests"),
+    "state_lost": _("Could not check the state; reload the page."),
+} %}
+<div id="export_job" data-messages="{{ messages|tojson|forceescape }}" data-status-url="{{ url("export", job.id, "status") }}"
      data-download-url="{{ url("export", job.id, "download") }}"
      data-export-url="{{ url("export") }}">
   <h2>{{ job.name }}</h2>
-  <p id="export_text" aria-live="polite">Consultando el estado…</p>
+  <p id="export_text" aria-live="polite">{% trans %}Checking the state…{% endtrans %}</p>
   <div id="export_result" aria-live="polite"></div>
 </div>
 {% else %}
 <form method="POST" id="export_form" action="{{ url("export") }}">
   {{ xsrf_form_html|safe }}
-  <h3>Concursos *</h3>
-  {% if contest_list|length < 1 %}<p>(no hay concursos)</p>{% endif %}
+  <h3>{% trans %}Contests *{% endtrans %}</h3>
+  {% if contest_list|length < 1 %}<p>{% trans %}(no contests){% endtrans %}</p>{% endif %}
   {% for c in contest_list %}
   <p><label><input type="checkbox" name="contest_id" value="{{ c.id }}"{% if c.id in form.contest_ids %} checked{% endif %}>
-    {{ c.name }}{% if c.id in running %} (en curso o en modo de análisis){% endif %}</label></p>
+    {{ c.name }}{% if c.id in running %} {% trans %}(running or in analysis mode){% endtrans %}{% endif %}</label></p>
   {% endfor %}
 
-  <h3>Contenido</h3>
+  <h3>{% trans %}Content{% endtrans %}</h3>
   <p><label><input type="radio" name="content" value="all"{% if form.content == "all" %} checked{% endif %}>
-    Base de datos y archivos</label></p>
+    {% trans %}Database and files{% endtrans %}</label></p>
   <p><label><input type="radio" name="content" value="no_files"{% if form.content == "no_files" %} checked{% endif %}>
-    Solo la base de datos, sin archivos (<code>-F</code>)</label></p>
+    {% trans %}Only the database, without files (<code>-F</code>){% endtrans %}</label></p>
   <p><label><input type="radio" name="content" value="only_files"{% if form.content == "only_files" %} checked{% endif %}>
-    Solo los archivos, sin la base de datos (<code>-f</code>; no se puede reimportar)</label></p>
+    {% trans %}Only the files, without the database (<code>-f</code>; it cannot be imported again){% endtrans %}</label></p>
 
-  <h3>Opciones</h3>
+  <h3>{% trans %}Options{% endtrans %}</h3>
   <p><label><input type="checkbox" name="no_generated" value="1"{% if "no_generated" in form.options %} checked{% endif %}>
-    No exportar lo que se puede regenerar: resultados y ejecutables (<code>-G</code>, recomendado)</label></p>
+    {% trans %}Do not export what can be regenerated: results and executables (<code>-G</code>, recommended){% endtrans %}</label></p>
   <p><label><input type="checkbox" name="no_submissions" value="1"{% if "no_submissions" in form.options %} checked{% endif %}>
-    No exportar los envíos (<code>-S</code>)</label></p>
+    {% trans %}Do not export the submissions (<code>-S</code>){% endtrans %}</label></p>
   <p><label><input type="checkbox" name="no_user_tests" value="1"{% if "no_user_tests" in form.options %} checked{% endif %}>
-    No exportar las pruebas de usuario (<code>-U</code>)</label></p>
+    {% trans %}Do not export the user tests (<code>-U</code>){% endtrans %}</label></p>
   <p><label><input type="checkbox" name="no_users" value="1"{% if "no_users" in form.options %} checked{% endif %}>
-    No exportar los usuarios (<code>-X</code>)</label></p>
+    {% trans %}Do not export the users (<code>-X</code>){% endtrans %}</label></p>
 
   {% if running %}
   <div class="export-box export-warning">
-    <p>Hay concursos en curso o en modo de análisis. El volcado se lee sin
-    congelar la base de datos: puede salir inconsistente, y las consultas y la
-    lectura de archivos cargan la base de datos que usa el concurso.</p>
+    <p>{% trans %}There are contests running or in analysis mode. The dump is read without
+    freezing the database: it may come out inconsistent, and the queries and
+    the reading of files load the database that the contest uses.{% endtrans %}</p>
     <p><label><input type="checkbox" name="confirm_running" value="1">
-      Entiendo el riesgo y quiero exportar de todos modos</label></p>
+      {% trans %}I understand the risk and want to export anyway{% endtrans %}</label></p>
   </div>
   {% endif %}
 
-  <p>* obligatorio</p>
-  <button type="submit">Exportar</button>
+  <p>{% trans %}* required{% endtrans %}</p>
+  <button type="submit">{% trans %}Export{% endtrans %}</button>
 </form>
 {% endif %}
 
 {% if jobs %}
-<h3>Tus exportaciones</h3>
+<h3>{% trans %}Your exports{% endtrans %}</h3>
 <table>
   {% for j in jobs %}
   <tr>
     <td><a href="{{ url("export") }}?job={{ j.id }}">{{ j.name }}</a></td>
-    <td>{% if j.status == "running" %}en curso{% elif j.status == "done" %}lista{% else %}falló{% endif %}</td>
+    <td>{% if j.status == "running" %}{% trans %}running{% endtrans %}{% elif j.status == "done" %}{% trans %}ready{% endtrans %}{% else %}{% trans %}failed{% endtrans %}{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
@@ -141,8 +153,17 @@ reimporta sin cambios con <code>cmsDumpImporter</code>.</p>
         line.textContent = text;
         parent.appendChild(line);
     }
+    // The texts come from the server in the page language.
+    var messages = JSON.parse(job.getAttribute("data-messages"));
+    // Fills the %(name)s placeholders of a message in a single pass, so a
+    // value that contains one is never filled again.
+    function fill(text, values) {
+        return text.replace(/%\((\w+)\)s/g, function (match, name) {
+            return values[name];
+        });
+    }
     function megabytes(bytes) {
-        return (bytes / 1048576).toFixed(1) + " MB";
+        return (bytes / 1048576).toFixed(1);
     }
     var url = job.getAttribute("data-status-url");
     var MAX_FAILURES = 5;
@@ -159,31 +180,32 @@ reimporta sin cambios con <code>cmsDumpImporter</code>.</p>
             // Written again from scratch each time.
             out.textContent = "";
             if (s.status === "done") {
-                text.textContent = "Listo.";
+                text.textContent = messages.done;
                 var box = document.createElement("div");
                 box.className = "export-box export-done";
                 var line = document.createElement("p");
                 var link = document.createElement("a");
                 link.href = job.getAttribute("data-download-url");
-                link.textContent = "Descargar el .zip (" + megabytes(s.size) + ")";
+                link.textContent = fill(messages.download, {size: megabytes(s.size)});
                 line.appendChild(link);
                 box.appendChild(line);
-                addLine(box, "El archivo estará disponible una hora.");
+                addLine(box, messages.available_one_hour);
                 out.appendChild(box);
             } else if (s.status === "error") {
-                text.textContent = "La exportación falló.";
-                addLine(out, "Error: " + s.error, "export-box export-error");
+                text.textContent = messages.failed;
+                addLine(out, fill(messages.error, {error: s.error}),
+                    "export-box export-error");
             } else {
                 text.textContent = s.phase === "packing"
-                    ? "Empaquetando el .zip…"
-                    : "Exportando… puede tardar varios minutos; puedes cerrar esta página y volver desde la lista de exportaciones.";
+                    ? messages.packing
+                    : messages.exporting;
                 setTimeout(poll, POLL_MS);
             }
             if (s.status !== "running") {
                 var back = document.createElement("p");
                 var again = document.createElement("a");
                 again.href = job.getAttribute("data-export-url");
-                again.textContent = "Exportar otros concursos";
+                again.textContent = messages.export_others;
                 back.appendChild(again);
                 out.appendChild(back);
             }
@@ -196,8 +218,7 @@ reimporta sin cambios con <code>cmsDumpImporter</code>.</p>
             }
             var out = document.getElementById("export_result");
             out.textContent = "";
-            addLine(out, "No se pudo consultar el estado; recarga la página.",
-                "export-box");
+            addLine(out, messages.state_lost, "export-box");
         });
     };
     poll();

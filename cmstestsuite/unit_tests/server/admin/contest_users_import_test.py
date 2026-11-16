@@ -29,6 +29,7 @@ import json
 import logging
 import re
 import secrets
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -45,6 +46,7 @@ from cms.server.admin.handlers import HANDLERS
 from cms.server.admin.importjobs import ImportJob, ImportJobStore
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cms.server.util import Url
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
 MODULE = "cms.server.admin.handlers.contestuser"
 CONTEST_ID = 1
@@ -58,23 +60,23 @@ MAPPING = {"username": "usuario", "first_name": "nombre",
 POSTED_MAPPING = {**{field: "" for field in FIELDS}, **MAPPING}
 # Said when a job is unknown: it may have been saved before it expired, so
 # the page must not say that nothing was applied.
-NOT_FOUND = ("No se encontró la importación: no existe o ya expiró. "
-             "Revisa la lista de usuarios para ver si se aplicó.")
-NOT_APPLIED = "No se aplicó nada"
+NOT_FOUND = ("The import was not found: it does not exist or it has "
+             "expired. Check the list of users to see whether it was "
+             "applied.")
+NOT_APPLIED = "Nothing was applied"
 # Said with the progress of the admin's own running import, when a second
 # file was sent while it ran: that file was refused, not imported.
-REPEATED_NOTICE = ("Ya tenías una importación en curso en este concurso; "
-                   "este es su progreso. El archivo que acabas de enviar no "
-                   "se importó.")
+REPEATED_NOTICE = ("You already had an import running in this contest; this "
+                   "is its progress. The file you just sent was not "
+                   "imported.")
 # Said when the contest already has an import running: the file is fine, so
 # it is not one of the errors that say that nothing was applied.
-RUNNING_NOTICE = ("Hay una importación en curso para este concurso; "
-                  "espera a que termine.")
-GLOBAL_RUNNING_NOTICE = ("Hay una importación de usuarios en curso; espera "
-                         "a que termine.")
-GLOBAL_REPEATED_NOTICE = ("Ya tenías una importación de usuarios en curso; "
-                          "este es su progreso. El archivo que acabas de "
-                          "enviar no se importó.")
+RUNNING_NOTICE = ("An import is running for this contest; wait for it to "
+                  "finish.")
+GLOBAL_RUNNING_NOTICE = "A users import is running; wait for it to finish."
+GLOBAL_REPEATED_NOTICE = ("You already had a users import running; this is "
+                          "its progress. The file you just sent was not "
+                          "imported.")
 
 
 def make_plan() -> ImportPlan:
@@ -163,7 +165,8 @@ class TestImportUsersPost(unittest.TestCase):
         self.assertEqual(params["contest"].id, CONTEST_ID)
         self.assertEqual(params["fields"], FIELDS)
         plan_import.assert_called_once_with(
-            handler.sql_session, CONTEST_ID, read_rows(CSV, MAPPING)[0])
+            handler.sql_session, CONTEST_ID, read_rows(CSV, MAPPING)[0],
+            gettext=handler._)
         jobs.start.assert_not_called()
         handler.redirect.assert_not_called()
 
@@ -204,7 +207,8 @@ class TestImportUsersPost(unittest.TestCase):
             handler._post_sync(str(CONTEST_ID))
 
         jobs.start.assert_called_once_with(
-            ADMIN_ID, CONTEST_ID, read_rows(CSV, MAPPING)[0], mock.ANY)
+            ADMIN_ID, CONTEST_ID, read_rows(CSV, MAPPING)[0], mock.ANY,
+            gettext=handler._)
         handler.redirect.assert_called_once_with(
             "/contest/1/users/import?job=job-1")
         handler.render.assert_not_called()
@@ -348,7 +352,7 @@ class TestImportUsersPost(unittest.TestCase):
             handler._post_sync(str(CONTEST_ID))
 
         params = rendered_params(handler)
-        self.assertEqual(params["errors"], ["elige un archivo CSV"])
+        self.assertEqual(params["errors"], ["choose a CSV file"])
         self.assertEqual(params["mapping"], POSTED_MAPPING)
         plan_import.assert_not_called()
         jobs.start.assert_not_called()
@@ -361,7 +365,7 @@ class TestImportUsersPost(unittest.TestCase):
             handler._post_sync(str(CONTEST_ID))
 
         self.assertEqual(rendered_params(handler)["errors"],
-                         ["el archivo pasa de 2 MB"])
+                         ["the file is larger than 2 MB"])
         plan_import.assert_not_called()
         jobs.start.assert_not_called()
 
@@ -518,7 +522,7 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
         self.assertIn(RUNNING_NOTICE, html)
         self.assertNotIn(NOT_APPLIED, html)
-        self.assertNotIn("Corrige estos errores", html)
+        self.assertNotIn("Fix these errors", html)
         self.assertIn('data-selected="usuario"', html)
 
     def test_the_notice_of_a_repeated_import_comes_with_the_progress(self):
@@ -533,7 +537,7 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
             html = self.render_last_page(handler)
 
-            self.assertIn("Procesando 2 de 4", html)
+            self.assertIn("Processing 2 of 4", html)
             self.assertEqual(REPEATED_NOTICE in html, shown, msg=form)
             self.assertNotIn(NOT_APPLIED, html)
 
@@ -547,7 +551,7 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
         html = self.render_last_page(handler)
 
-        self.assertIn("Procesando 2 de 4", html)
+        self.assertIn("Processing 2 of 4", html)
 
     def test_the_summary_and_the_errors_of_an_upload(self):
         for plan in ((make_plan(), []), (None, ["el equipo X no existe"])):
@@ -557,7 +561,7 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
             html = self.render_last_page(handler)
 
-            self.assertIn("Usuarios nuevos: 1" if plan[0] else
+            self.assertIn("New users: 1" if plan[0] else
                           "<li>el equipo X no existe</li>", html)
             self.assertEqual(NOT_APPLIED in html, plan[0] is None)
             # The columns chosen are still selected after either outcome.
@@ -597,8 +601,8 @@ class TestPageRendersWhatTheHandlerPasses(unittest.TestCase):
 
         html = self.render_last_page(handler)
 
-        self.assertIn("la columna de la contraseña está asignada a más de "
-                      "un campo", html)
+        self.assertIn("the password column is assigned to more than one "
+                      "field", html)
         self.assertIn('data-selected="ana"', html)
         self.assertNotIn(PASSWORD, html)
 
@@ -622,8 +626,8 @@ class TestLossesReachThePage(unittest.TestCase):
         template = AWS_ENVIRONMENT.get_template("contest_users_import.html")
         html = "".join(template.blocks["core"](
             template.new_context(dict(params))))
-        self.assertIn("7 participaciones perderán su equipo", html)
-        self.assertIn("2 participaciones pasarán al grupo principal", html)
+        self.assertIn("7 participations will lose their team", html)
+        self.assertIn("2 participations will move to the main group", html)
 
 
 class TestImportJobStatus(unittest.TestCase):
@@ -808,9 +812,9 @@ class TestImportTemplates(unittest.TestCase):
                 len(re.findall(r'<select name="map_%s"' % field, html)), 1,
                 msg=field)
         self.assertRegex(html, r'<button type="submit" name="action" '
-                               r'value="validate">Solo validar</button>')
+                               r'value="validate">Only validate</button>')
         self.assertRegex(html, r'<button type="submit" name="action" '
-                               r'value="import">Importar</button>')
+                               r'value="import">Import</button>')
         self.assertNotIn("<progress", html)
 
     def test_the_form_carries_the_xsrf_field(self):
@@ -878,9 +882,8 @@ class TestImportTemplates(unittest.TestCase):
             self.assertIn('<table data-has-mapping="1">', html)
 
     def test_the_form_asks_to_pick_the_file_again_only_with_a_mapping(self):
-        hint = ("Vuelve a elegir el archivo para importarlo. Se conservan "
-                "las columnas asignadas, salvo la de la contraseña: "
-                "revísala.")
+        hint = ("Pick the file again to import it. The assigned columns are "
+                "kept, except the password one: check it.")
 
         self.assertNotIn(hint, self.render_import())
         html = self.render_import(mapping={"username": "usuario"})
@@ -890,17 +893,17 @@ class TestImportTemplates(unittest.TestCase):
         self.assertLess(html.index(hint),
                         html.index('<input type="file" name="file"'))
 
-    def test_every_field_has_a_label_in_spanish(self):
+    def test_every_field_has_a_label(self):
         html = self.render_import()
 
         labels = {
-            "import_file": "Archivo CSV *",
-            "map_username": "Usuario (username) *",
-            "map_first_name": "Nombre (first_name) *",
-            "map_last_name": "Apellidos (last_name) *",
-            "map_password": "Contraseña del día (password)",
-            "map_team": "Equipo (team)",
-            "map_group": "Grupo (group)"}
+            "import_file": "CSV file *",
+            "map_username": "User (username) *",
+            "map_first_name": "First name (first_name) *",
+            "map_last_name": "Last names (last_name) *",
+            "map_password": "Password of the day (password)",
+            "map_team": "Team (team)",
+            "map_group": "Group (group)"}
         for control, text in labels.items():
             self.assertIn('<label for="%s">%s</label>' % (control, text),
                           html, msg=control)
@@ -915,7 +918,7 @@ class TestImportTemplates(unittest.TestCase):
     def test_the_required_marks_are_explained(self):
         html = self.render_import()
 
-        self.assertIn("* obligatorio", html)
+        self.assertIn("* required", html)
         # The optional fields are not marked.
         self.assertNotIn("(team) *", html)
         self.assertNotIn("(group) *", html)
@@ -926,7 +929,7 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import(job=job)
 
         self.assertRegex(html, r'<p id="import_text" aria-live="polite">'
-                               r'Procesando 3 de 10</p>')
+                               r'Processing 3 of 10</p>')
         self.assertRegex(html, r'<progress id="import_bar" value="3" '
                                r'max="10" aria-label="[^"]+"')
 
@@ -943,7 +946,7 @@ class TestImportTemplates(unittest.TestCase):
     def test_the_form_gives_the_time_of_an_import(self):
         html = self.render_import()
 
-        self.assertIn("de 20 a 40 s por cada 300 concursantes", html)
+        self.assertIn("20 to 40 s for every 300 contestants", html)
         self.assertNotIn("~30 s", html)
 
     def test_the_form_disables_its_buttons_after_the_first_submit(self):
@@ -986,7 +989,7 @@ class TestImportTemplates(unittest.TestCase):
 
         self.assertIn(
             'data-status-url="/contest/1/users/import/job-1/status"', html)
-        self.assertIn("Procesando 3 de 10", html)
+        self.assertIn("Processing 3 of 10", html)
         self.assertRegex(html, r'<progress id="import_bar" value="3" '
                                r'max="10"')
         self.assertNotIn("<form", html)
@@ -1004,22 +1007,22 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import(errors=["fila 2: a", "fila 3: b",
                                           "fila 4: c"])
 
-        self.assertIn("<h3>3 errores</h3>", html)
+        self.assertIn("<h3>3 errors</h3>", html)
         self.assertEqual(html.count("<li>fila"), 3)
-        self.assertNotIn("más", html)
+        self.assertNotIn("more", html)
 
     def test_one_error_is_not_plural(self):
         html = self.render_import(errors=["fila 2: a"])
 
         self.assertIn("<h3>1 error</h3>", html)
-        self.assertNotIn("1 errores", html)
+        self.assertNotIn("1 errors", html)
 
     def test_the_error_list_is_capped_at_50(self):
         errors = ["fila %d: mal" % line for line in range(2, 302)]
 
         html = self.render_import(errors=errors)
 
-        self.assertIn("<h3>300 errores</h3>", html)
+        self.assertIn("<h3>300 errors</h3>", html)
         self.assertEqual(html.count("<li>fila"), 50)
         # The first 50 are the ones shown, in order, and the rest is only
         # counted.
@@ -1027,18 +1030,18 @@ class TestImportTemplates(unittest.TestCase):
         self.assertIn("<li>fila 51: mal</li>", html)
         self.assertNotIn("fila 52: mal", html)
         self.assertNotIn("fila 301: mal", html)
-        self.assertIn("y 250 más", html)
+        self.assertIn("and 250 more", html)
 
     def test_the_errors_at_the_cap_show_all_without_a_rest(self):
-        for count, rest in ((50, None), (51, "y 1 más")):
+        for count, rest in ((50, None), (51, "and 1 more")):
             errors = ["fila %d: mal" % line for line in range(2, 2 + count)]
 
             html = self.render_import(errors=errors)
 
-            self.assertIn("<h3>%d errores</h3>" % count, html)
+            self.assertIn("<h3>%d errors</h3>" % count, html)
             self.assertEqual(html.count("<li>fila"), 50, msg=count)
             if rest is None:
-                self.assertNotIn(" más", html)
+                self.assertNotIn(" more", html)
             else:
                 self.assertIn(rest, html)
 
@@ -1047,7 +1050,7 @@ class TestImportTemplates(unittest.TestCase):
 
         self.assertIn(NOT_FOUND, html)
         self.assertNotIn(NOT_APPLIED, html)
-        self.assertNotIn("Corrige estos errores", html)
+        self.assertNotIn("Fix these errors", html)
         self.assertIn("<form", html)
 
     def test_the_errors_say_that_nothing_was_applied(self):
@@ -1118,20 +1121,21 @@ class TestImportTemplates(unittest.TestCase):
     def test_the_summary_of_a_validation_is_shown(self):
         html = self.render_import(summary=make_plan().summary())
 
-        self.assertIn("Usuarios nuevos: 1", html)
-        self.assertIn("Participaciones nuevas: 1", html)
-        self.assertIn("Usuarios ya existentes (se sobrescriben): 0", html)
-        self.assertIn("Participaciones ya existentes (se sobrescriben): 0",
-                      html)
+        self.assertIn("New users: 1", html)
+        self.assertIn("New participations: 1", html)
+        self.assertIn("Existing users (overwritten): 0", html)
+        self.assertIn("Existing participations (overwritten): 0", html)
 
     def test_no_label_says_updated_for_what_already_exists(self):
         # There is no count of the rows that change something: the
         # existing ones are overwritten, identical or not.
-        html = self.render_import(summary=make_plan().summary())
+        html = self.render_import(
+            summary=make_plan().summary(),
+            job=SimpleNamespace(id="job-1", processed=3, total=10))
 
         # The keys of the summary keep their names.
         self.assertNotIn("actualizad", html.replace("_actualizad", ""))
-        self.assertIn("ya existentes (se sobrescribieron): ", html)
+        self.assertIn("existing (overwritten): ", html)
 
     def test_the_first_row_of_a_validation_is_shown_and_escaped(self):
         preview = {"username": "ana", "first_name": "<b>Ana</b>",
@@ -1140,15 +1144,15 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import(summary=make_plan().summary(),
                                   preview=preview)
 
-        self.assertIn("Primera fila del archivo; comprueba que las columnas "
-                      "son las correctas:", html)
-        self.assertIn("<li>Usuario (username): ana</li>", html)
-        self.assertIn("<li>Nombre (first_name): &lt;b&gt;Ana&lt;/b&gt;</li>",
-                      html)
-        self.assertIn("<li>Equipo (team): (vacío)</li>", html)
-        self.assertIn("<li>Grupo (group): A</li>", html)
+        self.assertIn("First row of the file; check that the columns are "
+                      "the right ones:", html)
+        self.assertIn("<li>User (username): ana</li>", html)
+        self.assertIn("<li>First name (first_name): &lt;b&gt;Ana&lt;/b&gt;"
+                      "</li>", html)
+        self.assertIn("<li>Team (team): (empty)</li>", html)
+        self.assertIn("<li>Group (group): A</li>", html)
         self.assertNotIn("<b>Ana</b>", html)
-        self.assertNotIn("Contraseña", html.split("<form")[0])
+        self.assertNotIn("Password", html.split("<form")[0])
 
     def test_there_is_no_first_row_without_a_preview(self):
         self.assertNotIn("import-preview", self.render_import())
@@ -1159,12 +1163,12 @@ class TestImportTemplates(unittest.TestCase):
 
         html = self.render_import(summary=summary)
 
-        self.assertIn("3 participaciones perderán su equipo", html)
-        self.assertIn("2 participaciones pasarán al grupo principal", html)
+        self.assertIn("3 participations will lose their team", html)
+        self.assertIn("2 participations will move to the main group", html)
         # The warnings come after the counts of the summary.
         self.assertLess(
-            html.index("Participaciones ya existentes (se sobrescriben)"),
-            html.index("perderán su equipo"))
+            html.index("Existing participations (overwritten)"),
+            html.index("will lose their team"))
 
     def test_the_warnings_of_the_validation_have_a_singular(self):
         summary = {**make_plan().summary(), "equipos_quitados": 1,
@@ -1172,27 +1176,27 @@ class TestImportTemplates(unittest.TestCase):
 
         html = self.render_import(summary=summary)
 
-        self.assertIn("1 participación perderá su equipo", html)
-        self.assertIn("1 participación pasará al grupo principal", html)
-        self.assertNotIn("1 participaciones", html)
+        self.assertIn("1 participation will lose its team", html)
+        self.assertIn("1 participation will move to the main group", html)
+        self.assertNotIn("1 participations", html)
 
     def test_each_warning_of_the_validation_shows_only_when_it_applies(self):
         html = self.render_import(summary={
             **make_plan().summary(), "equipos_quitados": 4})
-        self.assertIn("4 participaciones perderán su equipo", html)
-        self.assertNotIn("pasarán al grupo principal", html)
+        self.assertIn("4 participations will lose their team", html)
+        self.assertNotIn("will move to the main group", html)
 
         html = self.render_import(summary={
             **make_plan().summary(), "movidas_al_grupo_principal": 5})
-        self.assertIn("5 participaciones pasarán al grupo principal", html)
-        self.assertNotIn("perderán su equipo", html)
+        self.assertIn("5 participations will move to the main group", html)
+        self.assertNotIn("will lose their team", html)
 
     def test_no_warning_when_the_import_clears_nothing(self):
         html = self.render_import(summary=make_plan().summary())
 
-        self.assertIn("Usuarios nuevos: 1", html)
-        self.assertNotIn("perderá", html)
-        self.assertNotIn("pasará", html)
+        self.assertIn("New users: 1", html)
+        self.assertNotIn("will lose", html)
+        self.assertNotIn("will move", html)
         self.assertNotIn('class="import-box import-warning"', html)
 
     def test_a_summary_of_users_only_shows_neither_participations_nor_losses(
@@ -1202,14 +1206,14 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import(summary={"usuarios_nuevos": 1,
                                            "usuarios_actualizados": 2})
 
-        self.assertIn("Usuarios nuevos: 1", html)
-        self.assertIn("Usuarios ya existentes (se sobrescriben): 2", html)
-        self.assertNotIn("<li>Participaciones", html)
+        self.assertIn("New users: 1", html)
+        self.assertIn("Existing users (overwritten): 2", html)
+        self.assertNotIn("<li>New participations", html)
         self.assertNotIn('class="import-box import-warning"', html)
 
     def test_the_form_warns_that_empty_team_and_group_cells_replace(self):
-        note = ("Vacío o sin asignar: la participación se queda sin equipo "
-                "/ en el grupo principal.")
+        note = ("Empty or unassigned: the participation is left without a "
+                "team / in the main group.")
 
         html = self.render_import()
 
@@ -1219,13 +1223,15 @@ class TestImportTemplates(unittest.TestCase):
         self.assertLess(html.index(note), html.index("</table>"))
 
     def test_the_script_reports_what_the_import_cleared(self):
-        html = self.render_import()
+        html = self.render_import(
+            job=SimpleNamespace(id="job-1", processed=3, total=10))
 
         self.assertIn("summary.equipos_quitados", html)
         self.assertIn("summary.movidas_al_grupo_principal", html)
-        # The import is over by then, so the lines are in the past.
-        self.assertIn("perdieron su equipo", html)
-        self.assertIn("pasaron al grupo principal", html)
+        # The import is over by then, so the lines are in the past; the
+        # texts come from the container, not from the script.
+        self.assertIn("lost their team", html)
+        self.assertIn("were moved to the main group", html)
 
     def test_the_job_carries_the_links_to_show_when_it_is_done(self):
         job = SimpleNamespace(id="job-1", processed=3, total=10)
@@ -1233,19 +1239,19 @@ class TestImportTemplates(unittest.TestCase):
         html = self.render_import(job=job)
 
         self.assertIn('data-users-url="/contest/1/users"', html)
-        # "Importar otro archivo" is the page without ?job=.
+        # "Import another file" is the page without ?job=.
         self.assertIn('data-import-url="/contest/1/users/import"', html)
         self.assertNotIn("import?job", html)
 
-    def test_the_script_shows_the_links_and_a_bold_listo_when_done(self):
+    def test_the_script_shows_the_links_and_a_bold_done_when_done(self):
         html = self.render_import()
 
         self.assertIn('getAttribute("data-users-url")', html)
         self.assertIn('getAttribute("data-import-url")', html)
-        self.assertIn("Lista de usuarios", html)
-        self.assertIn("Importar otro archivo", html)
+        self.assertIn("messages.users_list", html)
+        self.assertIn("messages.import_another", html)
         self.assertIn('createElement("strong")', html)
-        self.assertIn('strong.textContent = "Listo."', html)
+        self.assertIn("strong.textContent = messages.done;", html)
         self.assertIn('createElement("a")', html)
 
     def test_the_script_shows_the_links_after_an_error_too(self):
@@ -1259,10 +1265,10 @@ class TestImportTemplates(unittest.TestCase):
         self.assertEqual(script.count("function addLinks(parent)"), 1)
         links = script[script.index("function addLinks(parent)"):]
         links = links[:links.index("\n    }\n")]
-        self.assertIn('"Lista de usuarios"', links)
-        self.assertIn('"Importar otro archivo"', links)
+        self.assertIn("messages.users_list", links)
+        self.assertIn("messages.import_another", links)
         self.assertIn("addLinks(out);", script[done:error])
-        self.assertIn('"Error: " + s.error', script[error:error_end])
+        self.assertIn("messages.error", script[error:error_end])
         self.assertIn("addLinks(out);", script[error:error_end])
 
     def test_the_blocks_have_their_own_classes_not_the_toast_ones(self):
@@ -1311,13 +1317,13 @@ class TestImportTemplates(unittest.TestCase):
             "contest_users.html", contest=contest, config=config,
             unassigned_users=[])
         self.assertIn(
-            '<a href="/contest/1/users/import">Importar CSV</a>', html)
+            '<a href="/contest/1/users/import">Import CSV</a>', html)
 
         html = self.render_core(
             "contest_users.html", contest=contest, config=config,
             unassigned_users=[],
             admin=SimpleNamespace(permission_all=False))
-        self.assertNotIn("Importar CSV", html)
+        self.assertNotIn("Import CSV", html)
 
 
 class TestTheContestPasswordIsOptional(unittest.TestCase):
@@ -1344,8 +1350,8 @@ class TestTheContestPasswordIsOptional(unittest.TestCase):
     def test_the_page_explains_an_unassigned_password(self):
         html = TestImportTemplates().render_import()
 
-        self.assertIn("las participaciones nuevas entran con la contraseña "
-                      "de su cuenta", html)
+        self.assertIn("new participations get the password of their "
+                      "account", html)
         self.assertNotIn("(password) *", html)
 
     def test_the_page_after_an_error_keeps_the_password_unassigned(self):
@@ -1389,22 +1395,21 @@ class TestGlobalImportPage(unittest.TestCase):
             read_rows(CSV, MAPPING, USER_FIELDS, USER_REQUIRED)[0])
         jobs.start.assert_not_called()
         html = self.render(handler)
-        self.assertIn("Usuarios nuevos: 1", html)
+        self.assertIn("New users: 1", html)
         # Only the fields of a user import, and never the password.
         self.assertEqual(params["preview"], {
             "username": "ana", "first_name": "Ana", "last_name": "Pérez"})
-        self.assertIn("<li>Nombre (first_name): Ana</li>", html)
-        self.assertNotIn("<li>Equipo (team)", html)
+        self.assertIn("<li>First name (first_name): Ana</li>", html)
+        self.assertNotIn("<li>Team (team)", html)
         # The script of the page names them, so look for the list item.
-        self.assertNotIn("<li>Participaciones nuevas", html)
+        self.assertNotIn("<li>New participations", html)
         self.assertIn('action="/users/import"', html)
-        self.assertIn("Contraseña (password) *", html)
-        self.assertNotIn("Contraseña del día", html)
+        self.assertIn("Password (password) *", html)
+        self.assertNotIn("Password of the day", html)
         self.assertNotIn('name="map_team"', html)
-        # The template wraps the sentence, which HTML shows as one line.
-        self.assertIn("La contraseña de la cuenta solo se usa en los "
-                      "concursos donde la participación no tiene "
-                      "contraseña propia.", " ".join(html.split()))
+        self.assertIn("The password of the account is only used in the "
+                      "contests where the participation has no password "
+                      "of its own.", html)
         self.assertNotIn(PASSWORD, html)
 
     def test_the_password_is_required(self):
@@ -1414,7 +1419,7 @@ class TestGlobalImportPage(unittest.TestCase):
             handler._post_sync()
 
         self.assertEqual(rendered_params(handler)["errors"], [
-            "falta asignar la columna para la contraseña (password)"])
+            "no column is assigned to the password (password)"])
         plan.assert_not_called()
 
     def test_import_starts_a_global_job(self):
@@ -1429,7 +1434,7 @@ class TestGlobalImportPage(unittest.TestCase):
         jobs.start.assert_called_once_with(
             ADMIN_ID, None,
             read_rows(CSV, MAPPING, USER_FIELDS, USER_REQUIRED)[0],
-            mock.ANY)
+            mock.ANY, gettext=handler._)
         handler.redirect.assert_called_once_with("/users/import?job=job-1")
         on_done = jobs.start.call_args.args[3]
         on_done()
@@ -1465,7 +1470,7 @@ class TestGlobalImportPage(unittest.TestCase):
             handler._get_sync()
 
         html = self.render(handler)
-        self.assertIn("Procesando 2 de 4", html)
+        self.assertIn("Processing 2 of 4", html)
         self.assertIn(GLOBAL_REPEATED_NOTICE, html)
         self.assertIn('data-status-url="/users/import/job-1/status"', html)
         self.assertIn('data-users-url="/users"', html)
@@ -1582,8 +1587,168 @@ class TestGlobalImportRoutesAndPermissions(unittest.TestCase):
             html = TestImportTemplates().render_core(
                 "users.html", user_list=[],
                 admin=SimpleNamespace(permission_all=permission_all))
-            self.assertEqual('<a href="/users/import">Importar CSV</a>'
+            self.assertEqual('<a href="/users/import">Import CSV</a>'
                              in html, permission_all)
+
+
+def spanish_handler(handler_class=ImportUsersHandler, **kwargs):
+    """Return a handler whose request has Spanish chosen."""
+    handler = make_handler(handler_class, **kwargs)
+    handler._ = SPANISH.gettext
+    handler.n_ = SPANISH.ngettext
+    return handler
+
+
+class TestHandlerTextsInTwoLanguages(unittest.TestCase):
+    """The notices and the errors that the import handlers raise follow the
+    language of the request; the Spanish is the text that main showed."""
+
+    def refuse(self, handler_class, post_args=()):
+        """Post an import that the store refuses, with nothing running
+        that the admin owns; return the rendered parameters."""
+        handler = spanish_handler(
+            handler_class, form=import_form("import"))
+        plans = {ImportUsersHandler: ".plan_import",
+                 ImportGlobalUsersHandler: ".plan_user_import"}
+        plan = make_plan() if handler_class is ImportUsersHandler \
+            else make_user_plan()
+        with mock.patch(MODULE + plans[handler_class],
+                        return_value=(plan, [])), \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.start.side_effect = ValueError("running")
+            jobs.running_job.return_value = None
+            handler._post_sync(*post_args)
+        return rendered_params(handler)
+
+    def test_a_running_import_notice_in_spanish(self):
+        # Scenario "A notification" (page in Spanish).
+        self.assertEqual(
+            self.refuse(ImportUsersHandler, (str(CONTEST_ID),))["notice"],
+            "Hay una importación en curso para este concurso; espera a "
+            "que termine.")
+        self.assertEqual(
+            self.refuse(ImportGlobalUsersHandler)["notice"],
+            "Hay una importación de usuarios en curso; espera a que "
+            "termine.")
+
+    def test_a_repeated_import_notice_in_spanish(self):
+        # Scenario "A notification" (page in Spanish).
+        for handler_class, args, notice in (
+                (ImportUsersHandler, (str(CONTEST_ID),),
+                 "Ya tenías una importación en curso en este concurso; "
+                 "este es su progreso. El archivo que acabas de enviar no "
+                 "se importó."),
+                (ImportGlobalUsersHandler, (),
+                 "Ya tenías una importación de usuarios en curso; este es "
+                 "su progreso. El archivo que acabas de enviar no se "
+                 "importó.")):
+            with self.subTest(handler=handler_class.__name__):
+                handler = spanish_handler(
+                    handler_class, form={"job": "job-1", "repetido": "1"})
+                job = SimpleNamespace(id="job-1", contest_id=(
+                    CONTEST_ID if args else None))
+                with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+                    jobs.get.return_value = job
+                    handler._get_sync(*args)
+                self.assertEqual(rendered_params(handler)["notice"], notice)
+
+    def test_the_not_found_notice_in_spanish(self):
+        # Scenario "A notification" (page in Spanish).
+        handler = spanish_handler(form={"job": "gone"})
+        with mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.get.return_value = None
+            handler._get_sync(str(CONTEST_ID))
+        self.assertEqual(
+            rendered_params(handler)["notice"],
+            "No se encontró la importación: no existe o ya expiró. Revisa "
+            "la lista de usuarios para ver si se aplicó.")
+
+    def test_the_errors_of_the_file_in_spanish(self):
+        # Scenario "A page in Spanish": no file, and the errors of the CSV
+        # and of the plan, translated by the handler's gettext.
+        handler = spanish_handler(data=None, form=import_form("import"))
+        handler._post_sync(str(CONTEST_ID))
+        self.assertEqual(rendered_params(handler)["errors"],
+                         ["elige un archivo CSV"])
+
+        handler = spanish_handler(
+            data=CSV, form=import_form("import", {**MAPPING, "password": ""}),
+            handler_class=ImportGlobalUsersHandler)
+        handler._post_sync()
+        self.assertEqual(rendered_params(handler)["errors"], [
+            "falta asignar la columna para la contraseña (password)"])
+
+    def test_the_handler_passes_its_language_to_the_work(self):
+        # Scenario "A job polled by another admin": the starter's gettext
+        # goes to the store, and to the planning.
+        handler = spanish_handler(form=import_form("import"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])) as plan, \
+                mock.patch(MODULE + ".IMPORT_JOBS") as jobs:
+            jobs.start.return_value = SimpleNamespace(id="job-1")
+            handler._post_sync(str(CONTEST_ID))
+        self.assertEqual(plan.call_args.kwargs["gettext"],
+                         handler._)
+        self.assertEqual(jobs.start.call_args.kwargs["gettext"],
+                         handler._)
+        self.assertEqual(handler._("choose a CSV file"),
+                         "elige un archivo CSV")
+
+    def test_a_job_started_in_spanish_is_polled_in_spanish_by_an_english_page(
+            self):
+        # Scenario "A job polled by another admin": the Spanish admin
+        # starts an import that fails; a handler with English chosen (the
+        # same admin on another tab, since jobs are private to their
+        # owner) polls the status and reads the Spanish error.
+        store = ImportJobStore()
+        starter = spanish_handler(form=import_form("import"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])), \
+                mock.patch(MODULE + ".IMPORT_JOBS", store), \
+                mock.patch("cms.server.admin.importjobs.SessionGen",
+                           side_effect=RuntimeError("database down")), \
+                self.assertLogs("cms.server.admin.importjobs",
+                                level="ERROR"):
+            starter._post_sync(str(CONTEST_ID))
+            (job_id,) = store._jobs
+            deadline = time.monotonic() + 5
+            while store._jobs[job_id].status == "running":
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+
+        poller = make_handler(ImportJobStatusHandler)
+        self.assertEqual(poller._("choose a CSV file"), "choose a CSV file")
+        with mock.patch(MODULE + ".IMPORT_JOBS", store):
+            asyncio.run(poller.get(str(CONTEST_ID), job_id))
+        polled = json.loads(poller.write.call_args.args[0])
+        self.assertEqual(polled["status"], "error")
+        self.assertEqual(
+            polled["error"],
+            "no se pudo aplicar la importación; no se guardó nada")
+
+    def test_the_summary_keys_are_the_same_in_both_languages(self):
+        # Scenario "The import summary in English": the handler passes the
+        # data fields of the plan whatever its language; the labels around
+        # them are the template's.
+        for make in (make_handler, spanish_handler):
+            handler = make(form=import_form("validate"))
+            with mock.patch(MODULE + ".plan_import",
+                            return_value=(make_plan(), [])):
+                handler._post_sync(str(CONTEST_ID))
+            self.assertEqual(list(rendered_params(handler)["summary"]), [
+                "usuarios_nuevos", "usuarios_actualizados",
+                "participaciones_nuevas", "participaciones_actualizadas",
+                "equipos_quitados", "movidas_al_grupo_principal"])
+
+    def test_the_spanish_header_alias_is_recognized_in_english(self):
+        # Scenario "CSV aliases": the header «contraseña» still maps to
+        # the password while the page is in English.
+        handler = make_handler(form=import_form("validate"))
+        with mock.patch(MODULE + ".plan_import",
+                        return_value=(make_plan(), [])) as plan:
+            handler._post_sync(str(CONTEST_ID))
+        self.assertEqual(rendered_params(handler)["errors"], [])
+        self.assertEqual(plan.call_args.args[2][0].password, PASSWORD)
 
 
 if __name__ == "__main__":

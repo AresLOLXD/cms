@@ -3,28 +3,26 @@
 {% block core %}
 
 <div class="core_title">
-  <h1>Ranking groups</h1>
+  <h1>{% trans %}Ranking groups{% endtrans %}</h1>
 </div>
 
 <p>
-  Each ranking group is an independent public scoreboard, served by RWS at
-  <code>/&lt;name&gt;/</code>. Assign a contest to a group from the contest's
-  own page.
+  {% trans %}Each ranking group is an independent public scoreboard, served by RWS at <code>/&lt;name&gt;/</code>. Assign a contest to a group from the contest's own page.{% endtrans %}
 </p>
 
 <form action="{{ url("ranking_groups") }}" method="POST">
   {{ xsrf_form_html|safe }}
-  Edit selected group:
-  <input type="submit" name="operation" value="Remove" {% if not admin.permission_all %} disabled {% endif %} />
+  {% trans %}Edit selected group:{% endtrans %}
+  <button type="submit" name="operation" value="Remove" {% if not admin.permission_all %} disabled {% endif %}>{{ _("Delete group") }}</button>
   <table class="bordered">
     <thead>
       <tr>
         <th></th>
-        <th>Name</th>
-        <th>Description</th>
-        <th>Contests</th>
-        <th>State</th>
-        <th>Staff password</th>
+        <th>{% trans %}Name{% endtrans %}</th>
+        <th>{% trans %}Description{% endtrans %}</th>
+        <th>{% trans %}Contests{% endtrans %}</th>
+        <th>{% trans %}State{% endtrans %}</th>
+        <th>{% trans %}Staff password{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
@@ -36,31 +34,28 @@
         <td><a href="{{ url("ranking_group", g.id) }}">{{ g.name }}</a></td>
         <td>{{ g.description }}</td>
         <td>{% for c in contest_list if c.ranking_group_id == g.id %}{{ c.name }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-        <td>{{ views[g.id].summary }}{% if views[g.id].hidden_now and not g.staff_password %} (nobody can see it: no staff password){% endif %}{% if views[g.id].next_change %} &middot; next: {{ views[g.id].next_change }}{% endif %}</td>
-        <td>{% if g.staff_password %}set{% else %}not set{% endif %}</td>
+        <td>{% if views[g.id].hidden_now and not g.staff_password %}{% trans summary=views[g.id].summary %}{{ summary }} (nobody can see it: no staff password){% endtrans %}{% else %}{{ views[g.id].summary }}{% endif %}{% if views[g.id].next_change %} &middot; {% trans next_change=views[g.id].next_change %}next: {{ next_change }}{% endtrans %}{% endif %}</td>
+        <td>{% if g.staff_password %}{% trans %}set{% endtrans %}{% else %}{% trans %}not set{% endtrans %}{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </form>
 
-<h2>Regenerate a ranking</h2>
+<h2>{% trans %}Regenerate a ranking{% endtrans %}</h2>
 <p>
-  Regenerating empties a scoreboard and sends all of its data again from the
-  database. Use it when a scoreboard does not match the database. The root
-  ranking is the one at <code>/</code>: it is used when ProxyService runs for a
-  single contest, and regenerating it while using groups leaves it empty.
+  {% trans %}Regenerating empties a scoreboard and sends all of its data again from the database. Use it when a scoreboard does not match the database. The root ranking is the one at <code>/</code>: it is used when ProxyService runs for a single contest, and regenerating it while using groups leaves it empty.{% endtrans %}
 </p>
 <table class="bordered">
   <tbody>
     <tr>
-      <td>Root ranking (<code>/</code>)</td>
+      <td>{% trans %}Root ranking (<code>/</code>){% endtrans %}</td>
       <td>
         <form action="{{ url("ranking_groups", "regenerate") }}" method="POST"
-              onsubmit="return confirm('Empty and regenerate the root ranking?');">
+              onsubmit="return confirm({{ _("Empty and regenerate the root ranking?")|tojson|forceescape }});">
           {{ xsrf_form_html|safe }}
           <input type="hidden" name="group" value="" />
-          <input type="submit" value="Regenerate" {% if not admin.permission_all %} disabled {% endif %} />
+          <input type="submit" value="{{ _("Regenerate") }}" {% if not admin.permission_all %} disabled {% endif %} />
         </form>
       </td>
     </tr>
@@ -69,10 +64,10 @@
       <td>{{ g.name }} (<code>/{{ g.name }}/</code>)</td>
       <td>
         <form action="{{ url("ranking_groups", "regenerate") }}" method="POST"
-              onsubmit="return confirm('Empty and regenerate the ranking {{ g.name }}?');">
+              onsubmit="return confirm({{ (_("Empty and regenerate the ranking %s?") % g.name)|tojson|forceescape }});">
           {{ xsrf_form_html|safe }}
           <input type="hidden" name="group" value="{{ g.name }}" />
-          <input type="submit" value="Regenerate" {% if not admin.permission_all %} disabled {% endif %} />
+          <input type="submit" value="{{ _("Regenerate") }}" {% if not admin.permission_all %} disabled {% endif %} />
         </form>
       </td>
     </tr>
