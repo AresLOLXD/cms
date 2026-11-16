@@ -1,3 +1,4 @@
+{# aws-i18n: complete #}
 {% macro reevaluation_buttons(allowed,
                               next_page,
                               submission_id=None,
@@ -35,7 +36,7 @@ contest_id (int|None): the id of the contest to invalidate.
 {% elif contest_id is not none %}
   {% set invalidate_arguments = {"contest_id": contest_id} %}
 {% endif %}
-<button onclick="confirm('Do you really want to reevaluate?') && cmsrpc_request(
+<button onclick="confirm({{ _("Do you really want to reevaluate?")|tojson|forceescape }}) && cmsrpc_request(
                  'EvaluationService', 0,
                  'invalidate_submission', {
 {% for key, value in invalidate_arguments.items() %}
@@ -47,8 +48,8 @@ contest_id (int|None): the id of the contest to invalidate.
 {% if not allowed %}
         disabled
 {% endif %}
-        title="Compilation" >C</button>
-<button onclick="confirm('Do you really want to reevaluate?') && cmsrpc_request(
+        title="{{ _("Compilation") }}" >C</button>
+<button onclick="confirm({{ _("Do you really want to reevaluate?")|tojson|forceescape }}) && cmsrpc_request(
                  'EvaluationService', 0,
                  'invalidate_submission', {
 {% for key, value in invalidate_arguments.items() %}
@@ -60,8 +61,8 @@ contest_id (int|None): the id of the contest to invalidate.
 {% if not allowed %}
         disabled
 {% endif %}
-        title="Evaluation" >E</button>
-<button onclick="confirm('Do you really want to reevaluate?') && cmsrpc_request(
+        title="{{ _("Evaluation") }}" >E</button>
+<button onclick="confirm({{ _("Do you really want to reevaluate?")|tojson|forceescape }}) && cmsrpc_request(
                  'ScoringService', 0,
                  'invalidate_submission', {
 {% for key, value in invalidate_arguments.items() %}
@@ -73,5 +74,5 @@ contest_id (int|None): the id of the contest to invalidate.
 {% if not allowed %}
         disabled
 {% endif %}
-        title="Score" >S</button>
+        title="{{ _("Score") }}" >S</button>
 {% endmacro %}
