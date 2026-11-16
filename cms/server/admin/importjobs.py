@@ -16,6 +16,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """In-memory bulk import jobs of AWS, with their progress.
 
 An import takes seconds (bcrypt hashes every password), longer than a

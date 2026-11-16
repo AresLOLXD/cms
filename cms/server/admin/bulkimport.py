@@ -16,6 +16,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Bulk import of users and participations from a CSV (AWS).
 
 One CSV per contest: each row creates the user if missing and registers

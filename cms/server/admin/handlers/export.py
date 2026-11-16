@@ -13,6 +13,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Handlers of AWS to export contests as a dump, downloaded as a zip.
 
 The dump has the password of every user and all the submissions, so every
