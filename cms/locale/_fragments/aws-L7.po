@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 12:19-0600\n"
+"POT-Creation-Date: 2026-11-16 12:21-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L7\n"
 "Language: es\n"
@@ -72,4 +72,37 @@ msgstr "No se indicó el nombre del admin."
 
 msgid "Empty password not permitted."
 msgstr "No se permite una contraseña vacía."
+
+msgid "Remove ranking group"
+msgstr "Borrar grupo de ranking"
+
+#, python-format
+msgid "Are you sure you want to remove ranking group %(name)s (%(description)s)?"
+msgstr "¿Seguro que quieres borrar el grupo de ranking %(name)s (%(description)s)?"
+
+#, python-format
+msgid ""
+"%(count)s contest(s) will no longer be sent to any ranking. The contests "
+"themselves are not removed."
+msgstr ""
+"%(count)s concurso(s) dejarán de enviarse a cualquier ranking. Los "
+"concursos en sí no se borran."
+
+msgid "No contest is sent to this ranking."
+msgstr "Ningún concurso se envía a este ranking."
+
+msgid "Its scoreboard will be emptied."
+msgstr "Su marcador se vaciará."
+
+msgid "You do not have permission to remove a ranking group."
+msgstr "No tienes permiso para borrar un grupo de ranking."
+
+msgid "Machine list"
+msgstr "Lista de máquinas"
+
+msgid "See resource usage of the machines:"
+msgstr "Consulta el uso de recursos de las máquinas:"
+
+msgid "All"
+msgstr "Todas"
 

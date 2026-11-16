@@ -30,6 +30,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from cms.server.admin.handlers.admin import AddAdminHandler, AdminHandler
+from cms.server.admin.handlers.rankinggroup import RankingGroupListHandler
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 
@@ -161,6 +162,74 @@ class TestAdminHandlerNotifications(unittest.TestCase):
         self.assertEqual(notifications(handler), [
             ("Campos no válidos",
              "AssertionError('No se indicó el usuario.')")])
+
+
+class TestRankingGroupRemovePage(unittest.TestCase):
+
+    GROUP = SimpleNamespace(id=2, name="olim", description="OLIM",
+                           staff_password=None)
+
+    def page(self, translation=None, count=3, **extra):
+        return render_core("ranking_group_remove.html", translation,
+                           ranking_group=self.GROUP, contest_count=count,
+                           **extra)
+
+    def test_the_remove_page_in_spanish(self):
+        # Scenario "A page group in Spanish" (system and admins)
+        html = self.page(SPANISH)
+
+        for text in ("Borrar grupo de ranking",
+                     "¿Seguro que quieres borrar el grupo de ranking olim "
+                     "(OLIM)?",
+                     "3 concurso(s) dejarán de enviarse a cualquier ranking.",
+                     "Su marcador se vaciará. Esta operación no se puede "
+                     "deshacer.", "Sí, quitar", ">No</a>"):
+            self.assertIn(text, html)
+        self.assertIn("Ningún concurso se envía a este ranking.",
+                      self.page(SPANISH, count=0))
+        self.assertIn("No tienes permiso para borrar un grupo de ranking.",
+                      self.page(SPANISH, admin=SimpleNamespace(
+                          permission_all=False)))
+        self.assertNotIn("Are you sure", html)
+
+    def test_the_remove_page_in_english_is_unchanged(self):
+        # Scenario "A page in English is unchanged"
+        html = self.page()
+
+        for text in ("Remove ranking group",
+                     "Are you sure you want to remove ranking group olim "
+                     "(OLIM)?",
+                     "3 contest(s) will no longer be sent to any ranking. "
+                     "The contests themselves are not removed.",
+                     "Its scoreboard will be emptied. This operation cannot "
+                     "be undone."):
+            self.assertIn(text, " ".join(html.split()))
+
+    def test_the_remove_buttons_post_the_english_value(self):
+        # Scenario "No translated posted values": the list and the group
+        # page post what RankingGroupListHandler compares with.
+        self.assertEqual(RankingGroupListHandler.REMOVE, "Remove")
+        list_page = render_core(
+            "ranking_groups.html", SPANISH, ranking_group_list=[self.GROUP],
+            contest_list=[], views={2: SimpleNamespace(
+                hidden_now=False, summary="visible", next_change=None)})
+
+        self.assertIn('value="Remove"', list_page)
+        self.assertIn(">Borrar grupo</button>", list_page)
+
+
+class TestMachineList(unittest.TestCase):
+
+    def test_the_machine_list_in_spanish(self):
+        # Scenario "A page group in Spanish" (system and admins)
+        html = render_core("resourceslist.html", SPANISH, contest=None,
+                           resource_addresses={0: "localhost"})
+
+        for text in ("Lista de máquinas",
+                     "Consulta el uso de recursos de las máquinas:",
+                     ">localhost</a> (0)", ">Todas</a>"):
+            self.assertIn(text, html)
+        self.assertNotIn("Machine list", html)
 
 
 if __name__ == "__main__":
