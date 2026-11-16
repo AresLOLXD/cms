@@ -22,6 +22,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# aws-i18n: complete
+
 """Announcement-related handlers for AWS for a specific contest.
 
 """
@@ -57,7 +59,7 @@ class AddAnnouncementHandler(BaseHandler):
             self.try_commit()
         else:
             self.service.add_notification(
-                make_datetime(), "Subject is mandatory.", "")
+                make_datetime(), self._("Subject is mandatory."), "")
         self.redirect(self.url("contest", contest_id, "announcements"))
 
     @require_permission(BaseHandler.PERMISSION_MESSAGING)

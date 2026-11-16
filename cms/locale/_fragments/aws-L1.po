@@ -252,3 +252,81 @@ msgstr "Hora de fin de la fase de análisis, en la zona horaria UTC."
 
 msgid "Analysis mode end time (in UTC)"
 msgstr "Hora de fin de la fase de análisis (en UTC)"
+
+msgid "Subject is mandatory."
+msgstr "El asunto es obligatorio."
+
+msgid "Invalid Question (not a Yes/No Question)"
+msgstr "Pregunta no válida (no es una pregunta de sí o no)"
+
+msgid "No Comment/Please refer to task statement"
+msgstr "Sin comentarios/Consulta el enunciado del problema"
+
+msgid "Subject"
+msgstr "Asunto"
+
+msgid "Text"
+msgstr "Texto"
+
+msgid "Add announcement"
+msgstr "Agregar anuncio"
+
+msgid "By: %(name)s"
+msgstr "Por: %(name)s"
+
+msgid "&lt;unknown&gt;"
+msgstr "&lt;desconocido&gt;"
+
+msgid "No announcements."
+msgstr "No hay anuncios."
+
+msgid "You can use Markdown here. URLs are not automatically linked, surround them with &lt;&gt; like &lt;http://example.org&gt;."
+msgstr "Aquí puedes usar Markdown. Las URL no se convierten en enlaces automáticamente: enciérralas entre &lt;&gt;, como &lt;http://example.org&gt;."
+
+msgid "Preview Markdown"
+msgstr "Vista previa de Markdown"
+
+msgid "Reply: %(subject)s"
+msgstr "Respuesta: %(subject)s"
+
+msgid "Reply from: %(name)s"
+msgstr "Respuesta de: %(name)s"
+
+msgid "Not yet replied."
+msgstr "Aún sin respuesta."
+
+msgid "Ignored by: %(name)s"
+msgstr "Ignorada por: %(name)s"
+
+msgid "Claimed by: %(name)s"
+msgstr "Tomada por: %(name)s"
+
+msgid "Claim"
+msgstr "Tomar"
+
+msgid "Unclaim"
+msgstr "Soltar"
+
+msgid "Ignore"
+msgstr "Ignorar"
+
+msgid "Unignore"
+msgstr "Dejar de ignorar"
+
+msgid "Edit reply"
+msgstr "Editar respuesta"
+
+msgid "Precompiled answer:"
+msgstr "Respuesta rápida:"
+
+msgid "Other"
+msgstr "Otra"
+
+msgid "Alternative answer:"
+msgstr "Respuesta alternativa:"
+
+msgid "Send"
+msgstr "Enviar"
+
+msgid "No questions."
+msgstr "No hay preguntas."
