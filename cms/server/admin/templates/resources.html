@@ -1,7 +1,20 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block js %}
 
+// The texts of the page come from the server in the page language: they are
+// in the data-messages attribute of the title, read on the first use because
+// this script loads before the page body exists.
+var page_messages = null;
+
+// Return the message with the given key.
+function page_message(key)
+{
+    if (page_messages === null)
+        page_messages = JSON.parse($("#resources_title").attr("data-messages"));
+    return page_messages[key];
+}
 
 var getters = [];
 var update_intervals = [];
@@ -53,8 +66,8 @@ function stop_updating_resources()
 
                 // CPU
                 this.cpu_graph = $.jqplot("cpu_" + this.shard, [[[-1, -1]], [[-1, -1]], [[-1, -1]]], plotOptions);
-                this.cpu_graph.series[0].label = "User";
-                this.cpu_graph.series[1].label = "System";
+                this.cpu_graph.series[0].label = page_message("user");
+                this.cpu_graph.series[1].label = page_message("system");
                 this.cpu_graph.series[2].label = "I/O";
                 for (var i = 0; i < this.cpu_graph.series.length; i++)
                     this.cpu_graph.series[i].data.length = 0;
@@ -72,9 +85,9 @@ function stop_updating_resources()
 
                 // Memory
                 this.memory_graph = $.jqplot("memory_" + this.shard, [[[-1, -1]], [[-1, -1]], [[-1, -1]]], plotOptions);
-                this.memory_graph.series[0].label = "Used";
-                this.memory_graph.series[1].label = "Buffers";
-                this.memory_graph.series[2].label = "Cache";
+                this.memory_graph.series[0].label = page_message("used");
+                this.memory_graph.series[1].label = page_message("buffers");
+                this.memory_graph.series[2].label = page_message("cache");
                 for (var i = 0; i < this.memory_graph.series.length; i++)
                     this.memory_graph.series[i].data.length = 0;
                 this.ram_total = response['data'][0][1]['memory']['ram_total'];
@@ -92,7 +105,7 @@ function stop_updating_resources()
 
                 // Swap
                 this.swap_graph = $.jqplot("swap_" + this.shard, [[[-1, -1]]], plotOptions);
-                this.swap_graph.series[0].label = "Used";
+                this.swap_graph.series[0].label = page_message("used");
                 for (var i = 0; i < this.swap_graph.series.length; i++)
                     this.swap_graph.series[i].data.length = 0;
                 this.swap_total = response['data'][0][1]['memory']['swap_total'];
@@ -164,7 +177,7 @@ function stop_updating_resources()
                 strings.push('<tr><td>');
                 strings.push(s);
                 if (response['data'][l-1][1]['services'][s]['running'] == false)
-                    strings.push('</td><td colspan="6">Not running');
+                    strings.push('</td><td colspan="6">' + page_message("not_running"));
                 else
                 {
                     strings.push('</td><td>');
@@ -172,7 +185,7 @@ function stop_updating_resources()
 {% if admin.permission_all %}
                     if (s.lastIndexOf("LogService,", 0) !== 0 &&
                         s.lastIndexOf("ResourceService,", 0) !== 0)
-                      strings.push(" <a onclick='window.getters[" + this.shard + "].kill_service(\"" + s + "\", this);'>[Kill]</a>");
+                      strings.push(` <a onclick='window.getters[${this.shard}].kill_service("${s}", this);'>${page_message("kill")}</a>`);
 {% endif %}
                     strings.push('</td><td style="text-align: center;">');
                     strings.push(response['data'][l-1][1]['services'][s]['threads']);
@@ -190,17 +203,9 @@ function stop_updating_resources()
                     s.lastIndexOf("ResourceService,", 0) === 0) {
                   strings.push('N/A');
                 } else if (response['data'][l-1][1]['services'][s]['autorestart'] == true) {
-                  strings.push(" <input type='checkbox' checked onchange='window.getters[" + this.shard + "].toggle_autorestart(\"" + s + "\", this);'");
-{% if not admin.permission_all %}
-                  strings.push(" disabled");
-{% endif %}
-                  strings.push(" />");
+                  strings.push(` <input type='checkbox' checked onchange='window.getters[${this.shard}].toggle_autorestart("${s}", this);'{% if not admin.permission_all %} disabled{% endif %} />`);
                 } else if (response['data'][l-1][1]['services'][s]['autorestart'] == false) {
-                  strings.push(" <input type='checkbox' onchange='window.getters[" + this.shard + "].toggle_autorestart(\"" + s + "\", this);'");
-{% if not admin.permission_all %}
-                  strings.push(" disabled");
-{% endif %}
-                  strings.push(" />");
+                  strings.push(` <input type='checkbox' onchange='window.getters[${this.shard}].toggle_autorestart("${s}", this);'{% if not admin.permission_all %} disabled{% endif %} />`);
                 } else {
                   strings.push('N/A');
                 }
@@ -221,7 +226,7 @@ function stop_updating_resources()
 
         kill_service: function(s, link)
         {
-            link.parentNode.innerHTML = '<img src="{{ static_url("static", "loading.gif") }}" alt="loading..." />';
+            link.parentNode.innerHTML = `<img src="{{ static_url("static", "loading.gif") }}" alt="${page_message("loading")}" />`;
             cmsrpc_request("ResourceService", this.shard,
                            "kill_service",
                            {"service": s});
@@ -289,30 +294,40 @@ for (var i in shards)
 
 {% block core %}
 
+{% set messages = {
+    "user": _("User"),
+    "system": _("System"),
+    "used": _("Used"),
+    "buffers": _("Buffers"),
+    "cache": _("Cache"),
+    "not_running": _("Not running"),
+    "kill": _("[Kill]"),
+    "loading": _("loading..."),
+} %}
 <div class="core_title">
-  <h1>Resource usage</h1>
+  <h1 id="resources_title" data-messages="{{ messages|tojson|forceescape }}">{% trans %}Resource usage{% endtrans %}</h1>
 </div>
 
 {% for i in resource_addresses %}
 
-<h2 id="title_machine_{{ i }}" class="toggling_on">Machine {{ i }} ({{ resource_addresses[i] }})</h2>
+<h2 id="title_machine_{{ i }}" class="toggling_on">{% trans index=i, address=resource_addresses[i] %}Machine {{ index }} ({{ address }}){% endtrans %}</h2>
 <div id="machine_{{ i }}">
 
   <table id="services_{{ i }}_table" class="sub_table">
     <thead>
       <tr>
-        <th>Service</th>
-        <th>Uptime (s)</th>
-        <th>Threads</th>
-        <th>Resident (MB)</th>
-        <th>Virtual (MB)</th>
-        <th>User (%)</th>
-        <th>System (%)</th>
-        <th>Autorestart</th>
+        <th>{% trans %}Service{% endtrans %}</th>
+        <th>{% trans %}Uptime (s){% endtrans %}</th>
+        <th>{% trans %}Threads{% endtrans %}</th>
+        <th>{% trans %}Resident (MB){% endtrans %}</th>
+        <th>{% trans %}Virtual (MB){% endtrans %}</th>
+        <th>{% trans %}User (%){% endtrans %}</th>
+        <th>{% trans %}System (%){% endtrans %}</th>
+        <th>{% trans %}Autorestart{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td style="text-align: center;" colspan="8"><img src="{{ static_url("static", "loading.gif") }}" alt="loading..." /></td></tr>
+      <tr><td style="text-align: center;" colspan="8"><img src="{{ static_url("static", "loading.gif") }}" alt="{{ _("loading...") }}" /></td></tr>
     </tbody>
   </table>
 
@@ -325,11 +340,11 @@ for (var i in shards)
         <td style="padding: 1em 0.25em;"><div id="cpu_{{ i }}" class="chart_panel" style="width: 500px; height: 9.75em;"></div></td>
       </tr>
       <tr>
-        <td style="vertical-align:top;">Memory</td>
+        <td style="vertical-align:top;">{% trans %}Memory{% endtrans %}</td>
         <td style="padding: 1em 0.25em;"><div id="memory_{{ i }}" class="chart_panel" style="width: 500px; height: 9.75em;"></div></td>
       </tr>
       <tr>
-        <td style="vertical-align:top;">Swap</td>
+        <td style="vertical-align:top;">{% trans %}Swap{% endtrans %}</td>
         <td style="padding: 1em 0.25em;"><div id="swap_{{ i }}" class="chart_panel" style="width: 500px; height: 9.75em;"></div></td>
       </tr>
     </tbody>

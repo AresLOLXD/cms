@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 12:21-0600\n"
+"POT-Creation-Date: 2026-11-16 12:27-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: aws-L7\n"
 "Language: es\n"
@@ -105,4 +105,140 @@ msgstr "Consulta el uso de recursos de las máquinas:"
 
 msgid "All"
 msgstr "Todas"
+
+msgid "Submissions status"
+msgstr "Estado de los envíos"
+
+msgid "Number"
+msgstr "Número"
+
+msgid "Job"
+msgstr "Trabajo"
+
+msgid "Priority"
+msgstr "Prioridad"
+
+msgid "Since"
+msgstr "Desde"
+
+msgid "Queue status"
+msgstr "Estado de la cola"
+
+msgid "Workers status"
+msgstr "Estado de los workers"
+
+msgid "Connected"
+msgstr "Conectado"
+
+msgid "Current job"
+msgstr "Trabajo actual"
+
+msgid "Action"
+msgstr "Acción"
+
+msgid "Logs"
+msgstr "Logs"
+
+msgid "Severity"
+msgstr "Severidad"
+
+msgid "Service"
+msgstr "Servicio"
+
+msgid "Operation"
+msgstr "Operación"
+
+msgid "Message"
+msgstr "Mensaje"
+
+msgid "loading..."
+msgstr "cargando…"
+
+msgid "Scored"
+msgstr "Puntaje asignado"
+
+msgid "Cannot compile (please check)"
+msgstr "No se puede compilar (revisa)"
+
+msgid "Cannot evaluate (please check)"
+msgstr "No se puede evaluar (revisa)"
+
+msgid "Queue empty."
+msgstr "La cola está vacía."
+
+#, python-format
+msgid "Do you really want to enable worker %(shard)s?"
+msgstr "¿Seguro que quieres activar el worker %(shard)s?"
+
+#, python-format
+msgid "Do you really want to disable worker %(shard)s?"
+msgstr "¿Seguro que quieres desactivar el worker %(shard)s?"
+
+msgid "No workers found."
+msgstr "No se encontraron workers."
+
+#, python-format
+msgid "%(job)s and %(count)s more"
+msgstr "%(job)s y %(count)s más"
+
+msgid "Enable"
+msgstr "Activar"
+
+msgid "Disable"
+msgstr "Desactivar"
+
+#, python-format
+msgid "Workers status (%(connected)s connected, %(configured)s configured)"
+msgstr ""
+"Estado de los workers (%(connected)s conectados, %(configured)s "
+"configurados)"
+
+msgid "No log entries."
+msgstr "No hay entradas de registro."
+
+#, python-format
+msgid "Machine %(index)s (%(address)s)"
+msgstr "Máquina %(index)s (%(address)s)"
+
+msgid "Uptime (s)"
+msgstr "Tiempo activo (s)"
+
+msgid "Threads"
+msgstr "Hilos"
+
+msgid "Resident (MB)"
+msgstr "Residente (MB)"
+
+msgid "Virtual (MB)"
+msgstr "Virtual (MB)"
+
+msgid "User (%)"
+msgstr "Usuario (%)"
+
+msgid "System (%)"
+msgstr "Sistema (%)"
+
+msgid "Autorestart"
+msgstr "Reinicio automático"
+
+msgid "Memory"
+msgstr "Memoria"
+
+msgid "Swap"
+msgstr "Swap"
+
+msgid "Used"
+msgstr "Usado"
+
+msgid "Buffers"
+msgstr "Búferes"
+
+msgid "Cache"
+msgstr "Caché"
+
+msgid "Not running"
+msgstr "No se está ejecutando"
+
+msgid "[Kill]"
+msgstr "[Matar]"
 

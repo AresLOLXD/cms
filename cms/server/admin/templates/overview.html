@@ -1,6 +1,23 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 
 {% block js %}
+
+// The texts of the page come from the server in the page language: they are
+// in the data-messages attribute of the title, read on the first use because
+// this script loads before the page body exists.
+var page_messages = null;
+
+// Return the message with the given key, with the %(name)s placeholders
+// filled in a single pass, so a value that contains one is not filled again.
+function page_message(key, values)
+{
+    if (page_messages === null)
+        page_messages = JSON.parse($("#overview_title").attr("data-messages"));
+    return page_messages[key].replace(/%\((\w+)\)s/g, function (match, name) {
+        return values[name];
+    });
+}
 
 function update_submissions_status(response)
 {
@@ -13,19 +30,19 @@ function update_submissions_status(response)
     }
 
     var strings = []
-    strings.push('<tr><td>Scored</td><td>' + response['data']['scored'] + '</td></tr>');
+    strings.push('<tr><td>' + page_message("scored") + '</td><td>' + response['data']['scored'] + '</td></tr>');
     if (response['data']['scoring'] != 0)
-        strings.push('<tr><td>Scoring...</td><td>' + response['data']['scoring'] + '</td></tr>');
+        strings.push('<tr><td>' + page_message("scoring") + '</td><td>' + response['data']['scoring'] + '</td></tr>');
     if (response['data']['compilation_fail'] != 0)
-        strings.push('<tr><td>Compilation failed</td><td>' + response['data']['compilation_fail'] + '</td></tr>');
+        strings.push('<tr><td>' + page_message("compilation_failed") + '</td><td>' + response['data']['compilation_fail'] + '</td></tr>');
     if (response['data']['compiling'] != 0)
-        strings.push('<tr><td>Compiling...</td><td>' + response['data']['compiling'] + '</td></tr>');
+        strings.push('<tr><td>' + page_message("compiling") + '</td><td>' + response['data']['compiling'] + '</td></tr>');
     if (response['data']['evaluating'] != 0)
-        strings.push('<tr><td>Evaluating...</td><td>' + response['data']['evaluating'] + '</td></tr>');
+        strings.push('<tr><td>' + page_message("evaluating") + '</td><td>' + response['data']['evaluating'] + '</td></tr>');
     if (response['data']['max_compilations'] != 0)
-        strings.push('<tr><td>Cannot compile (please check)</td><td>' + response['data']['max_compilations'] + '</td></tr>');
+        strings.push('<tr><td>' + page_message("cannot_compile") + '</td><td>' + response['data']['max_compilations'] + '</td></tr>');
     if (response['data']['max_evaluations'] != 0)
-        strings.push('<tr><td>Cannot evaluate (please check)</td><td>' + response['data']['max_evaluations'] + '</td></tr>');
+        strings.push('<tr><td>' + page_message("cannot_evaluate") + '</td><td>' + response['data']['max_evaluations'] + '</td></tr>');
 
     table.html(strings.join(""));
 };
@@ -43,7 +60,7 @@ function update_queue_status(response)
     var l = response['data'].length;
     if (l == 0)
     {
-        table.html('<tr><td colspan="100">Queue empty.</td></tr>');
+        table.html('<tr><td colspan="100">' + page_message("queue_empty") + '</td></tr>');
         return;
     }
 
@@ -62,7 +79,7 @@ function update_queue_status(response)
 };
 
 function enable_worker(shard) {
-    if (confirm("Do you really want to enable worker " + shard + "?")) {
+    if (confirm(page_message("enable_confirm", {shard: shard}))) {
         cmsrpc_request("EvaluationService", 0,
                        "enable_worker",
                        {"shard":shard},
@@ -76,7 +93,7 @@ function enable_worker(shard) {
 }
 
 function disable_worker(shard) {
-    if (confirm("Do you really want to disable worker " + shard + "?")) {
+    if (confirm(page_message("disable_confirm", {shard: shard}))) {
         cmsrpc_request("EvaluationService", 0,
                        "disable_worker",
                        {"shard":shard},
@@ -102,7 +119,7 @@ function update_workers_status(response)
     var l = response['data'].length;
     if (l == 0)
     {
-        table.html('<tr><td colspan="5">No workers found.</td>');
+        table.html('<tr><td colspan="5">' + page_message("no_workers") + '</td>');
         return;
     }
 
@@ -114,15 +131,15 @@ function update_workers_status(response)
         if ($.isArray(response['data'][i]['operations'])) {
             job = utils.repr_job(response['data'][i]['operations'][0]);
             if (response['data'][i]['operations'].length > 1) {
-                job += ' and ' + (response['data'][i]['operations'].length - 1) + ' more';
+                job = page_message("and_more", {job: job, count: response['data'][i]['operations'].length - 1});
             }
         } else {
             job = utils.repr_job(response['data'][i]['operations']);
         }
         var start_time = utils.repr_time_ago(response['data'][i]['start_time']);
-        var connected = "No";
+        var connected = page_message("no");
         if (response['data'][i]['connected'] == true) {
-            connected = "Yes";
+            connected = page_message("yes");
             connected_count += 1;
         }
         strings.push('<tr><td style="text-align: center;">' + i + '</td>');
@@ -130,22 +147,14 @@ function update_workers_status(response)
         strings.push('<td>' + job + '</td>');
         strings.push('<td>' + start_time + '</td>');
         if (response['data'][i]['operations'] == "disabled") {
-            strings.push('<td><button onclick="javascript:enable_worker(' + i + '); return true;"' +
-{% if not admin.permission_all %}
-                         ' disabled' +
-{% endif %}
-                         '>Enable</button></td>');
+            strings.push(`<td><button onclick="javascript:enable_worker(${i}); return true;"{% if not admin.permission_all %} disabled{% endif %}>${page_message("enable")}</button></td>`);
         } else {
-            strings.push('<td><button onclick="javascript:disable_worker(' + i + '); return true;"' +
-{% if not admin.permission_all %}
-                         ' disabled' +
-{% endif %}
-                         '>Disable</button></td>');
+            strings.push(`<td><button onclick="javascript:disable_worker(${i}); return true;"{% if not admin.permission_all %} disabled{% endif %}>${page_message("disable")}</button></td>`);
         }
         strings.push('</tr>');
     }
 
-    $("#title_workers_status").text(`Workers status (${connected_count} connected, ${Object.keys(response.data).length} configured)`);
+    $("#title_workers_status").text(page_message("workers_status", {connected: connected_count, configured: Object.keys(response.data).length}));
     table.html(strings.join(""));
 };
 
@@ -175,7 +184,7 @@ function update_logs(response)
     var l = response['data'].length;
     if (l == 0)
     {
-        table.html('<tr><td colspan="5">No log entries.</td>');
+        table.html('<tr><td colspan="5">' + page_message("no_logs") + '</td>');
         return;
     }
 
@@ -265,79 +274,99 @@ update_statuses();
 
 {% block core %}
 
-<h1>Overview</h1>
+{% set messages = {
+    "scored": _("Scored"),
+    "scoring": _("Scoring..."),
+    "compilation_failed": _("Compilation failed"),
+    "compiling": _("Compiling..."),
+    "evaluating": _("Evaluating..."),
+    "cannot_compile": _("Cannot compile (please check)"),
+    "cannot_evaluate": _("Cannot evaluate (please check)"),
+    "queue_empty": _("Queue empty."),
+    "enable_confirm": _("Do you really want to enable worker %(shard)s?"),
+    "disable_confirm": _("Do you really want to disable worker %(shard)s?"),
+    "no_workers": _("No workers found."),
+    "and_more": _("%(job)s and %(count)s more"),
+    "no": _("No"),
+    "yes": _("Yes"),
+    "enable": _("Enable"),
+    "disable": _("Disable"),
+    "workers_status": _("Workers status (%(connected)s connected, %(configured)s configured)"),
+    "no_logs": _("No log entries."),
+} %}
+<h1 id="overview_title" data-messages="{{ messages|tojson|forceescape }}">{% trans %}Overview{% endtrans %}</h1>
 <span id="update_time"></span>
 
 {% if contest is not none %}
-<h2 id="title_submissions_status" class="toggling_on">Submissions status</h2>
+<h2 id="title_submissions_status" class="toggling_on">{% trans %}Submissions status{% endtrans %}</h2>
 <div id="submissions_status">
   <table id="submissions_status_table" class="sub_table">
     <thead>
       <tr>
-        <th>Status</th>
-        <th>Number</th>
+        <th>{% trans %}Status{% endtrans %}</th>
+        <th>{% trans %}Number{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td style="text-align: center;" colspan="2"><img src="{{ static_url("static", "loading.gif") }}" alt="loading..." /></td></tr>
+      <tr><td style="text-align: center;" colspan="2"><img src="{{ static_url("static", "loading.gif") }}" alt="{{ _("loading...") }}" /></td></tr>
     </tbody>
   </table>
   <div class="hr"></div>
 </div>
 {% endif %}
 
-<h2 id="title_queue_status" class="toggling_on">Queue status</h2>
+<h2 id="title_queue_status" class="toggling_on">{% trans %}Queue status{% endtrans %}</h2>
 <div id="queue_status">
   <table id="queue_status_table" class="sub_table">
     <thead>
       <tr>
-        <th>Id</th>
-        <th>Job</th>
-        <th>Priority</th>
-        <th>Since</th>
+        <th>{% trans %}Id{% endtrans %}</th>
+        <th>{% trans %}Job{% endtrans %}</th>
+        <th>{% trans %}Priority{% endtrans %}</th>
+        <th>{% trans %}Since{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td style="text-align: center;" colspan="4"><img src="{{ static_url("static", "loading.gif") }}" alt="loading..." /></td></tr>
+      <tr><td style="text-align: center;" colspan="4"><img src="{{ static_url("static", "loading.gif") }}" alt="{{ _("loading...") }}" /></td></tr>
     </tbody>
   </table>
   <div class="hr"></div>
 </div>
 
-<h2 id="title_workers_status" class="toggling_on">Workers status</h2>
+<h2 id="title_workers_status" class="toggling_on">{% trans %}Workers status{% endtrans %}</h2>
 <div id="workers_status">
   <table id="workers_status_table" class="sub_table">
     <thead>
       <tr>
-        <th style="width:5%">Shard</th>
-        <th style="width:15%">Connected</th>
-        <th style="width:50%">Current job</th>
-        <th style="width:20%">Since</th>
-        <th style="width:10%">Action</th>
+        <th style="width:5%">{% trans %}Shard{% endtrans %}</th>
+        <th style="width:15%">{% trans %}Connected{% endtrans %}</th>
+        <th style="width:50%">{% trans %}Current job{% endtrans %}</th>
+        <th style="width:20%">{% trans %}Since{% endtrans %}</th>
+        <th style="width:10%">{% trans %}Action{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td style="text-align: center;" colspan="5"><img src="{{ static_url("static", "loading.gif") }}" alt="loading..." /></td></tr>
+      <tr><td style="text-align: center;" colspan="5"><img src="{{ static_url("static", "loading.gif") }}" alt="{{ _("loading...") }}" /></td></tr>
     </tbody>
   </table>
   <div class="hr"></div>
 </div>
 
-<h2 id="title_logs" class="toggling_on">Logs</h2>
+<h2 id="title_logs" class="toggling_on">{% trans %}Logs{% endtrans %}</h2>
 <div id="logs">
 
   <table id="logs_table" class="sub_table">
     <thead>
       <tr>
-        <th>Time</th>
-        <th>Severity</th>
-        <th>Service</th>
-        <th>Operation</th>
-        <th>Message</th>
+        <th>{% trans %}Time{% endtrans %}</th>
+        <th>{% trans %}Severity{% endtrans %}</th>
+        <th>{% trans %}Service{% endtrans %}</th>
+        <th>{% trans %}Operation{% endtrans %}</th>
+        <th>{% trans %}Message{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td style="text-align: center;" colspan="5"><img src="{{ static_url("static", "loading.gif") }}" alt="loading..." /></td></tr>
+      <tr><td style="text-align: center;" colspan="5"><img src="{{ static_url("static", "loading.gif") }}" alt="{{ _("loading...") }}" /></td></tr>
     </tbody>
   </table>
   <div class="hr"></div>
