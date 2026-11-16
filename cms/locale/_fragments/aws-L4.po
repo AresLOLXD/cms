@@ -133,3 +133,85 @@ msgstr "No se encontraron user tests."
 
 msgid "User input"
 msgstr "Entrada del usuario"
+
+#, python-format
+msgid "Submission %(id)s (Task: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+msgstr ""
+"Envío %(id)s (Problema: <a href=\"%(task_url)s\">%(task_name)s</a>)"
+
+msgid "Submission details"
+msgstr "Detalles del envío"
+
+msgid "Property"
+msgstr "Propiedad"
+
+msgid "Value"
+msgstr "Valor"
+
+msgid "Submission time"
+msgstr "Hora del envío"
+
+msgid "N/A"
+msgstr "N/A"
+
+msgid "Make unofficial"
+msgstr "Hacer no oficial"
+
+msgid "Make official"
+msgstr "Hacer oficial"
+
+msgid "Score as seen by user"
+msgstr "Puntaje visto por el usuario"
+
+msgid "Latency as seen by user"
+msgstr "Latencia vista por el usuario"
+
+msgid "Failures during compilation"
+msgstr "Fallas durante la compilación"
+
+msgid "Compilation shard"
+msgstr "Shard de compilación"
+
+msgid "Compilation sandbox"
+msgstr "Sandbox de compilación"
+
+msgid "Rerun and archive"
+msgstr "Volver a ejecutar y archivar"
+
+msgid "Failures during evaluation"
+msgstr "Fallas durante la evaluación"
+
+msgid "Max execution time"
+msgstr "Tiempo máximo de ejecución"
+
+#, python-format
+msgid "%(time)s s"
+msgstr "%(time)s s"
+
+msgid "Max memory used"
+msgstr "Memoria máxima usada"
+
+#, python-format
+msgid "%(memory)s MiB"
+msgstr "%(memory)s MiB"
+
+msgid "Evaluation (as seen by the user)"
+msgstr "Evaluación (vista por el usuario)"
+
+msgid "Evaluation (as seen by the admin)"
+msgstr "Evaluación (vista por el administrador)"
+
+msgid "Admin Details"
+msgstr "Detalles de admin"
+
+msgid "Resources"
+msgstr "Recursos"
+
+msgid "Sandbox"
+msgstr "Sandbox"
+
+msgid "Standard output"
+msgstr "Salida estándar"
+
+msgid "Standard error"
+msgstr "Error estándar"

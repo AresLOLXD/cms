@@ -148,6 +148,29 @@ class TestSubmissionPages(unittest.TestCase):
                        SPANISH, user_test_count=0)
         self.assertIn("No se encontraron user tests.", html)
 
+    def test_the_submission_page_in_spanish(self):
+        # Scenario "A page group in Spanish"
+        html = page("submission.html", SPANISH)
+        for text in ("Detalles del envío", "Hora del envío",
+                     "Latencia vista por el usuario", "Volver a ejecutar y "
+                     "archivar", "Evaluación (vista por el administrador)",
+                     "Salida estándar", 'value="Hacer no oficial"',
+                     "Fallas durante la evaluación"):
+            self.assertIn(text, html)
+        for text in ("Submission details", "Submission time",
+                     "Rerun and archive", "Standard output",
+                     "Make unofficial", "Make official"):
+            self.assertNotIn(text, html)
+
+    def test_the_submission_page_in_english(self):
+        # Scenario "A page in English is unchanged": the same sentences
+        # as before, and the heading with its link.
+        html = page("submission.html", DEFAULT_TRANSLATION)
+        for text in ("Submission details", "Submission time",
+                     "Rerun and archive", "Standard output",
+                     "Failures during evaluation", "(Task: <a href="):
+            self.assertIn(text, html)
+
     def test_the_status_of_a_submission_in_spanish(self):
         # Scenario "A page group in Spanish": the texts of a row (the
         # outcomes of the grading are not ours and are not asserted).
