@@ -1,29 +1,30 @@
+{# aws-i18n: complete #}
 {% extends "base.html" %}
 {% import 'macro/pages.html' as macro_pages with context %}
 {% import 'macro/activity.html' as macro_activity with context %}
 
 {% block core %}
 <div class="core_title">
-  <h1>Activity</h1>
+  <h1>{% trans %}Activity{% endtrans %}</h1>
 </div>
-<p>Times are in the contest's timezone ({{ timezone }}).</p>
+<p>{% trans timezone=timezone %}Times are in the contest's timezone ({{ timezone }}).{% endtrans %}</p>
 
-<h2 id="title_simultaneous_activity" class="toggling_on">Simultaneous activity ({{ activity_simultaneous_count }})</h2>
+<h2 id="title_simultaneous_activity" class="toggling_on">{% trans count=activity_simultaneous_count %}Simultaneous activity ({{ count }}){% endtrans %}</h2>
 <div id="simultaneous_activity">
-  <p>The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than {{ simultaneous_margin.total_seconds()|int }} seconds. A dynamic IP change on one device is not reported. A missing device is not evidence of an API script: a browser that did not present the device cookie (the first request after an IP autologin, cleared cookies, a cookie-less client) has none either.</p>
+  <p>{% trans seconds=simultaneous_margin.total_seconds()|int %}The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than {{ seconds }} seconds. A dynamic IP change on one device is not reported. A missing device is not evidence of an API script: a browser that did not present the device cookie (the first request after an IP autologin, cleared cookies, a cookie-less client) has none either.{% endtrans %}</p>
   {% if activity_simultaneous|length < activity_simultaneous_count %}
-  <p><strong>Only the {{ activity_simultaneous|length }} most recent are shown</strong> (and highlighted in the intervals below). Each participation's page shows all of its own, and the csv below has every interval.</p>
+  <p>{% trans count=activity_simultaneous|length %}<strong>Only the {{ count }} most recent are shown</strong> (and highlighted in the intervals below). Each participation's page shows all of its own, and the csv below has every interval.{% endtrans %}</p>
   {% endif %}
   {{ macro_activity.simultaneous_table(url, contest, activity_simultaneous) }}
   <div class="hr"></div>
 </div>
 
-<h2 id="title_multiple_devices" class="toggling_on">More than one device ({{ multiple_devices|length }})</h2>
+<h2 id="title_multiple_devices" class="toggling_on">{% trans count=multiple_devices|length %}More than one device ({{ count }}){% endtrans %}</h2>
 <div id="multiple_devices">
-  <p>Informational only: another browser, a private window or cleared cookies also count as a new device.</p>
+  <p>{% trans %}Informational only: another browser, a private window or cleared cookies also count as a new device.{% endtrans %}</p>
   {% if multiple_devices %}
   <table class="bordered">
-    <thead><tr><th>Username</th><th>Devices</th></tr></thead>
+    <thead><tr><th>{% trans %}Username{% endtrans %}</th><th>{% trans %}Devices{% endtrans %}</th></tr></thead>
     <tbody>
       {% for row in multiple_devices %}
       <tr>
@@ -34,20 +35,20 @@
     </tbody>
   </table>
   {% else %}
-  None.
+  {% trans %}None.{% endtrans %}
   {% endif %}
   <div class="hr"></div>
 </div>
 
-<h2 id="title_activity_intervals" class="toggling_on">Intervals ({{ activity_count }})</h2>
+<h2 id="title_activity_intervals" class="toggling_on">{% trans count=activity_count %}Intervals ({{ count }}){% endtrans %}</h2>
 <div id="activity_intervals">
   <form action="{{ url("contest", contest.id, "activity") }}" method="GET">
-    Username: <input type="text" name="username" value="{{ activity_filters.username }}">
-    IP address or network: <input type="text" name="ip" value="{{ activity_filters.ip }}" placeholder="10.0.0.0/24">
-    <input type="submit" value="Filter">
-    <a href="{{ url("contest", contest.id, "activity") }}">Clear</a>
+    {% trans %}Username:{% endtrans %} <input type="text" name="username" value="{{ activity_filters.username }}">
+    {% trans %}IP address or network:{% endtrans %} <input type="text" name="ip" value="{{ activity_filters.ip }}" placeholder="10.0.0.0/24">
+    <input type="submit" value="{{ _("Filter") }}">
+    <a href="{{ url("contest", contest.id, "activity") }}">{% trans %}Clear{% endtrans %}</a>
   </form>
-  <p>Download as <a href="{{ activity_csv_url }}">csv</a> (with the filters above; times in UTC).</p>
+  <p>{% trans csv_url=activity_csv_url %}Download as <a href="{{ csv_url }}">csv</a> (with the filters above; times in UTC).{% endtrans %}</p>
   {{ macro_activity.intervals_table(url, contest, activity_intervals, activity_end_reason, activity_flagged_ids, true) }}
   {{ macro_pages.selector(activity_page_url, activity_page, activity_pages) }}
 </div>

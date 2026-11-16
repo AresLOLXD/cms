@@ -25,6 +25,7 @@ page looks.
 """
 
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -37,8 +38,8 @@ from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 from cmstestsuite.unit_tests.server.admin.translated_users_test import \
     notification, operation_buttons, run_post
-from cmstestsuite.unit_tests.server.admin.users_pages_test import render, \
-    visible
+from cmstestsuite.unit_tests.server.admin.users_pages_test import fake_url, \
+    render, visible
 
 
 def page(name: str, translation=None, **params) -> str:
@@ -46,6 +47,15 @@ def page(name: str, translation=None, **params) -> str:
     text, attributes = visible(render(AWS_ENVIRONMENT, name, translation,
                                       **params))
     return " | ".join([text] + attributes)
+
+
+def macros(translation, *names: str) -> dict:
+    """The macro modules a page imports (render() runs only its core
+    block, so the page's own imports do not run), as macro_<name>."""
+    context = {"gettext": translation.gettext,
+               "ngettext": translation.ngettext, "url": fake_url}
+    return {"macro_" + name: AWS_ENVIRONMENT.get_template(
+        f"macro/{name}.html").make_module(context) for name in names}
 
 
 class TestContestTasksInSpanish(DatabaseMixin, unittest.TestCase):
@@ -202,3 +212,63 @@ class TestContestUsersInSpanish(unittest.TestCase):
             self.assertEqual(
                 notification(handler),
                 (subject, repr(ValueError(text))))
+
+
+def activity_params(**fields):
+    """What the activity pages read, with one interval and one overlap."""
+    row = SimpleNamespace(
+        id=1, user_id=7, username="ana", device_id=None, ip="10.0.0.5",
+        started_at=datetime(2026, 10, 12, 10), started_by="login",
+        last_seen_at=datetime(2026, 10, 12, 11), logged_out_at=None)
+    overlap = SimpleNamespace(
+        user_id=7, username="ana", first_device_id=None, first_ip="10.0.0.5",
+        second_device_id=None, second_ip="10.0.0.6",
+        overlap_start=datetime(2026, 10, 12, 10),
+        overlap_end=datetime(2026, 10, 12, 11))
+    params = {
+        "contest": SimpleNamespace(id=1, name="d1"), "timezone": "UTC",
+        "activity_simultaneous": [overlap],
+        "activity_simultaneous_count": 3,
+        "simultaneous_margin": timedelta(seconds=120),
+        "multiple_devices": [SimpleNamespace(
+            user_id=7, username="ana", devices=2)],
+        "activity_filters": {"username": "", "ip": ""},
+        "activity_intervals": [row], "activity_count": 1,
+        "activity_end_reason": lambda logged_out, last_seen: "active",
+        "activity_flagged_ids": {1}, "activity_csv_url": "/csv",
+        "activity_page_url": lambda **kwargs: "/page", "activity_page": 0,
+        "activity_pages": 1}
+    params.update(fields)
+    return params
+
+
+class TestActivityInSpanish(unittest.TestCase):
+
+    def test_the_activity_page_in_spanish(self):
+        # Scenario: A page group in Spanish (activity)
+        text = page("contest_activity.html", SPANISH, **activity_params(),
+                    **macros(SPANISH, "activity", "pages"))
+
+        for expected in (
+                "Las horas están en la zona horaria del concurso (UTC).",
+                "Actividad simultánea (3)", "Más de un dispositivo (1)",
+                "Intervalos (1)", "Solo se muestran los 1 más recientes",
+                "durante más de 120 segundos", "Dirección IP o red:",
+                "Filtrar", "Primer dispositivo / IP", "Coincidencia desde",
+                "Última actividad", "Iniciado por",
+                "Sin dispositivo: un cliente de API"):
+            self.assertIn(expected, text)
+        for english in ("Times are in", "Simultaneous", "Filter", "Overlap",
+                        "No device"):
+            self.assertNotIn(english, text)
+
+    def test_the_empty_activity_page_in_spanish(self):
+        # Scenario: A page group in Spanish (activity)
+        text = page("contest_activity.html", SPANISH, **activity_params(
+            activity_simultaneous=[], activity_simultaneous_count=0,
+            multiple_devices=[], activity_intervals=[], activity_count=0),
+                    **macros(SPANISH, "activity", "pages"))
+
+        self.assertIn("No hay actividad registrada.", text)
+        self.assertIn("Ninguno.", text)
+        self.assertNotIn("None.", text)

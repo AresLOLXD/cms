@@ -69,3 +69,81 @@ msgstr "¿Seguro que quieres quitar al usuario %(username)s del concurso %(conte
 
 msgid "You do not have permission to remove a participation."
 msgstr "No tienes permiso para quitar una participación."
+
+msgid "Times are in the contest's timezone (%(timezone)s)."
+msgstr "Las horas están en la zona horaria del concurso (%(timezone)s)."
+
+msgid "Simultaneous activity (%(count)s)"
+msgstr "Actividad simultánea (%(count)s)"
+
+msgid "The same participation active from two devices (or, without a device, from two IP addresses) at the same time for more than %(seconds)s seconds. A dynamic IP change on one device is not reported. A missing device is not evidence of an API script: a browser that did not present the device cookie (the first request after an IP autologin, cleared cookies, a cookie-less client) has none either."
+msgstr "La misma participación activa desde dos dispositivos (o, sin dispositivo, desde dos direcciones IP) al mismo tiempo durante más de %(seconds)s segundos. No se reporta el cambio de IP dinámica en un dispositivo. La falta de dispositivo no prueba que sea un script de API: un navegador que no presentó la cookie del dispositivo (la primera solicitud tras un autologin por IP, cookies borradas, un cliente sin cookies) tampoco lo tiene."
+
+msgid "<strong>Only the %(count)s most recent are shown</strong> (and highlighted in the intervals below). Each participation's page shows all of its own, and the csv below has every interval."
+msgstr "<strong>Solo se muestran los %(count)s más recientes</strong> (y se resaltan en los intervalos de abajo). La página de cada participación muestra todos los suyos, y el csv de abajo incluye cada intervalo."
+
+msgid "More than one device (%(count)s)"
+msgstr "Más de un dispositivo (%(count)s)"
+
+msgid "Informational only: another browser, a private window or cleared cookies also count as a new device."
+msgstr "Solo informativo: otro navegador, una ventana privada o las cookies borradas también cuentan como un dispositivo nuevo."
+
+msgid "Devices"
+msgstr "Dispositivos"
+
+msgid "None."
+msgstr "Ninguno."
+
+msgid "Intervals (%(count)s)"
+msgstr "Intervalos (%(count)s)"
+
+msgid "Username:"
+msgstr "Usuario:"
+
+msgid "IP address or network:"
+msgstr "Dirección IP o red:"
+
+msgid "Filter"
+msgstr "Filtrar"
+
+msgid "Clear"
+msgstr "Limpiar"
+
+msgid "Download as <a href=\"%(csv_url)s\">csv</a> (with the filters above; times in UTC)."
+msgstr "Descarga en <a href=\"%(csv_url)s\">csv</a> (con los filtros de arriba; horas en UTC)."
+
+msgid "No device: an API client, or a browser that did not present the device cookie"
+msgstr "Sin dispositivo: un cliente de API, o un navegador que no presentó la cookie del dispositivo"
+
+msgid "Device"
+msgstr "Dispositivo"
+
+msgid "IP address"
+msgstr "Dirección IP"
+
+msgid "Start"
+msgstr "Inicio"
+
+msgid "Last activity"
+msgstr "Última actividad"
+
+msgid "End"
+msgstr "Fin"
+
+msgid "Started by"
+msgstr "Iniciado por"
+
+msgid "No activity recorded."
+msgstr "No hay actividad registrada."
+
+msgid "First device / IP"
+msgstr "Primer dispositivo / IP"
+
+msgid "Second device / IP"
+msgstr "Segundo dispositivo / IP"
+
+msgid "Overlap from"
+msgstr "Coincidencia desde"
+
+msgid "Overlap to"
+msgstr "Coincidencia hasta"
