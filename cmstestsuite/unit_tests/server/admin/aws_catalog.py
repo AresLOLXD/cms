@@ -17,7 +17,8 @@
 
 """The Spanish AWS translation for the tests, built from the committed aws.po.
 
-No compiled .mo file is needed.
+No compiled .mo file is needed. As in AWS, a message that the AWS
+catalog lacks is looked up in the contestant-site one.
 
 """
 
@@ -30,15 +31,18 @@ from babel.messages.pofile import read_po
 from cms.locale import Translation
 
 
-def _spanish() -> Translation:
+def _spanish(domain: str) -> Translation:
     po = importlib.resources.files("cms.locale").joinpath(
-        "es", "LC_MESSAGES", "aws.po")
+        "es", "LC_MESSAGES", f"{domain}.po")
     with po.open("rb") as f:
         catalog = read_po(f)
     mo = BytesIO()
     write_mo(mo, catalog)
     mo.seek(0)
-    return Translation("es", mo, "aws")
+    return Translation("es", mo, domain)
 
 
-SPANISH = _spanish()
+# The contestant-site Spanish, which AWS falls back on (see server.py).
+CMS_SPANISH = _spanish("cms")
+SPANISH = _spanish("aws")
+SPANISH.translation.add_fallback(CMS_SPANISH.translation)
