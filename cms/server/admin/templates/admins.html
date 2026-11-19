@@ -21,7 +21,7 @@
     <tbody>
       {% for a in admins %}
       <tr>
-        <td>{{ a.enabled }}</td>
+        <td>{{ _("True") if a.enabled else _("False") }}</td>
         <td>
           {% if admin.permission_all or admin.id == a.id %}
           <a href="{{ url("admin", a.id) }}">{{ a.username }}</a>
@@ -30,8 +30,8 @@
           {% endif %}
         </td>
         <td>{{ a.name }}</td>
-        <td>{{ a.permission_all }}</td>
-        <td>{{ a.permission_messaging }}</td>
+        <td>{{ _("True") if a.permission_all else _("False") }}</td>
+        <td>{{ _("True") if a.permission_messaging else _("False") }}</td>
       </tr>
       {% endfor %}
     </tbody>

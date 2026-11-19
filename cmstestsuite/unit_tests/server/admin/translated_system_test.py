@@ -100,6 +100,11 @@ class TestAdminPages(unittest.TestCase):
                      "Los permisos de «Mensajería» permiten"):
             self.assertIn(text, html)
         self.assertNotIn("Admins list", html)
+        # enabled, then no all permissions and the messaging permission
+        self.assertIn("<td>Sí</td>", html)
+        self.assertIn("<td>No</td>\n        <td>Sí</td>", html)
+        self.assertNotIn("True", html)
+        self.assertNotIn("False", html)
 
     def test_the_admin_forms_in_spanish(self):
         # Scenario "A page group in Spanish" (system and admins)

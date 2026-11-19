@@ -49,8 +49,8 @@
             <input type="radio" name="contest_id" value="{{ p.contest.id }}"/>
           </td>
           <td><a href="{{ url("contest", p.contest.id, "user", p.user.id, "edit") }}">{{ p.user.username }}</a></td>
-          <td>{{ p.hidden }}</td>
-          <td>{{ p.unrestricted }}</td>
+          <td>{{ _("True") if p.hidden else _("False") }}</td>
+          <td>{{ _("True") if p.unrestricted else _("False") }}</td>
           <td><a href="{{ url("contest", p.contest.id) }}">{{ p.contest.name }}</a></td>
           <td>{{ p.contest.description }}</td>
           <td>{{ p.group.name }}</td>

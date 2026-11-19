@@ -113,8 +113,10 @@ class TestUsersPagesInSpanish(unittest.TestCase):
                          "Información general", "Idiomas preferidos",
                          "Zona horaria del concursante"):
             self.assertIn(expected, text)
-        for english in ("Participations", "General Information",
-                        "Preferred languages"):
+        # hidden=False, unrestricted=True
+        self.assertIn("No Sí", text)
+        for english in ("True", "False", "Participations",
+                        "General Information", "Preferred languages"):
             self.assertNotIn(english, text)
 
     def test_the_new_user_page_in_spanish(self):
