@@ -18,10 +18,10 @@
 
 """Tests for the Spanish contest pages of AWS (the settings, the list,
 the announcements and the questions) and the notifications of their
-handlers (lane L1 of aws-language-rest).
+handlers.
 
 The pages are rendered from the real templates with the Spanish of
-aws.po plus the fragments; nothing here says how a page looks.
+aws.po; nothing here says how a page looks.
 
 """
 

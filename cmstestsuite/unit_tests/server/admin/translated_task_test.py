@@ -17,10 +17,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """Tests for the Spanish task pages of AWS and the notifications of
-their handlers (lane L2 of aws-language-rest).
+their handlers.
 
 The pages are rendered from the real templates with the Spanish of
-aws.po plus the fragments; nothing here says how a page looks.
+aws.po; nothing here says how a page looks.
 
 """
 

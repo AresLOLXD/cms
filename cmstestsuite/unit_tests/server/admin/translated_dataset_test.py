@@ -17,12 +17,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """Tests for the Spanish dataset pages of AWS, the notifications of
-their handlers and the messages of the zip import (lane L3 of
-aws-language-rest).
+their handlers and the messages of the zip import.
 
 The pages are rendered from the real templates with the stand-ins of
-aws_render and the Spanish of aws.po plus the fragments; nothing here
-says how a page looks.
+aws_render and the Spanish of aws.po; nothing here says how a page
+looks.
 
 """
 

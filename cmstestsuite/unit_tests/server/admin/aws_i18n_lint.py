@@ -240,51 +240,47 @@ def skeleton(src: str) -> str:
     return "".join(out)
 
 
-def _consts(node, wrapped=False):
+def _consts(node):
     """Yield the string constants whose value can reach the page:
-    through conditionals, concatenation, filters, call args, containers.
-    With wrapped, the messages of a gettext call count too."""
+    through conditionals, concatenation, filters, call args, containers."""
     if isinstance(node, nodes.Const):
         if isinstance(node.value, str):
             yield node
     elif isinstance(node, nodes.CondExpr):
-        yield from _consts(node.expr1, wrapped)
+        yield from _consts(node.expr1)
         if node.expr2 is not None:
-            yield from _consts(node.expr2, wrapped)
+            yield from _consts(node.expr2)
     elif isinstance(node, (nodes.Concat, nodes.Add)):
         for n in node.iter_child_nodes():
-            yield from _consts(n, wrapped)
+            yield from _consts(n)
     elif isinstance(node, nodes.Mod):
-        yield from _consts(node.left, wrapped)
+        yield from _consts(node.left)
     elif isinstance(node, nodes.Filter):
         if node.node is not None:
-            yield from _consts(node.node, wrapped)
+            yield from _consts(node.node)
     elif isinstance(node, nodes.Call):
         callee = node.node
         if isinstance(callee, nodes.Name) and (
                 callee.name in GETTEXT or callee.name in NON_TEXT_CALLS):
-            if wrapped and callee.name in GETTEXT:
-                for a in node.args[:2]:
-                    yield from _consts(a, wrapped)
             return                                   # wrapped, or a path
         if isinstance(callee, nodes.Getattr) and callee.attr in {
                 "get", "format"}:
             return
         for a in node.args:
-            yield from _consts(a, wrapped)
+            yield from _consts(a)
         for keyword in node.kwargs:
-            yield from _consts(keyword.value, wrapped)
+            yield from _consts(keyword.value)
     elif isinstance(node, nodes.Getitem):
         # ["a", "b"][i]
-        yield from _consts(node.node, wrapped)
+        yield from _consts(node.node)
     elif isinstance(node, (nodes.List, nodes.Tuple)):
         for n in node.items:
-            yield from _consts(n, wrapped)
+            yield from _consts(n)
     elif isinstance(node, nodes.Dict):
         for p in node.items:
-            yield from _consts(p.value, wrapped)
+            yield from _consts(p.value)
     elif isinstance(node, nodes.MarkSafeIfAutoescape):
-        yield from _consts(node.expr, wrapped)
+        yield from _consts(node.expr)
 
 
 def expr_literals(src: str):

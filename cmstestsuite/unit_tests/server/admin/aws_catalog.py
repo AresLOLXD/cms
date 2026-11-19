@@ -17,8 +17,7 @@
 
 """The Spanish AWS translation for the tests, built from the committed aws.po.
 
-No compiled .mo file is needed, and the fragments of the lanes are
-merged in. As in AWS, a message that the AWS catalog lacks is looked
+No compiled .mo file is needed. As in AWS, a message that the AWS catalog lacks is looked
 up in the contestant-site one.
 
 """
@@ -37,17 +36,6 @@ def _spanish(domain: str) -> Translation:
         "es", "LC_MESSAGES", f"{domain}.po")
     with po.open("rb") as f:
         catalog = read_po(f)
-    # While a change translates the pages in parallel, the new messages
-    # of each lane are in a fragment (cms/locale/_fragments/aws-*.po).
-    fragments = importlib.resources.files("cms.locale") / "_fragments"
-    if domain == "aws" and fragments.is_dir():
-        for fragment in sorted(fragments.iterdir(), key=lambda p: p.name):
-            if fragment.name.startswith("aws-") \
-                    and fragment.name.endswith(".po"):
-                with fragment.open("rb") as f:
-                    for message in read_po(f):
-                        if message.id:
-                            catalog[message.id] = message
     mo = BytesIO()
     write_mo(mo, catalog)
     mo.seek(0)

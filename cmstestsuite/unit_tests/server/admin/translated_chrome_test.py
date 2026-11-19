@@ -15,8 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Tests for the shared chrome of AWS in Spanish (change aws-language-rest,
-lane L0): the sidebar and footer, the logged-in login page, the notifications
+"""Tests for the shared chrome of AWS in Spanish (change aws-language-rest):
+the sidebar and footer, the logged-in login page, the notifications
 and form errors of the base handler, the dataset attributes, and the shared
 script aws_utils.js, which runs under node against stubs.
 

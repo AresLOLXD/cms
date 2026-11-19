@@ -16,12 +16,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Tests for the system pages of AWS in Spanish (lane L7 of
-aws-language-rest): the admins pages and their handlers, the ranking
-group removal page, the overview and the resources pages.
+"""Tests for the system pages of AWS in Spanish: the admins pages and
+their handlers, the ranking group removal page, the overview and the
+resources pages.
 
 The pages are rendered from the real templates with the Spanish of
-aws.po plus the fragments; nothing here says how a page looks.
+aws.po; nothing here says how a page looks.
 
 """
 

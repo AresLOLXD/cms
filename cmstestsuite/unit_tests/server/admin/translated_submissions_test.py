@@ -19,8 +19,8 @@
 
 Pages are rendered with the stand-ins of aws_render, so they need no
 database and say nothing about how a page looks. A page is asserted
-only on the texts of this lane's files, because the pages of other
-lanes may include them.
+only on the texts of its own template, because the pages that include
+it show other texts too.
 
 """
 
