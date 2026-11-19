@@ -122,7 +122,8 @@ class TestUsersPagesInSpanish(unittest.TestCase):
         text = page("add_user.html", SPANISH)
 
         for expected in ("Nuevo usuario", "Correo electrónico",
-                         "Texto plano", "Con hash (bcrypt)", "Restablecer"):
+                         "Texto plano", "Con hash (bcrypt)", "Enviar",
+                         "Restablecer"):
             self.assertIn(expected, text)
         self.assertNotIn("New user", text)
 

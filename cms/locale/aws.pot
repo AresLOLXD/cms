@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-19 11:25-0600\n"
+"POT-Creation-Date: 2026-11-19 11:58-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -729,6 +729,9 @@ msgid "A short name for the contest, preferably using only letters, numbers and 
 msgstr ""
 
 msgid "Name:"
+msgstr ""
+
+msgid "Submit"
 msgstr ""
 
 msgid "Create dataset"
