@@ -2,14 +2,14 @@
 
 {% block core %}
 <div class="core_title">
-  <h1>Tasks list of <a href="{{ url("contest", contest.id) }}">{{ contest.name }}</a></h1>
+  <h1>{% trans contest_url=url("contest", contest.id), contest_name=contest.name %}Tasks list of <a href="{{ contest_url }}">{{ contest_name }}</a>{% endtrans %}</h1>
 </div>
 
 <form action="{{ url("contest", contest.id, "tasks", "add") }}" method="POST">
   {{ xsrf_form_html|safe }}
-  Add a new task:
+  {% trans %}Add a new task:{% endtrans %}
   <select name="task_id">
-    <option value="null" selected>Select a new task</option>
+    <option value="null" selected>{% trans %}Select a new task{% endtrans %}</option>
     {% for t in unassigned_tasks %}
     <option value="{{ t.id }}">
       {{ t.name }}
@@ -20,47 +20,47 @@
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="Add task" />
+         value="{{ _("Add task") }}" />
 </form>
 
 <form action="{{ url("contest", contest.id, "tasks") }}" method="POST">
   {{ xsrf_form_html|safe }}
-  Remove selected task from the contest:
-  <input type="submit" name="operation"
+  {% trans %}Remove selected task from the contest:{% endtrans %}
+  <button type="submit" name="operation" value="Remove from contest"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="Remove from contest" />
+         >{% trans %}Remove from contest{% endtrans %}</button>
 
   <br>
 
-  Move selected task:
-  <input type="submit" name="operation"
+  {% trans %}Move selected task:{% endtrans %}
+  <button type="submit" name="operation" value="to the top"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="to the top" />
-  <input type="submit" name="operation"
+         >{% trans %}to the top{% endtrans %}</button>
+  <button type="submit" name="operation" value="up by 1"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="up by 1" />
-  <input type="submit" name="operation"
+         >{% trans %}up by 1{% endtrans %}</button>
+  <button type="submit" name="operation" value="down by 1"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="down by 1" />
-  <input type="submit" name="operation"
+         >{% trans %}down by 1{% endtrans %}</button>
+  <button type="submit" name="operation" value="to the bottom"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="to the bottom" />
+         >{% trans %}to the bottom{% endtrans %}</button>
   <table class="bordered">
     <thead>
       <tr>
         <th></th>
-        <th>Name</th>
-        <th>Title</th>
+        <th>{% trans %}Name{% endtrans %}</th>
+        <th>{% trans %}Title{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>

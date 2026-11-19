@@ -2,19 +2,19 @@
 
 {% block core %}
 <div class="core_title">
-  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - Rename dataset</h1>
+  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - {% trans %}Rename dataset{% endtrans %}</h1>
 </div>
 
 <form action="{{ url("dataset", dataset.id, "rename") }}" method="POST">
   {{ xsrf_form_html|safe }}
   <table>
     <tr>
-      <td>Edit description (each dataset must have a unique description):</td>
+      <td>{% trans %}Edit description (each dataset must have a unique description):{% endtrans %}</td>
       <td>
         <input type="text" name="description" value="{{ dataset.description }}"/>
       </td>
     </tr>
   </table>
-  <input type="submit" value="Rename">
+  <input type="submit" value="{{ _("Rename") }}">
 </form>
 {% endblock core %}

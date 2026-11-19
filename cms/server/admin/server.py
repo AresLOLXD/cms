@@ -39,7 +39,7 @@ from tornado.httputil import (
 from cms import config, ServiceCoord, get_service_shards
 from cms.db import SessionGen, Dataset, Submission, SubmissionResult, Task
 from cms.io import WebService, rpc_method
-from cms.locale import get_translations
+from cms.locale import DEFAULT_TRANSLATION, Translation, get_translations
 from cms.service import EvaluationService
 from cmscommon.binary import hex_to_bin
 from .exportjobs import EXPORT_JOBS
@@ -84,6 +84,24 @@ MAX_PART_HEADER_SIZE = 2048
 # closes the connection, with no response.
 MAX_BODY_SIZE = 100 * 1024 * 1024
 BODY_TIMEOUT = 600
+
+def add_contestant_fallback(translations: dict[str, Translation]):
+    """Let each AWS language find the messages the AWS catalog lacks in
+    the contestant-site catalog of the same language.
+
+    The evaluation outcomes, the sizes and "N/A" that the admin pages
+    show come from there. The default translation is shared by both
+    catalogs and is left alone.
+
+    translations: the AWS translations, by language code.
+
+    """
+    contestant = get_translations()
+    for code, translation in translations.items():
+        if translation is not DEFAULT_TRANSLATION and code in contestant:
+            translation.translation.add_fallback(
+                contestant[code].translation)
+
 
 # Serializes the queries of AdminWebServer.submissions_status: the
 # Overview page asks for them from every open tab, and a query that
@@ -136,6 +154,7 @@ class AdminWebServer(WebService):
         self.jinja2_environment = AWS_ENVIRONMENT
         # The languages AWS offers: English and those with an aws.mo.
         self.translations = get_translations("aws")
+        add_contestant_fallback(self.translations)
 
         # Tornado's limits are global, but each service runs in its own
         # process, so these don't reach CWS. The call replaces the

@@ -2,31 +2,31 @@
 
 {% block core %}
 <div class="core_title">
-  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - Download all testcases</h1>
+  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - {% trans %}Download all testcases{% endtrans %}</h1>
 </div>
 <form action="{{ url("dataset", dataset.id, "testcases", "download") }}" method="POST">
   {{ xsrf_form_html|safe }}
   <table>
     <tr>
-      <td>Zip file name</td>
+      <td>{% trans %}Zip file name{% endtrans %}</td>
       <td>
         <input type="text" name="zip_filename" value="testcases.zip">
       </td>
     </tr>
     <tr>
-      <td>Input file names template (use * as a testcase codename, for example: input.* or *.in)</td>
+      <td>{% trans %}Input file names template (use * as a testcase codename, for example: input.* or *.in){% endtrans %}</td>
       <td>
         <input type="text" name="input_template" value="input.*">
       </td>
     </tr>
     <tr>
-      <td>Output file names template (use * as a testcase codename, for example: output.* or *.out)</td>
+      <td>{% trans %}Output file names template (use * as a testcase codename, for example: output.* or *.out){% endtrans %}</td>
       <td>
         <input type="text" name="output_template" value="output.*">
       </td>
     </tr>
   </table>
-  <input type="submit" value="Download">
+  <input type="submit" value="{{ _("Download") }}">
   <input type="Reset" >
 </form>
 {% endblock core %}

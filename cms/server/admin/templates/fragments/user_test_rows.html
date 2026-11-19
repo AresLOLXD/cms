@@ -1,8 +1,8 @@
-{% import 'macro/pages.html' as macro_pages %}
+{% import 'macro/pages.html' as macro_pages with context %}
 
 {# This snippet shows a table using the list user_tests as input #}
 {% if user_test_count == 0 %}
-<p>No user tests found.</p>
+<p>{% trans %}No user tests found.{% endtrans %}</p>
 
 {% else %}
 
@@ -11,12 +11,12 @@
 <table class="bordered">
   <thead>
     <tr>
-      <th>Time</th>
-      <th>User</th>
-      <th>Task</th>
-      <th>Status</th>
-      <th>User input</th>
-      <th>Files</th>
+      <th>{% trans %}Time{% endtrans %}</th>
+      <th>{% trans %}User{% endtrans %}</th>
+      <th>{% trans %}Task{% endtrans %}</th>
+      <th>{% trans %}Status{% endtrans %}</th>
+      <th>{% trans %}User input{% endtrans %}</th>
+      <th>{% trans %}Files{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>

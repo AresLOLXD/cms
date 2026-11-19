@@ -50,8 +50,9 @@ class DatasetFormsTestCase(unittest.TestCase):
                 html,
                 r'<textarea name="score_type_parameters[^"]*" rows="12">',
                 name)
-            self.assertIn("<span class=\"info\" title='%s'></span>" % HELP,
-                          html, name)
+            span = ('<span class="info" title="{{ _(\'%s\') }}"></span>'
+                    % HELP)
+            self.assertIn(span, html, name)
 
     def test_update_has_the_no_rescore_hint(self):
         html = read_admin("templates", "task.html")
@@ -62,7 +63,7 @@ class DatasetFormsTestCase(unittest.TestCase):
         self.assertIn("press S or E", hint)
         self.assertIn("live task during a contest", hint)
         # The hint is part of the form of the Update button.
-        self.assertLess(html.index('value="Update"'), match.start())
+        self.assertLess(html.index('value="{{ _("Update") }}"'), match.start())
         self.assertLess(match.start(), html.index("</form>", match.start()))
 
     def test_note_and_hint_have_styles(self):

@@ -9,22 +9,22 @@
 <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
 <form enctype="multipart/form-data" action="{{ url("admin", admin_being_edited.id) }}" method="POST">
   {{ xsrf_form_html|safe }}
-  <h2>Admin information</h2>
+  <h2>{% trans %}Admin information{% endtrans %}</h2>
 
   {% include "fragments/admin_form.html" %}
 
-  <input type="submit" value="Update" />
-  <input type="reset" value="Reset" />
+  <input type="submit" value="{{ _("Update") }}" />
+  <input type="reset" value="{{ _("Reset") }}" />
 
   <br/>
 
-  Leaving the password field empty will keep the previous password.
+  {% trans %}Leaving the password field empty will keep the previous password.{% endtrans %}
 </form>
 
 {% if admin.permission_all %}
 <hr/>
 
-<a onclick="CMS.AWSUtils.ajax_delete('{{ url("admin", admin_being_edited.id) }}'); ">Delete this admin</a>
+<a onclick="CMS.AWSUtils.ajax_delete('{{ url("admin", admin_being_edited.id) }}'); ">{% trans %}Delete this admin{% endtrans %}</a>
 {% endif %}
 
 {% endblock core %}

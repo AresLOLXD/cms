@@ -40,11 +40,21 @@ import tornado.web
 from sqlalchemy import case, select
 
 from cms.db import Contest, Question, Participation
+from cms.locale.locale import N_
 from cmscommon.datetime import make_datetime
 from .base import BaseHandler, require_permission
 
 
 logger = logging.getLogger(__name__)
+
+# The labels of Question.QUICK_ANSWERS, which the question form translates
+# (cms/db is not extracted); the stored reply_subject stays English.
+QUICK_ANSWER_LABELS = (
+    N_("Yes"),
+    N_("No"),
+    N_("Invalid Question (not a Yes/No Question)"),
+    N_("No Comment/Please refer to task statement"),
+)
 
 
 class QuestionsHandler(BaseHandler):

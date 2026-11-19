@@ -3,18 +3,18 @@
 {% block core %}
 
 <div class="core_title">
-  <h1>New admin</h1>
+  <h1>{% trans %}New admin{% endtrans %}</h1>
 </div>
 
 <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
 <form enctype="multipart/form-data" action="{{ url("admins", "add") }}" method="post" >
   {{ xsrf_form_html|safe }}
-  <h2>Admin information</h2>
+  <h2>{% trans %}Admin information{% endtrans %}</h2>
 
   {% include "fragments/admin_form.html" %}
 
-  <input type="submit" value="Create" />
-  <input type="reset" value="Reset" />
+  <input type="submit" value="{{ _("Create") }}" />
+  <input type="reset" value="{{ _("Reset") }}" />
 </form>
 {% endblock core %}
 

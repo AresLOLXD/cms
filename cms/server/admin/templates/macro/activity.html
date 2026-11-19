@@ -1,5 +1,5 @@
 {% macro device(device_id) -%}
-{% if device_id is none %}<span title="No device: an API client, or a browser that did not present the device cookie">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
+{% if device_id is none %}<span title="{{ _("No device: an API client, or a browser that did not present the device cookie") }}">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
 {%- endmacro %}
 
 
@@ -11,17 +11,19 @@ end_reason (function): activity_end_reason bound to now and the threshold.
 flagged_ids (set): ids of the intervals in simultaneous activity.
 show_user (bool): whether to add a username column.
 #}
+{# The values of cms.db.activity; an unknown one is shown as it is. #}
+{% set words = {"login": _("login"), "resumed": _("resumed"), "logout": _("logout"), "inactivity": _("inactivity"), "active": _("active")} %}
 {% if intervals %}
 <table class="bordered">
   <thead>
     <tr>
-      {% if show_user %}<th>Username</th>{% endif %}
-      <th>Device</th>
-      <th>IP address</th>
-      <th>Start</th>
-      <th>Last activity</th>
-      <th>End</th>
-      <th>Started by</th>
+      {% if show_user %}<th>{% trans %}Username{% endtrans %}</th>{% endif %}
+      <th>{% trans %}Device{% endtrans %}</th>
+      <th>{% trans %}IP address{% endtrans %}</th>
+      <th>{% trans %}Start{% endtrans %}</th>
+      <th>{% trans %}Last activity{% endtrans %}</th>
+      <th>{% trans %}End{% endtrans %}</th>
+      <th>{% trans %}Started by{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>
@@ -32,14 +34,14 @@ show_user (bool): whether to add a username column.
       <td>{{ row.ip }}</td>
       <td>{{ row.started_at|format_datetime }}</td>
       <td>{{ row.last_seen_at|format_datetime }}</td>
-      <td>{{ end_reason(row.logged_out_at, row.last_seen_at) }}</td>
-      <td>{{ row.started_by }}</td>
+      <td>{% set reason = end_reason(row.logged_out_at, row.last_seen_at) %}{{ words.get(reason, reason) }}</td>
+      <td>{{ words.get(row.started_by, row.started_by) }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 {% else %}
-No activity recorded.
+{% trans %}No activity recorded.{% endtrans %}
 {% endif %}
 {%- endmacro %}
 
@@ -53,11 +55,11 @@ find_simultaneous_activity.
 <table class="bordered">
   <thead>
     <tr>
-      <th>Username</th>
-      <th>First device / IP</th>
-      <th>Second device / IP</th>
-      <th>Overlap from</th>
-      <th>Overlap to</th>
+      <th>{% trans %}Username{% endtrans %}</th>
+      <th>{% trans %}First device / IP{% endtrans %}</th>
+      <th>{% trans %}Second device / IP{% endtrans %}</th>
+      <th>{% trans %}Overlap from{% endtrans %}</th>
+      <th>{% trans %}Overlap to{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>
@@ -73,6 +75,6 @@ find_simultaneous_activity.
   </tbody>
 </table>
 {% else %}
-None.
+{% trans %}None.{% endtrans %}
 {% endif %}
 {%- endmacro %}

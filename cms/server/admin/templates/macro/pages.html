@@ -9,16 +9,16 @@ pages (int): total number of pages.
 
   {% if pages > 1 %}
 <div>
-  Pages:
+  {% trans %}Pages:{% endtrans %}
     {% if pages <= 20 %}
       {{ range_selector(page_url, page, pages, 0, pages) }}
     {% else %}
       {% if page != 0 %}
-  <a href="{{ page_url(page=0) }}">First</a>
+  <a href="{{ page_url(page=0) }}">{% trans %}First{% endtrans %}</a>
       {% endif %}
       {{ range_selector(page_url, page, pages, page - 2, pages + 3) }}
       {% if page != pages - 1 %}
-  <a href="{{ page_url(page=pages - 1) }}">Last</a>
+  <a href="{{ page_url(page=pages - 1) }}">{% trans %}Last{% endtrans %}</a>
       {% endif %}
     {% endif %}
 </div>

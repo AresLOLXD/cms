@@ -2,25 +2,25 @@
 
 {% block core %}
 
-<h1>New team</h1>
+<h1>{% trans %}New team{% endtrans %}</h1>
 
-<h2 id="title_general_info" class="toggling_on">General information</h2>
+<h2 id="title_general_info" class="toggling_on">{% trans %}General information{% endtrans %}</h2>
 <div id="general_info">
   <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
   <form enctype="multipart/form-data" action="{{ url("teams", "add") }}" method="POST">
     {{ xsrf_form_html|safe }}
     <table>
       <tr>
-        <td>Code</td>
+        <td>{% trans %}Code{% endtrans %}</td>
         <td><input type="text" name="code"/></td>
       </tr>
       <tr>
-        <td>Name</td>
+        <td>{% trans %}Name{% endtrans %}</td>
         <td><input type="text" name="name"/></td>
       </tr>
     </table>
-    <input type="submit"/>
-    <input type="reset" value="Reset" />
+    <input type="submit" value="{{ _("Submit") }}"/>
+    <input type="reset" value="{{ _("Reset") }}" />
   </form>
   <div class="hr"></div>
 </div>

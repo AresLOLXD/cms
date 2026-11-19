@@ -2,23 +2,23 @@
 
 {% block core %}
 <div class="core_title">
-  <h1>Remove Task</h1>
+  <h1>{% trans %}Remove Task{% endtrans %}</h1>
 </div>
 
 {% if admin.permission_all %}
 <p>
-  Are you sure you want to remove task {{ task.name }} from CMS, including all related data?
+  {% trans name=task.name %}Are you sure you want to remove task {{ name }} from CMS, including all related data?{% endtrans %}
   <br>
-  This will remove {{ submission_count }} submission(s).
+  {% trans count=submission_count %}This will remove {{ count }} submission(s).{% endtrans %}
   <br>
-  This operation cannot be undone.
+  {% trans %}This operation cannot be undone.{% endtrans %}
 </p>
 <br>
-<a onclick="CMS.AWSUtils.ajax_delete('{{ url("tasks", task.id, "remove") }}');" class="button-link">Yes, remove</a>
-<a href="{{ url("tasks") }}" class="button-link">No</a>
+<a onclick="CMS.AWSUtils.ajax_delete('{{ url("tasks", task.id, "remove") }}');" class="button-link">{% trans %}Yes, remove{% endtrans %}</a>
+<a href="{{ url("tasks") }}" class="button-link">{% trans %}No{% endtrans %}</a>
 
 {% else %}
-You do not have permission to remove a task.
+{% trans %}You do not have permission to remove a task.{% endtrans %}
 {% endif %}
 
 {% endblock core %}

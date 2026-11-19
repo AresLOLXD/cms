@@ -9,7 +9,7 @@ utils.show_page("questions", 1);
 {% block core %}
 
 <div class="core_title">
-  <h1>Questions</h1>
+  <h1>{% trans %}Questions{% endtrans %}</h1>
 </div>
 
 {% if questions != [] %}
@@ -23,7 +23,7 @@ utils.show_page("questions", 1);
 </div>
 
 {% else %}
-No questions.
+{% trans %}No questions.{% endtrans %}
 
 {% endif %}
 

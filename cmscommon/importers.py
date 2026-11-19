@@ -20,9 +20,11 @@ import logging
 import re
 import typing
 import zipfile
+from collections.abc import Callable
 
 from cms.db import Testcase, Dataset
 from cms.db.filecacher import FileCacher
+from cms.locale.locale import N_
 from sqlalchemy.orm import Session
 
 
@@ -38,6 +40,7 @@ def import_testcases_from_zipfile(
     output_re: re.Pattern,
     overwrite: bool,
     public: bool,
+    gettext: Callable[[str], str] = N_,
 ) -> tuple[str, str]:
     """Import testcases from a zipped archive
 
@@ -51,6 +54,8 @@ def import_testcases_from_zipfile(
         filenames (e.g., re.compile(r"output_(.*).txt)).
     overwrite: whether to overwrite existing testcases.
     public: whether to mark the new testcases as public.
+    gettext: the translation function for the messages that are
+        raised or returned; without it they stay in English.
 
     return: subject and text of a message describing
         the outcome of the operation.
@@ -106,14 +111,15 @@ def import_testcases_from_zipfile(
                     input_ = archive_zfp.read(testdata[0])
                     output = archive_zfp.read(testdata[1])
                 except Exception:
-                    raise Exception("Reading testcase %s failed" % codename)
+                    raise Exception(
+                        gettext("Reading testcase %s failed") % codename)
                 try:
                     input_digest = file_cacher.put_file_content(
                         input_, "Testcase input for task %s" % task_name)
                     output_digest = file_cacher.put_file_content(
                         output, "Testcase output for task %s" % task_name)
                 except Exception:
-                    raise Exception("Testcase storage failed")
+                    raise Exception(gettext("Testcase storage failed"))
 
                 testcase = Testcase(codename, public, input_digest,
                                     output_digest, dataset=dataset)
@@ -121,18 +127,23 @@ def import_testcases_from_zipfile(
                 try:
                     session.commit()
                 except Exception:
-                    raise Exception("Couldn't add test %s" % codename)
+                    raise Exception(
+                        gettext("Couldn't add test %s") % codename)
                 if codename not in overwritten_tc:
                     added_tc.append(codename)
     except zipfile.BadZipfile:
-        raise Exception(
+        raise Exception(gettext(
             "The selected file is not a zip file. "
-            "Please select a valid zip file.")
+            "Please select a valid zip file."))
 
+    none = gettext("none")
     return (
-        "Successfully added %d and overwritten %d testcase(s)" %
-        (len(added_tc), len(overwritten_tc)),
-        "Added: %s; overwritten: %s; skipped: %s" %
-        (", ".join(added_tc) if added_tc else "none",
-         ", ".join(overwritten_tc) if overwritten_tc else "none",
-         ", ".join(skipped_tc) if skipped_tc else "none"))
+        gettext("Successfully added %(added)d and overwritten "
+                "%(overwritten)d testcase(s)") %
+        {"added": len(added_tc), "overwritten": len(overwritten_tc)},
+        gettext("Added: %(added)s; overwritten: %(overwritten)s; "
+                "skipped: %(skipped)s") %
+        {"added": ", ".join(added_tc) if added_tc else none,
+         "overwritten":
+             ", ".join(overwritten_tc) if overwritten_tc else none,
+         "skipped": ", ".join(skipped_tc) if skipped_tc else none})

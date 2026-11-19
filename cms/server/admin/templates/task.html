@@ -10,7 +10,7 @@ function showTaskTypeOption(dataset_id) {
 
 {% for dataset in task.datasets %}
 showTaskTypeOption({{ dataset.id }});
-$("select[name=task_type_{{ dataset.id }}]").change(function() {
+$("select[name=task_type_" + {{ dataset.id }} + "]").change(function() {
     showTaskTypeOption({{ dataset.id }});
 });
 {% endfor %}
@@ -23,17 +23,17 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
   <h1>{{ task.title }} ({{ task.name }})</h1>
 </div>
 
-<h2 id="title_submissions" class="toggling_on">Submissions</h2>
+<h2 id="title_submissions" class="toggling_on">{% trans %}Submissions{% endtrans %}</h2>
 <div id="submissions">
 
   {% if submissions|length == 0 %}
-  <p>No submissions for this task yet.</p>
+  <p>{% trans %}No submissions for this task yet.{% endtrans %}</p>
   {% else %}
     <a href="{{ url("dataset", task.active_dataset_id) }}">
       {% if submissions|length == 1 %}
-      1 submission
+      {% trans %}1 submission{% endtrans %}
       {% else %}
-      {{ submissions|length }} submissions
+      {% trans count=submissions|length %}{{ count }} submissions{% endtrans %}
       {% endif %}
     </a>
   {% endif %}
@@ -43,55 +43,55 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
 <!-- We use "multipart/form-data" to have Tornado distinguish between missing and empty values. -->
 <form enctype="multipart/form-data" action="{{ url("task", task.id) }}" method="POST" style="display:inline;">
   {{ xsrf_form_html|safe }}
-  <h2 id="title_task_configuration" class="toggling_on">Task configuration</h2>
+  <h2 id="title_task_configuration" class="toggling_on">{% trans %}Task configuration{% endtrans %}</h2>
   <div id="task_configuration">
     <table>
-      <tr><td colspan=2><h2>Task information</h2></td></tr>
+      <tr><td colspan=2><h2>{% trans %}Task information{% endtrans %}</h2></td></tr>
       <tr>
         <td>
-          <span class="info" title="A short name for the task, preferably using only letters, numbers and underscores."></span>
-          Name
+          <span class="info" title="{{ _("A short name for the task, preferably using only letters, numbers and underscores.") }}"></span>
+          {% trans %}Name{% endtrans %}
         </td>
         <td><input type="text" name="name" value="{{ task.name }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The title of the task as seen by the contestants."></span>
-          Title
+          <span class="info" title="{{ _("The title of the task as seen by the contestants.") }}"></span>
+          {% trans %}Title{% endtrans %}
         </td>
         <td><input type="text" name="title" value="{{ task.title }}"/></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The index of the task within the contest, if the task is associated with a contest."></span>
-          Position
+          <span class="info" title="{{ _("The index of the task within the contest, if the task is associated with a contest.") }}"></span>
+          {% trans %}Position{% endtrans %}
         </td>
         <td>{{ task.num }}</td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The statements of this task, by language code. Primary statements are shown prominently to contestants."></span>
-          Statements
+          <span class="info" title="{{ _("The statements of this task, by language code. Primary statements are shown prominently to contestants.") }}"></span>
+          {% trans %}Statements{% endtrans %}
 {% if admin.permission_all %}
-          [<a href="{{ url("task", task.id, "statements", "add") }}">add</a>]
+          [<a href="{{ url("task", task.id, "statements", "add") }}">{% trans %}add{% endtrans %}</a>]
 {% endif %}
         </td>
         <td>
           {% if task.statements|length == 0 %}
-          No statements uploaded yet
+          {% trans %}No statements uploaded yet{% endtrans %}
           {% else %}
           <table>
             <tbody>
             {% for statement in task.statements.values() %}
               <tr>
-                <td><a href="{{ url("file", statement.digest, "statement.pdf") }}">Statement for language "{{ statement.language }}"</a></td>
+                <td><a href="{{ url("file", statement.digest, "statement.pdf") }}">{% trans language=statement.language %}Statement for language "{{ language }}"{% endtrans %}</a></td>
                 <td>
                   <label>
                     <input type="checkbox" name="primary_statement_{{ statement.language }}" {% if statement.language in primary_statements %}checked{% endif %} />
-                    Primary?
+                    {% trans %}Primary?{% endtrans %}
                   </label>
                 </td>
-                <td><a onclick="CMS.AWSUtils.ajax_delete('{{ url("task", task.id, "statement", statement.id) }}'); ">Delete</a></td>
+                <td><a onclick="CMS.AWSUtils.ajax_delete('{{ url("task", task.id, "statement", statement.id) }}'); ">{% trans %}Delete{% endtrans %}</a></td>
               </tr>
             {% endfor %}
             </tbody>
@@ -101,20 +101,20 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
       </tr>
       <tr>
         <td>
-          <span class="info" title="Attachments for this task. Contestant can view and download attachments from the task page."></span>
-          Attachments
+          <span class="info" title="{{ _("Attachments for this task. Contestant can view and download attachments from the task page.") }}"></span>
+          {% trans %}Attachments{% endtrans %}
 {% if admin.permission_all %}
-          [<a href="{{ url("task", task.id, "attachments", "add") }}">add</a>]
+          [<a href="{{ url("task", task.id, "attachments", "add") }}">{% trans %}add{% endtrans %}</a>]
 {% endif %}
         </td>
         <td>
           {% if task.attachments|length == 0 %}
-            No attachments.
+            {% trans %}No attachments.{% endtrans %}
           {% else %}
             {% for attachment in task.attachments.values() %}
               <div class="attachment">
                 <a href="{{ url("file", attachment.digest, attachment.filename) }}">{{ attachment.filename }}</a>
-                - <a onclick="CMS.AWSUtils.ajax_delete('{{ url("task", task.id, "attachment", attachment.id) }}'); ">Delete</a>
+                - <a onclick="CMS.AWSUtils.ajax_delete('{{ url("task", task.id, "attachment", attachment.id) }}'); ">{% trans %}Delete{% endtrans %}</a>
               </div>
             {% endfor %}
           {% endif %}
@@ -122,9 +122,9 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
       </tr>
       <tr>
         <td>
-          <span class="info" title="A comma-separated list with the names of the files that need to be submitted (with the language extensions changed to %l).
-                                    The task type dictates the submission format. Consult the task type documentation to know the requirements."></span>
-          Submission format
+          <span class="info" title="{{ _("A comma-separated list with the names of the files that need to be submitted (with the language extensions changed to %l).") }}
+                                    {{ _("The task type dictates the submission format. Consult the task type documentation to know the requirements.") }}"></span>
+          {% trans %}Submission format{% endtrans %}
         </td>
         <td>
           <input type="text" name="submission_format" value="{{ task.submission_format|join(", ") }}"/>
@@ -132,10 +132,10 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
       </tr>
       <tr>
         <td>
-          <span class="info" title="Programming languages that contestants can use to solve this task.
-                                    If none are selected, all contest languages are allowed.
-                                    Otherwise, only the selected languages are allowed."></span>
-          Allowed programming languages
+          <span class="info" title="{{ _("Programming languages that contestants can use to solve this task.") }}
+                                    {{ _("If none are selected, all contest languages are allowed.") }}
+                                    {{ _("Otherwise, only the selected languages are allowed.") }}"></span>
+          {% trans %}Allowed programming languages{% endtrans %}
         </td>
         <td class="wrapping-options">
           {% for lang in LANGUAGES %}
@@ -145,134 +145,134 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
       </tr>
       <tr>
         <td>
-          <span class="info" title="With 'restricted' contestants only see limited technical information about each testcase; with 'full' they see more details, but malicious contestants might use this data to get some information about the test data."></span>
-          Feedback level
+          <span class="info" title="{{ _("With 'restricted' contestants only see limited technical information about each testcase; with 'full' they see more details, but malicious contestants might use this data to get some information about the test data.") }}"></span>
+          {% trans %}Feedback level{% endtrans %}
         </td>
         <td>
           <select name="feedback_level">
-            <option value={{ FEEDBACK_LEVEL_OI_RESTRICTED }} {{ "selected" if task.feedback_level == FEEDBACK_LEVEL_OI_RESTRICTED else "" }}>OI Restricted</option>
-            <option value={{ FEEDBACK_LEVEL_RESTRICTED }} {{ "selected" if task.feedback_level == FEEDBACK_LEVEL_RESTRICTED else "" }}>Restricted</option>
-            <option value={{ FEEDBACK_LEVEL_FULL }} {{ "selected" if task.feedback_level == FEEDBACK_LEVEL_FULL else "" }}>Full</option>
+            <option value={{ FEEDBACK_LEVEL_OI_RESTRICTED }} {{ "selected" if task.feedback_level == FEEDBACK_LEVEL_OI_RESTRICTED else "" }}>{% trans %}OI Restricted{% endtrans %}</option>
+            <option value={{ FEEDBACK_LEVEL_RESTRICTED }} {{ "selected" if task.feedback_level == FEEDBACK_LEVEL_RESTRICTED else "" }}>{% trans %}Restricted{% endtrans %}</option>
+            <option value={{ FEEDBACK_LEVEL_FULL }} {{ "selected" if task.feedback_level == FEEDBACK_LEVEL_FULL else "" }}>{% trans %}Full{% endtrans %}</option>
           </select>
         </td>
       </tr>
-      <tr><td colspan=2><h2>Tokens parameters (<a href="http://cms.readthedocs.org/en/{{ rtd_version }}/Configuring%20a%20contest.html#feedback-to-contestants" target="_blank">documentation</a>)</h2></td></tr>
+      <tr><td colspan=2><h2>{% trans link="http://cms.readthedocs.org/en/" ~ rtd_version ~ "/Configuring%20a%20contest.html#feedback-to-contestants" %}Tokens parameters (<a href="{{ link }}" target="_blank">documentation</a>){% endtrans %}</h2></td></tr>
       <tr>
         <td>
-          <span class="info" title="Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters.
-                                    If you prefer to control tokens at the task level, select 'infinite' here."></span>
-          Token mode
+          <span class="info" title="{{ _("Select 'disabled' to remove tokens completely for this task, 'infinite' for allowing any number of tokens for this task, or 'finite' to specify the amount with the following parameters.") }}
+                                    {{ _("If you prefer to control tokens at the task level, select 'infinite' here.") }}"></span>
+          {% trans %}Token mode{% endtrans %}
         </td>
         <td>
           <select name="token_mode">
-            <option value="{{ TOKEN_MODE_DISABLED }}" {{ "selected" if task.token_mode == TOKEN_MODE_DISABLED else "" }}>Disabled</option>
-            <option value="{{ TOKEN_MODE_FINITE }}" {{ "selected" if task.token_mode == TOKEN_MODE_FINITE else "" }}>Finite</option>
-            <option value="{{ TOKEN_MODE_INFINITE }}" {{ "selected" if task.token_mode == TOKEN_MODE_INFINITE else "" }}>Infinite</option>
+            <option value="{{ TOKEN_MODE_DISABLED }}" {{ "selected" if task.token_mode == TOKEN_MODE_DISABLED else "" }}>{% trans %}Disabled{% endtrans %}</option>
+            <option value="{{ TOKEN_MODE_FINITE }}" {{ "selected" if task.token_mode == TOKEN_MODE_FINITE else "" }}>{% trans %}Finite{% endtrans %}</option>
+            <option value="{{ TOKEN_MODE_INFINITE }}" {{ "selected" if task.token_mode == TOKEN_MODE_INFINITE else "" }}>{% trans %}Infinite{% endtrans %}</option>
           </select>
         </td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The maximum number of tokens a contestant can use in this task.
-                                    It is used only if tokens are finite."></span>
-          Maximum number of tokens
+          <span class="info" title="{{ _("The maximum number of tokens a contestant can use in this task.") }}
+                                    {{ _("It is used only if tokens are finite.") }}"></span>
+          {% trans %}Maximum number of tokens{% endtrans %}
         </td>
         <td><input type="text" name="token_max_number" value="{{ task.token_max_number if task.token_max_number is not none else "" }}" /></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The minimum amount of time (in seconds) that a contestant needs to wait for this task after using a token before being able to use another.
-                                    It is used only if tokens are finite."></span>
-          Minimum interval between tokens
+          <span class="info" title="{{ _("The minimum amount of time (in seconds) that a contestant needs to wait for this task after using a token before being able to use another.") }}
+                                    {{ _("It is used only if tokens are finite.") }}"></span>
+          {% trans %}Minimum interval between tokens{% endtrans %}
         </td>
         <td><input type="text" name="token_min_interval" value="{{ task.token_min_interval.total_seconds()|int }}" /></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The number of tokens that a contestant has available for this task when their contest time starts.
-                                    It is used only if tokens are finite."></span>
-          Initial number of tokens
+          <span class="info" title="{{ _("The number of tokens that a contestant has available for this task when their contest time starts.") }}
+                                    {{ _("It is used only if tokens are finite.") }}"></span>
+          {% trans %}Initial number of tokens{% endtrans %}
         </td>
         <td><input type="text" name="token_gen_initial" value="{{ task.token_gen_initial }}" /></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The number of tokens that are generated periodically for this task.
-                                    It is used only if tokens are finite."></span>
-          Token generation number
+          <span class="info" title="{{ _("The number of tokens that are generated periodically for this task.") }}
+                                    {{ _("It is used only if tokens are finite.") }}"></span>
+          {% trans %}Token generation number{% endtrans %}
         </td>
         <td><input type="text" name="token_gen_number" value="{{ task.token_gen_number }}" /></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The amount of time (in minutes) between two token generation events for this task.
-                                    It is used only if tokens are finite."></span>
-          Token generation period
+          <span class="info" title="{{ _("The amount of time (in minutes) between two token generation events for this task.") }}
+                                    {{ _("It is used only if tokens are finite.") }}"></span>
+          {% trans %}Token generation period{% endtrans %}
         </td>
         <td><input type="text" name="token_gen_interval" value="{{ task.token_gen_interval.total_seconds()|int // 60 }}" /></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Maximum number of tokens for this task available to a contestant at any given time during the contest.
-                                    It is used only if tokens are finite."></span>
-          Maximum accumulated tokens
+          <span class="info" title="{{ _("Maximum number of tokens for this task available to a contestant at any given time during the contest.") }}
+                                    {{ _("It is used only if tokens are finite.") }}"></span>
+          {% trans %}Maximum accumulated tokens{% endtrans %}
         </td>
         <td><input type="text" name="token_gen_max" value="{{ task.token_gen_max if task.token_gen_max is not none else "" }}" /></td>
       </tr>
 
-      <tr><td colspan=2><h2>Limits</h2></td></tr>
+      <tr><td colspan=2><h2>{% trans %}Limits{% endtrans %}</h2></td></tr>
       <tr>
         <td>
-          <span class="info" title="Maximum number of submissions each contestant can submit for this task, for the whole contest.
-                                    Leave empty for no limits."></span>
-          Maximum number of submissions
+          <span class="info" title="{{ _("Maximum number of submissions each contestant can submit for this task, for the whole contest.") }}
+                                    {{ _("Leave empty for no limits.") }}"></span>
+          {% trans %}Maximum number of submissions{% endtrans %}
         </td>
         <td><input type="text" name="max_submission_number" value="{{ task.max_submission_number if task.max_submission_number is not none else "" }}"></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="Maximum number of user tests each contestant can submit for this task, for the whole contest.
-                                    Leave empty for no limits."></span>
-          Maximum number of user tests
+          <span class="info" title="{{ _("Maximum number of user tests each contestant can submit for this task, for the whole contest.") }}
+                                    {{ _("Leave empty for no limits.") }}"></span>
+          {% trans %}Maximum number of user tests{% endtrans %}
         </td>
         <td><input type="text" name="max_user_test_number" value="{{ task.max_user_test_number if task.max_user_test_number is not none else "" }}"></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The minimum amount of time (in seconds) for this task that a contestant needs to wait after a submission before being able to submit another.
-                                    Leave empty for no limits."></span>
-          Minimum interval between submissions
+          <span class="info" title="{{ _("The minimum amount of time (in seconds) for this task that a contestant needs to wait after a submission before being able to submit another.") }}
+                                    {{ _("Leave empty for no limits.") }}"></span>
+          {% trans %}Minimum interval between submissions{% endtrans %}
         </td>
         <td><input type="text" name="min_submission_interval" value="{{ task.min_submission_interval.total_seconds()|int if task.min_submission_interval is not none else "" }}"></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="The minimum amount of time (in seconds) for this task that a contestant needs to wait after a user test before being able to send another.
-                                    Leave empty for no limits."></span>
-          Minimum interval between user tests
+          <span class="info" title="{{ _("The minimum amount of time (in seconds) for this task that a contestant needs to wait after a user test before being able to send another.") }}
+                                    {{ _("Leave empty for no limits.") }}"></span>
+          {% trans %}Minimum interval between user tests{% endtrans %}
         </td>
         <td><input type="text" name="min_user_test_interval" value="{{ task.min_user_test_interval.total_seconds()|int if task.min_user_test_interval is not none else "" }}"></td>
       </tr>
 
-      <tr><td colspan=2><h2>Score options</h2></td></tr>
+      <tr><td colspan=2><h2>{% trans %}Score options{% endtrans %}</h2></td></tr>
       <tr>
         <td>
-          <span class="info" title="The number of decimal places the scores will be rounded to.
-                                    Example: '2' to allow 98.76."></span>
-          Score decimal places
+          <span class="info" title="{{ _("The number of decimal places the scores will be rounded to.") }}
+                                    {{ _("Example: '2' to allow 98.76.") }}"></span>
+          {% trans %}Score decimal places{% endtrans %}
         </td>
         <td><input type="text" name="score_precision" value="{{ task.score_precision }}"></td>
       </tr>
       <tr>
         <td>
-          <span class="info" title="How the score for the task is computed from the score of each submission."></span>
-          Score mode
+          <span class="info" title="{{ _("How the score for the task is computed from the score of each submission.") }}"></span>
+          {% trans %}Score mode{% endtrans %}
         </td>
         <td>
           <select name="score_mode">
-            <option value="{{ SCORE_MODE_MAX_TOKENED_LAST }}" {{ "selected" if task.score_mode == SCORE_MODE_MAX_TOKENED_LAST else "" }}>Use best among tokened and last submissions (IOI 2010-2012)</option>
-            <option value="{{ SCORE_MODE_MAX }}" {{ "selected" if task.score_mode == SCORE_MODE_MAX else "" }}>Use best among all submissions (IOI 2013-2016)</option>
-            <option value="{{ SCORE_MODE_MAX_SUBTASK }}" {{ "selected" if task.score_mode == SCORE_MODE_MAX_SUBTASK else "" }}>Use the sum over each subtask of the best result for that subtask across all submissions (IOI 2017-)</option>
+            <option value="{{ SCORE_MODE_MAX_TOKENED_LAST }}" {{ "selected" if task.score_mode == SCORE_MODE_MAX_TOKENED_LAST else "" }}>{% trans %}Use best among tokened and last submissions (IOI 2010-2012){% endtrans %}</option>
+            <option value="{{ SCORE_MODE_MAX }}" {{ "selected" if task.score_mode == SCORE_MODE_MAX else "" }}>{% trans %}Use best among all submissions (IOI 2013-2016){% endtrans %}</option>
+            <option value="{{ SCORE_MODE_MAX_SUBTASK }}" {{ "selected" if task.score_mode == SCORE_MODE_MAX_SUBTASK else "" }}>{% trans %}Use the sum over each subtask of the best result for that subtask across all submissions (IOI 2017-){% endtrans %}</option>
           </select>
         </td>
       </tr>
@@ -282,56 +282,54 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
 
 <!-- Datasets -->
 
-  <h2 id="title_datasets" class="toggling_on">Datasets</h2>
+  <h2 id="title_datasets" class="toggling_on">{% trans %}Datasets{% endtrans %}</h2>
   <div id="datasets">
     <p>
 {% if task.datasets|length == 0 %}
-    No datasets have been created for this task.<br/>
+    {% trans %}No datasets have been created for this task.{% endtrans %}<br/>
 {% endif %}
 {% if admin.permission_all %}
-    <a href="{{ url("task", task.id, "add_dataset") }}">Create a new dataset</a><br/>
+    <a href="{{ url("task", task.id, "add_dataset") }}">{% trans %}Create a new dataset{% endtrans %}</a><br/>
 {% endif %}
     </p>
 
 {% for dataset in task.datasets|sort(attribute="description") %}
 
-  <h3 id="title_dataset_{{ dataset.id }}" class="toggling_on">Dataset: {{ dataset.description }}{{ dataset|format_dataset_attrs }}</h3>
+  <h3 id="title_dataset_{{ dataset.id }}" class="toggling_on">{% trans %}Dataset:{% endtrans %} {{ dataset.description }}{{ dataset|format_dataset_attrs }}</h3>
   <div id="dataset_{{ dataset.id }}" class="task_dataset">
 
     <p>
 {% if admin.permission_all %}
       {% if dataset is sameas (task.active_dataset) %}
-      [Make Live ...]
+      {% trans %}[Make Live ...]{% endtrans %}
       {% else %}
-      <a href="{{ url("dataset", dataset.id, "activate") }}">[Make Live ...]</a>
+      <a href="{{ url("dataset", dataset.id, "activate") }}">{% trans %}[Make Live ...]{% endtrans %}</a>
       {% endif %}
-      <a href="{{ url("dataset", dataset.id, "clone") }}">[Clone]</a>
-      <a href="{{ url("dataset", dataset.id, "rename") }}">[Rename]</a>
+      <a href="{{ url("dataset", dataset.id, "clone") }}">{% trans %}[Clone]{% endtrans %}</a>
+      <a href="{{ url("dataset", dataset.id, "rename") }}">{% trans %}[Rename]{% endtrans %}</a>
       {% if dataset is sameas (task.active_dataset) %}
-      [Delete]
+      {% trans %}[Delete]{% endtrans %}
       {% else %}
-      <a href="{{ url("dataset", dataset.id, "delete") }}">[Delete]</a>
+      <a href="{{ url("dataset", dataset.id, "delete") }}">{% trans %}[Delete]{% endtrans %}</a>
       {% endif %}
       {% if dataset is not sameas (task.active_dataset) %}
-        <a onclick="CMS.AWSUtils.ajax_post('{{ url("dataset", dataset.id, "autojudge") }}');">[{% if dataset.autojudge %}Disable{% else %}Enable{% endif %} background judging]</a>
+        <a onclick="CMS.AWSUtils.ajax_post('{{ url("dataset", dataset.id, "autojudge") }}');">{% if dataset.autojudge %}{% trans %}[Disable background judging]{% endtrans %}{% else %}{% trans %}[Enable background judging]{% endtrans %}{% endif %}</a>
       {% endif %}
 {% endif %}
-      <a href="{{ url("dataset", dataset.id) }}">[View results]</a>
+      <a href="{{ url("dataset", dataset.id) }}">{% trans %}[View results]{% endtrans %}</a>
     </p>
 
   <!-- Task type and score type settings -->
 
-    <h4 id="title_task_type_{{ dataset.id }}" class="toggling_on">Dataset configuration</h4>
+    <h4 id="title_task_type_{{ dataset.id }}" class="toggling_on">{% trans %}Dataset configuration{% endtrans %}</h4>
 
     {% if dataset.task_type not in TASK_TYPES %}
     <script type="text/javascript">
       $(document).ready(function() {
       utils.display_notification("notification",
           0,
-          "Task type `{{ dataset.task_type }}' not found.",
-          "Please select another task type, " +
-          "or make the original one available and refresh the page " +
-          "without updating the task to avoid losing the parameters.");
+          {{ (_("Task type `%s' not found.") % dataset.task_type)|tojson }},
+          {{ _("Please select another task type, or make the original one available and refresh the page without updating the task to avoid losing the parameters.")|tojson }});
       });
     </script>
     {% endif %}
@@ -341,10 +339,8 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
       $(document).ready(function() {
       utils.display_notification("notification",
           0,
-          "Score type `{{ dataset.score_type }}' not found.",
-          "Please select another score type, " +
-          "or make the original one available and refresh the page " +
-          "without updating the task to avoid losing the parameters.");
+          {{ (_("Score type `%s' not found.") % dataset.score_type)|tojson }},
+          {{ _("Please select another score type, or make the original one available and refresh the page without updating the task to avoid losing the parameters.")|tojson }});
       });
     </script>
     {% endif %}
@@ -352,27 +348,27 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
     <div id="task_type_{{ dataset.id }}" class="task_dataset_params">
       <table>
 
-        <tr><td colspan=2><h3>Limits</h3></td></tr>
+        <tr><td colspan=2><h3>{% trans %}Limits{% endtrans %}</h3></td></tr>
         <tr>
           <td>
-            <span class="info" title="Total maximum time for each evaluation, in seconds."></span>
-            Time limit
+            <span class="info" title="{{ _("Total maximum time for each evaluation, in seconds.") }}"></span>
+            {% trans %}Time limit{% endtrans %}
           </td>
-          <td><input type="text" name="time_limit_{{ dataset.id }}" value="{{ dataset.time_limit if dataset.time_limit is not none else "" }}"/> second(s)</td>
+          <td><input type="text" name="time_limit_{{ dataset.id }}" value="{{ dataset.time_limit if dataset.time_limit is not none else "" }}"/> {% trans %}second(s){% endtrans %}</td>
         </tr>
         <tr>
           <td>
-            <span class="info" title="Total maximum memory usage for each evaluation, in MiB (2^20 bytes)."></span>
-            Memory limit
+            <span class="info" title="{{ _("Total maximum memory usage for each evaluation, in MiB (2^20 bytes).") }}"></span>
+            {% trans %}Memory limit{% endtrans %}
           </td>
-          <td><input type="text" name="memory_limit_{{ dataset.id }}" value="{{ dataset.memory_limit // (1024 * 1024) if dataset.memory_limit is not none else "" }}"/> MiB</td>
+          <td><input type="text" name="memory_limit_{{ dataset.id }}" value="{{ dataset.memory_limit // (1024 * 1024) if dataset.memory_limit is not none else "" }}"/> {% trans %}MiB{% endtrans %}</td>
         </tr>
 
-        <tr><td colspan=2><h3>Task type settings (<a href="http://cms.readthedocs.org/en/{{ rtd_version }}/Task%20types.html" target="_blank">documentation</a>)</h3></td></tr>
+        <tr><td colspan=2><h3>{% trans link="http://cms.readthedocs.org/en/" ~ rtd_version ~ "/Task%20types.html" %}Task type settings (<a href="{{ link }}" target="_blank">documentation</a>){% endtrans %}</h3></td></tr>
         <tr>
           <td>
-            <span class="info" title="Please see the task type documentation."></span>
-            Task type
+            <span class="info" title="{{ _("Please see the task type documentation.") }}"></span>
+            {% trans %}Task type{% endtrans %}
           </td>
           <td>
 
@@ -402,31 +398,31 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
         </tr>
         <tr>
           <td>
-            <span class="info" title="Managers for this task. Managers are sources, headers, libraries or binaries used during the evaluation."></span>
-            Managers
+            <span class="info" title="{{ _("Managers for this task. Managers are sources, headers, libraries or binaries used during the evaluation.") }}"></span>
+            {% trans %}Managers{% endtrans %}
 {% if admin.permission_all %}
-            [<a href="{{ url("dataset", dataset.id, "managers", "add") }}">add</a>]
+            [<a href="{{ url("dataset", dataset.id, "managers", "add") }}">{% trans %}add{% endtrans %}</a>]
 {% endif %}
           </td>
           <td>
             {% if dataset.managers|length == 0 %}
-              No managers.
+              {% trans %}No managers.{% endtrans %}
             {% else %}
               {% for manager in dataset.managers.values() %}
                 <div class="manager">
                   <a href="{{ url("file", manager.digest, manager.filename) }}">{{ manager.filename }}</a>
-                  - <a onclick="CMS.AWSUtils.ajax_delete('{{ url("dataset", dataset.id, "manager", manager.id, "delete") }}');">Delete</a>
+                  - <a onclick="CMS.AWSUtils.ajax_delete('{{ url("dataset", dataset.id, "manager", manager.id, "delete") }}');">{% trans %}Delete{% endtrans %}</a>
                 </div>
               {% endfor %}
             {% endif %}
           </td>
         </tr>
 
-        <tr><td colspan=2><h3>Score type settings (<a href="http://cms.readthedocs.org/en/{{ rtd_version }}/Score%20types.html" target="_blank">documentation</a>)</h3></td></tr>
+        <tr><td colspan=2><h3>{% trans link="http://cms.readthedocs.org/en/" ~ rtd_version ~ "/Score%20types.html" %}Score type settings (<a href="{{ link }}" target="_blank">documentation</a>){% endtrans %}</h3></td></tr>
         <tr>
           <td>
-            <span class="info" title="Please see the score type documentation."></span>
-            Score Type
+            <span class="info" title="{{ _("Please see the score type documentation.") }}"></span>
+            {% trans %}Score Type{% endtrans %}
           </td>
           <td>
             <select name="score_type_{{ dataset.id }}">
@@ -438,13 +434,13 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
         </tr>
         <tr>
           <td>
-            <span class="info" title='Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.'></span>
-            Score Parameters
+            <span class="info" title="{{ _('Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.') }}"></span>
+            {% trans %}Score Parameters{% endtrans %}
           </td>
           <td>
             <textarea name="score_type_parameters_{{ dataset.id }}" rows="12">{{ dataset.score_type_parameters|tojson|forceescape }}</textarea>
             {% if dataset.id in score_type_warnings %}
-            <p class="score-type-warning"><strong>Currently invalid: {{ score_type_warnings[dataset.id] }}</strong></p>
+            <p class="score-type-warning"><strong>{% trans warning=score_type_warnings[dataset.id] %}Currently invalid: {{ warning }}{% endtrans %}</strong></p>
             {% endif %}
           </td>
         </tr>
@@ -454,22 +450,22 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
 
   <!-- Test cases for this dataset -->
 
-  <h4 id="title_testcases_{{ dataset.id }}" class="toggling_on">Test cases</h4>
+  <h4 id="title_testcases_{{ dataset.id }}" class="toggling_on">{% trans %}Test cases{% endtrans %}</h4>
     <div id="testcases_{{ dataset.id }}" class="task_dataset_testcases">
 {% if admin.permission_all %}
-      <a href="{{ url("dataset", dataset.id, "testcases", "add") }}">Add a testcase</a>
-      <a href="{{ url("dataset", dataset.id, "testcases", "add_multiple") }}">Add multiple testcases</a>
+      <a href="{{ url("dataset", dataset.id, "testcases", "add") }}">{% trans %}Add a testcase{% endtrans %}</a>
+      <a href="{{ url("dataset", dataset.id, "testcases", "add_multiple") }}">{% trans %}Add multiple testcases{% endtrans %}</a>
 {% endif %}
-      <a href="{{ url("dataset", dataset.id, "testcases", "download") }}">Download all testcases</a>
+      <a href="{{ url("dataset", dataset.id, "testcases", "download") }}">{% trans %}Download all testcases{% endtrans %}</a>
       <table class="bordered" style="text-align:center">
         <thead>
           <tr>
             <th>#</th>
-            <th>Codename</th>
-            <th>Public</th>
-            <th>Input</th>
-            <th>Output</th>
-            <th>Ops</th>
+            <th>{% trans %}Codename{% endtrans %}</th>
+            <th>{% trans %}Public{% endtrans %}</th>
+            <th>{% trans %}Input{% endtrans %}</th>
+            <th>{% trans %}Output{% endtrans %}</th>
+            <th>{% trans %}Ops{% endtrans %}</th>
           </tr>
         </thead>
         <tbody>
@@ -481,13 +477,13 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
               <input type="checkbox" name="testcase_{{ testcase.id }}_public" {% if testcase.public %}checked{% endif %} />
             </td>
             <td>
-              <a href="javascript:void(0);" onclick="utils.show_file('input_{{ testcase.codename }}','{{ url("file", testcase.input, "input_%s"|format(testcase.codename)) }}')">Show input</a>
+              <a href="javascript:void(0);" onclick="utils.show_file('input_{{ testcase.codename }}','{{ url("file", testcase.input, "input_%s"|format(testcase.codename)) }}')">{% trans %}Show input{% endtrans %}</a>
             </td>
             <td>
-              <a href="javascript:void(0);" onclick="utils.show_file('output_{{ testcase.codename }}','{{ url("file", testcase.output, "output_%s"|format(testcase.codename)) }}')">Show output</a>
+              <a href="javascript:void(0);" onclick="utils.show_file('output_{{ testcase.codename }}','{{ url("file", testcase.output, "output_%s"|format(testcase.codename)) }}')">{% trans %}Show output{% endtrans %}</a>
             </td>
             <td>
-              <a onclick="CMS.AWSUtils.ajax_delete('{{ url("dataset", dataset.id, "testcase", testcase.id, "delete") }}');">Delete</a>
+              <a onclick="CMS.AWSUtils.ajax_delete('{{ url("dataset", dataset.id, "testcase", testcase.id, "delete") }}');">{% trans %}Delete{% endtrans %}</a>
             </td>
           </tr>
           {% endfor %}
@@ -502,19 +498,19 @@ $("select[name=task_type_{{ dataset.id }}]").change(function() {
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         value="Update" />
-  <input type="reset" value="Reset" />
-  <span class="hint">Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest.</span>
+         value="{{ _("Update") }}" />
+  <input type="reset" value="{{ _("Reset") }}" />
+  <span class="hint">{% trans %}Update does not rescore the submissions. To rescore, open the dataset's [View results] page and press S or E; see the subtask dependencies page of the documentation. Do not do it on a live task during a contest.{% endtrans %}</span>
 </form>
 <form action="{{ url("tasks") }}" method="POST" style="display:inline;">
     {{ xsrf_form_html|safe }}
     <input type="hidden" name="task_id" value="{{ task.id }}"/>
-    <input type="submit"
+    <button type="submit"
          name="operation"
          value="Remove" style="float: right;"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         />
+         >{% trans %}Remove{% endtrans %}</button>
 </form>
 {% endblock core %}

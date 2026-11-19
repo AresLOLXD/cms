@@ -316,7 +316,7 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
         self.assertIn("Export contests", english.body.decode())
         self.assertNotIn("Exportar concursos", english.body.decode())
         self.assertIn("Exportar concursos", spanish.body.decode())
-        self.assertIn("(en curso o en modo de análisis)",
+        self.assertIn("(en curso o en fase de análisis)",
                       spanish.body.decode())
         self.assertNotIn("Export contests", spanish.body.decode())
 
@@ -328,7 +328,7 @@ class ExportHandlersTest(_AwsServerMixin, unittest.IsolatedAsyncioTestCase):
                  "alguno de los concursos elegidos ya no existe"),
                 ([("contest_id", str(self.running_id)),
                   ("contest_id", str(self.analysis_id))],
-                 "Estos concursos están en curso o en su modo de "
+                 "Estos concursos están en curso o en su fase de "
                  "análisis: %s, %s. El volcado se lee sin congelar la "
                  "base de datos: puede salir inconsistente y la carga "
                  "puede afectar al concurso. Marca la confirmación para "

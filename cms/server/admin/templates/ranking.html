@@ -2,21 +2,21 @@
 
 {% block core %}
 <div class="core_title">
-  <h1>Ranking</h1>
+  <h1>{% trans %}Ranking{% endtrans %}</h1>
 </div>
-Download as <a href="{{ url("contest", contest.id, "ranking", "csv") }}">csv</a>, <a href="{{ url("contest", contest.id, "ranking", "txt") }}">text</a>.
+{% trans csv_url=url("contest", contest.id, "ranking", "csv"), text_url=url("contest", contest.id, "ranking", "txt") %}Download as <a href="{{ csv_url }}">csv</a>, <a href="{{ text_url }}">text</a>.{% endtrans %}
 <table id="ranking-table" class="bordered">
   <thead>
     <tr>
-      <th>Username</th>
-      <th>User</th>
+      <th>{% trans %}Username{% endtrans %}</th>
+      <th>{% trans %}User{% endtrans %}</th>
       {% if show_teams %}
-      <th>Team</th>
+      <th>{% trans %}Team{% endtrans %}</th>
       {% endif %}
       {% for task in contest.tasks %}
       <th data-sort-settings="numeric reversed"><a href="{{ url("task", task.id) }}">{{ task.name }}</a></th>
       {% endfor %}
-      <th data-sort-settings="numeric reversed">Global</th>
+      <th data-sort-settings="numeric reversed">{% trans %}Global{% endtrans %}</th>
     </tr>
   </thead>
   <tbody>

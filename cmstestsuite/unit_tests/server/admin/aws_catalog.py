@@ -17,7 +17,8 @@
 
 """The Spanish AWS translation for the tests, built from the committed aws.po.
 
-No compiled .mo file is needed.
+No compiled .mo file is needed. As in AWS, a message that the AWS catalog lacks is looked
+up in the contestant-site one.
 
 """
 
@@ -30,15 +31,41 @@ from babel.messages.pofile import read_po
 from cms.locale import Translation
 
 
-def _spanish() -> Translation:
+def _spanish(domain: str) -> Translation:
     po = importlib.resources.files("cms.locale").joinpath(
-        "es", "LC_MESSAGES", "aws.po")
+        "es", "LC_MESSAGES", f"{domain}.po")
     with po.open("rb") as f:
         catalog = read_po(f)
     mo = BytesIO()
     write_mo(mo, catalog)
     mo.seek(0)
-    return Translation("es", mo, "aws")
+    return Translation("es", mo, domain)
 
 
-SPANISH = _spanish()
+# The contestant-site Spanish, which AWS falls back on (see server.py).
+CMS_SPANISH = _spanish("cms")
+SPANISH = _spanish("aws")
+SPANISH.translation.add_fallback(CMS_SPANISH.translation)
+
+
+# The Spanish of the pages as main had it, and the terms of the style
+# guide that replaced it (the frozen "before" pages are main's).
+MAIN_TERMS = [
+    ("modo de análisis", "fase de análisis"),
+    ("Un renglón por", "Una fila por"),
+    ("pruebas de usuario", "user tests"),
+    ("los participantes.", "los concursantes."),
+    ("Un username por línea, o un CSV cuya primera columna sea el username.",
+     "Un usuario por línea, o un CSV cuya primera columna sea el usuario."),
+    ("La importación cifra las", "La importación calcula el hash de las"),
+    ("(cifradas o en texto", "(con hash o en texto"),
+    ("No exportar las user tests", "No exportar los user tests"),
+]
+
+
+def with_new_terms(text: str) -> str:
+    """Return the text of a page of main with the terms of the style
+    guide, to compare it with the page of today."""
+    for old, new in MAIN_TERMS:
+        text = text.replace(old, new)
+    return text

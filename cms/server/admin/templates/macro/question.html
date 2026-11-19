@@ -1,6 +1,6 @@
 {# This macro should be imported "with context". #}
 
-{% import 'macro/markdown_input.html' as macro_markdown %}
+{% import 'macro/markdown_input.html' as macro_markdown with context %}
 
 {% macro question(msg, user_id) %}
 {#
@@ -23,18 +23,19 @@ user_id (int|None): if we are rendering one of the questions on a single user's
     <div class="notification_text preserve_line_breaks">{{ msg.text }}</div>
     {% if msg.reply_timestamp is not none %}
       <hr>
-      <div class="notification_subject">Reply: {{ msg.reply_subject }}</div>
+      <div class="notification_subject">{% trans subject=msg.reply_subject %}Reply: {{ subject }}{% endtrans %}</div>
       <div class="notification_text">{{ msg.reply_text | markdown }}</div>
       <hr>
       <div class="notification_admin_owner">
-        Reply from: {{ msg.admin.name if msg.admin is not none else "<unknown>" }}</div>
+        {% set owner = msg.admin.name if msg.admin is not none else _("<unknown>") %}
+        {% trans name=owner %}Reply from: {{ name }}{% endtrans %}</div>
     {% else %}
       <hr>
-      <div class="notification_subject">Not yet replied.</div>
+      <div class="notification_subject">{% trans %}Not yet replied.{% endtrans %}</div>
       <hr>
       {% if msg.admin is not none %}
         <div class="notification_admin_owner">
-          {{ "Ignored" if msg.ignored else "Claimed" }} by: {{ msg.admin.name }}
+          {% if msg.ignored %}{% trans name=msg.admin.name %}Ignored by: {{ name }}{% endtrans %}{% else %}{% trans name=msg.admin.name %}Claimed by: {{ name }}{% endtrans %}{% endif %}
         </div>
       {% endif %}
     {% endif %}
@@ -49,10 +50,10 @@ user_id (int|None): if we are rendering one of the questions on a single user's
               {% endif %}
               {% if msg.admin is none %}
                 <input type="hidden" name="claim" value="yes"/>
-                <a href="javascript:void(0);" onclick="document.claim{{ msg.id }}.submit();">Claim</a>
+                <a href="javascript:void(0);" onclick="document.claim{{ msg.id }}.submit();">{% trans %}Claim{% endtrans %}</a>
               {% else %}
                 <input type="hidden" name="claim" value="no"/>
-                <a href="javascript:void(0);" onclick="document.claim{{ msg.id }}.submit();">Unclaim</a>
+                <a href="javascript:void(0);" onclick="document.claim{{ msg.id }}.submit();">{% trans %}Unclaim{% endtrans %}</a>
               {% endif %}
             </form>
           </div>
@@ -65,10 +66,10 @@ user_id (int|None): if we are rendering one of the questions on a single user's
         {% endif %}
         {% if not msg.ignored %}
           <input type="hidden" name="ignore" value="yes"/>
-          <a href="javascript:void(0);" onclick="document.ignore{{ msg.id }}.submit();">Ignore</a>
+          <a href="javascript:void(0);" onclick="document.ignore{{ msg.id }}.submit();">{% trans %}Ignore{% endtrans %}</a>
         {% else %}
           <input type="hidden" name="ignore" value="no"/>
-          <a href="javascript:void(0);" onclick="document.ignore{{ msg.id }}.submit();">Unignore</a>
+          <a href="javascript:void(0);" onclick="document.ignore{{ msg.id }}.submit();">{% trans %}Unignore{% endtrans %}</a>
         {% endif %}
       </form>
     </div>
@@ -76,9 +77,9 @@ user_id (int|None): if we are rendering one of the questions on a single user's
     <div class="reply_question_toggle">
       <a href="javascript:void(0);" onclick="utils.question_reply_toggle(event, this);">
     {% if msg.reply_timestamp is none %}
-        Reply
+        {% trans %}Reply{% endtrans %}
     {% else %}
-        Edit reply
+        {% trans %}Edit reply{% endtrans %}
     {% endif %}
       </a>
     </div>
@@ -89,19 +90,19 @@ user_id (int|None): if we are rendering one of the questions on a single user's
         {% if user_id is not none %}
           <input type="hidden" name="user_id" value="{{ user_id }}" />
         {% endif %}
-        Precompiled answer:
+        {% trans %}Precompiled answer:{% endtrans %}
         <select name="reply_question_quick_answer" onchange="utils.update_additional_answer(event, this);">
           {% for key, value in question_quick_answers.items() %}
-            <option value="{{ key }}">{{ value }}</option>
+            <option value="{{ key }}">{{ _(value) }}</option>
           {% endfor %}
-          <option value="other" selected>Other</option>
+          <option value="other" selected>{% trans %}Other{% endtrans %}</option>
         </select>
         <br/>
         <div class="alternative_answer">
-          Alternative answer:<br/>
+          {% trans %}Alternative answer:{% endtrans %}<br/>
           {{ macro_markdown.markdown_input("reply_question_text") }}
         </div>
-        <input type="submit" value="Send"/>
+        <input type="submit" value="{{ _("Send") }}"/>
         <span class="alternative_answer">
           {{ macro_markdown.markdown_preview() }}
         </span>

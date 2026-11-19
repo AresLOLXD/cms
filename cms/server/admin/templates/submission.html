@@ -1,4 +1,4 @@
-{% import "macro/reevaluation_buttons.html" as macro_reevaluation_buttons %}
+{% import "macro/reevaluation_buttons.html" as macro_reevaluation_buttons with context %}
 
 {% extends "base.html" %}
 
@@ -10,41 +10,41 @@
   {% set status = sr.get_status() %}
 {% endif %}
 <div class="core_title">
-  <h1>Submission {{ s.id }} (Task: <a href="{{ url("task", s.task.id) }}">{{ s.task.name }}</a>)</h1>
+  <h1>{% trans id=s.id, task_url=url("task", s.task.id), task_name=s.task.name %}Submission {{ id }} (Task: <a href="{{ task_url }}">{{ task_name }}</a>){% endtrans %}</h1>
 </div>
 
 {% set dataset_selector_par_url = url("submission", s.id) %}
 {% include "fragments/dataset_selector.html" %}
 
-<h2 id="title_details" class="toggling_on">Submission details</h2>
+<h2 id="title_details" class="toggling_on">{% trans %}Submission details{% endtrans %}</h2>
 <div id="details">
 
   <table class="bordered">
     <thead>
       <tr>
-        <th>Property</th>
-        <th>Value</th>
+        <th>{% trans %}Property{% endtrans %}</th>
+        <th>{% trans %}Value{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td>Submission time</td>
+        <td>{% trans %}Submission time{% endtrans %}</td>
         <td>{{ s.timestamp|format_utc_time }}</td>
       </tr>
       <tr>
-        <td>Id</td>
+        <td>{% trans %}Id{% endtrans %}</td>
         <td>{{ s.id }}</td>
       </tr>
       <tr>
-        <td>Task</td>
+        <td>{% trans %}Task{% endtrans %}</td>
         <td><a href="{{ url("task", s.task.id) }}">{{ s.task.name }}</a></td>
       </tr>
       <tr>
-        <td>User</td>
+        <td>{% trans %}User{% endtrans %}</td>
         <td><a href="{{ url("contest", s.participation.contest.id, "user", s.participation.user.id, "edit") }}">{{ s.participation.user.username }}</a></td>
       </tr>
       <tr>
-        <td>Files</td>
+        <td>{% trans %}Files{% endtrans %}</td>
         <td>
           {% for filename in s.task.submission_format %}
             {% if filename in s.files %}
@@ -58,75 +58,75 @@
         </td>
       </tr>
       <tr>
-        <td>Language</td>
+        <td>{% trans %}Language{% endtrans %}</td>
         <td>
           {% if s.language is none %}
-          N/A
+          {% trans %}N/A{% endtrans %}
           {% else %}
           {{ s.language }}
           {% endif %}
       </tr>
       <tr>
-        <td>Token</td>
+        <td>{% trans %}Token{% endtrans %}</td>
         <td>
           {% if s.token is none %}
-          No
+          {% trans %}No{% endtrans %}
           {% else %}
-          Yes
+          {% trans %}Yes{% endtrans %}
           {% endif %}
         </td>
       </tr>
       <tr>
-        <td>Official</td>
+        <td>{% trans %}Official{% endtrans %}</td>
         <td>
             <form action="{{ url("submission", s.id, shown_dataset.id, "official") }}" name="official_status_form" method="POST">
             {{ xsrf_form_html|safe }}
             {% if s.official %}
               <input type="hidden" name="official" value="no"/>
-              Yes
+              {% trans %}Yes{% endtrans %}
               <input
               {% if not admin.permission_all %}
                   disabled
               {% endif %}
-               type="submit" value="Make unofficial" />
+               type="submit" value="{{ _("Make unofficial") }}" />
             {% else %}
               <input type="hidden" name="official" value="yes"/>
-              No
+              {% trans %}No{% endtrans %}
               <input
               {% if not admin.permission_all %}
                   disabled
               {% endif %}
-               type="submit" value="Make official" />
+               type="submit" value="{{ _("Make official") }}" />
             {% endif %}
             </form>
         </td>
       </tr>
       <tr>
-        <td>Status</td>
+        <td>{% trans %}Status{% endtrans %}</td>
         <td id="submission_status">
           {% if status == SubmissionResult.COMPILING %}
-            Compiling...
+            {% trans %}Compiling...{% endtrans %}
           {% elif status == SubmissionResult.COMPILATION_FAILED %}
-            Compilation failed
+            {% trans %}Compilation failed{% endtrans %}
           {% elif status == SubmissionResult.EVALUATING %}
-            Evaluating...
+            {% trans %}Evaluating...{% endtrans %}
           {% elif status == SubmissionResult.SCORING %}
-            Scoring...
+            {% trans %}Scoring...{% endtrans %}
           {% elif status == SubmissionResult.SCORED %}
             {% if st is defined %}
               {% set max_score = st.max_score %}
             {% else %}
-              {% set max_score = "[Cannot get score type - see logs]" %}
+              {% set max_score = _("[Cannot get score type - see logs]") %}
             {% endif %}
-            Scored ({{ sr.score }} / {{ max_score }})
+            {% trans score=sr.score, max_score=max_score %}Scored ({{ score }} / {{ max_score }}){% endtrans %}
           {% else %}
-            N/A
+            {% trans %}N/A{% endtrans %}
           {% endif %}
         </td>
       </tr>
       {% if status == SubmissionResult.SCORED and st is defined %}
       <tr>
-        <td>Score as seen by user</td>
+        <td>{% trans %}Score as seen by user{% endtrans %}</td>
         <td>
           {% if s.token is not none %}
             {{ st.format_score(sr.score, st.max_score, sr.score_details) }}
@@ -138,7 +138,7 @@
       {% endif %}
       {% if sr is not none and sr.scored_at is not none %}
       <tr>
-        <td>Latency as seen by user</td>
+        <td>{% trans %}Latency as seen by user{% endtrans %}</td>
         <td>
           {{ (sr.scored_at - s.timestamp).total_seconds()|format_duration }}
         </td>
@@ -146,15 +146,15 @@
       {% endif %}
       {% if sr is not none %}
       <tr>
-        <td>Failures during compilation</td>
+        <td>{% trans %}Failures during compilation{% endtrans %}</td>
         <td>{{ sr.compilation_tries }}</td>
       </tr>
       <tr>
-        <td>Compilation shard</td>
+        <td>{% trans %}Compilation shard{% endtrans %}</td>
         <td>{{ sr.compilation_shard }}</td>
       </tr>
       <tr>
-        <td>Compilation sandbox</td>
+        <td>{% trans %}Compilation sandbox{% endtrans %}</td>
         <td>
           {% if sr.compilation_sandbox_digests %}
             {% for sandbox_digest in sr.compilation_sandbox_digests %}
@@ -180,26 +180,26 @@
           {% if not admin.permission_all %}
           disabled
           {% endif %}>
-            Rerun and archive
+            {% trans %}Rerun and archive{% endtrans %}
           </button>
         </td>
       </tr>
       <tr>
-        <td>Failures during evaluation</td>
+        <td>{% trans %}Failures during evaluation{% endtrans %}</td>
         <td>{{ sr.evaluation_tries }}</td>
       </tr>
         {% set t, m = sr.get_max_evaluation_resources() %}
       <tr>
-        <td>Max execution time</td>
-        <td>{% if t is not none %}{{ t }} s{% else %}N/A{% endif %}</td>
+        <td>{% trans %}Max execution time{% endtrans %}</td>
+        <td>{% if t is not none %}{% trans time=t %}{{ time }} s{% endtrans %}{% else %}{% trans %}N/A{% endtrans %}{% endif %}</td>
       </tr>
       <tr>
-        <td>Max memory used</td>
-        <td>{% if m is not none %}{{ m // (1024 * 1024) }} MiB{% else %}N/A{% endif %}</td>
+        <td>{% trans %}Max memory used{% endtrans %}</td>
+        <td>{% if m is not none %}{% trans memory=m // (1024 * 1024) %}{{ memory }} MiB{% endtrans %}{% else %}{% trans %}N/A{% endtrans %}{% endif %}</td>
       </tr>
       {% endif %}
       <tr>
-        <td>Reevaluate</td>
+        <td>{% trans %}Reevaluate{% endtrans %}</td>
         <td>
           {{ macro_reevaluation_buttons.reevaluation_buttons(
                  admin.permission_all,
@@ -213,7 +213,7 @@
 
 </div>
 
-<h2 id="title_comment" class="toggling_on">Comment</h2>
+<h2 id="title_comment" class="toggling_on">{% trans %}Comment{% endtrans %}</h2>
 
 <div id="comment">
   <form enctype="multipart/form-data" action="{{ url("submission", s.id, shown_dataset.id, "comment") }}" method="POST">
@@ -223,14 +223,14 @@
 {% if not admin.permission_all %}
        disabled
 {% endif %}
-       type="submit"/>
-    <input type="reset" value="Reset" />
+       type="submit" value="{{ _("Submit") }}"/>
+    <input type="reset" value="{{ _("Reset") }}" />
   </form>
 </div>
 
   {% if sr is not none and sr.scored() %}
 
-<h2 id="title_evaluation_user" class="toggling_on">Evaluation (as seen by the user)</h2>
+<h2 id="title_evaluation_user" class="toggling_on">{% trans %}Evaluation (as seen by the user){% endtrans %}</h2>
 <div id="evaluation_user">
 
   <div class="score_details" id="evaluation_{{ s.id }}">
@@ -241,7 +241,7 @@
         {{ st.get_html_details(sr.public_score_details, s.task.feedback_level)|safe }}
       {% endif %}
     {% else %}
-      [Cannot get score type - see logs]
+      {% trans %}[Cannot get score type - see logs]{% endtrans %}
     {% endif %}
   </div>
 </div>
@@ -250,21 +250,21 @@
 
   {% if sr is not none and sr.evaluated() %}
 
-<h2 id="title_evaluation_admin" class="toggling_on">Evaluation (as seen by the admin)</h2>
+<h2 id="title_evaluation_admin" class="toggling_on">{% trans %}Evaluation (as seen by the admin){% endtrans %}</h2>
 <div id="evaluation_admin">
 
   <table class="bordered">
     <thead>
       <tr>
         <th>#</th>
-        <th>Codename</th>
-        <th>Outcome</th>
-        <th>Visible</th>
-        <th>Details</th>
-        <th>Admin Details</th>
-        <th>Shard</th>
-        <th>Resources</th>
-        <th>Sandbox</th>
+        <th>{% trans %}Codename{% endtrans %}</th>
+        <th>{% trans %}Outcome{% endtrans %}</th>
+        <th>{% trans %}Visible{% endtrans %}</th>
+        <th>{% trans %}Details{% endtrans %}</th>
+        <th>{% trans %}Admin Details{% endtrans %}</th>
+        <th>{% trans %}Shard{% endtrans %}</th>
+        <th>{% trans %}Resources{% endtrans %}</th>
+        <th>{% trans %}Sandbox{% endtrans %}</th>
       </tr>
     </thead>
     <tbody>
@@ -282,19 +282,19 @@
             {% if ev.admin_text is not none %}
             {{ ev.admin_text }}
             {% else %}
-            N/A
+            {% trans %}N/A{% endtrans %}
             {% endif %}
           </td>
           <td>{{ ev.evaluation_shard }}</td>
           <td>
             {% if ev.execution_time is not none %}
-            ({{ ev.execution_time }} s)
+            ({% trans time=ev.execution_time %}{{ time }} s{% endtrans %})
             {% endif %}
             {% if ev.execution_wall_clock_time is not none %}
-            ({{ ev.execution_wall_clock_time }} s)
+            ({% trans time=ev.execution_wall_clock_time %}{{ time }} s{% endtrans %})
             {% endif %}
             {% if ev.execution_memory is not none %}
-            ({{ ev.execution_memory // (1024 * 1024) }} MiB)
+            ({% trans memory=ev.execution_memory // (1024 * 1024) %}{{ memory }} MiB{% endtrans %})
             {% endif %}
           </td>
           <td>
@@ -324,7 +324,7 @@
             {% if not admin.permission_all %}
             disabled
             {% endif %}>
-              Rerun and archive
+              {% trans %}Rerun and archive{% endtrans %}
             </button>
           </td>
         </tr>
@@ -340,16 +340,16 @@
 
   {% if sr is not none and sr.compiled() %}
 
-<h2 id="title_compilation" class="toggling_on">Compilation</h2>
+<h2 id="title_compilation" class="toggling_on">{% trans %}Compilation{% endtrans %}</h2>
 <div id="compilation">
 
-  <h3>Outcome</h3>
+  <h3>{% trans %}Outcome{% endtrans %}</h3>
   <pre>{% if sr.compilation_text|length > 0 %}{{ sr.compilation_text|format_status_text }}{% endif %}</pre>
 
-  <h3>Standard output</h3>
+  <h3>{% trans %}Standard output{% endtrans %}</h3>
   <pre>{% if sr.compilation_stdout is not none %}{{ sr.compilation_stdout }}{% endif %}</pre>
 
-  <h3>Standard error</h3>
+  <h3>{% trans %}Standard error{% endtrans %}</h3>
   <pre>{% if sr.compilation_stderr is not none %}{{ sr.compilation_stderr }}{% endif %}</pre>
 
 </div>

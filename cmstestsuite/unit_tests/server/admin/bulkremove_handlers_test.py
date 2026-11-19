@@ -673,7 +673,7 @@ class TestBulkRemovalInTwoLanguages(unittest.TestCase):
                 "Esta operación no se puede deshacer.",
                 "Rankings que se vaciarán y se enviarán otra vez: "
                 "raíz (/), omi.",
-                "<th>Username</th>", "<th>Nombre</th>",
+                "<th>Nombre de usuario</th>", "<th>Nombre</th>",
                 "<th>Apellido</th>", "<th>Envíos</th>",
                 "<th>User tests</th>", "<th>Concursos</th>",
                 "Ignorados:", "nadie \u2014 no existe",
@@ -809,9 +809,9 @@ class TestBulkRemovalInTwoLanguages(unittest.TestCase):
         self.assertEqual(notifications(nothing),
                          [("No elegiste ningún usuario.", "")])
         self.assertEqual(notifications(bad_list), [
-            ("No se leyó la lista", "la lista no está en UTF-8")])
+            ("No se pudo leer la lista", "la lista no está en UTF-8")])
         self.assertEqual(notifications(too_big), [
-            ("No se leyó la lista", "la lista pasa de 1 MB")])
+            ("No se pudo leer la lista", "la lista pasa de 1 MB")])
 
     def test_the_confirmation_errors_in_spanish(self):
         # Scenario: A page in Spanish (the error line of the page)

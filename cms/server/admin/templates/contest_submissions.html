@@ -1,15 +1,15 @@
-{% import "macro/reevaluation_buttons.html" as macro_reevaluation_buttons %}
+{% import "macro/reevaluation_buttons.html" as macro_reevaluation_buttons with context %}
 
 {% extends "base.html" %}
-{% import 'macro/submission.html' as macro_submission %}
+{% import 'macro/submission.html' as macro_submission with context %}
 
 {% block core %}
-<h1>All Submissions</h1>
+<h1>{% trans %}All Submissions{% endtrans %}</h1>
 
 <div id="submissions">
 
   <p>
-    Reevaluate all {{ submission_count }} submissions in this contest (for all datasets)
+    {% trans count=submission_count %}Reevaluate all {{ count }} submissions in this contest (for all datasets){% endtrans %}
     {{ macro_reevaluation_buttons.reevaluation_buttons(
            admin.permission_all,
            url("contest", contest.id, "submissions"),

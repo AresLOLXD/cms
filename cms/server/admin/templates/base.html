@@ -17,9 +17,9 @@
     <script src="{{ static_url("static", "prism.js") }}" data-manual></script>
 
     {% if contest is none %}
-    <title>Admin</title>
+    <title>{% trans %}Admin{% endtrans %}</title>
     {% else %}
-    <title>Admin: {{ contest.description }}</title>
+    <title>{% trans description=contest.description %}Admin: {{ description }}{% endtrans %}</title>
     {% endif %}
 
     <script>
@@ -67,7 +67,43 @@ $(document).ready(init);
 //-->
     </script>
   </head>
-  <body class="admin">
+  {# The texts of aws_utils.js, read by CMS.AWSUtils.t (keys are matched in
+     translated_chrome_test.py). #}
+  {% set aws_messages = {
+    "restored_draft": _("Restored your unsaved text."),
+    "file_request_failed": _("File request failed."),
+    "download": _("Download"),
+    "copy": _("copy"),
+    "private_message": _("Private message."),
+    "announcement": _("Announcement."),
+    "question_reply": _("Reply to your question."),
+    "new_question": _("New question:"),
+    "to_start_of_contest": _("To start of contest:"),
+    "to_end_of_contest": _("To end of contest:"),
+    "to_start_of_analysis": _("To start of analysis:"),
+    "to_end_of_analysis": _("To end of analysis:"),
+    "unable_to_invalidate": _("Unable to invalidate (%(reason)s)."),
+    "not_available": _("N/A"),
+    "worker_disabled": _("Worker disabled"),
+    "compiling_submission": _("Compiling the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "evaluating_submission": _("Evaluating the <a href=\"%(result_url)s\">result</a> of <a href=\"%(submission_url)s\">submission %(object_id)s</a> on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "compiling_user_test": _("Compiling the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "evaluating_user_test": _("Evaluating the result of user_test %(object_id)s on <a href=\"%(dataset_url)s\">dataset %(dataset_id)s</a>"),
+    "in_queue": _("[%(count)s time(s) in queue]"),
+    "testcase": _("[testcase: `%(codename)s']"),
+    "second(s)": _("second(s)"),
+    "minute(s)": _("minute(s)"),
+    "hour(s)": _("hour(s)"),
+    "unexpected_reply": _("Unexpected reply `%(status)s'. This should not happen."),
+    "service_not_connected": _("Service not connected."),
+    "not_authorized": _("You are not authorized to call this method."),
+    "service_call_failed": _("Call to service failed."),
+    "pages": _("Pages:"),
+    "hide_reply": _("Hide reply"),
+    "reply": _("Reply"),
+    "error": _("Error: %(error)s"),
+  } %}
+  <body class="admin" data-messages="{{ aws_messages|tojson|forceescape }}">
     <div id="global">
       <div id="sidebar">
         <div id="clock"></div>
@@ -75,40 +111,40 @@ $(document).ready(init);
         <div id="sidebar_header">
           {% include "fragments/theme_switch.html" %}
           {% include "fragments/lang_switch.html" %}
-          <h1 class="parent">Administration</h1>
+          <h1 class="parent">{% trans %}Administration{% endtrans %}</h1>
         </div>
 {% else %}
         <div id="sidebar_header">
           <div class="login_notice">
-            Hello, <a href="{{ url("admins") }}">{{ admin.name }}</a>.
-              <form class="inline" action="{{ url("logout") }}" method="POST">{{ xsrf_form_html|safe }}<input type="submit" value="Logout"></form>
+            {% trans admins_url=url("admins"), name=admin.name %}Hello, <a href="{{ admins_url }}">{{ name }}</a>.{% endtrans %}
+              <form class="inline" action="{{ url("logout") }}" method="POST">{{ xsrf_form_html|safe }}<input type="submit" value="{{ _("Logout") }}"></form>
           </div>
           {% include "fragments/theme_switch.html" %}
           {% include "fragments/lang_switch.html" %}
           {% if contest is none %}
-          <h1 class="parent">Administration</h1>
+          <h1 class="parent">{% trans %}Administration{% endtrans %}</h1>
           {% else %}
-          <h1 class="parent"><a href="{{ url() }}">Administration</a></h1>
+          <h1 class="parent"><a href="{{ url() }}">{% trans %}Administration{% endtrans %}</a></h1>
           <h1 class="child">{{ contest.name }}</h1>
           {% endif %}
         </div>
         {% if config.web_server.secret_key == config.web_server.DEFAULT_SECRET_KEY %}
         <div class="secret_notice">
-          Change secret_key in cms.toml!<br/>
-          For example,<br/>
+          {% trans %}Change secret_key in cms.toml!{% endtrans %}<br/>
+          {% trans %}For example,{% endtrans %}<br/>
           {{ get_hex_random_key() }}
         </div>
         {% endif %}
         <ul class="menu">
         {% if contest is none %}
-          <li class="menu_entry"><a class="menu_link" href="{{ url() }}">Overview</a></li>
-          <li class="menu_entry"><a class="menu_link" href="{{ url("resourceslist") }}">Resource usage</a></li>
+          <li class="menu_entry"><a class="menu_link" href="{{ url() }}">{% trans %}Overview{% endtrans %}</a></li>
+          <li class="menu_entry"><a class="menu_link" href="{{ url("resourceslist") }}">{% trans %}Resource usage{% endtrans %}</a></li>
 {% if admin.permission_all %}
-          <li class="menu_entry"><a class="menu_link" href="{{ url("export") }}">Export</a></li>
+          <li class="menu_entry"><a class="menu_link" href="{{ url("export") }}">{% trans %}Export{% endtrans %}</a></li>
 {% endif %}
         {% else %}
-          <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "overview") }}">Overview</a></li>
-          <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "resourceslist") }}">Resource usage</a></li>
+          <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "overview") }}">{% trans %}Overview{% endtrans %}</a></li>
+          <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "resourceslist") }}">{% trans %}Resource usage{% endtrans %}</a></li>
         {% endif %}
         </ul>
         <div class="hr"></div>
@@ -116,11 +152,11 @@ $(document).ready(init);
         {% if contest_list is undefined %}
         {# An error page, built without the database: no lists to show. #}
         {% elif contest is none %}
-        <h1><a class="menu_link" href="{{ url("contests") }}">Contests</a></h1>
+        <h1><a class="menu_link" href="{{ url("contests") }}">{% trans %}Contests{% endtrans %}</a></h1>
         <ul class="menu">
           {% if contest_list|length < 1 %}
           <li class="menu_entry">
-            (no contests available)
+            {% trans %}(no contests available){% endtrans %}
           </li>
           {% endif %}
 
@@ -135,7 +171,7 @@ $(document).ready(init);
           {% if contest_list|length > 5 %}
           <li>
             <a class="menu_link" href="{{ url("contests") }}">
-              (show more...)
+              {% trans %}(show more...){% endtrans %}
             </a>
           </li>
           {% endif %}
@@ -143,17 +179,17 @@ $(document).ready(init);
 {% if admin.permission_all %}
           <li class="menu_entry">
             <a class="menu_link" href="{{ url("contests", "add") }}">
-              (create new contest...)
+              {% trans %}(create new contest...){% endtrans %}
             </a>
           </li>
 {% endif %}
         </ul>
 
-        <h1><a class="menu_link" href="{{ url("tasks") }}">Tasks</a></h1>
+        <h1><a class="menu_link" href="{{ url("tasks") }}">{% trans %}Tasks{% endtrans %}</a></h1>
         <ul class="menu">
           {% if task_list|length < 1 %}
           <li class="menu_entry">
-            (no tasks available)
+            {% trans %}(no tasks available){% endtrans %}
           </li>
           {% endif %}
 
@@ -168,7 +204,7 @@ $(document).ready(init);
           {% if task_list|length > 5 %}
           <li>
             <a class="menu_link" href="{{ url("tasks") }}">
-              (show more...)
+              {% trans %}(show more...){% endtrans %}
             </a>
           </li>
           {% endif %}
@@ -176,26 +212,22 @@ $(document).ready(init);
 {% if admin.permission_all %}
           <li class="menu_entry">
             <a class="menu_link" href="{{ url("tasks", "add") }}">
-              (create new task...)
+              {% trans %}(create new task...){% endtrans %}
             </a>
           </li>
 {% endif %}
         </ul>
 
-        <h1><a class="menu_link" href="{{ url("users") }}">Users</a></h1>
+        <h1><a class="menu_link" href="{{ url("users") }}">{% trans %}Users{% endtrans %}</a></h1>
         <ul class="menu">
           {% if user_list|length == 0 %}
             <li class="menu_entry">
-              (no user available)
+              {% trans %}(no user available){% endtrans %}
             </li>
           {% else %}
             <li>
               <a class="menu_link" href="{{ url("users") }}">
-                {% if user_list|length == 1 %}
-                  (show the only user...)
-                {% else %}
-                  (show the {{ user_list|length }} users...)
-                {% endif %}
+                {% trans count=user_list|length %}(show the only user...){% pluralize %}(show the {{ count }} users...){% endtrans %}
               </a>
             </li>
           {% endif %}
@@ -203,26 +235,22 @@ $(document).ready(init);
 {% if admin.permission_all %}
           <li class="menu_entry">
             <a class="menu_link" href="{{ url("users", "add") }}">
-              (create new user...)
+              {% trans %}(create new user...){% endtrans %}
             </a>
           </li>
 {% endif %}
         </ul>
 
-        <h1><a class="menu_link" href="{{ url("teams") }}">Teams</a></h1>
+        <h1><a class="menu_link" href="{{ url("teams") }}">{% trans %}Teams{% endtrans %}</a></h1>
         <ul class="menu">
           {% if team_list|length == 0 %}
             <li class="menu_entry">
-              (no team available)
+              {% trans %}(no team available){% endtrans %}
             </li>
           {% else %}
             <li>
               <a class="menu_link" href="{{ url("teams") }}">
-                {% if team_list|length == 1 %}
-                  (show the only team...)
-                {% else %}
-                  (show the {{ team_list|length }} teams...)
-                {% endif %}
+                {% trans count=team_list|length %}(show the only team...){% pluralize %}(show the {{ count }} teams...){% endtrans %}
               </a>
             </li>
           {% endif %}
@@ -230,44 +258,45 @@ $(document).ready(init);
 {% if admin.permission_all %}
           <li class="menu_entry">
             <a class="menu_link" href="{{ url("teams", "add") }}">
-              (create new team...)
+              {% trans %}(create new team...){% endtrans %}
             </a>
           </li>
 {% endif %}
         </ul>
 
-        <h1><a class="menu_link" href="{{ url("ranking_groups") }}">Ranking groups</a></h1>
+        <h1><a class="menu_link" href="{{ url("ranking_groups") }}">{% trans %}Ranking groups{% endtrans %}</a></h1>
         <ul class="menu">
           <li>
             <a class="menu_link" href="{{ url("ranking_groups") }}">
-              (show the {{ ranking_group_list|length }} ranking groups...)
+              {# English does not inflect here: both forms are the same text. #}
+              {% trans count=ranking_group_list|length %}(show the {{ count }} ranking groups...){% pluralize %}(show the {{ count }} ranking groups...){% endtrans %}
             </a>
           </li>
 {% if admin.permission_all %}
           <li class="menu_entry">
             <a class="menu_link" href="{{ url("ranking_groups", "add") }}">
-              (create new ranking group...)
+              {% trans %}(create new ranking group...){% endtrans %}
             </a>
           </li>
 {% endif %}
         </ul>
         {% else %}
           <ul class="menu">
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id) }}">General</a></li>
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "ranking") }}">Ranking</a></li>
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "activity") }}">Activity</a></li>
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "submissions") }}">Submissions</a></li>
-            {% if contest.allow_user_tests %}<li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "user_tests") }}">User tests</a></li>{% endif %}
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "users") }}">Users</a></li>
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "groups") }}">Groups</a></li>
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "tasks") }}">Tasks</a></li>
-            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "announcements") }}">Announcements</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id) }}">{% trans %}General{% endtrans %}</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "ranking") }}">{% trans %}Ranking{% endtrans %}</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "activity") }}">{% trans %}Activity{% endtrans %}</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "submissions") }}">{% trans %}Submissions{% endtrans %}</a></li>
+            {% if contest.allow_user_tests %}<li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "user_tests") }}">{% trans %}User tests{% endtrans %}</a></li>{% endif %}
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "users") }}">{% trans %}Users{% endtrans %}</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "groups") }}">{% trans %}Groups{% endtrans %}</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "tasks") }}">{% trans %}Tasks{% endtrans %}</a></li>
+            <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "announcements") }}">{% trans %}Announcements{% endtrans %}</a></li>
             <li class="menu_entry">
               <span id="unanswered_questions" class="unread"
                 {% if unanswered == 0 %} style="display: none;" {% endif %}>
                 {{ unanswered }}
               </span>
-              <a class="menu_link" href="{{ url("contest", contest.id, "questions") }}">Questions</a>
+              <a class="menu_link" href="{{ url("contest", contest.id, "questions") }}">{% trans %}Questions{% endtrans %}</a>
             </li>
           </ul>
           <div class="hr"></div>
@@ -277,7 +306,7 @@ $(document).ready(init);
           </div>
         {% endif %}
 {% endif %}
-        <div class="cr_notice">CMS <a href="http://github.com/cms-dev/cms/">codebase</a> is released under the<br/><a href="http://www.gnu.org/licenses/agpl.txt">GNU Affero General Public License</a>.</div>
+        <div class="cr_notice">{% trans %}CMS <a href="http://github.com/cms-dev/cms/">codebase</a> is released under the<br/><a href="http://www.gnu.org/licenses/agpl.txt">GNU Affero General Public License</a>.{% endtrans %}</div>
       </div>
 
       <div id="border"></div>
@@ -289,7 +318,7 @@ $(document).ready(init);
         </dialog>
         {% block archive_banner %}
         {% if archived_group is defined and archived_group %}
-        <p class="archive_banner"><strong>The ranking group <a href="{{ url("ranking_group", archived_group.id) }}">{{ archived_group.name }}</a> is archived: changes made here do not reach the public ranking until the group is unarchived.</strong></p>
+        <p class="archive_banner"><strong>{% trans group_url=url("ranking_group", archived_group.id), name=archived_group.name %}The ranking group <a href="{{ group_url }}">{{ name }}</a> is archived: changes made here do not reach the public ranking until the group is unarchived.{% endtrans %}</strong></p>
         {% endif %}
         {% endblock archive_banner %}
         {% block core %}{% endblock core %}

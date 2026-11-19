@@ -169,7 +169,7 @@ The Ranking Web Server also has a language switch with the options «Español» 
 
 ### AWS language
 
-The Admin Web Server (AWS) has a language selector in the sidebar and on the login page, with an automatic option and one option for each available language. With no saved choice, it follows the browser language: Spanish if the browser prefers it, English otherwise. The choice is kept in a cookie of the browser, separately for each AWS address. The pages for ranking groups, bulk deletion of users, CSV import of users and export of contests follow it; the other admin pages are still in English until a later change. Notifications, and the errors of an import or export job, are written in the language of the admin who started them, so another admin who follows the same job reads them in that language.
+The Admin Web Server (AWS) has a language selector in the sidebar and on the login page, with an automatic option and one option for each available language. With no saved choice, it follows the browser language: Spanish if the browser prefers it, English otherwise. The choice is kept in a cookie of the browser, separately for each AWS address. Every admin page follows it, including the Overview and Resources pages. Names that come from the data (contests, tasks, users, teams), the names of task types, score types and programming languages and their parameters, and the values that a page posts to the server stay as they are. Notifications, and the errors of an import or export job, are written in the language of the admin who started them, so another admin who follows the same job reads them in that language.
 
 ## During the contest
 

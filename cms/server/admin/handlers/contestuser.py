@@ -146,12 +146,13 @@ class AddContestUserHandler(BaseHandler):
 
         try:
             user_id: str = self.get_argument("user_id")
-            assert user_id != "null", "Please select a valid user"
+            assert user_id != "null", self._("Please select a valid user")
             group_id: str = self.get_argument("group_id")
-            assert group_id != "null", "Please select a valid group"
+            assert group_id != "null", \
+                self._("Please select a valid group")
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -259,14 +260,16 @@ class ParticipationHandler(BaseHandler):
                     select(Team).filter(Team.code == team_code)
                 ).scalars().first()
                 if team is None:
-                    raise ValueError(f"Team with code '{team_code}' does not exist")
+                    raise ValueError(
+                        self._("Team with code '%s' does not exist")
+                        % team_code)
                 participation.team = team
             else:  # If no team code is provided, set to None
                 participation.team = None
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 

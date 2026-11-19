@@ -66,6 +66,7 @@ from cms.db.connect_options import describe_error, is_disconnect, \
 from cms.grading.scoretypes import get_score_type_class
 from cms.grading.tasktypes import get_task_type_class
 from cms.locale import DEFAULT_TRANSLATION, choose_language_code
+from cms.locale.locale import N_
 from cms.server import CommonRequestHandler, FileHandlerMixin
 from cmscommon.crypto import hash_password, parse_authentication
 from cmscommon.datetime import make_datetime, make_timestamp
@@ -108,10 +109,14 @@ def _get_request_slots() -> asyncio.Semaphore:
     return _request_slots
 
 
-def argument_reader(func: Callable[[str], typing.Any], empty: object = None):
+def argument_reader(
+    func: Callable[[str, Callable[[str], str]], typing.Any],
+    empty: object = None,
+):
     """Return an helper method for reading and parsing form values.
 
-    func: the parser and validator for the value.
+    func: the parser and validator for the value; it gets the value and
+        the gettext of the handler, for the messages it raises.
     empty: the value to store if an empty string is retrieved.
 
     return: a function to be used as a method of a
@@ -136,52 +141,67 @@ def argument_reader(func: Callable[[str], typing.Any], empty: object = None):
         if len(value) == 0:
             dest[name] = empty
         else:
-            dest[name] = func(value)
+            dest[name] = func(value, self._)
 
     return helper
 
 
-def parse_string_list(value: str) -> list[str]:
-    """Parse a comma-separated list of strings."""
+def parse_string_list(
+    value: str, gettext: Callable[[str], str] = N_
+) -> list[str]:
+    """Parse a comma-separated list of strings.
+
+    The parse_* functions take the gettext used for the messages that
+    they raise; without it the messages stay in English.
+
+    """
     return list(x.strip() for x in value.split(",") if x.strip())
 
 
-def parse_int(value: str) -> int:
+def parse_int(
+    value: str, gettext: Callable[[str], str] = N_
+) -> int:
     """Parse and validate an integer."""
     try:
         return int(value)
     except:
-        raise ValueError("Can't cast %s to int." % value)
+        raise ValueError(gettext("Can't cast %s to int.") % value)
 
 
-def parse_timedelta_sec(value: str) -> timedelta:
+def parse_timedelta_sec(
+    value: str, gettext: Callable[[str], str] = N_
+) -> timedelta:
     """Parse and validate a timedelta (as number of seconds)."""
     try:
         return timedelta(seconds=float(value))
     except:
-        raise ValueError("Can't cast %s to timedelta." % value)
+        raise ValueError(gettext("Can't cast %s to timedelta.") % value)
 
 
-def parse_timedelta_min(value: str) -> timedelta:
+def parse_timedelta_min(
+    value: str, gettext: Callable[[str], str] = N_
+) -> timedelta:
     """Parse and validate a timedelta (as number of minutes)."""
     try:
         return timedelta(minutes=float(value))
     except:
-        raise ValueError("Can't cast %s to timedelta." % value)
+        raise ValueError(gettext("Can't cast %s to timedelta.") % value)
 
 
-def parse_datetime(value: str) -> datetime:
+def parse_datetime(
+    value: str, gettext: Callable[[str], str] = N_
+) -> datetime:
     """Parse and validate a datetime (in pseudo-ISO8601)."""
     if '.' not in value:
         value += ".0"
     try:
         return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
     except:
-        raise ValueError("Can't cast %s to datetime." % value)
+        raise ValueError(gettext("Can't cast %s to datetime.") % value)
 
 
 def parse_ip_networks(
-    networks: str,
+    networks: str, gettext: Callable[[str], str] = N_
 ) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     """Parse and validate a comma-separated list of IP networks.
 
@@ -200,7 +220,8 @@ def parse_ip_networks(
         try:
             result.append(ipaddress.ip_network(network))
         except ValueError:
-            raise ValueError("Can't cast %s to an IP network." % network)
+            raise ValueError(
+                gettext("Can't cast %s to an IP network.") % network)
     return result
 
 
@@ -409,7 +430,7 @@ class BaseHandler(CommonRequestHandler):
                 logger.error("Commit of %s %s failed: %s",
                              self.request.method, self.request.path,
                              describe_error(error))
-                text = "The database did not answer, try again."
+                text = self._("The database did not answer, try again.")
             else:
                 # Anything else is a bug: keep the 500.
                 raise
@@ -419,12 +440,12 @@ class BaseHandler(CommonRequestHandler):
             except Exception as rollback_error:
                 log_rollback_error(rollback_error, True)
             self.service.add_notification(
-                make_datetime(), "Operation failed.", text)
+                make_datetime(), self._("Operation failed."), text)
             return False
         else:
             self.service.add_notification(
                 make_datetime(),
-                "Operation successful.", "")
+                self._("Operation successful."), "")
             return True
 
     def get_current_user(self) -> Admin | None:
@@ -693,7 +714,7 @@ class BaseHandler(CommonRequestHandler):
             return
         self.render("error.html", status_code=status_code, **self.r_params)
 
-    get_string = argument_reader(lambda a: a, empty="")
+    get_string = argument_reader(lambda a, _: a, empty="")
 
     get_string_list = argument_reader(parse_string_list, empty=[])
 
@@ -710,7 +731,7 @@ class BaseHandler(CommonRequestHandler):
         try:
             dest[name] = bool(value)
         except:
-            raise ValueError("Can't cast %s to bool." % value)
+            raise ValueError(self._("Can't cast %s to bool.") % value)
 
     get_int = argument_reader(parse_int)
 
@@ -742,7 +763,7 @@ class BaseHandler(CommonRequestHandler):
             else:
                 format_ = list(e.strip() for e in value.split(","))
         else:
-            raise ValueError("Submission format not recognized.")
+            raise ValueError(self._("Submission format not recognized."))
         dest["submission_format"] = format_
 
     def get_time_limit(self, dest: dict, field: str):
@@ -764,9 +785,9 @@ class BaseHandler(CommonRequestHandler):
             try:
                 value = float(value)
             except:
-                raise ValueError("Can't cast %s to float." % value)
+                raise ValueError(self._("Can't cast %s to float.") % value)
             if not 0 <= value < float("+inf"):
-                raise ValueError("Time limit out of range.")
+                raise ValueError(self._("Time limit out of range."))
             dest["time_limit"] = value
 
     def get_memory_limit(self, dest: dict, field: str):
@@ -788,9 +809,9 @@ class BaseHandler(CommonRequestHandler):
             try:
                 value = int(value)
             except:
-                raise ValueError("Can't cast %s to int." % value)
+                raise ValueError(self._("Can't cast %s to int.") % value)
             if not 0 < value:
-                raise ValueError("Invalid memory limit.")
+                raise ValueError(self._("Invalid memory limit."))
             # AWS displays the value as MiB, but it is stored as bytes.
             dest["memory_limit"] = value * 1024 * 1024
 
@@ -810,11 +831,11 @@ class BaseHandler(CommonRequestHandler):
         """
         name = self.get_argument(name, None)
         if name is None:
-            raise ValueError("Task type not found.")
+            raise ValueError(self._("Task type not found."))
         try:
             class_ = get_task_type_class(name)
         except KeyError:
-            raise ValueError("Task type not recognized: %s." % name)
+            raise ValueError(self._("Task type not recognized: %s.") % name)
         params = class_.parse_handler(self, params + name + "_")
         dest["task_type"] = name
         dest["task_type_parameters"] = params
@@ -833,18 +854,18 @@ class BaseHandler(CommonRequestHandler):
         """
         name = self.get_argument(name, None)
         if name is None:
-            raise ValueError("Score type not found.")
+            raise ValueError(self._("Score type not found."))
         try:
             get_score_type_class(name)
         except KeyError:
-            raise ValueError("Score type not recognized: %s." % name)
+            raise ValueError(self._("Score type not recognized: %s.") % name)
         params = self.get_argument(params, None)
         if params is None:
-            raise ValueError("Score type parameters not found.")
+            raise ValueError(self._("Score type parameters not found."))
         try:
             params = json.loads(params)
         except ValueError:
-            raise ValueError("Score type parameters are invalid JSON.")
+            raise ValueError(self._("Score type parameters are invalid JSON."))
         dest["score_type"] = name
         dest["score_type_parameters"] = params
 
@@ -993,9 +1014,11 @@ class BaseHandler(CommonRequestHandler):
     def get_group_settings(self, g: Group):
         attrs = dict()
         self.get_datetime(attrs, "start")
-        assert attrs.get("start") is not None, "No main group start time specified."
+        assert attrs.get("start") is not None, \
+            self._("No main group start time specified.")
         self.get_datetime(attrs, "stop")
-        assert attrs.get("stop") is not None, "No main group stop time specified."
+        assert attrs.get("stop") is not None, \
+            self._("No main group stop time specified.")
         self.get_timedelta_sec(attrs, "per_user_time")
 
         self.get_bool(attrs, "analysis_enabled")

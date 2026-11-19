@@ -2,27 +2,27 @@
 
 {% block core %}
 <div class="core_title">
-  <h1>Remove ranking group</h1>
+  <h1>{% trans %}Remove ranking group{% endtrans %}</h1>
 </div>
 
 {% if admin.permission_all %}
 <p>
-  Are you sure you want to remove ranking group {{ ranking_group.name }} ({{ ranking_group.description }})?
+  {% trans name=ranking_group.name, description=ranking_group.description %}Are you sure you want to remove ranking group {{ name }} ({{ description }})?{% endtrans %}
   <br>
   {% if contest_count > 0 %}
-  {{ contest_count }} contest(s) will no longer be sent to any ranking. The contests themselves are not removed.
+  {% trans count=contest_count %}{{ count }} contest(s) will no longer be sent to any ranking. The contests themselves are not removed.{% endtrans %}
   {% else %}
-  No contest is sent to this ranking.
+  {% trans %}No contest is sent to this ranking.{% endtrans %}
   {% endif %}
   <br>
-  Its scoreboard will be emptied. This operation cannot be undone.
+  {% trans %}Its scoreboard will be emptied.{% endtrans %} {% trans %}This operation cannot be undone.{% endtrans %}
 </p>
 <br>
-<a onclick="CMS.AWSUtils.ajax_delete('{{ url("ranking_groups", ranking_group.id, "remove") }}');" class="button-link">Yes, remove</a>
-<a href="{{ url("ranking_groups") }}" class="button-link">No</a>
+<a onclick="CMS.AWSUtils.ajax_delete('{{ url("ranking_groups", ranking_group.id, "remove") }}');" class="button-link">{% trans %}Yes, remove{% endtrans %}</a>
+<a href="{{ url("ranking_groups") }}" class="button-link">{% trans %}No{% endtrans %}</a>
 
 {% else %}
-You do not have permission to remove a ranking group.
+{% trans %}You do not have permission to remove a ranking group.{% endtrans %}
 {% endif %}
 
 {% endblock core %}

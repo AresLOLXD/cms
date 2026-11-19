@@ -2,7 +2,7 @@
 
 {% block core %}
 <div class="core_title">
-  <h1>Contest configuration</h1>
+  <h1>{% trans %}Contest configuration{% endtrans %}</h1>
 </div>
 
 {% include "fragments/overload_warning.html" %}
@@ -11,25 +11,25 @@
 <form enctype="multipart/form-data" action="{{ url("contest", contest.id) }}" method="POST" name="edit_contest" style="display:inline;">
   {{ xsrf_form_html|safe }}
   <table class="sub_table">
-    <tr><td colspan=2><h2>Contest information</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans %}Contest information{% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="A short name for the contest, preferably using only letters, numbers and underscores."></span>
-        Name
+        <span class="info" title="{{ _("A short name for the contest, preferably using only letters, numbers and underscores.") }}"></span>
+        {% trans %}Name{% endtrans %}
       </td>
       <td><input type="text" name="name" value="{{ contest.name }}"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The name of the contest as seen by the contestants."></span>
-        Description
+        <span class="info" title="{{ _("The name of the contest as seen by the contestants.") }}"></span>
+        {% trans %}Description{% endtrans %}
       </td>
       <td><textarea name="description">{{ contest.description }}</textarea></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="When CWS serves all contests (CMS_CONTEST_ID=ALL), only active contests are listed and can be entered. Ignored when CWS serves a single contest."></span>
-        <label for="active">Active</label>
+        <span class="info" title="{{ _("When CWS serves all contests (CMS_CONTEST_ID=ALL), only active contests are listed and can be entered. Ignored when CWS serves a single contest.") }}"></span>
+        <label for="active">{% trans %}Active{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="active" name="active" {{ "checked" if contest.active else "" }}/>
@@ -37,12 +37,12 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="The public scoreboard (RWS /<group>/) this contest is sent to. Contests of the same group are ranked together. Deactivating a contest does not remove it from its ranking; choose 'none' for that."></span>
-        Ranking group
+        <span class="info" title="{{ _("The public scoreboard (RWS /<group>/) this contest is sent to. Contests of the same group are ranked together. Deactivating a contest does not remove it from its ranking; choose 'none' for that.") }}"></span>
+        {% trans %}Ranking group{% endtrans %}
       </td>
       <td>
         <select name="ranking_group_id">
-          <option value="" {{ "selected" if contest.ranking_group_id is none else "" }}>(none)</option>
+          <option value="" {{ "selected" if contest.ranking_group_id is none else "" }}>{% trans %}(none){% endtrans %}</option>
           {% for g in ranking_group_list %}
           <option value="{{ g.id }}" {{ "selected" if contest.ranking_group_id == g.id else "" }}>{{ g.name }} — {{ g.description }}</option>
           {% endfor %}
@@ -51,17 +51,17 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="The list of languages that contestants can use, or empty for allowing any language.
-                                  Example: 'en,ja' (without quotes)."></span>
-        Allowed localizations
+        <span class="info" title="{{ _("The list of languages that contestants can use, or empty for allowing any language.") }}
+                                  {{ _("Example: 'en,ja' (without quotes).") }}"></span>
+        {% trans %}Allowed localizations{% endtrans %}
       </td>
       <td><input type="text" name="allowed_localizations" value="{{ contest.allowed_localizations|join(",") }}"/></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="Programming languages that contestants can use to solve the tasks.
-                                  All the allowed languages must have task support, for example in managed tasks."></span>
-        Allowed programming languages
+        <span class="info" title="{{ _("Programming languages that contestants can use to solve the tasks.") }}
+                                  {{ _("All the allowed languages must have task support, for example in managed tasks.") }}"></span>
+        {% trans %}Allowed programming languages{% endtrans %}
       </td>
       <td class="wrapping-options">
         {% for lang in LANGUAGES %}
@@ -71,8 +71,8 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="Whether contestants can download their own submissions."></span>
-        <label for="submissions_download_allowed">Submissions download allowed</label>
+        <span class="info" title="{{ _("Whether contestants can download their own submissions.") }}"></span>
+        <label for="submissions_download_allowed">{% trans %}Submissions download allowed{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="submissions_download_allowed" name="submissions_download_allowed" {{ "checked" if contest.submissions_download_allowed else "" }}/>
@@ -80,8 +80,8 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="Whether contestants can submit questions."></span>
-        <label for="allow_questions">Allow questions</label>
+        <span class="info" title="{{ _("Whether contestants can submit questions.") }}"></span>
+        <label for="allow_questions">{% trans %}Allow questions{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="allow_questions" name="allow_questions" {{ "checked" if contest.allow_questions else "" }}/>
@@ -89,8 +89,8 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="Whether contestants can submit user tests."></span>
-        <label for="allow_user_tests">Allow user tests</label>
+        <span class="info" title="{{ _("Whether contestants can submit user tests.") }}"></span>
+        <label for="allow_user_tests">{% trans %}Allow user tests{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="allow_user_tests" name="allow_user_tests" {{ "checked" if contest.allow_user_tests else "" }}/>
@@ -98,16 +98,16 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="The number of decimal places the scores will be rounded to.
-                                  Example: '2' to allow 98.76."></span>
-        Score decimal places
+        <span class="info" title="{{ _("The number of decimal places the scores will be rounded to.") }}
+                                  {{ _("Example: '2' to allow 98.76.") }}"></span>
+        {% trans %}Score decimal places{% endtrans %}
       </td>
       <td><input type="text" name="score_precision" value="{{ contest.score_precision }}"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="Allow contestant to make unofficial submission before analysis mode"></span>
-        Allow unofficial submission before analysis mode
+        <span class="info" title="{{ _("Allow contestant to make unofficial submission before analysis mode") }}"></span>
+        {% trans %}Allow unofficial submission before analysis mode{% endtrans %}
       </td>
       <td>
         <input type="checkbox" id="allow_unofficial_submission_before_analysis_mode" name="allow_unofficial_submission_before_analysis_mode" {{ "checked" if contest.allow_unofficial_submission_before_analysis_mode else "" }}/>
@@ -115,18 +115,18 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="Timezone in which contestants see the start and end times and the current time. If empty, the timezone of the server is used.
-                                  Example: 'Europe/Rome', 'America/New_York', ..."></span>
-        Timezone
+        <span class="info" title="{{ _("Timezone in which contestants see the start and end times and the current time. If empty, the timezone of the server is used.") }}
+                                  {{ _("Example: 'Europe/Rome', 'America/New_York', ...") }}"></span>
+        {% trans %}Timezone{% endtrans %}
       </td>
       <td><input type="text" name="timezone" value="{{ contest.timezone if contest.timezone is not none else "" }}"></td>
     </tr>
 
-    <tr><td colspan=2><h2>Logging in</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans %}Logging in{% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="If checked, contestants that are marked as hidden in this contest will not be able to log in."></span>
-        <label for="block_hidden_participations">Block hidden participations</label>
+        <span class="info" title="{{ _("If checked, contestants that are marked as hidden in this contest will not be able to log in.") }}"></span>
+        <label for="block_hidden_participations">{% trans %}Block hidden participations{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="block_hidden_participations" name="block_hidden_participations" {{ "checked" if contest.block_hidden_participations else "" }}/>
@@ -134,8 +134,8 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="If checked, contestants will be able to log in using username and password."></span>
-        <label for="allow_password_authentication">Allow password authentication</label>
+        <span class="info" title="{{ _("If checked, contestants will be able to log in using username and password.") }}"></span>
+        <label for="allow_password_authentication">{% trans %}Allow password authentication{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="allow_password_authentication" name="allow_password_authentication" {{ "checked" if contest.allow_password_authentication else "" }}/>
@@ -143,8 +143,8 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="If checked, contestants will be able to autonomously create a user account and a participation in the contest."></span>
-        <label for="allow_registration">Allow registration</label>
+        <span class="info" title="{{ _("If checked, contestants will be able to autonomously create a user account and a participation in the contest.") }}"></span>
+        <label for="allow_registration">{% trans %}Allow registration{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="allow_registration" name="allow_registration" {{ "checked" if contest.allow_registration else "" }}/>
@@ -152,8 +152,8 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="If true, contestants with an IP address specified for this contest will only be able to log in from that address."></span>
-        <label for="ip_restriction">IP based login restriction</label>
+        <span class="info" title="{{ _("If true, contestants with an IP address specified for this contest will only be able to log in from that address.") }}"></span>
+        <label for="ip_restriction">{% trans %}IP based login restriction{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="ip_restriction" name="ip_restriction" {{ "checked" if contest.ip_restriction else "" }}/>
@@ -161,83 +161,83 @@
     </tr>
     <tr>
       <td>
-        <span class="info" title="If true, contestants with an IP address specified for this contest will be automatically logged in when connecting from that address."></span>
-        <label for="ip_autologin">IP based autologin</label>
+        <span class="info" title="{{ _("If true, contestants with an IP address specified for this contest will be automatically logged in when connecting from that address.") }}"></span>
+        <label for="ip_autologin">{% trans %}IP based autologin{% endtrans %}</label>
       </td>
       <td>
         <input type="checkbox" id="ip_autologin" name="ip_autologin" {{ "checked" if contest.ip_autologin else "" }}/>
       </td>
     </tr>
 
-    <tr><td colspan=2><h2>Tokens parameters (<a href="http://cms.readthedocs.org/en/{{ rtd_version }}/Configuring%20a%20contest.html#feedback-to-contestants" target="_blank">documentation</a>)</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans link="http://cms.readthedocs.org/en/" ~ rtd_version ~ "/Configuring%20a%20contest.html#feedback-to-contestants" %}Tokens parameters (<a href="{{ link }}" target="_blank">documentation</a>){% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="Select 'disabled' to remove tokens completely, 'infinite' for allowing any number of tokens, or 'finite' to specify the amount with the following parameters.
-                                  If you prefer to control tokens at the task level, select 'infinite' here."></span>
-        Token mode
+        <span class="info" title="{{ _("Select 'disabled' to remove tokens completely, 'infinite' for allowing any number of tokens, or 'finite' to specify the amount with the following parameters.") }}
+                                  {{ _("If you prefer to control tokens at the task level, select 'infinite' here.") }}"></span>
+        {% trans %}Token mode{% endtrans %}
       </td>
       <td>
         <select name="token_mode">
-          <option value="{{ TOKEN_MODE_DISABLED }}" {{ "selected" if contest.token_mode == TOKEN_MODE_DISABLED else "" }}>Disabled</option>
-          <option value="{{ TOKEN_MODE_FINITE }}" {{ "selected" if contest.token_mode == TOKEN_MODE_FINITE else "" }}>Finite</option>
-          <option value="{{ TOKEN_MODE_INFINITE }}" {{ "selected" if contest.token_mode == TOKEN_MODE_INFINITE else "" }}>Infinite</option>
+          <option value="{{ TOKEN_MODE_DISABLED }}" {{ "selected" if contest.token_mode == TOKEN_MODE_DISABLED else "" }}>{% trans %}Disabled{% endtrans %}</option>
+          <option value="{{ TOKEN_MODE_FINITE }}" {{ "selected" if contest.token_mode == TOKEN_MODE_FINITE else "" }}>{% trans %}Finite{% endtrans %}</option>
+          <option value="{{ TOKEN_MODE_INFINITE }}" {{ "selected" if contest.token_mode == TOKEN_MODE_INFINITE else "" }}>{% trans %}Infinite{% endtrans %}</option>
         </select>
       </td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The maximum number of tokens a contestant can use in the whole contest.
-                                  It is used only if tokens are finite."></span>
-        Maximum number of tokens
+        <span class="info" title="{{ _("The maximum number of tokens a contestant can use in the whole contest.") }}
+                                  {{ _("It is used only if tokens are finite.") }}"></span>
+        {% trans %}Maximum number of tokens{% endtrans %}
       </td>
       <td><input type="text" name="token_max_number" value="{{ contest.token_max_number if contest.token_max_number is not none else "" }}" size="3"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The minimum amount of time (in seconds) that a contestant needs to wait after using a token before being able to use another.
-                                  It is used only if tokens are finite."></span>
-        Minimum interval between tokens
+        <span class="info" title="{{ _("The minimum amount of time (in seconds) that a contestant needs to wait after using a token before being able to use another.") }}
+                                  {{ _("It is used only if tokens are finite.") }}"></span>
+        {% trans %}Minimum interval between tokens{% endtrans %}
       </td>
       <td><input type="text" name="token_min_interval" value="{{ contest.token_min_interval.total_seconds()|int }}" size="3"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The number of tokens that a contestant has available when their contest time starts.
-                                  It is used only if tokens are finite."></span>
-        Initial number of tokens
+        <span class="info" title="{{ _("The number of tokens that a contestant has available when their contest time starts.") }}
+                                  {{ _("It is used only if tokens are finite.") }}"></span>
+        {% trans %}Initial number of tokens{% endtrans %}
       </td>
       <td><input type="text" name="token_gen_initial" value="{{ contest.token_gen_initial }}" size="3"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The number of tokens that are generated periodically.
-                                  It is used only if tokens are finite."></span>
-        Token generation number
+        <span class="info" title="{{ _("The number of tokens that are generated periodically.") }}
+                                  {{ _("It is used only if tokens are finite.") }}"></span>
+        {% trans %}Token generation number{% endtrans %}
       </td>
       <td><input type="text" name="token_gen_number" value="{{ contest.token_gen_number }}" size="3"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The amount of time (in minutes) between two token generation events.
-                                  It is used only if tokens are finite."></span>
-        Token generation period
+        <span class="info" title="{{ _("The amount of time (in minutes) between two token generation events.") }}
+                                  {{ _("It is used only if tokens are finite.") }}"></span>
+        {% trans %}Token generation period{% endtrans %}
       </td>
       <td><input type="text" name="token_gen_interval" value="{{ contest.token_gen_interval.total_seconds()|int // 60 }}" size="3"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="Maximum number of tokens available to a contestant at any given time during the contest.
-                                  It is used only if tokens are finite."></span>
-        Maximum accumulated tokens
+        <span class="info" title="{{ _("Maximum number of tokens available to a contestant at any given time during the contest.") }}
+                                  {{ _("It is used only if tokens are finite.") }}"></span>
+        {% trans %}Maximum accumulated tokens{% endtrans %}
       </td>
       <td><input type="text" name="token_gen_max" value="{{ contest.token_gen_max if contest.token_gen_max is not none else "" }}" size="3"></td>
     </tr>
 
-    <tr><td colspan=2><h2>Main group settings</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans %}Main group settings{% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="The group used for time calculations in the admin and ranking interface."></span>
-        Main group
+        <span class="info" title="{{ _("The group used for time calculations in the admin and ranking interface.") }}"></span>
+        {% trans %}Main group{% endtrans %}
       </td>
       <td>
         <a href='{{ url("contest", contest.id, "group", contest.main_group_id, "edit") }}'>{{ contest.main_group.name }}</a>
@@ -253,72 +253,70 @@
       <td>
         <span style="width: 8px; display: inline-block;"></span>
         <span style="max-width: 300px; display: inline-block; word-wrap: break-word;">
-          To change start and end times or analysis mode for other groups, or change the main
-          group, please use the <a href='{{ url("contest", contest.id, "groups")
-          }}'>groups</a> section.
+          {% trans link=url("contest", contest.id, "groups") %}To change start and end times or analysis mode for other groups, or change the main group, please use the <a href='{{ link }}'>groups</a> section.{% endtrans %}
         </span>
       </td>
     </tr>
 
-    <tr><td colspan=2><h2>Limits</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans %}Limits{% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="Maximum number of submissions each contestant can submit, for the whole contest.
-                                  Leave empty for no limits."></span>
-        Maximum number of submissions
+        <span class="info" title="{{ _("Maximum number of submissions each contestant can submit, for the whole contest.") }}
+                                  {{ _("Leave empty for no limits.") }}"></span>
+        {% trans %}Maximum number of submissions{% endtrans %}
       </td>
       <td><input type="text" name="max_submission_number" value="{{ contest.max_submission_number if contest.max_submission_number is not none else "" }}"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="Maximum number of user tests each contestant can submit, for the whole contest.
-                                  Leave empty for no limits."></span>
-        Maximum number of user tests
+        <span class="info" title="{{ _("Maximum number of user tests each contestant can submit, for the whole contest.") }}
+                                  {{ _("Leave empty for no limits.") }}"></span>
+        {% trans %}Maximum number of user tests{% endtrans %}
       </td>
       <td><input type="text" name="max_user_test_number" value="{{ contest.max_user_test_number if contest.max_user_test_number is not none else "" }}"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The minimum amount of time (in seconds) that a contestant needs to wait after a submission before being able to submit another.
-                                  Leave empty for no limits."></span>
-        Minimum interval between submissions
+        <span class="info" title="{{ _("The minimum amount of time (in seconds) that a contestant needs to wait after a submission before being able to submit another.") }}
+                                  {{ _("Leave empty for no limits.") }}"></span>
+        {% trans %}Minimum interval between submissions{% endtrans %}
       </td>
       <td><input type="text" name="min_submission_interval" value="{{ contest.min_submission_interval.total_seconds()|int if contest.min_submission_interval is not none else "" }}"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The amount of time (in seconds) until the end of participation in which the minimum interval between submissions is not enforced."></span>
-        Minimum submission interval grace period
+        <span class="info" title="{{ _("The amount of time (in seconds) until the end of participation in which the minimum interval between submissions is not enforced.") }}"></span>
+        {% trans %}Minimum submission interval grace period{% endtrans %}
       </td>
       <td><input type="text" name="min_submission_interval_grace_period" value="{{ contest.min_submission_interval_grace_period.total_seconds()|int if contest.min_submission_interval_grace_period is not none else "" }}"></td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="The minimum amount of time (in seconds) that a contestant needs to wait after a user test before being able to send another.
-                                  Leave empty for no limits."></span>
-        Minimum interval between user tests
+        <span class="info" title="{{ _("The minimum amount of time (in seconds) that a contestant needs to wait after a user test before being able to send another.") }}
+                                  {{ _("Leave empty for no limits.") }}"></span>
+        {% trans %}Minimum interval between user tests{% endtrans %}
       </td>
       <td><input type="text" name="min_user_test_interval" value="{{ contest.min_user_test_interval.total_seconds()|int if contest.min_user_test_interval is not none else "" }}"></td>
     </tr>
   </table>
   <input type="submit"
-         value="Update"
+         value="{{ _("Update") }}"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
          >
-  <input type="reset" value="Reset">
+  <input type="reset" value="{{ _("Reset") }}">
 </form>
 <form action="{{ url("contests") }}" method="POST" style="display:inline;">
     {{ xsrf_form_html|safe }}
     <input type="hidden" name="contest_id" value="{{ contest.id }}"/>
-    <input type="submit"
+    <button type="submit"
          name="operation"
          value="Remove" style="float: right;"
 {% if not admin.permission_all %}
          disabled
 {% endif %}
-         />
+         >{% trans %}Remove{% endtrans %}</button>
 </form>
 
 

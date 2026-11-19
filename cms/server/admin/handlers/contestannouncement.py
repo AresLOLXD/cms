@@ -57,7 +57,7 @@ class AddAnnouncementHandler(BaseHandler):
             self.try_commit()
         else:
             self.service.add_notification(
-                make_datetime(), "Subject is mandatory.", "")
+                make_datetime(), self._("Subject is mandatory."), "")
         self.redirect(self.url("contest", contest_id, "announcements"))
 
     @require_permission(BaseHandler.PERMISSION_MESSAGING)

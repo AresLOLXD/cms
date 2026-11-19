@@ -1,0 +1,218 @@
+{
+ "_comment": "Owned files of each lane of aws-language-rest (CONSOLIDATED-DESIGN section 2). A lane writes only its files, its tests, its fragment, its test and its plan; check_lane.py enforces it. cmscommon/importers.py is added to L3: the texts of its notifications come from there.",
+ "base": "feat/aws-language-rest",
+ "shared": [
+  "cms/locale/es/LC_MESSAGES/aws.po",
+  "cms/locale/aws.pot",
+  "cms/locale/es/LC_MESSAGES/aws.mo",
+  "cmstestsuite/unit_tests/locale/catalog_test.py",
+  "openspec/changes/aws-language-rest/tasks.md",
+  "cmstestsuite/unit_tests/server/admin/aws_*",
+  "cmstestsuite/unit_tests/server/admin/data/aws_english_snapshot.json",
+  "openspec/changes/aws-language-rest/tools/*",
+  "docs/*"
+ ],
+ "no_lane": [
+  "cms/server/admin/bulkimport.py",
+  "cms/server/admin/bulkremove.py",
+  "cms/server/admin/exportjobs.py",
+  "cms/server/admin/importjobs.py",
+  "cms/server/admin/rpc_authorization.py",
+  "cms/server/admin/handlers/bulkremove.py",
+  "cms/server/admin/handlers/export.py",
+  "cms/server/admin/templates/contest_users_import.html",
+  "cms/server/admin/templates/export.html"
+ ],
+ "lanes": {
+  "L0": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_chrome_test.py",
+   "fragment": "cms/locale/_fragments/aws-L0.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L0.md",
+   "files": [
+    "cms/server/admin/templates/base.html",
+    "cms/server/admin/templates/login.html",
+    "cms/server/admin/templates/error.html",
+    "cms/server/admin/templates/fragments/lang_switch.html",
+    "cms/server/admin/templates/fragments/overload_warning.html",
+    "cms/server/admin/templates/fragments/theme_switch.html",
+    "cms/server/admin/static/aws_utils.js",
+    "cms/server/admin/static/web_rpc.js",
+    "cms/server/admin/handlers/base.py",
+    "cms/server/admin/handlers/main.py",
+    "cms/server/admin/server.py",
+    "cms/server/admin/jinja2_toolbox.py",
+    "cms/server/admin/formatting.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/admin_session_test.py",
+    "cmstestsuite/unit_tests/server/admin/basehandler_*.py",
+    "cmstestsuite/unit_tests/server/admin/body_limits_test.py",
+    "cmstestsuite/unit_tests/server/admin/formatting_test.py",
+    "cmstestsuite/unit_tests/server/admin/lang_switch_test.py",
+    "cmstestsuite/unit_tests/server/admin/language_test.py",
+    "cmstestsuite/unit_tests/server/admin/multipart_form_limit_test.py",
+    "cmstestsuite/unit_tests/server/admin/notifications_test.py",
+    "cmstestsuite/unit_tests/server/admin/pool_exhaustion_test.py",
+    "cmstestsuite/unit_tests/server/admin/rpc_authorization_test.py",
+    "cmstestsuite/unit_tests/server/admin/server_test.py",
+    "cmstestsuite/unit_tests/server/admin/theme_aws_test.py",
+    "cmstestsuite/unit_tests/server/admin/try_commit_test.py",
+    "cmstestsuite/unit_tests/server/admin/utc_time_inputs_test.py",
+    "cmstestsuite/unit_tests/server/admin/xsrf_error_page_test.py"
+   ]
+  },
+  "L1": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_contest_test.py",
+   "fragment": "cms/locale/_fragments/aws-L1.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L1.md",
+   "files": [
+    "cms/server/admin/templates/contest.html",
+    "cms/server/admin/templates/contests.html",
+    "cms/server/admin/templates/add_contest.html",
+    "cms/server/admin/templates/contest_remove.html",
+    "cms/server/admin/templates/announcements.html",
+    "cms/server/admin/templates/questions.html",
+    "cms/server/admin/templates/fragments/group_settings.html",
+    "cms/server/admin/templates/macro/question.html",
+    "cms/server/admin/templates/macro/markdown_input.html",
+    "cms/server/admin/handlers/contest.py",
+    "cms/server/admin/handlers/contestannouncement.py",
+    "cms/server/admin/handlers/contestquestion.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/contest_test.py"
+   ]
+  },
+  "L2": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_task_test.py",
+   "fragment": "cms/locale/_fragments/aws-L2.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L2.md",
+   "files": [
+    "cms/server/admin/templates/task.html",
+    "cms/server/admin/templates/tasks.html",
+    "cms/server/admin/templates/add_task.html",
+    "cms/server/admin/templates/task_remove.html",
+    "cms/server/admin/templates/add_statement.html",
+    "cms/server/admin/templates/add_attachment.html",
+    "cms/server/admin/handlers/task.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/taskpage_warning_test.py"
+   ]
+  },
+  "L3": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_dataset_test.py",
+   "fragment": "cms/locale/_fragments/aws-L3.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L3.md",
+   "files": [
+    "cms/server/admin/templates/add_dataset.html",
+    "cms/server/admin/templates/activate_dataset.html",
+    "cms/server/admin/templates/delete_dataset.html",
+    "cms/server/admin/templates/rename_dataset.html",
+    "cms/server/admin/templates/add_testcase.html",
+    "cms/server/admin/templates/add_testcases.html",
+    "cms/server/admin/templates/download_testcases.html",
+    "cms/server/admin/templates/add_manager.html",
+    "cms/server/admin/templates/dataset.html",
+    "cms/server/admin/templates/fragments/dataset_selector.html",
+    "cms/server/admin/handlers/dataset.py",
+    "cmscommon/importers.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/clonedataset_test.py",
+    "cmstestsuite/unit_tests/server/admin/dataset_forms_test.py",
+    "cmstestsuite/unit_tests/server/admin/dataset_upload_test.py"
+   ]
+  },
+  "L4": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_submissions_test.py",
+   "fragment": "cms/locale/_fragments/aws-L4.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L4.md",
+   "files": [
+    "cms/server/admin/templates/submission.html",
+    "cms/server/admin/templates/user_test.html",
+    "cms/server/admin/templates/contest_submissions.html",
+    "cms/server/admin/templates/contest_user_tests.html",
+    "cms/server/admin/templates/fragments/user_test_row.html",
+    "cms/server/admin/templates/fragments/user_test_rows.html",
+    "cms/server/admin/templates/macro/submission.html",
+    "cms/server/admin/templates/macro/reevaluation_buttons.html",
+    "cms/server/admin/templates/macro/pages.html",
+    "cms/server/admin/handlers/submission.py",
+    "cms/server/admin/handlers/usertest.py",
+    "cms/server/admin/handlers/contestsubmission.py"
+   ],
+   "tests": []
+  },
+  "L5": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_users_test.py",
+   "fragment": "cms/locale/_fragments/aws-L5.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L5.md",
+   "files": [
+    "cms/server/admin/templates/user.html",
+    "cms/server/admin/templates/add_user.html",
+    "cms/server/admin/templates/user_remove.html",
+    "cms/server/admin/templates/users.html",
+    "cms/server/admin/templates/users_bulk_remove.html",
+    "cms/server/admin/templates/team.html",
+    "cms/server/admin/templates/teams.html",
+    "cms/server/admin/templates/add_team.html",
+    "cms/server/admin/templates/team_remove.html",
+    "cms/server/admin/templates/groups.html",
+    "cms/server/admin/templates/group.html",
+    "cms/server/admin/templates/fragments/hashed_password_form.html",
+    "cms/server/admin/handlers/user.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/users_pages_test.py",
+    "cmstestsuite/unit_tests/server/admin/bulkremove_handlers_test.py"
+   ]
+  },
+  "L6": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_participations_test.py",
+   "fragment": "cms/locale/_fragments/aws-L6.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L6.md",
+   "files": [
+    "cms/server/admin/templates/participation.html",
+    "cms/server/admin/templates/participation_remove.html",
+    "cms/server/admin/templates/contest_users.html",
+    "cms/server/admin/templates/contest_tasks.html",
+    "cms/server/admin/templates/contest_activity.html",
+    "cms/server/admin/templates/macro/activity.html",
+    "cms/server/admin/templates/ranking.html",
+    "cms/server/admin/handlers/contestuser.py",
+    "cms/server/admin/handlers/contesttask.py",
+    "cms/server/admin/handlers/contestactivity.py",
+    "cms/server/admin/handlers/contestranking.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/contestactivity_test.py",
+    "cmstestsuite/unit_tests/server/admin/contestactivity_csv_test.py",
+    "cmstestsuite/unit_tests/server/admin/contestranking_test.py"
+   ]
+  },
+  "L7": {
+   "test": "cmstestsuite/unit_tests/server/admin/translated_system_test.py",
+   "fragment": "cms/locale/_fragments/aws-L7.po",
+   "plan": "openspec/changes/aws-language-rest/plans/*-L7.md",
+   "files": [
+    "cms/server/admin/templates/overview.html",
+    "cms/server/admin/templates/resources.html",
+    "cms/server/admin/templates/resourceslist.html",
+    "cms/server/admin/templates/admins.html",
+    "cms/server/admin/templates/admin.html",
+    "cms/server/admin/templates/add_admin.html",
+    "cms/server/admin/templates/fragments/admin_form.html",
+    "cms/server/admin/templates/ranking_group_remove.html",
+    "cms/server/admin/templates/ranking_group.html",
+    "cms/server/admin/templates/ranking_groups.html",
+    "cms/server/admin/templates/add_ranking_group.html",
+    "cms/server/admin/handlers/admin.py",
+    "cms/server/admin/handlers/rankinggroup.py"
+   ],
+   "tests": [
+    "cmstestsuite/unit_tests/server/admin/rankinggroup_test.py"
+   ]
+  }
+ }
+}

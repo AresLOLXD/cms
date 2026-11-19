@@ -37,7 +37,8 @@ from jinja2 import ChoiceLoader, DictLoader
 
 from cms.server.admin.bulkremove import NOT_FOUND, NOT_IN_CONTEST
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
-from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH, \
+    with_new_terms
 
 DATA = Path(__file__).parent / "data"
 
@@ -92,6 +93,40 @@ def visible(html: str) -> tuple[str, list[str]]:
     return text, [" ".join(v.split()) for v in attributes.values]
 
 
+def new_terms(page: tuple[str, list[str]]) -> tuple[str, list[str]]:
+    """The page of main with the terms of the style guide."""
+    return with_new_terms(page[0]), [with_new_terms(v) for v in page[1]]
+
+
+# The headers that main left in English and that the pages of today
+# translate (the users and the bulk removal pages only).
+HEADERS_OF_MAIN = [("Users list", "Lista de usuarios"),
+                   ("Username", "Nombre de usuario"), ("First name", "Nombre"),
+                   ("Last name", "Apellido")]
+
+
+# The English that main left on the contest users page, which lane L6
+# translated.
+ENGLISH_OF_CONTEST_USERS = [
+    ("Users list", "Lista de usuarios"),
+    ("Add a new user:", "Agrega un usuario nuevo:"),
+    ("Select a new user", "Selecciona un usuario nuevo"),
+    ("Add user", "Agregar usuario"), ("Username", "Nombre de usuario"),
+    ("First name", "Nombre"), ("Last name", "Apellido"),
+    ("Group", "Grupo")]
+
+
+def with_translated_headers(page: tuple[str, list[str]],
+                            headers=HEADERS_OF_MAIN) \
+        -> tuple[str, list[str]]:
+    """The page of main with the English texts in Spanish."""
+    def translate(text: str) -> str:
+        for old, new in headers:
+            text = text.replace(old, new)
+        return text
+    return translate(page[0]), [translate(v) for v in page[1]]
+
+
 EVIL = 'Día "1" <b>&</b> 100%'
 
 
@@ -143,8 +178,9 @@ class TestBulkRemovalPageInSpanish(unittest.TestCase):
                         visible(render(AWS_ENVIRONMENT,
                                        "users_bulk_remove.html", SPANISH,
                                        plan=removal, **params)),
-                        visible(render(before, "users_bulk_remove.html",
-                                       plan=old, **params)),
+                        with_translated_headers(visible(render(
+                            before, "users_bulk_remove.html", plan=old,
+                            **params))),
                         msg="%s, contest=%s, error=%s" % (
                             label, contest is not None, error))
 
@@ -173,7 +209,8 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             self.assertEqual(
                 visible(render(AWS_ENVIRONMENT, "users.html", SPANISH,
                                **params)),
-                visible(render(before, "users.html", **params)))
+                with_translated_headers(new_terms(
+                    visible(render(before, "users.html", **params)))))
 
     def test_the_contest_users_page_is_the_page_of_main(self):
         # Scenario: A page in Spanish is the page of main
@@ -186,7 +223,9 @@ class TestUsersPagesInSpanish(unittest.TestCase):
             self.assertEqual(
                 visible(render(AWS_ENVIRONMENT, "contest_users.html",
                                SPANISH, **params)),
-                visible(render(before, "contest_users.html", **params)))
+                with_translated_headers(new_terms(
+                    visible(render(before, "contest_users.html", **params))),
+                    ENGLISH_OF_CONTEST_USERS))
 
 
 if __name__ == "__main__":

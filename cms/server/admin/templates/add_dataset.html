@@ -16,22 +16,22 @@ $("select[name=task_type]").change(showTaskTypeOption);
 {% block core %}
 
 <div class="core_title">
-  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - Create dataset</h1>
+  <h1><a href="{{ url("task", task.id) }}">{{ task.title }} ({{ task.name }})</a> - {% trans %}Create dataset{% endtrans %}</h1>
 </div>
 
 {% if original_dataset is none %}
 <form enctype="multipart/form-data" action="{{ url("task", task.id, "add_dataset") }}" method="POST">
 {% else %}
-You are cloning the dataset "{{ original_dataset.description }}".
+{% trans description=original_dataset.description %}You are cloning the dataset "{{ description }}".{% endtrans %}
 <form enctype="multipart/form-data" action="{{ url("dataset", clone_id, "clone") }}" method="POST">
 {% endif %}
   {{ xsrf_form_html|safe }}
   <table>
-    <tr><td colspan=2><h2>Dataset information</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans %}Dataset information{% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="A (unique) description for this dataset."></span>
-        Description
+        <span class="info" title="{{ _("A (unique) description for this dataset.") }}"></span>
+        {% trans %}Description{% endtrans %}
       </td>
       <td>
         <input type="text" name="description" value="{{ default_description }}"/>
@@ -40,8 +40,8 @@ You are cloning the dataset "{{ original_dataset.description }}".
     {% if original_dataset is not none %}
     <tr>
       <td>
-        <span class="info" title="Whether to copy over the evaluations from the original dataset."></span>
-        Clone evaluation results
+        <span class="info" title="{{ _("Whether to copy over the evaluations from the original dataset.") }}"></span>
+        {% trans %}Clone evaluation results{% endtrans %}
       </td>
       <td>
         <input type="checkbox" name="clone_results"/>
@@ -49,27 +49,27 @@ You are cloning the dataset "{{ original_dataset.description }}".
     </tr>
     {% endif %}
 
-    <tr><td colspan=2><h2>Limits</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans %}Limits{% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="Total maximum time for each evaluation, in seconds."></span>
-        Time limit
+        <span class="info" title="{{ _("Total maximum time for each evaluation, in seconds.") }}"></span>
+        {% trans %}Time limit{% endtrans %}
       </td>
-      <td><input type="text" name="time_limit" value="{{ 1 if original_dataset is none else original_dataset.time_limit or "" }}"/> second(s)</td>
+      <td><input type="text" name="time_limit" value="{{ 1 if original_dataset is none else original_dataset.time_limit or "" }}"/> {% trans %}second(s){% endtrans %}</td>
     </tr>
     <tr>
       <td>
-        <span class="info" title="Total maximum memory usage for each evaluation, in MiB (2^20 bytes)."></span>
-        Memory limit
+        <span class="info" title="{{ _("Total maximum memory usage for each evaluation, in MiB (2^20 bytes).") }}"></span>
+        {% trans %}Memory limit{% endtrans %}
       </td>
-      <td><input type="text" name="memory_limit" value="{{ 512 if original_dataset is none else (original_dataset.memory_limit // (1024 * 1024) if original_dataset.memory_limit is not none else "") }}"/> MiB</td>
+      <td><input type="text" name="memory_limit" value="{{ 512 if original_dataset is none else (original_dataset.memory_limit // (1024 * 1024) if original_dataset.memory_limit is not none else "") }}"/> {% trans %}MiB{% endtrans %}</td>
     </tr>
 
-    <tr><td colspan=2><h2>Task type settings (<a href="http://cms.readthedocs.org/en/{{ rtd_version }}/Task%20types.html" target="_blank">documentation</a>)</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans link="http://cms.readthedocs.org/en/" ~ rtd_version ~ "/Task%20types.html" %}Task type settings (<a href="{{ link }}" target="_blank">documentation</a>){% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="Please see the task type documentation."></span>
-        Task type
+        <span class="info" title="{{ _("Please see the task type documentation.") }}"></span>
+        {% trans %}Task type{% endtrans %}
       </td>
       <td>
 
@@ -106,18 +106,18 @@ You are cloning the dataset "{{ original_dataset.description }}".
     {% if original_dataset is not none and original_dataset.managers|length != 0 %}
     <tr>
       <td>
-        <span class="info" title="Whether to copy the managers from the original dataset."></span>
-        Clone managers
+        <span class="info" title="{{ _("Whether to copy the managers from the original dataset.") }}"></span>
+        {% trans %}Clone managers{% endtrans %}
       </td>
       <td><input type="checkbox" name="clone_managers" checked/></td>
     </tr>
     {% endif %}
 
-    <tr><td colspan=2><h2>Score type settings (<a href="http://cms.readthedocs.org/en/{{ rtd_version }}/Score%20types.html" target="_blank">documentation</a>)</h2></td></tr>
+    <tr><td colspan=2><h2>{% trans link="http://cms.readthedocs.org/en/" ~ rtd_version ~ "/Score%20types.html" %}Score type settings (<a href="{{ link }}" target="_blank">documentation</a>){% endtrans %}</h2></td></tr>
     <tr>
       <td>
-        <span class="info" title="Please see the score type documentation."></span>
-        Score Type
+        <span class="info" title="{{ _("Please see the score type documentation.") }}"></span>
+        {% trans %}Score Type{% endtrans %}
       </td>
       <td>
         <select name="score_type">
@@ -130,12 +130,12 @@ You are cloning the dataset "{{ original_dataset.description }}".
     </tr>
     <tr>
       <td>
-        <span class="info" title='Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.'></span>
-        Score Parameters
+        <span class="info" title="{{ _('Please see the score type documentation. A subtask can list "depends_on": [subtask numbers]; see the subtask dependencies page of the documentation.') }}"></span>
+        {% trans %}Score Parameters{% endtrans %}
       </td>
       <td><textarea name="score_type_parameters" rows="12">{{ original_dataset.score_type_parameters|tojson|forceescape if original_dataset is not none else "" }}</textarea></td>
     </tr>
   </table>
-<input type="submit" value="Create"/>
+<input type="submit" value="{{ _("Create") }}"/>
 </form>
 {% endblock core %}

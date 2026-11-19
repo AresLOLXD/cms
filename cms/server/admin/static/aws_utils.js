@@ -58,6 +58,42 @@ CMS.AWSUtils = function(url_root, timestamp,
 };
 
 
+// The texts the page shows, by key, in the language of the page: base.html
+// puts them in the data-messages attribute of <body>. This script loads in
+// <head>, before the body exists, so they are read on the first use.
+CMS.AWSUtils.messages = null;
+
+/**
+ * Return the message with the given key in the language of the page.
+ *
+ * key (string): the key of the message in base.html; if the page has no
+ *     such message, the key itself is returned.
+ * values (object): the values for the %(name)s placeholders, filled in one
+ *     pass (a value that contains %(x)s is not filled again).
+ * return (string): the text.
+ */
+CMS.AWSUtils.t = function(key, values) {
+    if (CMS.AWSUtils.messages === null && document.body) {
+        var raw = document.body.getAttribute("data-messages");
+        CMS.AWSUtils.messages = raw === null ? {} : JSON.parse(raw);
+    }
+    var has = Object.prototype.hasOwnProperty;
+    var messages = CMS.AWSUtils.messages || {};
+    var text = has.call(messages, key) ? messages[key] : key;
+    return text.replace(/%\(([^)]*)\)s/g, function(match, name) {
+        return values && has.call(values, name) ? values[name] : match;
+    });
+};
+
+/**
+ * Return the text with &, < and > escaped, to put it in html.
+ */
+CMS.AWSUtils.escape_html = function(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+};
+
+
 CMS.AWSUtils.create_url_builder = function(url_root) {
     return function() {
         var url = url_root;
@@ -165,7 +201,7 @@ CMS.AWSUtils.restore_score_parameter_drafts = function(root) {
             field.value = draft.text;
             const note = document.createElement("div");
             note.className = "hint";
-            note.textContent = "Restored your unsaved text.";
+            note.textContent = CMS.AWSUtils.t("restored_draft");
             field.after(note);
         } catch (error) {
             // No storage or an unreadable draft: keep the page's value.
@@ -224,20 +260,20 @@ CMS.AWSUtils.prototype.file_received = function(response, error) {
     var url = this.file_asked_url;
     var elements = [];
     if (error != null) {
-        alert("File request failed.");
+        alert(CMS.AWSUtils.t("file_request_failed"));
     } else {
         if (response.length > 100000) {
             elements.push($('<h1>').text(file_name));
-            elements.push($('<a>').text("Download").prop("href", url));
+            elements.push($('<a>').text(CMS.AWSUtils.t("download")).prop("href", url));
             this.display_subpage(elements);
             return;
         }
         var lang_name = CMS.AWSUtils.filename_to_lang(file_name);
 
         elements.push($('<h1>').text(file_name));
-        elements.push($('<a>').text("Download").prop("href", url));
+        elements.push($('<a>').text(CMS.AWSUtils.t("download")).prop("href", url));
         elements.push($('<span>').text(" - "))
-        elements.push($('<a>').text("copy").prop('href', '#').on('click', (event) => {
+        elements.push($('<a>').text(CMS.AWSUtils.t("copy")).prop('href', '#').on('click', (event) => {
             var range = document.createRange();
             var code_area = $('#subpage_content code')[0];
             range.setStartBefore(code_area);
@@ -300,13 +336,13 @@ CMS.AWSUtils.prototype.display_notification = function(type, timestamp,
     var timestamp_int = parseInt(timestamp);
     var subject_string = $('<span>');
     if (type == "message") {
-        subject_string = $("<span>").text("Private message. ");
+        subject_string = $("<span>").text(CMS.AWSUtils.t("private_message") + " ");
     } else if (type == "announcement") {
-        subject_string = $("<span>").text("Announcement. ");
+        subject_string = $("<span>").text(CMS.AWSUtils.t("announcement") + " ");
     } else if (type == "question") {
-        subject_string = $("<span>").text("Reply to your question. ");
+        subject_string = $("<span>").text(CMS.AWSUtils.t("question_reply") + " ");
     } else if (type == "new_question") {
-        subject_string = $("<a>").text("New question: ")
+        subject_string = $("<a>").text(CMS.AWSUtils.t("new_question") + " ")
             .prop("href", this.url("contest", contest_id, "questions"));
     }
 
@@ -593,16 +629,16 @@ CMS.AWSUtils.prototype.update_remaining_time = function() {
     // based on the phase logic from cms/db/contest.py.
     if (now_timestamp < this.contest_start) {
         relevant_timestamp = this.contest_start;
-        text = "To start of contest: "
+        text = CMS.AWSUtils.t("to_start_of_contest") + " ";
     } else if (now_timestamp <= this.contest_stop) {
         relevant_timestamp = this.contest_stop;
-        text = "To end of contest: "
+        text = CMS.AWSUtils.t("to_end_of_contest") + " ";
     } else if (this.analysis_enabled && now_timestamp < this.analysis_start) {
         relevant_timestamp = this.analysis_start;
-        text = "To start of analysis: "
+        text = CMS.AWSUtils.t("to_start_of_analysis") + " ";
     } else if (this.analysis_enabled && now_timestamp <= this.analysis_stop) {
         relevant_timestamp = this.analysis_stop;
-        text = "To end of analysis: "
+        text = CMS.AWSUtils.t("to_end_of_analysis") + " ";
     }
 
     // We are in phase 3, nothing to show.
@@ -732,7 +768,7 @@ CMS.AWSUtils.prototype.init_utc_hints = function(zones) {
 CMS.AWSUtils.prototype.redirect_if_ok = function(url, response) {
     var msg = this.standard_response(response);
     if (msg != "") {
-        alert('Unable to invalidate (' + msg + ').');
+        alert(CMS.AWSUtils.t("unable_to_invalidate", {reason: msg}));
     } else {
         location.href = url;
     }
@@ -747,42 +783,48 @@ CMS.AWSUtils.prototype.redirect_if_ok = function(url, response) {
  * returns (string): nice representation of job
  */
 CMS.AWSUtils.prototype.repr_job = function(job) {
-    var job_type = "???";
+    var t = CMS.AWSUtils.t;
+    var evaluating = false;
     var object_type = "???";
     if (job == null) {
-        return "N/A";
+        return t("not_available");
     } else if (job == "disabled") {
-        return "Worker disabled";
+        return t("worker_disabled");
     } else if (job["type"] == 'compile') {
-        job_type = 'Compiling';
         object_type = 'submission';
     } else if (job["type"] == 'evaluate') {
-        job_type = 'Evaluating';
+        evaluating = true;
         object_type = 'submission';
     } else if (job["type"] == 'compile_test') {
-        job_type = 'Compiling';
         object_type = 'user_test';
     } else if (job["type"] == 'evaluate_test') {
-        job_type = 'Evaluating';
+        evaluating = true;
         object_type = 'user_test';
     }
 
+    // The links are built here and passed as values, so that each
+    // sentence is one message.
+    var values = {
+        object_id: job["object_id"],
+        dataset_id: job["dataset_id"],
+        result_url: this.url("submission", job["object_id"], job["dataset_id"]),
+        submission_url: this.url("submission", job["object_id"]),
+        dataset_url: this.url("dataset", job["dataset_id"])
+    };
     if (object_type == 'submission') {
-        return job_type
-            + ' the <a href="' + this.url("submission", job["object_id"], job["dataset_id"]) + '">result</a>'
-            + ' of <a href="' + this.url("submission", job["object_id"]) + '">submission ' + job["object_id"] + '</a>'
-            + ' on <a href="' + this.url("dataset", job["dataset_id"]) + '">dataset ' + job["dataset_id"] + '</a>'
-            + (job_type == 'Evaluating' && job["multiplicity"]
-               ? " [" + job["multiplicity"] + " time(s) in queue]"
+        return (evaluating ? t("evaluating_submission", values)
+                           : t("compiling_submission", values))
+            + (evaluating && job["multiplicity"]
+               ? " " + t("in_queue", {count: job["multiplicity"]})
                : "")
             + (job["testcase_codename"]
-               ? " [testcase: `" + job["testcase_codename"] + "']"
+               ? " " + t("testcase", {
+                   codename: CMS.AWSUtils.escape_html(job["testcase_codename"])
+               })
                : "");
     } else {
-        return job_type
-            + ' the result'
-            + ' of user_test ' + job["object_id"]
-            + ' on <a href="' + this.url("dataset", job["dataset_id"]) + '">dataset ' + job["dataset_id"] + '</a>';
+        return evaluating ? t("evaluating_user_test", values)
+                          : t("compiling_user_test", values);
     }
 };
 
@@ -796,14 +838,15 @@ CMS.AWSUtils.prototype.repr_job = function(job) {
  */
 CMS.AWSUtils.prototype.repr_time_ago = function(time) {
     if (time == null) {
-        return "N/A";
+        return CMS.AWSUtils.t("not_available");
     }
     var diff = parseInt((new Date()).getTime() / 1000 - time);
     var res = "";
 
     var s = diff % 60;
     diff = diff - s;
-    res = s + " second(s)";
+    // shortcut: no plural forms, every text is count-free ("(s)").
+    res = s + " " + CMS.AWSUtils.t("second(s)");
     if (diff == 0) {
         return res;
     }
@@ -811,14 +854,14 @@ CMS.AWSUtils.prototype.repr_time_ago = function(time) {
 
     var m = diff % 60;
     diff -= m;
-    res = m + " minute(s), " + res;
+    res = m + " " + CMS.AWSUtils.t("minute(s)") + ", " + res;
     if (diff == 0) {
         return res;
     }
     diff /= 60;
 
     var h = diff;
-    res = h + " hour(s), " + res;
+    res = h + " " + CMS.AWSUtils.t("hour(s)") + ", " + res;
     return res;
 };
 
@@ -831,7 +874,7 @@ CMS.AWSUtils.prototype.repr_time_ago = function(time) {
  */
 CMS.AWSUtils.prototype.repr_time_ago_short = function(time) {
     if (time == null) {
-        return "N/A";
+        return CMS.AWSUtils.t("not_available");
     }
     var diff = parseInt((new Date()).getTime() / 1000 - time);
     var res = "";
@@ -938,14 +981,15 @@ CMS.AWSUtils.prototype.format_time_or_date = function(timestamp) {
  */
 CMS.AWSUtils.prototype.standard_response = function(response) {
     if (response['status'] != 'ok') {
-        var msg = "Unexpected reply `" + response['status']
-            + "'. This should not happen.";
+        var msg = CMS.AWSUtils.t("unexpected_reply", {
+            status: CMS.AWSUtils.escape_html(response['status'])
+        });
         if (response['status'] == 'unconnected') {
-            msg = 'Service not connected.';
+            msg = CMS.AWSUtils.t("service_not_connected");
         } else if (response['status'] == 'not authorized') {
-            msg = "You are not authorized to call this method.";
+            msg = CMS.AWSUtils.t("not_authorized");
         } else if (response['status'] == 'fail') {
-            msg = "Call to service failed.";
+            msg = CMS.AWSUtils.t("service_call_failed");
         }
         return msg;
     }
@@ -971,7 +1015,7 @@ CMS.AWSUtils.prototype.show_page = function(item, page, elements_per_page) {
     var self = this;
     var selector = $("#page_selector_" + item);
     selector.empty();
-    selector.append("Pages: ");
+    selector.append(CMS.AWSUtils.t("pages") + " ");
     for (var i = 1; i <= npages; i++) {
         if (i != page) {
             selector.append($("<a>").text(i + " ")
@@ -1125,10 +1169,10 @@ CMS.AWSUtils.prototype.question_reply_toggle = function(event, invoker) {
     var obj = invoker.parentElement.parentElement.querySelector(".reply_question");
     if (obj.style.display != "block") {
         obj.style.display = "block";
-        invoker.innerHTML = "Hide reply";
+        invoker.innerHTML = CMS.AWSUtils.t("hide_reply");
     } else {
         obj.style.display = "none";
-        invoker.innerHTML = "Reply";
+        invoker.innerHTML = CMS.AWSUtils.t("reply");
     }
     event.preventDefault();
 }
@@ -1199,7 +1243,7 @@ CMS.AWSUtils.prototype.update_diff_ids = function(ev) {
  */
 CMS.AWSUtils.prototype.show_diff = function(response, error) {
     if(error !== null) {
-        this.display_subpage([$('<p>').text('Error: ' + error)]);
+        this.display_subpage([$('<p>').text(CMS.AWSUtils.t("error", {error: error}))]);
         return;
     }
     var elements = [];

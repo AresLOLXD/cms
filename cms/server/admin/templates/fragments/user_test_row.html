@@ -19,28 +19,28 @@
   <td><a href="{{ url("task", ut.task.id) }}">{{ ut.task.name }}</a></td>
   <td>
     {% if status == UserTestResult.COMPILING %}
-    Compiling...
+    {% trans %}Compiling...{% endtrans %}
     {% else %}
     <div id="title_evaluation_{{ ut.id }}" class="toggling_off">
 
       {% if status == UserTestResult.COMPILATION_FAILED %}
-      Compilation failed
+      {% trans %}Compilation failed{% endtrans %}
       <div id="evaluation_{{ ut.id }}" style="display: none;">
 
       {% elif status == UserTestResult.EVALUATING %}
-      Evaluating...
+      {% trans %}Evaluating...{% endtrans %}
       <div id="evaluation_{{ ut.id }}" style="display: none;">
 
       {% elif status == UserTestResult.EVALUATED %}
-      Evaluated
+      {% trans %}Evaluated{% endtrans %}
       <div id="evaluation_{{ ut.id }}" style="display: none;">
 
       {% else %}
-      [Unknown status]
+      {% trans %}[Unknown status]{% endtrans %}
       <div id="evaluation_{{ ut.id }}" style="display: none;">
 
       {% endif %}
-        <h3>Compilation output</h3>{# TODO: trim long outputs and add facility to see raw #}
+        <h3>{% trans %}Compilation output{% endtrans %}</h3>{# TODO: trim long outputs and add facility to see raw #}
         <pre>{% if utr.compilation_text|length > 0 %}{{ utr.compilation_text|format_status_text }}{% endif %}</pre>
       </div>
     </div>
@@ -48,7 +48,7 @@
     {% endif %}
   </td>
   <td>
-    <a href="javascript:void(0);" onclick="utils.show_file('input','{{ url("file", ut.input, "input") }}')">See input</a>
+    <a href="javascript:void(0);" onclick="utils.show_file('input','{{ url("file", ut.input, "input") }}')">{% trans %}See input{% endtrans %}</a>
   </td>
   <td>
     {% for filename, sub_file in ut.files|dictsort(by="key") %}

@@ -1,14 +1,14 @@
 
-<h2 id="title_datasets" class="toggling_off">Dataset: {{ shown_dataset.description + shown_dataset|format_dataset_attrs }}</h2>
+<h2 id="title_datasets" class="toggling_off">{% trans %}Dataset:{% endtrans %} {{ shown_dataset.description + shown_dataset|format_dataset_attrs }}</h2>
 <div id="datasets" style="display: none;">
 
 {% if datasets|length == 0 %}
-    No datasets exist for this task.
+    {% trans %}No datasets exist for this task.{% endtrans %}
 {% else %}
-  <p>Current dataset: "<strong>{{ shown_dataset.description }}</strong>".<br/>
+  <p>{% trans description=shown_dataset.description %}Current dataset: "<strong>{{ description }}</strong>".{% endtrans %}<br/>
   {% if datasets|length > 1 %}
-  Click on one of the following items to view the results under a
-  different dataset.</p>
+  {% trans %}Click on one of the following items to view the results under a
+  different dataset.{% endtrans %}</p>
   <table>
   {% for dataset in datasets|sort(attribute="description") %}
     <tr><td>

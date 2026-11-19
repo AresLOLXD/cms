@@ -42,7 +42,8 @@ from jinja2 import ChoiceLoader, DictLoader
 from cms.server.admin.bulkimport import FIELDS, REQUIRED, USER_FIELDS, \
     USER_REQUIRED
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
-from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
+from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH, \
+    with_new_terms
 
 BEFORE = (Path(__file__).parent / "data"
           / "contest_users_import_before_i18n.html")
@@ -362,7 +363,8 @@ class TestPageInSpanish(unittest.TestCase):
         # Scenario: A page in Spanish. The visible text of every shape of
         # the page equals the one of the template before it was translated.
         for name, params in PAGES.items():
-            before = visible_text(render(BEFORE_ENVIRONMENT, **params))
+            before = with_new_terms(
+                visible_text(render(BEFORE_ENVIRONMENT, **params)))
             after = visible_text(render(AWS_ENVIRONMENT, SPANISH, **params))
             self.assertEqual(after, before, msg=name)
 

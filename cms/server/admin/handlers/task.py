@@ -62,7 +62,8 @@ class AddTaskHandler(SimpleHandler("add_task.html", permission_all=True)):
             attrs = dict()
 
             self.get_string(attrs, "name", empty=None)
-            assert attrs.get("name") is not None, "No task name specified."
+            assert attrs.get("name") is not None, \
+                self._("No task name specified.")
             attrs["title"] = attrs["name"]
 
             # Set default submission format as ["taskname.%l"]
@@ -74,7 +75,7 @@ class AddTaskHandler(SimpleHandler("add_task.html", permission_all=True)):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -97,7 +98,7 @@ class AddTaskHandler(SimpleHandler("add_task.html", permission_all=True)):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -143,7 +144,7 @@ class TaskHandler(BaseHandler):
                 logger.warning("Cannot check the score parameters of "
                                "dataset %s.", dataset.id, exc_info=True)
                 self.r_params["score_type_warnings"][dataset.id] = \
-                    "the score parameters could not be checked."
+                    self._("the score parameters could not be checked.")
         self.render("task.html", **self.r_params)
 
     @require_permission(BaseHandler.PERMISSION_ALL)
@@ -160,7 +161,8 @@ class TaskHandler(BaseHandler):
             self.get_string(attrs, "name", empty=None)
             self.get_string(attrs, "title")
 
-            assert attrs.get("name") is not None, "No task name specified."
+            assert attrs.get("name") is not None, \
+                self._("No task name specified.")
 
             # Parsing of primary statements checkboxes. Their name is
             # primary_statement_XX, where XX is the language code.
@@ -207,7 +209,7 @@ class TaskHandler(BaseHandler):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(self.url("task", task_id))
             return
 
@@ -227,7 +229,7 @@ class TaskHandler(BaseHandler):
 
             except Exception as error:
                 self.service.add_notification(
-                    make_datetime(), "Invalid field(s)", repr(error))
+                    make_datetime(), self._("Invalid field(s)"), repr(error))
                 self.redirect(self.url("task", task_id))
                 return
 
@@ -240,8 +242,8 @@ class TaskHandler(BaseHandler):
                 dataset.validate_score_type()
             except ValueError as error:
                 self.application.service.add_notification(
-                    make_datetime(), "Invalid score type parameters",
-                    str(error))
+                    make_datetime(),
+                    self._("Invalid score type parameters"), str(error))
                 self.redirect(self.url("task", task_id))
                 return
 
@@ -283,16 +285,16 @@ class AddStatementHandler(BaseHandler):
         if len(language) == 0:
             self.service.add_notification(
                 make_datetime(),
-                "No language code specified",
-                "The language code can be any string.")
+                self._("No language code specified"),
+                self._("The language code can be any string."))
             self.redirect(fallback_page)
             return
         statement = self.request.files["statement"][0]
         if not statement["filename"].endswith(".pdf"):
             self.service.add_notification(
                 make_datetime(),
-                "Invalid task statement",
-                "The task statement must be a .pdf file.")
+                self._("Invalid task statement"),
+                self._("The task statement must be a .pdf file."))
             self.redirect(fallback_page)
             return
         task_name = task.name
@@ -305,7 +307,7 @@ class AddStatementHandler(BaseHandler):
         except Exception as error:
             self.service.add_notification(
                 make_datetime(),
-                "Task statement storage failed",
+                self._("Task statement storage failed"),
                 repr(error))
             self.redirect(fallback_page)
             return
@@ -390,7 +392,7 @@ class AddAttachmentHandler(BaseHandler):
         except Exception as error:
             self.service.add_notification(
                 make_datetime(),
-                "Attachment storage failed",
+                self._("Attachment storage failed"),
                 repr(error))
             self.redirect(fallback_page)
             return
@@ -486,8 +488,9 @@ class AddDatasetHandler(BaseHandler):
                    for d in task.datasets):
                 self.service.add_notification(
                     make_datetime(),
-                    "Dataset name %r is already taken." % attrs["description"],
-                    "Please choose a unique name for this dataset.")
+                    self._("Dataset name %r is already taken.")
+                    % attrs["description"],
+                    self._("Please choose a unique name for this dataset."))
                 self.redirect(fallback_page)
                 return
 
@@ -505,7 +508,7 @@ class AddDatasetHandler(BaseHandler):
         except Exception as error:
             logger.warning("Invalid field: %s" % (traceback.format_exc()))
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -544,7 +547,8 @@ class TaskListHandler(SimpleHandler("tasks.html")):
             self.redirect(asking_page)
         else:
             self.service.add_notification(
-                make_datetime(), "Invalid operation %s" % operation, "")
+                make_datetime(),
+                self._("Invalid operation %s") % operation, "")
             self.redirect(self.url("tasks"))
 
 

@@ -23,7 +23,8 @@ useful specifically to the use that AWS makes of it.
 
 """
 
-from jinja2 import Environment, PackageLoader
+from jinja2 import Environment, PackageLoader, pass_context
+from jinja2.runtime import Context
 
 from cms.db.user import Question
 from cms.grading.languagemanager import LANGUAGES
@@ -53,8 +54,13 @@ def instrument_cms_toolbox(env: Environment):
     env.globals["clock_zones"] = clock_zones
 
 
+@pass_context
+def wrapped_format_dataset_attrs(ctx: Context, dataset):
+    return format_dataset_attrs(dataset, ctx.resolve("gettext"))
+
+
 def instrument_formatting_toolbox(env: Environment):
-    env.filters["format_dataset_attrs"] = format_dataset_attrs
+    env.filters["format_dataset_attrs"] = wrapped_format_dataset_attrs
     env.filters["format_utc_time"] = format_utc_time
 
 

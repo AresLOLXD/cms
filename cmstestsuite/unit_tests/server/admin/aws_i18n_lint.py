@@ -1,0 +1,894 @@
+#!/usr/bin/env python3
+
+# Copyright © 2026 Ares Ulises Juárez Martínez <aresulises8@hotmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""Static and rendered checks that the texts of AWS go through gettext.
+
+The helper of aws_i18n_guard_test.py (change aws-language-rest). Four
+kinds of check:
+
+- the template lint: text nodes, the attributes that show text and the
+  string literals of {{ }}, {% set %} and macro arguments that are not
+  under gettext;
+- the script scan: prose string literals in the scripts (the static
+  files and the inline scripts of the templates);
+- the Python lint: texts that reach the admin from the handlers
+  without self._ (notifications, raised errors, asserts, writes and
+  module constants);
+- the pseudo-localization render of aws_render: every English word
+  left on a page is a text nobody wrapped.
+
+Every template, script and Python file of cms/server/admin is checked.
+The names in this module are relative to cms/server/admin.
+
+"""
+
+import ast
+import importlib.util
+import pathlib
+import re
+from html.parser import HTMLParser
+
+from jinja2 import nodes
+
+from cms.grading.languagemanager import LANGUAGES
+from cms.grading.scoretypes import SCORE_TYPES
+from cms.grading.tasktypes import TASK_TYPES
+from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT as ENV
+from cmstestsuite.unit_tests.server.admin import aws_render
+from cmstestsuite.unit_tests.server.admin.aws_render import TEXT_ATTRS, WORD
+
+
+ADMIN = aws_render.TEMPLATES.parent
+
+TEMPLATE_FILES = ["templates/" + name for name in aws_render.ALL_TEMPLATES]
+PYTHON_FILES = sorted(
+    str(f.relative_to(ADMIN)) for f in ADMIN.rglob("*.py")
+    if f.name != "__init__.py")
+# The vendored scripts (jq, prism) are not ours.
+SCRIPT_FILES = ["static/aws_utils.js", "static/web_rpc.js"]
+ALL_FILES = TEMPLATE_FILES + PYTHON_FILES + SCRIPT_FILES
+
+# The forms of text that are not prose.
+NOT_PROSE = [
+    (r"^(\W|\d)*$", "no letters"),
+    (r"^\s*(selected|checked|disabled|readonly|multiple)\s*$",
+     "html boolean attribute"),
+]
+
+# ALL CAPS that is a symbol or an acronym, not prose ("NOTE" and "OK"
+# are prose).
+SYMBOLS = {"UTC", "CMS", "CPU", "YYYY", "MM", "DD", "HH", "SS", "KB", "MB",
+           "GB", "IP", "ID", "URL", "CSV", "JSON", "RAM", "HTTP", "API",
+           "ISO", "UTF", "SQL", "PDF", "XML"}
+
+
+def is_symbols(text: str) -> bool:
+    """Tell whether the text is ALL CAPS made of known symbols."""
+    return not re.search(r"[a-z]", text) \
+        and all(word in SYMBOLS for word in WORD.findall(text))
+
+
+# Intentional English that the checks would flag: (file, exact text,
+# reason). An entry that matches nothing in a checked file fails the
+# guard.
+ALLOW = [
+    ("handlers/base.py", "Invalid permission level %s.",
+     "programmer error, never reaches an admin"),
+    ("handlers/base.py", "A critical error has occurred :-(",
+     "written when the locale itself failed"),
+    ("handlers/contesttask.py", "Remove from contest",
+     "operation identifier that the page posts"),
+    ("handlers/user.py", "Delete selected group",
+     "operation identifier that the page posts"),
+    ("handlers/user.py", "Make main group",
+     "operation identifier that the page posts"),
+    ("handlers/dataset.py", "Copy of %s",
+     "stored description of the new dataset"),
+    ("handlers/dataset.py", "Task manager for %s",
+     "description of a file stored in the database"),
+    ("handlers/dataset.py", "Testcase input for task %s",
+     "description of a file stored in the database"),
+    ("handlers/dataset.py", "Testcase output for task %s",
+     "description of a file stored in the database"),
+    ("handlers/task.py", "Statement for task %s (lang: %s)",
+     "description of a file stored in the database"),
+    ("handlers/task.py", "Task attachment for %s",
+     "description of a file stored in the database"),
+    ("formatting.py", "UTC", "name of the time zone, as the standard has it"),
+    ("templates/fragments/hashed_password_form.html", "plaintext",
+     "hash method identifier, not shown"),
+    ("templates/submission.html",
+     "submission_%s_compilation_sandbox_%s.tar.gz",
+     "download file name in a URL, not shown text"),
+    ("templates/submission.html",
+     "submission_%s_testcase_%s_sandbox_%s.tar.gz",
+     "download file name in a URL, not shown text"),
+    ("templates/task.html", "TaskTypeOptions_%d_%s_",
+     "prefix of the HTML ids of the parameter inputs, not shown"),
+    ("templates/login.html", "next", "name of the query argument"),
+    ("static/aws_utils.js", "not authorized",
+     "RPC status key, never shown"),
+    ("static/web_rpc.js", "not authorized",
+     "RPC status key, never shown"),
+    ("templates/fragments/lang_switch.html",
+     "; expires=Thu, 01 Jan 1970 00:00:00 GMT",
+     "cookie attribute, not shown text"),
+    ("templates/fragments/lang_switch.html", "; expires=",
+     "cookie attribute, not shown text"),
+    ("templates/fragments/lang_switch.html", "; path=/",
+     "cookie attribute, not shown text"),
+    ("templates/announcements.html", "text",
+     "name of the form field passed to markdown_input"),
+    ("templates/macro/question.html", "answered", "CSS class name"),
+    ("templates/macro/question.html", "ignored", "CSS class name"),
+    ("templates/macro/question.html", "reply_question_text",
+     "name of a form field"),
+    ("templates/add_dataset.html", "TaskTypeOptions_%s_",
+     "prefix of the HTML ids of the parameter inputs, not shown"),
+    ("templates/add_dataset.html", "Options",
+     "end of a table id in the js_init script, not shown"),
+    ("templates/activate_dataset.html", "on", "CSS class suffix"),
+    ("templates/activate_dataset.html", "off", "CSS class suffix"),
+    ("templates/participation.html", "message_text",
+     "name of a form field passed to markdown_input"),
+    ("templates/overview.html", "not authorized",
+     "RPC status key compared in update_statuses, never shown"),
+    ("templates/overview.html", "submission <a href=\"",
+     "built around the English 'submission N' of LogService messages, "
+     "which is data"),
+    ("templates/resources.html", "_table > tbody",
+     "jQuery selector, not shown"),
+]
+
+# (page, control name) pairs that may post a translated value. The default
+# subject of the rejudge message is free text that the admin may edit,
+# not an operation key.
+NAMED_CONTROLS_ALLOW: set[tuple[str, str]] = {
+    ("activate_dataset.html", "message_subject")}
+
+# English that a rendered page may keep: (page, exact text, reason);
+# the page "*" stands for every page.
+PSEUDO_ALLOW = [
+    ("*", "español", "name of the language, in that language"),
+]
+
+
+def read(rel: str) -> str:
+    return (ADMIN / rel).read_text(encoding="utf-8")
+
+
+def allowed(rel: str, text: str) -> bool:
+    return any(f == rel and t == text for f, t, _ in ALLOW)
+
+
+# ---------------------------------------------------------------- templates
+# Private-use characters that stand for the jinja constructs.
+WRAPPED, EXPR, TAG = "\ue000", "\ue001", "\ue002"
+GETTEXT = {"_", "gettext", "ngettext", "N_", "n_"}
+NON_TEXT_CALLS = {"url", "static_url", "xsrf_form_html", "make_timestamp"}
+
+
+# The lexer without trim_blocks and lstrip_blocks, which eat newlines
+# and would make the line numbers of the findings drift.
+_LEXER = ENV.overlay(trim_blocks=False, lstrip_blocks=False)
+
+
+def skeleton(src: str) -> str:
+    """Return the html with each jinja construct replaced by a sentinel
+    (WRAPPED for a trans block, EXPR for {{ }}, TAG for {% %}), keeping
+    the line numbers.
+
+    """
+    out = []
+    toks = list(_LEXER.lex(src))
+    # A base template has its js blocks inside its own script.
+    child = re.search(r"{%-?\s*extends\b", src) is not None
+    in_js = False
+    i = 0
+    while i < len(toks):
+        _, kind, val = toks[i]
+        if kind == "data":
+            out.append(val)
+        elif kind in ("variable_begin", "block_begin", "comment_begin"):
+            end = {"variable_begin": "variable_end", "block_begin": "block_end",
+                   "comment_begin": "comment_end"}[kind]
+            j, text = i, ""
+            while toks[j][1] != end:
+                text += toks[j][2]
+                j += 1
+            names = [t[2] for t in toks[i + 1:j] if t[1] == "name"]
+            first = names[:1]
+            if kind == "block_begin" and first == ["trans"]:
+                # swallow until the block that holds 'endtrans'
+                k = j + 1
+                while not (toks[k][1] == "block_begin" and [
+                        t[2] for t in toks[k + 1:k + 6] if t[1] == "name"][:1]
+                        == ["endtrans"]):
+                    text += toks[k][2]
+                    k += 1
+                while toks[k][1] != "block_end":
+                    text += toks[k][2]
+                    k += 1
+                j = k
+                sentinel = WRAPPED
+            elif kind == "block_begin" and first == ["block"] and child \
+                    and names[1:2] in (["js"], ["js_init"]):
+                # child templates have raw js in these blocks
+                sentinel, in_js = "<script>", True
+            elif kind == "block_begin" and first == ["endblock"] and in_js \
+                    and child:
+                sentinel, in_js = "</script>", False
+            else:
+                sentinel = {"variable_begin": EXPR, "block_begin": TAG,
+                            "comment_begin": ""}[kind]
+            out.append(sentinel + "\n" * text.count("\n"))
+            i = j
+        i += 1
+    return "".join(out)
+
+
+def _consts(node):
+    """Yield the string constants whose value can reach the page:
+    through conditionals, concatenation, filters, call args, containers."""
+    if isinstance(node, nodes.Const):
+        if isinstance(node.value, str):
+            yield node
+    elif isinstance(node, nodes.CondExpr):
+        yield from _consts(node.expr1)
+        if node.expr2 is not None:
+            yield from _consts(node.expr2)
+    elif isinstance(node, (nodes.Concat, nodes.Add)):
+        for n in node.iter_child_nodes():
+            yield from _consts(n)
+    elif isinstance(node, nodes.Mod):
+        yield from _consts(node.left)
+    elif isinstance(node, nodes.Filter):
+        if node.node is not None:
+            yield from _consts(node.node)
+    elif isinstance(node, nodes.Call):
+        callee = node.node
+        if isinstance(callee, nodes.Name) and (
+                callee.name in GETTEXT or callee.name in NON_TEXT_CALLS):
+            return                                   # wrapped, or a path
+        if isinstance(callee, nodes.Getattr) and callee.attr in {
+                "get", "format"}:
+            return
+        for a in node.args:
+            yield from _consts(a)
+        for keyword in node.kwargs:
+            yield from _consts(keyword.value)
+    elif isinstance(node, nodes.Getitem):
+        # ["a", "b"][i]
+        yield from _consts(node.node)
+    elif isinstance(node, (nodes.List, nodes.Tuple)):
+        for n in node.items:
+            yield from _consts(n)
+    elif isinstance(node, nodes.Dict):
+        for p in node.items:
+            yield from _consts(p.value)
+    elif isinstance(node, nodes.MarkSafeIfAutoescape):
+        yield from _consts(node.expr)
+
+
+def expr_literals(src: str):
+    """Yield the string literals that {{ }}, {% set %} or a macro call
+    print and that are not under gettext."""
+    tree = ENV.parse(src)
+    for out in tree.find_all(nodes.Output):
+        for child in out.nodes:
+            if not isinstance(child, nodes.TemplateData):
+                for c in _consts(child):
+                    yield c.lineno, "expr-literal", c.value
+    for a in tree.find_all(nodes.Assign):
+        for c in _consts(a.node):
+            yield c.lineno, "set-literal", c.value
+    for call in tree.find_all(nodes.CallBlock):
+        for a in call.call.args:
+            for c in _consts(a):
+                yield c.lineno, "macro-arg-literal", c.value
+    for m in tree.find_all(nodes.Macro):
+        for d in m.defaults:
+            for c in _consts(d):
+                yield c.lineno, "macro-default-literal", c.value
+    for loop in tree.find_all(nodes.For):
+        for c in _consts(loop.iter):
+            yield c.lineno, "for-literal", c.value
+
+
+class _Linter(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.findings, self.stack = [], []
+
+    def add(self, kind, text):
+        for sentinel in (WRAPPED, EXPR, TAG):
+            text = text.replace(sentinel, "")
+        text = " ".join(text.split())
+        if WORD.search(text):
+            self.findings.append((self.getpos()[0], kind, text))
+
+    def handle_starttag(self, tag, attrs):
+        self.stack.append(tag)
+        a = dict(attrs)
+        for name, val in attrs:
+            if val is None:
+                continue
+            if name in TEXT_ATTRS:
+                self.add("attr-" + name, val)
+            elif name == "value" and tag == "input" \
+                    and a.get("type") in ("submit", "button", "reset"):
+                self.add("attr-value", val)
+            elif name == "value" and tag == "input" \
+                    and a.get("type") in (None, "text", "hidden", "search"):
+                # a text that is posted or shown as the value of a field
+                prose = _is_prose(val)
+                if prose:
+                    self.add("attr-value-prose", prose)
+            elif name.startswith("on"):
+                self.event(val)
+
+    def event(self, val):
+        """Check an event attribute: a message of alert(), confirm()
+        or prompt(), a quoted prose literal of any call."""
+        said = set()
+        for m in re.finditer(
+                r"""\b(confirm|alert|prompt)\(\s*"""
+                r"""(?:(['"])(.*?)\2|([^)'"\s][^),]*))""", val):
+            if m.group(3) is not None:
+                said.add(m.group(3))
+                self.add("js-attr-" + m.group(1), m.group(3))
+            elif not re.search("[%s%s]" % (WRAPPED, EXPR), m.group(4)):
+                # a variable: its text is not under gettext
+                self.add("js-attr-" + m.group(1), m.group(4))
+        for _, _, text in script_literals(val):
+            if text not in said:
+                self.add("js-attr", text)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.stack.pop()
+
+    def handle_endtag(self, tag):
+        if tag in self.stack:
+            while self.stack and self.stack.pop() != tag:
+                pass
+
+    def handle_data(self, data):
+        # scripts have their own scan
+        if not (self.stack and self.stack[-1] in ("script", "style")):
+            # a {% %} tag splits a text: the two branches of a conditional
+            # are two texts, not one
+            for part in data.split(TAG):
+                self.add("text", part)
+
+
+def template_texts(src: str) -> list[tuple[int, str, str]]:
+    """Return the (line, kind, text) that the template shows outside
+    gettext."""
+    linter = _Linter()
+    linter.feed(skeleton(src))
+    found = linter.findings + list(expr_literals(src))
+    return [(line, kind, text) for line, kind, text in found
+            if WORD.search(text) and not is_symbols(text)
+            and not any(re.search(rule, text) for rule, _ in NOT_PROSE)]
+
+
+# ------------------------------------------------------------------ scripts
+_TOKEN = re.compile(
+    r"""//[^\n]*|/\*.*?\*/|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`""",
+    re.S)
+_SENTINELS = re.compile("[%s%s%s]" % (WRAPPED, EXPR, TAG))
+_URLISH = re.compile(r"^(?:[./#]|https?:|data:|mailto:)")
+# Script literals that are not prose although they look like it.
+JS_NOT_PROSE = {"use strict": "pragma", "Notification": "browser API name",
+                "Escape": "key name"}
+
+
+def _is_prose(literal: str) -> str | None:
+    """Return the text of the literal if it is prose, else None."""
+    text = re.sub(r"<[^>]*>", " ", literal)       # keep the text of html
+    text = _SENTINELS.sub(" ", text)
+    text = re.sub(r"&\w+;|\\[nrt]", " ", text)
+    text = " ".join(text.split())
+    if not WORD.search(text) or _URLISH.match(text):
+        return None
+    tokens = text.split()
+    # css classes, ids, files
+    if all(re.search(r"[-_\d]|\w\.\w", t) for t in tokens):
+        return None
+    if text in JS_NOT_PROSE or not re.search(r"[a-z]", text):
+        return None
+    # CamelCase identifier
+    if len(tokens) == 1 and re.search(r"[a-z][A-Z]|[A-Z]{2}", text):
+        return None
+    # identifier, key, event, extension
+    if " " not in text and not text[0].isupper():
+        return None
+    if "_" in text and " " not in text:
+        return None
+    return text
+
+
+# Where a literal is shown to the admin, whatever it looks like: a word
+# is a text there.
+_VISIBLE = re.compile(
+    r"(?:textContent|innerText|innerHTML|\.text|\.html|\.append|\.prepend"
+    r"|\.title|\.placeholder|alert|confirm|prompt"
+    r"|attr\(\s*['\"](?:title|placeholder|alt)['\"]\s*,)"
+    r"\s*(?:=|\()\s*(?:[^;\n]*?\+\s*)?$")
+
+
+def _visible_text(literal: str) -> str | None:
+    """Return the text of a literal that is shown, even a single
+    lowercase word."""
+    text = " ".join(re.sub(r"<[^>]*>|&\w+;", " ", _SENTINELS.sub(
+        " ", literal)).split())
+    return text if WORD.search(text) and text not in JS_NOT_PROSE else None
+
+
+def script_literals(js: str, first_line: int = 0) -> list[tuple[int, str, str]]:
+    """Return the (line, "literal", text) prose literals of a script."""
+    found = []
+    for m in _TOKEN.finditer(js):
+        token = m.group(0)
+        if token.startswith(("//", "/*")):
+            continue
+        prose = _is_prose(token[1:-1])
+        if not prose and _VISIBLE.search(js[max(0, m.start() - 80):m.start()]):
+            prose = _visible_text(token[1:-1])
+        if prose:
+            found.append(
+                (first_line + js.count("\n", 0, m.start()) + 1, "literal",
+                 prose))
+    return found
+
+
+def inline_scripts(src: str):
+    """Yield (line, body) of every inline script of a template, with
+    the block js and js_init of the child templates."""
+    sk = skeleton(src)
+    for m in re.finditer(
+            r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", sk, re.S):
+        yield sk.count("\n", 0, m.start(1)), m.group(1)
+
+
+def script_texts(rel: str) -> list[tuple[int, str, str]]:
+    """Return the prose literals of a static script or of the inline
+    scripts of a template."""
+    if rel.endswith(".js"):
+        return script_literals(read(rel))
+    return [found for base, body in inline_scripts(read(rel))
+            for found in script_literals(body, base)]
+
+
+# ------------------------------------------------------------------- python
+WRAPPERS = {"_", "n_", "gettext", "ngettext", "N_", "Nn_"}
+RAISED = {"ValueError", "KeyError", "AssertionError", "Exception",
+          "RuntimeError"}
+
+
+def _callee(node):
+    f = node.func
+    return f.id if isinstance(f, ast.Name) \
+        else f.attr if isinstance(f, ast.Attribute) else None
+
+
+def _classify(node):
+    """Return ("wrapped" | "literal" | "empty" | "dynamic", text) for
+    the expression that becomes text."""
+    if isinstance(node, ast.Call):
+        name = _callee(node)
+        if name in WRAPPERS:
+            return "wrapped", None
+        if name == "format" and isinstance(node.func, ast.Attribute):
+            return _classify(node.func.value)
+        return "dynamic", None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return ("literal", node.value) if WORD.search(node.value) \
+            else ("empty", None)
+    if isinstance(node, ast.JoinedStr):
+        txt = "".join(v.value for v in node.values
+                      if isinstance(v, ast.Constant))
+        return ("literal", txt) if WORD.search(txt) else ("dynamic", None)
+    if isinstance(node, ast.BinOp):
+        if isinstance(node.op, ast.Mod):
+            return _classify(node.left)
+        if isinstance(node.op, ast.Add):
+            for side in (node.left, node.right):
+                kind, text = _classify(side)
+                if kind in ("literal", "wrapped"):
+                    return kind, text
+    if isinstance(node, ast.IfExp):
+        for side in (node.body, node.orelse):
+            kind, text = _classify(side)
+            if kind == "literal":
+                return kind, text
+    return "dynamic", None
+
+
+def _unwrapped_constants(node):
+    """Yield the string constants under node, not looking inside N_()."""
+    if isinstance(node, ast.Call) and _callee(node) in WRAPPERS:
+        return
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        yield node.value
+    for child in ast.iter_child_nodes(node):
+        yield from _unwrapped_constants(child)
+
+
+def _literal_texts(node) -> list[str]:
+    """Return the prose literals that an expression can be: a string, a
+    formatted string, a conditional of them."""
+    kind, text = _classify(node)
+    return [text] if kind == "literal" else []
+
+
+def _helper_returns(module: str, name: str, index: int) -> list[str]:
+    """Return the prose literals that the function of the module returns
+    at the position of its returned tuple."""
+    try:
+        spec = importlib.util.find_spec(module)
+        tree = ast.parse(pathlib.Path(spec.origin).read_text(encoding="utf-8"))
+    except (ImportError, ValueError, AttributeError, OSError):
+        return []
+    found = []
+    for function in ast.walk(tree):
+        if isinstance(function, ast.FunctionDef) and function.name == name:
+            for node in ast.walk(function):
+                if isinstance(node, ast.Return) and node.value is not None:
+                    value = node.value
+                    if isinstance(value, ast.Tuple) and index < len(value.elts):
+                        value = value.elts[index]
+                    found += _literal_texts(value)
+    return found
+
+
+def _is_r_params_slot(target) -> bool:
+    """Return True for r_params[...] and self.r_params[...][...]: the
+    values that a handler gives to its template."""
+    if not isinstance(target, ast.Subscript):
+        return False
+    while isinstance(target, ast.Subscript):
+        target = target.value
+    return (isinstance(target, ast.Name) and target.id == "r_params") \
+        or (isinstance(target, ast.Attribute) and target.attr == "r_params")
+
+
+class _PythonVisitor(ast.NodeVisitor):
+    """Collect the texts that reach the admin without gettext.
+
+    Sinks: add_notification(ts, subject, text) (by position or keyword,
+    with a literal, or a name that was assigned a literal or the
+    result of an imported helper that returns literals), raise
+    ValueError and the like, and assert ..., text (in handlers);
+    self.write(text with spaces); a prose value of a dict in a handler
+    (the response of a request); a prose value assigned to
+    self.r_params[...] (the text the template shows); prose module or
+    class constants not wrapped in N_. HTTP error reasons are English on
+    purpose and are not sinks.
+
+    shortcut: a text built from variables, or assigned through more
+    than one step, is not seen. Upgrade if one slips through.
+
+    """
+
+    def __init__(self):
+        self.found = []
+        self.depth = 0
+        self.in_class_body = False
+        # name -> module of the helpers imported with "from m import f"
+        self.imported: dict[str, str] = {}
+        # the names of the current function: literals they were
+        # assigned, and (module, function, index) of a helper result
+        self.literals: dict[str, list[str]] = {}
+        self.results: dict[str, tuple[str, str, int]] = {}
+
+    def check(self, node, kind, expr):
+        kind_of, text = _classify(expr)
+        if kind_of == "literal":
+            self.found.append((node.lineno, kind, text))
+        elif isinstance(expr, ast.Name):
+            for text in self.literals.get(expr.id, []):
+                self.found.append((node.lineno, kind, text))
+            if expr.id in self.results:
+                module, name, index = self.results[expr.id]
+                for text in _helper_returns(module, name, index):
+                    self.found.append((node.lineno, "helper-return", text))
+
+    def _prose_dict(self, node):
+        """Check the values of a dict: a text that a response sends."""
+        for value in node.values:
+            for text in _literal_texts(value):
+                if " " in text.strip() or text[:1].isupper():
+                    self.found.append((value.lineno, "dict-text", text))
+
+    def visit_ImportFrom(self, node):
+        for alias in node.names:
+            self.imported[alias.asname or alias.name] = node.module or ""
+
+    def visit_Call(self, node):
+        name = _callee(node)
+        keywords = {k.arg: k.value for k in node.keywords}
+        if name == "add_notification":
+            args = list(node.args) + [None] * 3
+            subject = args[1] if len(node.args) >= 2 else keywords.get("subject")
+            text = args[2] if len(node.args) >= 3 else keywords.get("text")
+            for kind, expr in (("notification-subject", subject),
+                               ("notification-text", text)):
+                if expr is not None:
+                    self.check(node, kind, expr)
+        elif name in RAISED and node.args:
+            self.check(node, "exception-text", node.args[0])
+        elif name == "write" and node.args:
+            kind, text = _classify(node.args[0])
+            if kind == "literal" and " " in text.strip():
+                self.found.append((node.lineno, "write", text))
+        self.generic_visit(node)
+
+    def visit_Assert(self, node):
+        if node.msg is not None:
+            self.check(node, "assert-text", node.msg)
+        self.generic_visit(node)
+
+    def visit_Dict(self, node):
+        if self.depth:
+            self._prose_dict(node)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node):
+        if self.depth == 0 or self.in_class_body:
+            for v in _unwrapped_constants(node.value):
+                if " " in v.strip() and v[:1].isupper():
+                    self.found.append((node.lineno, "constant", v))
+        for target in node.targets:
+            if _is_r_params_slot(target):
+                for text in _literal_texts(node.value):
+                    if " " in text.strip() or text[:1].isupper():
+                        self.found.append((node.lineno, "r_params-text", text))
+        # remember what the names of the function are
+        for target in node.targets:
+            names = [target] if isinstance(target, ast.Name) else \
+                target.elts if isinstance(target, ast.Tuple) else []
+            for index, name in enumerate(names):
+                if not isinstance(name, ast.Name):
+                    continue
+                value = node.value
+                self.literals.setdefault(name.id, []).extend(
+                    _literal_texts(value))
+                if isinstance(value, ast.Call) \
+                        and isinstance(value.func, ast.Name) \
+                        and value.func.id in self.imported:
+                    self.results[name.id] = (
+                        self.imported[value.func.id], value.func.id,
+                        index if isinstance(target, ast.Tuple) else 0)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node):
+        outer = self.literals, self.results
+        self.literals, self.results = {}, {}
+        self.depth += 1
+        self.generic_visit(node)
+        self.depth -= 1
+        self.literals, self.results = outer
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_ClassDef(self, node):
+        old, self.in_class_body = self.in_class_body, True
+        self.generic_visit(node)
+        self.in_class_body = old
+
+
+def python_texts(src: str):
+    """Return the (line, kind, text) of the Python source that reach
+    the admin without gettext."""
+    visitor = _PythonVisitor()
+    visitor.visit(ast.parse(src))
+    return visitor.found
+
+
+# ------------------------------------------------------ formats and syntax
+_SPEC = re.compile(r"%(?:\(\w+\)[sdif]|[sdifr])")
+
+
+def _dummy_args(msgid):
+    """Arguments of the right type for every spec in msgid."""
+    plain = msgid.replace("%%", "")
+    named = re.findall(r"%\((\w+)\)([sdif])", plain)
+    if named:
+        return {n: (1 if t in "dif" else "x") for n, t in named}
+    return tuple(1 if t in "dif" else "x"
+                 for t in re.findall(r"%([sdifr])", plain))
+
+
+def _format_problem(msgid, has_mod):
+    """Why msgid is wrong for the way it is used, or None."""
+    if has_mod:
+        try:
+            msgid % _dummy_args(msgid)
+        except Exception as e:
+            return f"invalid format: {e}"
+    elif "%%" in msgid:
+        return "has %% but is never %-formatted: shows two percent signs"
+    return None
+
+
+def _unwrap(node):
+    return node.expr if isinstance(node, nodes.MarkSafeIfAutoescape) else node
+
+
+def template_problems(rel: str) -> list[str]:
+    """Return what is wrong with the template: it does not compile, or
+    a gettext msgid is not a valid format for its use."""
+    try:
+        ENV.get_template(rel.removeprefix("templates/"))
+        tree = ENV.parse(read(rel))
+    except Exception as e:
+        return [f"{rel}: {type(e).__name__}: {e}"]
+    out = []
+    mods = set()
+    # a trans block with variables is Mod(MarkSafeIfAutoescape(Call), Dict)
+    for mod in tree.find_all(nodes.Mod):
+        call = _unwrap(mod.left)
+        if isinstance(call, nodes.Call) and isinstance(call.node, nodes.Name) \
+                and call.node.name in GETTEXT and call.args \
+                and isinstance(call.args[0], nodes.Const):
+            mods.add(id(call))
+            msgid = call.args[0].value
+            if re.search(r"%%(?:\(\w+\))?[sdif]", msgid):
+                out.append((call.lineno, "printf typed inside a trans "
+                            "block that has variables", msgid))
+            problem = _format_problem(msgid, True)
+            if problem:
+                out.append((call.lineno, problem, msgid))
+    for call in tree.find_all(nodes.Call):
+        if isinstance(call.node, nodes.Name) and call.node.name in GETTEXT \
+                and call.args and isinstance(call.args[0], nodes.Const) \
+                and isinstance(call.args[0].value, str) \
+                and id(call) not in mods:
+            problem = _format_problem(call.args[0].value, False)
+            if problem:
+                out.append((call.lineno, problem, call.args[0].value))
+    return [f"{rel}:{line}: {problem}: {msgid!r}"
+            for line, problem, msgid in out]
+
+
+def python_problems(rel: str) -> list[str]:
+    """Return the gettext msgids of a Python file that are not a valid
+    format for their use."""
+    tree = ast.parse(read(rel))
+    out, mods = [], set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod):
+            call = n.left
+            if isinstance(call, ast.Call) and _callee(call) in GETTEXT \
+                    and call.args and isinstance(call.args[0], ast.Constant):
+                mods.add(id(call))
+                msgid = call.args[0].value
+                try:
+                    args = _dummy_args(msgid)
+                    if isinstance(n.right, ast.Tuple) \
+                            and isinstance(args, tuple) \
+                            and len(n.right.elts) != len(args):
+                        raise TypeError("%d specs, %d arguments" % (
+                            len(args), len(n.right.elts)))
+                    msgid % args
+                except Exception as e:
+                    out.append((call.lineno, f"invalid format: {e}", msgid))
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and _callee(n) in GETTEXT and n.args \
+                and isinstance(n.args[0], ast.Constant) \
+                and isinstance(n.args[0].value, str) and id(n) not in mods:
+            problem = _format_problem(n.args[0].value, False)
+            if problem:
+                out.append((n.lineno, problem, n.args[0].value))
+    return [f"{rel}:{line}: {problem}: {msgid!r}"
+            for line, problem, msgid in out]
+
+
+# --------------------------------------------------------------- the files
+def raw_findings(rel: str) -> list[tuple[int, str, str]]:
+    """Return the findings of the static checks for one file, before
+    the allow-list."""
+    if rel.endswith(".py"):
+        return python_texts(read(rel))
+    if rel.endswith(".js"):
+        return script_texts(rel)
+    return template_texts(read(rel))
+
+
+def known_texts(rel: str) -> set[str]:
+    """Return the texts that the static checks and the script scan
+    report for one file, before the allow-list."""
+    texts = {text for _, _, text in raw_findings(rel)}
+    if not rel.endswith(".py"):
+        texts |= {text for _, _, text in script_texts(rel)}
+    return texts
+
+
+def stale_entries(allow, known=known_texts) -> list[tuple[str, str]]:
+    """Return the entries of the allow-list that match no text of
+    their file (known maps a file to its texts)."""
+    return [(rel, text) for rel, text, _ in allow
+            if text not in known(rel)]
+
+
+def static_findings(rel: str) -> list[tuple[int, str, str]]:
+    """Return the findings of the static checks for one file, after the
+    allow-list."""
+    return [f for f in raw_findings(rel) if not allowed(rel, f[2])]
+
+
+def script_findings(rel: str) -> list[tuple[int, str, str]]:
+    """Return the findings of the script scan for a template or a
+    static script, after the allow-list."""
+    return [f for f in script_texts(rel) if not allowed(rel, f[2])]
+
+
+# ------------------------------------------------------------- pseudo render
+def _key(text: str) -> str:
+    """Return text without spaces, digits and the stand-in symbol, so a
+    text of the lint (a sentinel in place of the datum) and the same
+    text rendered (a number or a symbol) compare equal."""
+    return re.sub(r"[\s\d" + aws_render.SYMBOL + "]+", "", text)
+
+
+def _strings(value, seen=None):
+    """Yield the strings of a grading object: names, descriptions and
+    choices of a parameter, however nested."""
+    seen = set() if seen is None else seen
+    if isinstance(value, str):
+        yield value
+    elif id(value) not in seen:
+        seen.add(id(value))
+        if isinstance(value, dict):
+            value = [*value.keys(), *value.values()]
+        elif hasattr(value, "__dict__"):
+            value = vars(value).values()
+        if isinstance(value, (list, tuple)) or hasattr(value, "__iter__") \
+                and not isinstance(value, (bytes, type)):
+            for item in value:
+                yield from _strings(item, seen)
+
+
+def grading_texts() -> set[str]:
+    """Return the texts that come from cms/grading and are not
+    translated: names of the task types, score types and languages, and
+    the names, descriptions and choices of their parameters."""
+    texts = set(TASK_TYPES) | set(SCORE_TYPES) \
+        | {language.name for language in LANGUAGES}
+    for task_type in TASK_TYPES.values():
+        texts |= set(_strings(task_type.ACCEPTED_PARAMETERS))
+    return {_key(text) for text in texts if text}
+
+
+def english_left(page: str) -> list[str]:
+    """Return the English texts left on the page rendered in the
+    pseudo-locale.
+
+    Not counted: the texts of cms/grading and the allow-list.
+
+    page: the template of the page.
+
+    """
+    allowed_here = {_key(t) for p, t, _ in PSEUDO_ALLOW if p in ("*", page)}
+    skip = allowed_here | grading_texts()
+    left = []
+    for html in aws_render.renders(page, aws_render.PSEUDO):
+        left += [text for _, _, text in aws_render.english_left(html)
+                 if _key(text) not in skip and text not in left]
+    return left

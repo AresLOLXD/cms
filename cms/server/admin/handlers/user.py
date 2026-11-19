@@ -91,14 +91,14 @@ class UserHandler(BaseHandler):
             self.get_string(attrs, "timezone", empty=None)
 
             assert attrs.get("username") is not None, \
-                "No username specified."
+                self._("No username specified.")
 
             # Update the user.
             user.set_attrs(attrs)
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -137,7 +137,8 @@ class TeamListHandler(SimpleHandler("teams.html")):
             self.redirect(asking_page)
         else:
             self.service.add_notification(
-                make_datetime(), "Invalid operation %s" % operation, ""
+                make_datetime(), self._("Invalid operation %s") % operation,
+                ""
             )
             self.redirect(self.url("contests"))
 
@@ -230,7 +231,7 @@ class RemoveTeamHandler(BaseHandler):
                 self.schedule_rpc(self.service.proxy_service.reinitialize)
         except Exception as fallback_error:
             self.service.add_notification(
-                make_datetime(), "Error removing team",
+                make_datetime(), self._("Error removing team"),
                 describe_error(fallback_error)
             )
 
@@ -273,14 +274,14 @@ class TeamHandler(BaseHandler):
             self.get_string(attrs, "name")
 
             assert attrs.get("code") is not None, \
-                "No team code specified."
+                self._("No team code specified.")
 
             # Update the team.
             team.set_attrs(attrs)
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -306,7 +307,7 @@ class AddTeamHandler(SimpleHandler("add_team.html", permission_all=True)):
             self.get_string(attrs, "name")
 
             assert attrs.get("code") is not None, \
-                "No team code specified."
+                self._("No team code specified.")
 
             # Create the team.
             team = Team(**attrs)
@@ -314,7 +315,7 @@ class AddTeamHandler(SimpleHandler("add_team.html", permission_all=True)):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -347,7 +348,7 @@ class AddUserHandler(SimpleHandler("add_user.html", permission_all=True)):
             self.get_string(attrs, "email", empty=None)
 
             assert attrs.get("username") is not None, \
-                "No username specified."
+                self._("No username specified.")
 
             self.get_string(attrs, "timezone", empty=None)
 
@@ -359,7 +360,7 @@ class AddUserHandler(SimpleHandler("add_user.html", permission_all=True)):
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -382,10 +383,11 @@ class AddParticipationHandler(BaseHandler):
 
         try:
             contest_id: str = self.get_argument("contest_id")
-            assert contest_id != "null", "Please select a valid contest"
+            assert contest_id != "null", \
+                self._("Please select a valid contest")
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -425,13 +427,14 @@ class EditParticipationHandler(BaseHandler):
         try:
             contest_id: str = self.get_argument("contest_id")
             operation: str = self.get_argument("operation")
-            assert contest_id != "null", "Please select a valid contest"
+            assert contest_id != "null", \
+                self._("Please select a valid contest")
             assert operation in (
                 "Remove",
-            ), "Please select a valid operation"
+            ), self._("Please select a valid operation")
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -488,14 +491,15 @@ class GroupListHandler(SimpleContestHandler("groups.html")):
                 return
             else:
                 self.service.add_notification(
-                    make_datetime(), "Invalid operation", 
-                    f"I do not understand the operation `{operation}'")
+                    make_datetime(), self._("Invalid operation"),
+                    self._("I do not understand the operation `%s'")
+                    % operation)
                 self.redirect(fallback_page)
                 return
 
         except Exception as error:
             self.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -503,17 +507,21 @@ class GroupListHandler(SimpleContestHandler("groups.html")):
         # disallow deleting non-empty groups
         if len(group.participations) != 0:
             self.application.service.add_notification(
-                make_datetime(), "Cannot delete group containing users",
-                f"The group `{group.name}' contains "
-                f"{len(group.participations)} users")
+                make_datetime(),
+                self._("Cannot delete group containing users"),
+                self.n_("The group `%(name)s' contains %(count)d users",
+                        "The group `%(name)s' contains %(count)d users",
+                        len(group.participations))
+                % {"name": group.name, "count": len(group.participations)})
             return
 
         # disallow deleting the main_group of the contest
         if contest.main_group_id == group.id:
             self.application.service.add_notification(
-                make_datetime(), f"Cannot delete a contest's main group.",
-                f"To delete '{group.name}', change the main group of "
-                f"the contest first to another group.")
+                make_datetime(),
+                self._("Cannot delete a contest's main group."),
+                self._("To delete '%s', change the main group of "
+                       "the contest first to another group.") % group.name)
             return
 
         self.sql_session.delete(group)
@@ -538,7 +546,7 @@ class AddGroupHandler(BaseHandler):
             self.get_string(attrs, "name")
 
             assert attrs.get("name") is not None, \
-                "No name specified."
+                self._("No name specified.")
 
             attrs["contest"] = self.safe_get_item(Contest, contest_id)
             
@@ -553,7 +561,7 @@ class AddGroupHandler(BaseHandler):
 
         except Exception as error:
             self.application.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
@@ -600,7 +608,7 @@ class GroupHandler(BaseHandler):
             self.get_string(attrs, "name", empty=None)
 
             assert attrs.get("name") is not None, \
-                "No group name specified."
+                self._("No group name specified.")
 
             # Update the group.
             group.name = attrs["name"]
@@ -608,7 +616,7 @@ class GroupHandler(BaseHandler):
 
         except Exception as error:
             self.application.service.add_notification(
-                make_datetime(), "Invalid field(s)", repr(error))
+                make_datetime(), self._("Invalid field(s)"), repr(error))
             self.redirect(fallback_page)
             return
 
