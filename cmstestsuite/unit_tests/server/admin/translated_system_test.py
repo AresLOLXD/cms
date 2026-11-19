@@ -107,7 +107,8 @@ class TestAdminPages(unittest.TestCase):
         edit = render_core("admin.html", SPANISH, admin_being_edited=ADMIN)
 
         for text in ("Nuevo admin", "Información del admin",
-                     'value="Crear"', 'value="Limpiar"', "<td>Contraseña</td>",
+                     'value="Crear"', 'value="Restablecer"',
+                     "<td>Contraseña</td>",
                      "<td>Activado</td>", "<td>Permisos de mensajería</td>"):
             self.assertIn(text, new)
         for text in ('value="Actualizar"', "Borrar este admin",
@@ -278,7 +279,10 @@ const context = {
     clearInterval: () => {},
     asked: [],
 };
-context.confirm = (question) => { context.asked.push(question); return false; };
+context.confirm = (question) => {
+    context.asked.push(question);
+    return false;
+};
 vm.createContext(context);
 vm.runInContext(scriptText, context);
 process.stdout.write(JSON.stringify(vm.runInContext(scenario, context)));
@@ -402,8 +406,9 @@ class TestOverviewScript(unittest.TestCase):
         self.assertIn("La cola está vacía.", shown["queue"])
         self.assertIn("No se encontraron workers.", shown["no_workers"])
         self.assertIn("No hay entradas de registro.", shown["logs"])
-        self.assertEqual(shown["title"],
-                         "Estado de los workers (1 conectados, 2 configurados)")
+        self.assertEqual(
+            shown["title"],
+            "Estado de los workers (conectados: 1, configurados: 2)")
         self.assertIn("<td>job:a y 2 más</td>", shown["workers"])
         self.assertIn(">Sí</td>", shown["workers"])
         self.assertIn(">Desactivar</button>", shown["workers"])

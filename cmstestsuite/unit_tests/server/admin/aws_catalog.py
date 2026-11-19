@@ -69,6 +69,8 @@ MAIN_TERMS = [
     ("los participantes.", "los concursantes."),
     ("Un username por línea, o un CSV cuya primera columna sea el username.",
      "Un usuario por línea, o un CSV cuya primera columna sea el usuario."),
+    ("La importación cifra las", "La importación calcula el hash de las"),
+    ("(cifradas o en texto", "(con hash o en texto"),
 ]
 
 

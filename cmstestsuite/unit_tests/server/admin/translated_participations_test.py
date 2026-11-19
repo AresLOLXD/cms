@@ -313,7 +313,7 @@ class TestParticipationPageInSpanish(unittest.TestCase):
                 "vacía, se usa la contraseña principal del concursante.",
                 "Lista separada por comas de las direcciones IP",
                 "Hora del primer inicio de sesión en este concurso",
-                "Enviar", "Actualizar", "Limpiar"):
+                "Enviar", "Actualizar", "Restablecer"):
             self.assertIn(expected, tooltips)
         for english in ("Participation of", "Messages", "Subject:"):
             self.assertNotIn(english, text)

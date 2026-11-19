@@ -122,7 +122,7 @@ class TestUsersPagesInSpanish(unittest.TestCase):
         text = page("add_user.html", SPANISH)
 
         for expected in ("Nuevo usuario", "Correo electrónico",
-                         "Texto plano", "Con hash (bcrypt)", "Limpiar"):
+                         "Texto plano", "Con hash (bcrypt)", "Restablecer"):
             self.assertIn(expected, text)
         self.assertNotIn("New user", text)
 
@@ -173,7 +173,7 @@ class TestUsersPagesInSpanish(unittest.TestCase):
         self.assertNotIn("Teams list", text)
 
         text = page("team.html", SPANISH, team=team, admin=admin)
-        for expected in ("Información general", "Actualizar", "Limpiar"):
+        for expected in ("Información general", "Actualizar", "Restablecer"):
             self.assertIn(expected, text)
 
         text = page("add_team.html", SPANISH)

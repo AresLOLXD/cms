@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-16 12:44-0600\n"
+"POT-Creation-Date: 2026-11-19 11:25-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -700,10 +700,10 @@ msgid "The task \"%(name)s\" has been rejudged and the score on your submissions
 msgstr "Se reevaluó el problema «%(name)s» y se actualizó el puntaje de tus envíos."
 
 msgid "Activate!"
-msgstr "¡Activar!"
+msgstr "Activar"
 
 msgid "Abort!"
-msgstr "¡Abortar!"
+msgstr "Cancelar"
 
 msgid "New admin"
 msgstr "Nuevo admin"
@@ -715,7 +715,7 @@ msgid "Create"
 msgstr "Crear"
 
 msgid "Reset"
-msgstr "Limpiar"
+msgstr "Restablecer"
 
 msgid "Upload attachment"
 msgstr "Subir adjunto"
@@ -982,8 +982,8 @@ msgstr "Agregar anuncio"
 msgid "Remove"
 msgstr "Quitar"
 
-msgid "&lt;unknown&gt;"
-msgstr "&lt;desconocido&gt;"
+msgid "<unknown>"
+msgstr "<desconocido>"
 
 #, python-format
 msgid "By: %(name)s"
@@ -1732,7 +1732,7 @@ msgid "Empty or unassigned: the participation is left without a team / in the ma
 msgstr "Vacío o sin asignar: la participación se queda sin equipo / en el grupo principal."
 
 msgid "The import hashes the passwords and can take 20 to 40 s for every 300 contestants."
-msgstr "La importación cifra las contraseñas y puede tardar de 20 a 40 s por cada 300 concursantes."
+msgstr "La importación calcula el hash de las contraseñas y puede tardar de 20 a 40 s por cada 300 concursantes."
 
 msgid "Only validate"
 msgstr "Solo validar"
@@ -1789,7 +1789,7 @@ msgid "Download a <code>.zip</code> file with the contests you choose: the same 
 msgstr "Descarga un archivo <code>.zip</code> con los concursos que elijas: el mismo contenido y formato que genera <code>cmsDumpExporter</code>, que se reimporta sin cambios con <code>cmsDumpImporter</code>."
 
 msgid "The file contains the users' passwords (hashed or in plain text, as they are stored) and all the submissions: treat it as confidential information. Only admins with all the permissions can export and download."
-msgstr "El archivo contiene las contraseñas de los usuarios (cifradas o en texto plano, según estén guardadas) y todos los envíos: trátalo como información confidencial. Solo los administradores con todos los permisos pueden exportar y descargar."
+msgstr "El archivo contiene las contraseñas de los usuarios (con hash o en texto plano, según estén guardadas) y todos los envíos: trátalo como información confidencial. Solo los administradores con todos los permisos pueden exportar y descargar."
 
 msgid "The dump may include more than you choose: <code>cmsDumpExporter</code> also exports the users of those contests and all the contests they take part in. It does not include the ranking groups or the activity log of the participants."
 msgstr "El volcado puede incluir más de lo que eliges: <code>cmsDumpExporter</code> también exporta los usuarios de esos concursos y todos los concursos en los que participan. No incluye los grupos de ranking ni el registro de actividad de los concursantes."
@@ -2117,7 +2117,7 @@ msgid "Claim"
 msgstr "Tomar"
 
 msgid "Unclaim"
-msgstr "Soltar"
+msgstr "Liberar"
 
 msgid "Ignore"
 msgstr "Ignorar"
@@ -2214,7 +2214,7 @@ msgstr "Desactivar"
 
 #, python-format
 msgid "Workers status (%(connected)s connected, %(configured)s configured)"
-msgstr "Estado de los workers (%(connected)s conectados, %(configured)s configurados)"
+msgstr "Estado de los workers (conectados: %(connected)s, configurados: %(configured)s)"
 
 msgid "No log entries."
 msgstr "No hay entradas de registro."
@@ -2365,9 +2365,6 @@ msgstr "Mensajes"
 
 msgid "Send"
 msgstr "Enviar"
-
-msgid "<unknown>"
-msgstr "<desconocido>"
 
 #, python-format
 msgid "By: %(admin_name)s"
@@ -2615,7 +2612,7 @@ msgid "Files"
 msgstr "Archivos"
 
 msgid "Language"
-msgstr "Idioma"
+msgstr "Lenguaje"
 
 msgid "Token"
 msgstr "Token"

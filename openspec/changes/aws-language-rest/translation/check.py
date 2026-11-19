@@ -26,6 +26,8 @@ PLACEHOLDER_RE = re.compile(
 TAG_RE = re.compile(r"</?\w+[^>]*>")
 ENTITY_RE = re.compile(r"&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 TERMINALS = ".:?!…"
+# Button labels that lose their "!" on purpose (owner decision, wave 2 review).
+NO_BANG_BUTTONS = {"Activate!", "Abort!"}
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
 # A ? or ! that ends a sentence: before a space, a closing mark, a tag
 # or the end.
@@ -176,7 +178,7 @@ def check_form(source, target):
     # A dot before a letter is a file extension (" .zip"), not punctuation.
     if SPACE_BEFORE_RE.search(target) and not SPACE_BEFORE_RE.search(source):
         problems.append(("SPACE", "space before punctuation"))
-    if terminal(source) != terminal(target):
+    if terminal(source) != terminal(target) and source not in NO_BANG_BUTTONS:
         problems.append(("PUNCT-END", f"source ends {terminal(source)!r}, translation {terminal(target)!r}"))
     bare = TAG_RE.sub("", target)
     for mark, end_re, opening, name in (

@@ -98,7 +98,7 @@ from one list; a row that is missing from the JSON is not checked.
 | 27 | answer | respuesta | cms.po |
 | 28 | statement | enunciado | cms.po, manual |
 | 29 | attachment | adjunto | cms.po |
-| 30 | language (interface) | idioma | aws.po "Idioma" |
+| 30 | language (interface) | idioma | aws.po. The bare msgid "Language" is "Lenguaje" (owner decision, wave 2 review: its visible uses are the programming-language rows) |
 | 31 | programming language | lenguaje de programación | manual, cms.po. Never "idioma" for a programming language |
 | 32 | worker | worker (unchanged) | manual |
 | 33 | queue | cola | manual |
@@ -177,7 +177,7 @@ from one list; a row that is missing from the JSON is not checked.
 | 106 | edit | editar | aws.po |
 | 107 | delete (destroy) | borrar | aws.po. Never eliminar. DECIDED |
 | 108 | remove (detach) | quitar | aws.po. Quitar = detach a link, Borrar = destroy. A msgid with its own effect is translated by it (see the top of this guide) |
-| 109 | reset (clear a form) | limpiar | CONFLICT. cms.po says Borrar. DECIDED limpiar: it clears the form, it deletes nothing |
+| 109 | reset (put back the saved values) | restablecer | CONFLICT. cms.po says Borrar. DECIDED restablecer (owner, wave 2 review): type=reset puts back the saved values, it clears and deletes nothing. "Clear" (the activity filter) stays limpiar |
 | 110 | review | revisar | aws.po |
 | 111 | validate | validar | aws.po "Solo validar" |
 | 112 | preview | vista previa | aws.po |
@@ -197,7 +197,7 @@ from one list; a row that is missing from the JSON is not checked.
 | 126 | schedule | programación | manual |
 | 127 | window (time window) | ventana | manual |
 | 128 | plain text | texto plano | aws.po |
-| 129 | hash (passwords) | cifrar (verb); "con hash", "guardada como hash" (noun) | aws.po. A hash is not encryption: "Hashed (bcrypt)" is "Con hash (bcrypt)" |
+| 129 | hash (passwords) | "calcular el hash" (verb); "con hash", "guardada como hash" (noun) | aws.po. A hash is not encryption: "Hashed (bcrypt)" is "Con hash (bcrypt)" |
 | 130 | confidential | confidencial | aws.po |
 | 131 | theme | tema | aws.po |
 | 132 | system (theme) | sistema | aws.po |

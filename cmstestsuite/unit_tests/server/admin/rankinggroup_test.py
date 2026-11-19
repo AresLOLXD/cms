@@ -1541,7 +1541,7 @@ class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
                      "Contraseña de staff", "(sin definir)",
                      "Quitar la contraseña de staff",
                      "Concursos de este grupo", 'value="Actualizar"',
-                     'value="Limpiar"', ">Borrar grupo</button>"):
+                     'value="Restablecer"', ">Borrar grupo</button>"):
             self.assertIn(text, group_page)
         for text in ("Grupos de ranking", "Regenerar un ranking",
                      "Ranking raíz (<code>/</code>)", 'value="Regenerar"',

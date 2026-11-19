@@ -128,7 +128,7 @@ class TestDatasetPages(unittest.TestCase):
                      "Cambiar a este dataset provocará los siguientes "
                      "cambios:", "Puntaje público:", "(con token)",
                      "[Todos los usuarios]", "Asunto:", "Texto:",
-                     'value="¡Activar!"', 'value="¡Abortar!"'):
+                     'value="Activar"', 'value="Cancelar"'):
             self.assertIn(text, html)
         self.assertNotIn("Preview dataset", html)
 

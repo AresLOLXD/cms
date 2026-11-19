@@ -16050,10 +16050,10 @@
    "text: §",
    "text: §",
    "text: §",
-   "text: <unknown>",
    "text: By: §",
    "text: No announcements.",
-   "lit: text"
+   "lit: text",
+   "lit: <unknown>"
   ],
   "templates/base.html": [
    "text: Admin",
@@ -16764,7 +16764,6 @@
    "text: §",
    "text: Reply: §",
    "text: §",
-   "text: <unknown>",
    "text: Reply from: §",
    "text: Not yet replied.",
    "text: Ignored by: §",
@@ -16794,7 +16793,8 @@
    "text: §",
    "lit: answered",
    "lit: ignored",
-   "lit: reply_question_text"
+   "lit: reply_question_text",
+   "lit: <unknown>"
   ],
   "templates/macro/reevaluation_buttons.html": [
    "title: Compilation",

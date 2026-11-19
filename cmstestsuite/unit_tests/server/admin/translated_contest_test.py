@@ -298,7 +298,7 @@ class TestQuestionsInSpanish(unittest.TestCase):
             question(id=14, reply_timestamp=datetime(2026, 1, 1, 11),
                      reply_subject="Yes", reply_text="", admin=mine)))
 
-        for expected in ("Aún sin respuesta.", "Tomar", "Soltar",
+        for expected in ("Aún sin respuesta.", "Tomar", "Liberar",
                          "Ignorar", "Dejar de ignorar", "Responder",
                          "Editar respuesta", "Respuesta rápida:",
                          "Respuesta alternativa:", "Otra",
