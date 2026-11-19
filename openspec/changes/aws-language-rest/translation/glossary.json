@@ -60,7 +60,7 @@
     {"en": "password", "es": "contraseña", "en_re": "\\bpasswords?\\b", "accept": ["contrase[ñn]as?"], "source": "aws.po; cms.po leaves Password in English. DECIDED contraseña"},
     {"en": "password of the day", "es": "contraseña del día", "en_re": "\\bpassword of the day\\b", "accept": ["contrase[ñn]a del d[ií]a"], "source": "aws.po"},
     {"en": "log in / Login", "es": "iniciar sesión", "en_re": "\\blog ?in\\b", "accept": ["inici(?:ar|a) sesi[oó]n", "inicio de sesi[oó]n"], "forbid": ["\\bAcceder\\b"], "source": "aws.po; cms.po says Acceder. DECIDED iniciar sesión; wave 2: the noun 'login' is 'inicio de sesión' (Hora del primer inicio de sesión)"},
-    {"en": "log out / Logout", "es": "cerrar sesión", "en_re": "\\blog ?out\\b", "accept": ["cerr\\w* (?:la )?sesi[oó]n", "cierr\\w* (?:la )?sesi[oó]n"], "forbid": ["\\bSalir\\b"], "source": "cms.po says Salir (ambiguous). DECIDED cerrar sesión"},
+    {"en": "log out / Logout", "es": "cerrar sesión", "en_re": "\\blog ?out\\b", "accept": ["cerr\\w* (?:la )?sesi[oó]n", "cierr\\w* (?:la )?sesi[oó]n", "cierre de sesi[oó]n"], "forbid": ["\\bSalir\\b"], "source": "cms.po says Salir (ambiguous). DECIDED cerrar sesión"},
     {"en": "name", "es": "nombre", "en_re": "\\bnames?\\b", "accept": ["nombre"], "exempt": "\\b(?:first|last) names?\\b", "source": "aws.po"},
     {"en": "first name", "es": "nombre", "en_re": "\\bfirst names?\\b", "accept": ["nombre"], "source": "aws.po"},
     {"en": "last name", "es": "apellido", "en_re": "\\blast names?\\b", "accept": ["apellidos?"], "source": "aws.po"},

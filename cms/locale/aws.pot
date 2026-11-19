@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-19 12:01-0600\n"
+"POT-Creation-Date: 2026-11-19 12:03-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2055,6 +2055,21 @@ msgid "You are already logged in. <a href=\"%(logout_url)s\">Logout</a> or go to
 msgstr ""
 
 msgid "No device: an API client, or a browser that did not present the device cookie"
+msgstr ""
+
+msgid "login"
+msgstr ""
+
+msgid "resumed"
+msgstr ""
+
+msgid "logout"
+msgstr ""
+
+msgid "inactivity"
+msgstr ""
+
+msgid "active"
 msgstr ""
 
 msgid "Device"

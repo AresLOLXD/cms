@@ -210,6 +210,25 @@ def test_importer_messages_are_in_the_aws_catalog():
         + "\n  ".join(missing))
 
 
+def test_activity_values_are_in_the_aws_catalog():
+    # The activity tables print these values through the catalog (see
+    # macro/activity.html); a new one that has no msgid is shown in
+    # English in Spanish.
+    tree = ast.parse((ROOT / "cms" / "db" / "activity.py").read_text("utf-8"))
+    values = {
+        node.value.value for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and node.targets[0].id.startswith(("ACTIVITY_STARTED_BY_",
+                                           "ACTIVITY_END_"))}
+    assert values, "no activity value found"
+
+    missing = find_missing_messages(
+        values, _read_catalog(LOCALE_DIR / "aws.pot"))
+    assert not missing, f"aws.pot lacks the activity values {missing}"
+
+
 def test_both_catalogs_compile():
     # Scenario "Both catalogs compile" (aws-language): the build compiles the
     # domains listed in setup.cfg; each of them must compile for Spanish.

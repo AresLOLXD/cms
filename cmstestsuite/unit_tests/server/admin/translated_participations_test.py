@@ -263,6 +263,21 @@ class TestActivityInSpanish(unittest.TestCase):
                         "No device"):
             self.assertNotIn(english, text)
 
+    def test_the_activity_values_in_spanish(self):
+        # Scenario: A page group in Spanish (activity): the starter and
+        # the end of an interval are translated, an unknown value is not.
+        for ended, started, expected in (
+                ("logout", "login", "cierre de sesión inicio de sesión"),
+                ("inactivity", "resumed", "inactividad reanudado"),
+                ("active", "other", "en curso other")):
+            params = activity_params(
+                activity_end_reason=lambda logged_out, last_seen: ended)
+            params["activity_intervals"][0].started_by = started
+            text = page("contest_activity.html", SPANISH, **params,
+                        **macros(SPANISH, "activity", "pages"))
+
+            self.assertIn(expected, text)
+
     def test_the_empty_activity_page_in_spanish(self):
         # Scenario: A page group in Spanish (activity)
         text = page("contest_activity.html", SPANISH, **activity_params(

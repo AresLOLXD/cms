@@ -16767,7 +16767,12 @@
    "text: § / §",
    "text: §",
    "text: §",
-   "text: None."
+   "text: None.",
+   "lit: login",
+   "lit: resumed",
+   "lit: logout",
+   "lit: inactivity",
+   "lit: active"
   ],
   "templates/macro/markdown_input.html": [
    "br: ",
