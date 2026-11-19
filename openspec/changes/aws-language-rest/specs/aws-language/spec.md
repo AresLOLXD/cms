@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Every admin page follows the AWS language
-Every page of AWS, in each page group (chrome and sidebar, contest, task, dataset, submissions and user tests, users and teams and groups, participations and activity and ranking, system and admins), SHALL show its user-visible texts (text, titles, placeholders, alternative texts, button labels, confirmation questions, table headers, messages built by scripts) in the language chosen for the request, except for the documented exceptions: names and values that come from the data, language names, evaluation plugin names and parameters, and technical identifiers. With English chosen, the visible texts and the values a page posts SHALL be exactly what they were before this change.
+Every page of AWS SHALL show its user-visible texts (text, titles, placeholders, alternative texts, button labels, confirmation questions, table headers, messages built by scripts) in the language chosen for the request. The exceptions are names and values that come from the data, language names, evaluation plugin names and parameters, and technical identifiers. With English chosen, the visible texts and the values a page posts SHALL be what they were before this change.
 
 #### Scenario: A page group in Spanish
 - **WHEN** a page of any group is requested with Spanish chosen
@@ -90,3 +90,29 @@ The build SHALL compile the AWS catalog together with the contestant-site catalo
 #### Scenario: Spanish register
 - **WHEN** a Spanish message uses the formal register, three dots instead of the ellipsis character, an unpaired inverted mark, or loses a placeholder or a markup tag of its English message
 - **THEN** the check fails and lists it
+
+### Requirement: The first pages are translated end to end
+The login page, the error page, the language selector and the theme switch SHALL be fully available in Spanish and in English. The other AWS pages are covered by the requirement that every admin page follows the AWS language.
+
+#### Scenario: The login page in Spanish
+- **WHEN** the login page is requested with Spanish chosen
+- **THEN** its texts and the theme and language selectors are in Spanish
+
+#### Scenario: The error page in Spanish
+- **WHEN** an error page is shown with Spanish chosen
+- **THEN** its title and text are in Spanish
+
+### Requirement: The Spanish-only pages follow the page language
+The ranking group pages, the bulk removal pages, the users CSV import pages and the contests export pages SHALL show all of their texts, including tooltips, button labels, confirmation questions, table headers, previews and error messages, in the language chosen for the request. Their Spanish SHALL be the text that they showed before this change, except for the wording that the style guide replaced (the pairs of `MAIN_TERMS` in `aws_catalog.py`, for example «fase de análisis» for «modo de análisis» and «user tests» for «pruebas de usuario»).
+
+#### Scenario: A page in English
+- **WHEN** one of these pages is requested with English chosen
+- **THEN** its texts are in English
+
+#### Scenario: A page in Spanish
+- **WHEN** the same page is requested with Spanish chosen
+- **THEN** its texts are the Spanish texts that the page showed before this change, with the terms of the style guide in place of the replaced wording
+
+#### Scenario: Ranking group state in both languages
+- **WHEN** the ranking group page shows a hidden, frozen, visible or archived group
+- **THEN** the state summary, the archive summary and the action buttons are in the chosen language

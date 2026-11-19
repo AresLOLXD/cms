@@ -28,7 +28,7 @@
 
 ## 4. Final
 
-- [x] 4.1 Delete the markers, the English snapshot test and its data; switch `test_every_file_is_complete` on (Scenario "A page group in Spanish")
+- [x] 4.1 Delete the markers, the English snapshot test and its data; every file is then checked by `test_template_text_is_wrapped`, `test_script_literals_are_wrapped`, `test_python_texts_are_wrapped` and `test_pseudo_render_leaves_no_english` (Scenario "A page group in Spanish")
 - [x] 4.2 Docs: `docs/Localization.rst` (all AWS pages follow the language, the guards and what an upstream sync must do) and the contest-day section, with the Spanish `.po`
 - [ ] 4.3 Verification plan: CI mirror, functional tests, pseudo-render report, real AWS smoke, screenshots of 33 pages in both languages
 - [ ] 4.4 Whole-branch review, then archive
