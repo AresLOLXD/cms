@@ -48,7 +48,8 @@ class TestTranslatedPages(unittest.TestCase):
         # Scenario: The login page in Spanish
         html = spanish(login_page)
 
-        for text in ("Te damos la bienvenida", "Inicia sesión:", "Usuario",
+        for text in ("Te damos la bienvenida", "Inicia sesión:",
+                     "Nombre de usuario",
                      "Contraseña", "Iniciar sesión", "Restablecer",
                      "<title>Admin</title>",
                      'title="Tema"', 'title="Lenguaje"',

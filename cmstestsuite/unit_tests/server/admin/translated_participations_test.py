@@ -298,8 +298,8 @@ class TestRankingInSpanish(unittest.TestCase):
                     contest=SimpleNamespace(id=1, tasks=[], participations=[]),
                     show_teams=True)
 
-        for expected in ("Descarga en csv", "texto", "Usuario", "Equipo",
-                         "Total"):
+        for expected in ("Descarga en csv", "texto", "Nombre de usuario",
+                         "Usuario", "Equipo", "Total"):
             self.assertIn(expected, text)
         self.assertNotIn("Download as", text)
 

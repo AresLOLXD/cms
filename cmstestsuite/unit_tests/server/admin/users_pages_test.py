@@ -101,7 +101,7 @@ def new_terms(page: tuple[str, list[str]]) -> tuple[str, list[str]]:
 # The headers that main left in English and that the pages of today
 # translate (the users and the bulk removal pages only).
 HEADERS_OF_MAIN = [("Users list", "Lista de usuarios"),
-                   ("Username", "Usuario"), ("First name", "Nombre"),
+                   ("Username", "Nombre de usuario"), ("First name", "Nombre"),
                    ("Last name", "Apellido")]
 
 
@@ -111,7 +111,7 @@ ENGLISH_OF_CONTEST_USERS = [
     ("Users list", "Lista de usuarios"),
     ("Add a new user:", "Agrega un usuario nuevo:"),
     ("Select a new user", "Selecciona un usuario nuevo"),
-    ("Add user", "Agregar usuario"), ("Username", "Usuario"),
+    ("Add user", "Agregar usuario"), ("Username", "Nombre de usuario"),
     ("First name", "Nombre"), ("Last name", "Apellido"),
     ("Group", "Grupo")]
 

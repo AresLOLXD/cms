@@ -93,7 +93,8 @@ class TestAdminPages(unittest.TestCase):
         html = render_core("admins.html", SPANISH, admins=[ADMIN])
 
         for text in ("Lista de admins", "<th>Activado</th>",
-                     "<th>Usuario</th>", "<th>Todos los permisos</th>",
+                     "<th>Nombre de usuario</th>",
+                     "<th>Todos los permisos</th>",
                      "<th>Permisos de mensajería</th>",
                      "Agregar un admin nuevo",
                      "Los admins desactivados no pueden iniciar sesión.",

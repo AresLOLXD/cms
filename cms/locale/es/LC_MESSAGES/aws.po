@@ -901,7 +901,7 @@ msgid "Username of the contestant (used to log in)."
 msgstr "Usuario del concursante (sirve para iniciar sesión)."
 
 msgid "Username"
-msgstr "Usuario"
+msgstr "Nombre de usuario"
 
 msgid "Contestant password. Caution: stored in plain text."
 msgstr "Contraseña del concursante. Atención: se guarda en texto plano."
@@ -1481,7 +1481,7 @@ msgid "Intervals (%(count)s)"
 msgstr "Intervalos (%(count)s)"
 
 msgid "Username:"
-msgstr "Usuario:"
+msgstr "Nombre de usuario:"
 
 msgid "IP address or network:"
 msgstr "Dirección IP o red:"

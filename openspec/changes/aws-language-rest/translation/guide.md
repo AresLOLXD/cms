@@ -73,7 +73,7 @@ from one list; a row that is missing from the JSON is not checked.
 | 2 | contestant | concursante | manual glossary, aws.po. Replaces "participants" in the export help |
 | 3 | participation | participación | cms.po, aws.po |
 | 4 | user | usuario | CONFLICT. cms.po Username is "Nombre de usuario". DECIDED usuario |
-| 5 | username (prose, login label) | usuario | CONFLICT. aws.po translates it in 15 places but keeps it in one help text. DECIDED usuario. The literal key "(username)" stays |
+| 5 | username (prose) / Username (column and field label) | usuario / Nombre de usuario | The bare msgids "Username" and "Username:" are «Nombre de usuario» (owner, real-server verification: the ranking had two «Usuario» columns, and cms.po agrees). Prose says usuario. The literal key "(username)" stays |
 | 6 | user test | user tests (unchanged) | CONFLICT. Admin UI shows "User tests" in English; manual says prueba de usuario; cms.po says "tests provistos por el usuario". DECIDED to keep English, as the brief says |
 | 7 | team | equipo | aws.po, cms.po |
 | 8 | group | grupo | aws.po |

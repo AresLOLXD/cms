@@ -43,9 +43,9 @@ class TestFallback(unittest.TestCase):
             "Output is correct")
 
     def test_aws_wins_over_the_fallback(self):
-        # Both catalogs have "Username", with different Spanish.
-        self.assertEqual(SPANISH.gettext("Username"), "Usuario")
-        self.assertEqual(CMS_SPANISH.gettext("Username"), "Nombre de usuario")
+        # Both catalogs have "Logout", with different Spanish.
+        self.assertEqual(SPANISH.gettext("Logout"), "Cerrar sesión")
+        self.assertEqual(CMS_SPANISH.gettext("Logout"), "Salir")
 
     def test_unknown_messages_come_back_unchanged(self):
         self.assertEqual(SPANISH.gettext("No such message"), "No such message")
