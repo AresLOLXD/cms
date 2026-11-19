@@ -1,4 +1,3 @@
-{# aws-i18n: complete #}
 {% macro device(device_id) -%}
 {% if device_id is none %}<span title="{{ _("No device: an API client, or a browser that did not present the device cookie") }}">&mdash;</span>{% else %}<span title="{{ device_id }}">{{ (device_id|string)[:8] }}</span>{% endif %}
 {%- endmacro %}

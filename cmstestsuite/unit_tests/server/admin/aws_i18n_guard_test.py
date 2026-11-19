@@ -15,132 +15,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Guards of the AWS translation work (change aws-language-rest).
+"""Guards that every text of AWS goes through gettext.
 
-They need no database. A file is checked strictly when it carries the
-marker "aws-i18n: complete" (see aws_i18n_lint.py), or when the
-environment variable AWS_I18N_FILES lists it. Regenerate the English snapshot with
-"python -m cmstestsuite.unit_tests.server.admin.aws_snapshot" only on a
-tree whose English is the reference.
+They need no database. Every template, script and Python file of
+cms/server/admin is checked (see aws_i18n_lint.py). An English text
+that a change adds without gettext makes one of these tests fail:
+wrap it with _() or N_() and update the catalog, see
+docs/Localization.rst.
 
 """
-
-import difflib
-import json
 
 import pytest
 from jinja2 import nodes
 
+from cms.grading.ParameterTypes import ParameterTypeChoice
+from cms.grading.tasktypes import TASK_TYPES
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT
 from cmstestsuite.unit_tests.server.admin import aws_i18n_lint as lint
-from cmstestsuite.unit_tests.server.admin import aws_render, aws_snapshot
-
-
-# The pages that do not render in a mode: the stand-ins of the mode are
-# not data that the page can use. Pinned, so that a regenerated snapshot
-# cannot enshrine a new error silently.
-KNOWN_RENDER_ERRORS = {("submission.html", "empty"): "ValueError"}
-
-
-def _diff(name, kind, old, new):
-    return [f"{name} {kind}: {line}" for line in difflib.unified_diff(
-        [str(x) for x in old], [str(x) for x in new], "snapshot", "now",
-        lineterm="", n=0)]
-
-
-def _snapshot():
-    return json.loads(aws_snapshot.SNAPSHOT.read_text(encoding="utf-8"))
-
-
-def test_english_render_unchanged():
-    # Scenario "A page in English is unchanged" (aws-language): the
-    # visible texts, scripts and posted values of every page, in
-    # English, are those of the snapshot taken before any template
-    # changed (main 676a397b), in each mode.
-    snapshot = _snapshot()["rendered"]
-    unknown = sorted(set(aws_render.PAGES) - set(snapshot))
-    assert not unknown, (
-        f"pages {unknown} are not in the snapshot: a lane may not add a "
-        "page template (ask the coordinator)")
-    assert sorted(snapshot) == aws_render.PAGES
-
-    problems, errors = [], {}
-    for name, modes in snapshot.items():
-        assert sorted(modes) == sorted(aws_render.MODES)
-        for mode, old in modes.items():
-            new = aws_snapshot.rendered_page(name, mode)
-            if "error" in new:
-                errors[(name, mode)] = new["error"]
-            for kind in ("error", "texts", "posts"):
-                if old.get(kind) != new.get(kind):
-                    problems += _diff(f"{name} ({mode})", kind,
-                                      old.get(kind, []), new.get(kind, []))
-    assert errors == KNOWN_RENDER_ERRORS
-    assert not problems, "English changed:\n" + "\n".join(problems[:60])
-
-
-def test_english_static_unchanged():
-    # Scenario "A page in English is unchanged" (aws-language): the
-    # texts of every template and static script as written, with a
-    # trans block or a gettext call as its message, are those of the
-    # snapshot, whichever branch a rendering reaches.
-    snapshot = _snapshot()["static"]
-    unknown = sorted(set(lint.TEMPLATE_FILES + lint.SCRIPT_FILES)
-                     - set(snapshot))
-    assert not unknown, (
-        f"files {unknown} are not in the snapshot: a lane may not add a "
-        "template (ask the coordinator)")
-    problems = []
-    for rel, old in snapshot.items():
-        new = lint.static_records(rel)
-        if old != new:
-            problems += _diff(rel, "static", old, new)
-    assert not problems, "English changed:\n" + "\n".join(problems[:60])
-
-
-def test_the_snapshot_sees_what_it_promises():
-    # Scenario "A page in English is unchanged" (aws-language): wrapping
-    # a text leaves its record as it was; changing it, losing a space
-    # next to a tag, a <br> or the kind of a text does not.
-    plain = (
-        'Download as <a href="x">csv</a>.<br>\n'
-        '<p title="Tip">Hello,   {{ name }}!</p>\n'
-        '<input type="submit" value="Send">\n'
-        '<button>Go</button>\n'
-        '<textarea>  Raw\n text </textarea>\n'
-        '<a onclick="return confirm(\'Really?\');">x</a>\n'
-        '<script>var m = "Done here.";</script>\n'
-        '{{ "Remove" if a else "Add" }}')
-    wrapped = (
-        '{% trans %}Download as{% endtrans %} <a href="x">csv</a>.<br>\n'
-        '<p title="{{ _("Tip") }}">{% trans name=name %}Hello, {{ name }}!'
-        '{% endtrans %}</p>\n'
-        '<input type="submit" value="{{ _("Send") }}">\n'
-        '<button>{% trans %}Go{% endtrans %}</button>\n'
-        '<textarea>  Raw\n text </textarea>\n'
-        '<a onclick="return confirm({{ _("Really?")|tojson|forceescape }});">'
-        'x</a>\n'
-        '<script>var m = {{ _("Done here.")|tojson }};</script>\n'
-        '{{ _("Remove") if a else _("Add") }}')
-    record = lint.source_records(plain)
-    assert record == lint.source_records(wrapped)
-    assert "js: Done here." in record and "js-attr: Really?" in record
-    assert "label: Send" in record and "label: Go" in record
-    assert "textarea:   Raw\n text " in record
-    for change in (
-            ("Download as <a", "Download as<a"),
-            ("</a>.<br>", "</a>."),
-            ("Hello,", "Hi,"),
-            ('title="Tip"', 'placeholder="Tip"'),
-            ("Download as", "Download\u00a0as"),
-            ("Raw\n text", "Raw text"),
-            ("Really?", "Sure?"),
-            ("Done here.", "Done there."),
-            ('"Add"', '"Plus"')):
-        assert lint.source_records(plain.replace(*change)) != record, change
-    # What a person reflowing the html does not change.
-    assert lint.source_records(plain.replace(
-        "Hello,   ", "Hello,\n ")) == record
+from cmstestsuite.unit_tests.server.admin import aws_render
 
 
 def test_macro_imports_take_the_context():
@@ -156,11 +48,6 @@ def test_macro_imports_take_the_context():
     assert not bare, "imports without 'with context': " + ", ".join(bare)
 
 
-def _strict(rel):
-    if not lint.is_complete(rel):
-        pytest.skip("not complete yet")
-
-
 def _show(findings):
     return "\n".join(f"  line {line}: {kind}: {text[:90]!r}"
                      for line, kind, text in findings)
@@ -169,7 +56,6 @@ def _show(findings):
 @pytest.mark.parametrize("rel", lint.TEMPLATE_FILES)
 def test_template_text_is_wrapped(rel):
     # Scenario "A new untranslated text" (aws-language)
-    _strict(rel)
     findings = lint.static_findings(rel)
     assert not findings, f"{rel} has texts outside gettext:\n" \
         + _show(findings)
@@ -178,7 +64,6 @@ def test_template_text_is_wrapped(rel):
 @pytest.mark.parametrize("rel", lint.SCRIPT_FILES + lint.TEMPLATE_FILES)
 def test_script_literals_are_wrapped(rel):
     # Scenario "A new untranslated text" (aws-language)
-    _strict(rel)
     findings = lint.script_findings(rel)
     assert not findings, f"{rel} has script texts outside gettext:\n" \
         + _show(findings)
@@ -187,7 +72,6 @@ def test_script_literals_are_wrapped(rel):
 @pytest.mark.parametrize("rel", lint.PYTHON_FILES)
 def test_python_texts_are_wrapped(rel):
     # Scenario "A new untranslated text" (aws-language)
-    _strict(rel)
     findings = lint.static_findings(rel)
     assert not findings, f"{rel} has texts outside gettext:\n" \
         + _show(findings)
@@ -197,11 +81,29 @@ def test_python_texts_are_wrapped(rel):
 def test_pseudo_render_leaves_no_english(page):
     # Scenario "A page group in Spanish" (aws-language): with every
     # message marked as translated, a word that is left was never
-    # wrapped (or belongs to a file that is not checked yet).
-    _strict("templates/" + page)
-    complete = {rel for rel in lint.TEMPLATE_FILES if lint.is_complete(rel)}
-    left = lint.english_left(page, complete)
+    # wrapped.
+    left = lint.english_left(page)
     assert not left, f"{page} keeps English text: {left}"
+
+
+@pytest.mark.parametrize("page", aws_render.PAGES)
+def test_every_page_renders(page):
+    # A page that raises in every mode would escape the render guards.
+    assert list(aws_render.renders(page, aws_render.PSEUDO)), page
+
+
+def test_pseudo_render_ignores_installed_task_types(monkeypatch):
+    # A plugin such as cms_rekarel adds task types whose English
+    # parameter names are not ours: the guard must pass with them.
+    class PluginTask:
+        ACCEPTED_PARAMETERS = [ParameterTypeChoice(
+            "Strange grader mode", "mode", "A strange description.",
+            {"zz": "Zeta option"})]
+
+    monkeypatch.setitem(TASK_TYPES, "PluginTask", PluginTask)
+    shown = list(aws_render.renders("add_dataset.html", aws_render.PSEUDO))
+    assert any("Strange grader mode" in html for html in shown)
+    assert not lint.english_left("add_dataset.html")
 
 
 def test_templates_compile_and_formats_are_valid():
@@ -343,7 +245,11 @@ def test_the_guard_catches_what_it_promises(tmp_path, monkeypatch):
             ("r_params-text", "Bare %s params")]
 
 
-def test_every_file_is_complete():
-    # Skips until the last commit of the change turns it on for all.
-    pending = [rel for rel in lint.ALL_FILES if not lint.is_complete(rel)]
-    pytest.skip(f"switched on by the last commit: pending={len(pending)}")
+def test_every_script_is_checked():
+    # The templates and Python files are found on disk; the scripts are
+    # listed, so a new one must be added to SCRIPT_FILES. The vendored
+    # ones (jq, prism) are not ours.
+    on_disk = {str(f.relative_to(lint.ADMIN))
+               for f in (lint.ADMIN / "static").glob("*.js")
+               if f.name != "prism.js"}
+    assert on_disk == set(lint.SCRIPT_FILES)

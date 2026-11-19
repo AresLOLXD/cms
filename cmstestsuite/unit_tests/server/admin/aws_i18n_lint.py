@@ -31,17 +31,13 @@ kinds of check:
 - the pseudo-localization render of aws_render: every English word
   left on a page is a text nobody wrapped.
 
-A file is checked strictly when it carries the marker "aws-i18n:
-complete" (the first lines of a template or script, anywhere in a
-Python file) or when AWS_I18N_FILES lists it (comma separated, names
-relative to cms/server/admin, or to its templates directory for a
-template). The names in this module are relative to cms/server/admin.
+Every template, script and Python file of cms/server/admin is checked.
+The names in this module are relative to cms/server/admin.
 
 """
 
 import ast
 import importlib.util
-import os
 import pathlib
 import re
 from html.parser import HTMLParser
@@ -53,16 +49,10 @@ from cms.grading.scoretypes import SCORE_TYPES
 from cms.grading.tasktypes import TASK_TYPES
 from cms.server.admin.jinja2_toolbox import AWS_ENVIRONMENT as ENV
 from cmstestsuite.unit_tests.server.admin import aws_render
-from cmstestsuite.unit_tests.server.admin.aws_render import (
-    SYMBOL, TEXT_ATTRS, WORD)
+from cmstestsuite.unit_tests.server.admin.aws_render import TEXT_ATTRS, WORD
 
 
 ADMIN = aws_render.TEMPLATES.parent
-MARKER = re.compile(r"aws-i18n:\s*complete")
-EXTRA = {name if "/" in name or not name.endswith(".html")
-         else "templates/" + name
-         for name in filter(None, os.environ.get(
-             "AWS_I18N_FILES", "").split(","))}
 
 TEMPLATE_FILES = ["templates/" + name for name in aws_render.ALL_TEMPLATES]
 PYTHON_FILES = sorted(
@@ -93,8 +83,8 @@ def is_symbols(text: str) -> bool:
 
 
 # Intentional English that the checks would flag: (file, exact text,
-# reason). A lane asks the coordinator for an entry in its report. An
-# entry that matches nothing in a checked file fails the guard.
+# reason). An entry that matches nothing in a checked file fails the
+# guard.
 ALLOW = [
     ("handlers/base.py", "Invalid permission level %s.",
      "programmer error, never reaches an admin"),
@@ -180,16 +170,6 @@ def read(rel: str) -> str:
     return (ADMIN / rel).read_text(encoding="utf-8")
 
 
-def is_complete(rel: str) -> bool:
-    """Tell whether the file is checked strictly."""
-    if rel in EXTRA:
-        return True
-    text = read(rel)
-    if rel.endswith(".py"):
-        return bool(MARKER.search(text))
-    return bool(MARKER.search("".join(text.splitlines(True)[:3])))
-
-
 def allowed(rel: str, text: str) -> bool:
     return any(f == rel and t == text for f, t, _ in ALLOW)
 
@@ -206,73 +186,10 @@ NON_TEXT_CALLS = {"url", "static_url", "xsrf_form_html", "make_timestamp"}
 _LEXER = ENV.overlay(trim_blocks=False, lstrip_blocks=False)
 
 
-def _trans_text(tokens) -> str:
-    """Return the text of a trans block, as its msgid would show it: a
-    symbol for each variable, a tag where the plural form starts."""
-    out, skip = [], None
-    for _, kind, value in tokens:
-        if skip:
-            skip = None if kind == skip else skip
-        elif kind == "data":
-            out.append(value)
-        elif kind == "variable_begin":
-            out.append(SYMBOL)
-            skip = "variable_end"
-        elif kind == "block_begin":
-            out.append(aws_render.TAG)
-            skip = "block_end"
-    return "".join(out)
-
-
-_PRINTF = re.compile(r"%%|%(?:\(\w+\))?[-+#0-9.]*[sdif]")
-
-
-def _text_of(node):
-    """Return the messages that the expression prints as they are (a
-    string or a gettext call, under filters and %), and whether it is
-    json encoded; None for any other expression."""
-    as_json = False
-    while True:
-        if isinstance(node, nodes.MarkSafeIfAutoescape):
-            node = node.expr
-        elif isinstance(node, nodes.Filter) and node.node is not None:
-            as_json = as_json or node.name == "tojson"
-            node = node.node
-        elif isinstance(node, nodes.Mod):
-            node = node.left
-        else:
-            break
-    if isinstance(node, nodes.Const) and isinstance(node.value, str):
-        return [node.value], as_json
-    if isinstance(node, nodes.Call) and isinstance(node.node, nodes.Name) \
-            and node.node.name in GETTEXT:
-        found = [a.value for a in node.args[:2]
-                 if isinstance(a, nodes.Const) and isinstance(a.value, str)]
-        if found:
-            return found, as_json
-    return None
-
-
-def _put_message(subs: list, messages, as_json: bool) -> str:
-    """Return the numbered stand-in for the messages (see aws_render)."""
-    out = []
-    for message in messages:
-        subs.append(_PRINTF.sub(
-            lambda m: "%" if m.group() == "%%" else SYMBOL, message))
-        mark = "\ue006%d\ue007" if as_json else "\ue004%d\ue005"
-        out.append(mark % (len(subs) - 1))
-    return aws_render.TAG.join(out)
-
-
-def skeleton(src: str, subs: list | None = None) -> str:
+def skeleton(src: str) -> str:
     """Return the html with each jinja construct replaced by a sentinel
     (WRAPPED for a trans block, EXPR for {{ }}, TAG for {% %}), keeping
     the line numbers.
-
-    With a list in subs the skeleton is for the static snapshot: a trans
-    block, a string and a gettext call print their message (numbered
-    in subs, because it may hold quotes), so that wrapping a text does
-    not change the result and changing it does.
 
     """
     out = []
@@ -294,16 +211,14 @@ def skeleton(src: str, subs: list | None = None) -> str:
                 j += 1
             names = [t[2] for t in toks[i + 1:j] if t[1] == "name"]
             first = names[:1]
-            inner = None
             if kind == "block_begin" and first == ["trans"]:
                 # swallow until the block that holds 'endtrans'
-                start = k = j + 1
+                k = j + 1
                 while not (toks[k][1] == "block_begin" and [
                         t[2] for t in toks[k + 1:k + 6] if t[1] == "name"][:1]
                         == ["endtrans"]):
                     text += toks[k][2]
                     k += 1
-                inner = _trans_text(toks[start:k])
                 while toks[k][1] != "block_end":
                     text += toks[k][2]
                     k += 1
@@ -319,20 +234,7 @@ def skeleton(src: str, subs: list | None = None) -> str:
             else:
                 sentinel = {"variable_begin": EXPR, "block_begin": TAG,
                             "comment_begin": ""}[kind]
-            if subs is not None:
-                if inner is not None:
-                    sentinel = inner
-                elif kind == "variable_begin":
-                    expression = "".join(t[2] for t in toks[i + 1:j])
-                    try:
-                        found = _text_of(ENV.parse(
-                            "{{" + expression + "}}").body[0].nodes[0])
-                    except Exception:
-                        found = None
-                    if found:
-                        sentinel = _put_message(subs, *found)
-            out.append(sentinel + (
-                "\n" * text.count("\n") if subs is None else ""))
+            out.append(sentinel + "\n" * text.count("\n"))
             i = j
         i += 1
     return "".join(out)
@@ -408,30 +310,6 @@ def expr_literals(src: str):
     for loop in tree.find_all(nodes.For):
         for c in _consts(loop.iter):
             yield c.lineno, "for-literal", c.value
-
-
-def static_literals(src: str) -> list[str]:
-    """Return the string literals of the expressions that are not a text
-    on their own (a conditional, a macro argument, a {% set %}), with
-    the messages of the gettext calls too, as the static snapshot
-    records them."""
-    tree = ENV.parse(src)
-    found = []
-    for out in tree.find_all(nodes.Output):
-        found += [c for child in out.nodes
-                  if not isinstance(child, nodes.TemplateData)
-                  and _text_of(child) is None
-                  for c in _consts(child, True)]
-    for a in tree.find_all(nodes.Assign):
-        found += _consts(a.node, True)
-    for call in tree.find_all(nodes.CallBlock):
-        found += [c for a in call.call.args for c in _consts(a, True)]
-    for m in tree.find_all(nodes.Macro):
-        found += [c for d in m.defaults for c in _consts(d, True)]
-    for loop in tree.find_all(nodes.For):
-        found += _consts(loop.iter, True)
-    texts = (" ".join(_PRINTF.sub("", c.value).split()) for c in found)
-    return [text for text in texts if WORD.search(text)]
 
 
 class _Linter(HTMLParser):
@@ -580,36 +458,6 @@ def script_literals(js: str, first_line: int = 0) -> list[tuple[int, str, str]]:
                 (first_line + js.count("\n", 0, m.start()) + 1, "literal",
                  prose))
     return found
-
-
-def records(extractor) -> list[str]:
-    """Return what an extractor read as the records of the snapshot:
-    "kind: text" for each text, then the prose literals of the inline
-    scripts and of the event attributes."""
-    out = [f"{kind}: {text}" for _, kind, text in extractor.texts]
-    out += [f"js: {text}" for _, body in extractor.scripts
-            for _, _, text in script_literals(body)]
-    out += [f"js-attr: {text}" for _, _, value in extractor.events
-            for _, _, text in script_literals(value)]
-    return out
-
-
-def source_records(src: str) -> list[str]:
-    """Return the records of a template as written, whatever the data:
-    its texts (a trans block and a gettext call print their message),
-    scripts and literals, in order."""
-    subs: list[str] = []
-    html = skeleton(src, subs).replace(EXPR, SYMBOL)
-    extractor = aws_render.extract_all(html, subs)
-    return records(extractor) + ["lit: " + text for text in static_literals(src)]
-
-
-def static_records(rel: str) -> list[str]:
-    """Return the records of a template or a static script (see
-    source_records)."""
-    if rel.endswith(".js"):
-        return [f"js: {text}" for _, _, text in script_literals(read(rel))]
-    return source_records(read(rel))
 
 
 def inline_scripts(src: str):
@@ -1032,24 +880,17 @@ def grading_texts() -> set[str]:
     return {_key(text) for text in texts if text}
 
 
-def english_left(page: str, translated_pages: set[str]) -> list[str]:
+def english_left(page: str) -> list[str]:
     """Return the English texts left on the page rendered in the
     pseudo-locale.
 
-    Not counted: the texts that the lint finds in a template that is
-    not checked yet (they belong to it), the texts of cms/grading and
-    the allow-list.
+    Not counted: the texts of cms/grading and the allow-list.
 
     page: the template of the page.
-    translated_pages: the templates (names relative to the admin
-        directory) that are checked.
 
     """
-    outside = {_key(text) for rel in TEMPLATE_FILES
-               if rel not in translated_pages
-               for _, _, text in template_texts(read(rel))}
     allowed_here = {_key(t) for p, t, _ in PSEUDO_ALLOW if p in ("*", page)}
-    skip = outside | allowed_here | grading_texts()
+    skip = allowed_here | grading_texts()
     left = []
     for html in aws_render.renders(page, aws_render.PSEUDO):
         left += [text for _, _, text in aws_render.english_left(html)

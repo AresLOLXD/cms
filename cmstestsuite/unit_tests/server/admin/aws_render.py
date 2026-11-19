@@ -229,9 +229,9 @@ def render(env: Environment, name: str,
 def renders(page: str, translation: Translation = DEFAULT_TRANSLATION):
     """Yield the html of the page in each mode that renders.
 
-    A page that raises in a mode is skipped here: the snapshot test
-    pins which ones do (the stand-ins of that mode are not data the
-    page can use).
+    A page that raises in a mode is skipped here (the stand-ins of that
+    mode are not data the page can use); test_every_page_renders checks
+    that each page renders in at least one mode.
 
     """
     for mode in MODES:
@@ -248,10 +248,8 @@ INLINE = frozenset(
     "a abbr b bdi bdo big button cite code em font i img input kbd label "
     "mark q s samp select small span strike strong sub sup textarea tt u "
     "var".split())
-# Stand in a static skeleton for a jinja tag (it splits the text) and
-# for the numbered messages that are put back after the parse.
+# Stand in a static skeleton for a jinja tag (it splits the text).
 TAG = "\ue002"
-SUBSTITUTION = re.compile("([\ue004\ue006])([0-9]+)[\ue005\ue007]")
 
 
 def _normalize(text: str) -> str:
@@ -265,20 +263,16 @@ class _Extractor(HTMLParser):
     attribute, a <br> and the raw content of <pre> and <textarea>. Runs
     of spaces collapse, but a space next to an inline tag stays.
 
-    subs: the messages that a static skeleton numbered (see
-    aws_i18n_lint.static_skeleton).
-
     """
 
     VOID = ("meta", "link", "br", "hr", "input", "img", "col")
 
-    def __init__(self, subs=()):
+    def __init__(self):
         super().__init__(convert_charrefs=True)
         self.texts: list[tuple[int, str, str]] = []
         self.posts: list[tuple[str, str]] = []
         self.scripts: list[tuple[int, str]] = []
         self.events: list[tuple[int, str, str]] = []
-        self._subs = subs
         self._stack: list[str] = []
         self._select: str | None = None
         self._option: list | None = None
@@ -287,11 +281,7 @@ class _Extractor(HTMLParser):
         self._after_inline = False
 
     def _expand(self, text: str, keep_tag: bool = False) -> str:
-        def put_back(match):
-            message = self._subs[int(match.group(2))]
-            return json.dumps(message, ensure_ascii=False) \
-                if match.group(1) == "\ue006" else message
-        text = SUBSTITUTION.sub(put_back, text)
+        """Drop the stand-ins of the jinja tags (or keep them to split)."""
         return text if keep_tag else text.replace(TAG, "")
 
     def _boundary(self, before_inline: bool, after_inline: bool):
@@ -391,9 +381,9 @@ class _Extractor(HTMLParser):
         self._flush(False)
 
 
-def extract_all(html: str, subs=()) -> _Extractor:
+def extract_all(html: str) -> _Extractor:
     """Return the extractor that has read the html."""
-    extractor = _Extractor(subs)
+    extractor = _Extractor()
     extractor.feed(html)
     extractor.finish()
     return extractor

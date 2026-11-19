@@ -22,7 +22,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# aws-i18n: complete
 """Ranking-related handlers for AWS for a specific contest.
 
 """

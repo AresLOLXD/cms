@@ -16,8 +16,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# aws-i18n: complete
-
 """Provide a Jinja2 environment tailored to AWS.
 
 Extend the global generic Jinja2 environment to inject tools that are

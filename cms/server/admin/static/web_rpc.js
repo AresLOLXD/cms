@@ -1,4 +1,3 @@
-// aws-i18n: complete
 /* Contest Management System
  * Copyright © 2013 Luca Wehrstedt <luca.wehrstedt@gmail.com>
  * Copyright © 2014 Stefano Maggiolo <s.maggiolo@gmail.com>
