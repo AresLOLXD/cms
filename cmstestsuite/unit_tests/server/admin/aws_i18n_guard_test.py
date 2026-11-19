@@ -212,18 +212,36 @@ def test_templates_compile_and_formats_are_valid():
     assert not problems, "\n".join(problems)
 
 
+def _marked_controls(page, htmls):
+    """Return the (page, name) of the controls that post a marked value."""
+    return {(page, name) for html in htmls
+            for name, value in aws_render.extract(html)[1]
+            if aws_render.OPEN in value}
+
+
 def test_named_controls_post_untranslated_values():
     # Scenario "No translated posted values" (aws-language): with every
     # message marked as translated, no named control posts a marked
     # value, because a handler compares it with an English key.
-    found = {}
+    found = set()
     for page in aws_render.PAGES:
-        for html in aws_render.renders(page, aws_render.PSEUDO):
-            _, posts = aws_render.extract(html)
-            marked = [(n, v) for n, v in posts if aws_render.OPEN in v]
-            if marked:
-                found.setdefault(page, []).extend(marked)
-    assert set(found) <= lint.NAMED_CONTROLS_ALLOW, found
+        found |= _marked_controls(
+            page, aws_render.renders(page, aws_render.PSEUDO))
+    assert found <= lint.NAMED_CONTROLS_ALLOW, found
+
+
+def test_named_controls_allow_is_per_control():
+    # Mutant: a translated operation button on the exempt page is not
+    # covered by the exemption of its subject field.
+    env = aws_render.environment("full")
+    html = env.from_string(
+        '<input name="message_subject" value="{{ _("Subject") }}">'
+        '<button name="operation" value="{{ _("Activate!") }}">x</button>'
+    ).render(gettext=aws_render.PSEUDO.gettext)
+    found = _marked_controls("activate_dataset.html", [html])
+    assert found == {("activate_dataset.html", "message_subject"),
+                     ("activate_dataset.html", "operation")}
+    assert not found <= lint.NAMED_CONTROLS_ALLOW
 
 
 def test_the_allow_lists_have_no_stale_entry():

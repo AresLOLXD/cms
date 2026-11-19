@@ -163,10 +163,11 @@ ALLOW = [
      "jQuery selector, not shown"),
 ]
 
-# Pages whose named controls may post a translated value. The default
+# (page, control name) pairs that may post a translated value. The default
 # subject of the rejudge message is free text that the admin may edit,
 # not an operation key.
-NAMED_CONTROLS_ALLOW: set[str] = {"activate_dataset.html"}
+NAMED_CONTROLS_ALLOW: set[tuple[str, str]] = {
+    ("activate_dataset.html", "message_subject")}
 
 # English that a rendered page may keep: (page, exact text, reason);
 # the page "*" stands for every page.
