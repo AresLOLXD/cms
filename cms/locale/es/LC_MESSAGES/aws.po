@@ -202,7 +202,7 @@ msgid "Operation failed."
 msgstr "La operación falló."
 
 msgid "Operation successful."
-msgstr "Operación correcta."
+msgstr "La operación se completó."
 
 #, python-format
 msgid "Can't cast %s to bool."
@@ -264,7 +264,7 @@ msgid "There are %d users and the most at a time is %d. Split it into smaller li
 msgstr "Son %d usuarios y el máximo por vez es %d. Divídela en listas más pequeñas."
 
 msgid "The list could not be read"
-msgstr "No se leyó la lista"
+msgstr "No se pudo leer la lista"
 
 msgid "Nothing was deleted"
 msgstr "No se borró nada"
@@ -296,7 +296,7 @@ msgstr "Campos no válidos."
 
 #, python-format
 msgid "Invalid operation %s"
-msgstr "Operación no válida %s"
+msgstr "Operación no válida: %s"
 
 msgid "Subject is mandatory."
 msgstr "El asunto es obligatorio."
@@ -868,7 +868,7 @@ msgid "Upload testcases"
 msgstr "Subir casos de prueba"
 
 msgid "Archive (a zip file containing files only):"
-msgstr "Archivo (un .zip que contiene solo archivos):"
+msgstr "Archivo comprimido (un .zip que solo contiene archivos):"
 
 msgid "Overwrite existing testcases"
 msgstr "Sobrescribir los casos de prueba existentes"
@@ -1242,7 +1242,7 @@ msgid "(none)"
 msgstr "(ninguno)"
 
 msgid "The list of languages that contestants can use, or empty for allowing any language."
-msgstr "La lista de idiomas que pueden usar los concursantes, o vacía para permitir cualquier idioma."
+msgstr "La lista de lenguajes que pueden usar los concursantes, o vacía para permitir cualquier lenguaje."
 
 msgid "Example: 'en,ja' (without quotes)."
 msgstr "Ejemplo: 'en,ja' (sin comillas)."
@@ -1859,7 +1859,7 @@ msgid "Do not export the submissions (<code>-S</code>)"
 msgstr "No exportar los envíos (<code>-S</code>)"
 
 msgid "Do not export the user tests (<code>-U</code>)"
-msgstr "No exportar las user tests (<code>-U</code>)"
+msgstr "No exportar los user tests (<code>-U</code>)"
 
 msgid "Do not export the users (<code>-X</code>)"
 msgstr "No exportar los usuarios (<code>-X</code>)"

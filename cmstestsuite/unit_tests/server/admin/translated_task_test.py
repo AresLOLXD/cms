@@ -255,7 +255,7 @@ class TestTaskHandlerNotifications(unittest.TestCase):
 
     def test_an_invalid_operation_in_both_languages(self):
         # Scenarios "Invalid field in Spanish" and "... in English"
-        for translation, subject in ((SPANISH, "Operación no válida x"),
+        for translation, subject in ((SPANISH, "Operación no válida: x"),
                                      (ENGLISH,
                                       "Invalid operation x")):
             handler = make_handler(TaskListHandler, translation,

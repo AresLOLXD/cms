@@ -71,6 +71,7 @@ MAIN_TERMS = [
      "Un usuario por línea, o un CSV cuya primera columna sea el usuario."),
     ("La importación cifra las", "La importación calcula el hash de las"),
     ("(cifradas o en texto", "(con hash o en texto"),
+    ("No exportar las user tests", "No exportar los user tests"),
 ]
 
 

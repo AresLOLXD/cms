@@ -170,8 +170,8 @@ class TestDatasetPages(unittest.TestCase):
         for text in ("- Subir caso de prueba", "Nombre clave:", "Entrada:",
                      "Salida:", ">Público</td>", 'value="Subir"'):
             self.assertIn(text, one)
-        for text in ("- Subir casos de prueba", "Archivo (un .zip que "
-                     "contiene solo archivos):", "Sobrescribir los casos de "
+        for text in ("- Subir casos de prueba", "Archivo comprimido (un "
+                     ".zip que solo contiene archivos):", "Sobrescribir los casos de "
                      "prueba existentes", "Plantilla de nombres de los "
                      "archivos de entrada (usa * como nombre clave"):
             self.assertIn(text, many)

@@ -203,7 +203,7 @@ class TestBaseHandlerTexts(unittest.TestCase):
 
         self.assertTrue(self.handler.try_commit())
         self.assertEqual(self.notification.call_args.args[1:],
-                         ("Operación correcta.", ""))
+                         ("La operación se completó.", ""))
 
         from sqlalchemy.exc import OperationalError
         self.handler.sql_session.commit.side_effect = OperationalError(
@@ -243,7 +243,7 @@ class TestBaseHandlerTexts(unittest.TestCase):
         # An admin with English chosen polls first: the text is Spanish.
         [(_, subject, text)] = service.take_notifications()
 
-        self.assertEqual((subject, text), ("Operación correcta.", ""))
+        self.assertEqual((subject, text), ("La operación se completó.", ""))
 
     def test_a_bad_number_in_spanish(self):
         # Scenario "Invalid field in Spanish" (aws-language)
