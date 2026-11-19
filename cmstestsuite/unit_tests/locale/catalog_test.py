@@ -33,6 +33,7 @@ aws.po and aws.pot and deletes the directory.
 
 """
 
+import ast
 import fnmatch
 import io
 import re
@@ -187,6 +188,26 @@ def test_code_messages_are_in_pot_and_es(domain):
         assert not missing, (
             f"{name} lacks messages found in the code:\n  "
             + "\n  ".join(missing))
+
+
+def test_importer_messages_are_in_the_aws_catalog():
+    # cmscommon/importers.py is outside the aws extraction; the N_ list
+    # of handlers/dataset.py carries its messages. Renaming a message in
+    # the importer without updating that list must fail here.
+    tree = ast.parse((ROOT / "cmscommon" / "importers.py").read_text("utf-8"))
+    msgids = {
+        node.args[0].value for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "gettext" and node.args
+        and isinstance(node.args[0], ast.Constant)}
+    assert msgids, "no gettext message found in the importer"
+
+    missing = find_missing_messages(
+        msgids, _read_catalog(LOCALE_DIR / "aws.pot"))
+    assert not missing, (
+        "the importer has messages that are not in aws.pot; declare them "
+        "with N_ in cms/server/admin/handlers/dataset.py:\n  "
+        + "\n  ".join(missing))
 
 
 def test_both_catalogs_compile():
