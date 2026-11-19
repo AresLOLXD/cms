@@ -25,7 +25,7 @@ Babel 2.12.1 (pinned in ``constraints.txt``) needs the ``=1`` in ``--ignore-obso
 
 Every AWS page follows the language of the admin: the one saved in the ``aws_language`` cookie (set by the language selector), else the best match for the ``Accept-Language`` header of the browser, else English. Every text that an AWS template, script or handler shows goes through gettext, and the tests in :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_guard_test.py` check it. They need no database and cover every template, script and Python file under ``cms/server/admin``:
 
-- no text node, text attribute, script literal, notification, raised error or message constant is left outside gettext, and every page rendered with all its messages marked as translated shows no English word (the intentional exceptions are listed in :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_lint.py`);
+- no text node, text attribute, script literal, notification, raised error or message constant is left outside gettext (a text built from variables, or put together in several steps, is not seen), and every page rendered with all its messages marked as translated shows no English word (the intentional exceptions are listed in :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_lint.py`);
 - a control that the page posts under a name never carries a translated value, because a handler compares it with an English key;
 - a macro is imported with its context, and the format specifiers of every message are valid;
 - the catalogs have every message of the code (the messages of ``cmscommon/importers.py`` are declared with ``N_()`` in ``cms/server/admin/handlers/dataset.py``), none of them untranslated or fuzzy.

@@ -161,9 +161,9 @@ msgstr ""
 "Todas las páginas de AWS siguen el idioma del administrador: el guardado en la cookie ``aws_language`` (que escribe el selector de idioma) o, si no hay, el que mejor coincida con el encabezado ``Accept-Language`` del navegador o, si tampoco, el inglés. Todo texto que muestra una plantilla, un script o un handler de AWS pasa por gettext, y las pruebas de :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_guard_test.py` lo verifican. No necesitan base de datos y cubren todas las plantillas, scripts y archivos Python de ``cms/server/admin``:"
 
 msgid ""
-"no text node, text attribute, script literal, notification, raised error or message constant is left outside gettext, and every page rendered with all its messages marked as translated shows no English word (the intentional exceptions are listed in :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_lint.py`);"
+"no text node, text attribute, script literal, notification, raised error or message constant is left outside gettext (a text built from variables, or put together in several steps, is not seen), and every page rendered with all its messages marked as translated shows no English word (the intentional exceptions are listed in :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_lint.py`);"
 msgstr ""
-"ningún nodo de texto, atributo de texto, literal de script, notificación, error lanzado ni constante de mensaje queda fuera de gettext, y toda página renderizada con todos sus mensajes marcados como traducidos no muestra ninguna palabra en inglés (las excepciones intencionales están en :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_lint.py`);"
+"ningún nodo de texto, atributo de texto, literal de script, notificación, error lanzado ni constante de mensaje queda fuera de gettext (un texto armado con variables, o compuesto en varios pasos, no se detecta), y toda página renderizada con todos sus mensajes marcados como traducidos no muestra ninguna palabra en inglés (las excepciones intencionales están en :gh_blob:`cmstestsuite/unit_tests/server/admin/aws_i18n_lint.py`);"
 
 msgid ""
 "a control that the page posts under a name never carries a translated value, because a handler compares it with an English key;"

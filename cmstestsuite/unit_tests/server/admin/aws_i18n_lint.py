@@ -108,6 +108,7 @@ ALLOW = [
      "description of a file stored in the database"),
     ("handlers/task.py", "Task attachment for %s",
      "description of a file stored in the database"),
+    ("formatting.py", "UTC", "name of the time zone, as the standard has it"),
     ("templates/fragments/hashed_password_form.html", "plaintext",
      "hash method identifier, not shown"),
     ("templates/submission.html",
@@ -585,9 +586,8 @@ class _PythonVisitor(ast.NodeVisitor):
 
     """
 
-    def __init__(self, in_handler):
+    def __init__(self):
         self.found = []
-        self.in_handler = in_handler
         self.depth = 0
         self.in_class_body = False
         # name -> module of the helpers imported with "from m import f"
@@ -631,7 +631,7 @@ class _PythonVisitor(ast.NodeVisitor):
                                ("notification-text", text)):
                 if expr is not None:
                     self.check(node, kind, expr)
-        elif name in RAISED and node.args and self.in_handler:
+        elif name in RAISED and node.args:
             self.check(node, "exception-text", node.args[0])
         elif name == "write" and node.args:
             kind, text = _classify(node.args[0])
@@ -640,12 +640,12 @@ class _PythonVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Assert(self, node):
-        if node.msg is not None and self.in_handler:
+        if node.msg is not None:
             self.check(node, "assert-text", node.msg)
         self.generic_visit(node)
 
     def visit_Dict(self, node):
-        if self.in_handler and self.depth:
+        if self.depth:
             self._prose_dict(node)
         self.generic_visit(node)
 
@@ -655,7 +655,7 @@ class _PythonVisitor(ast.NodeVisitor):
                 if " " in v.strip() and v[:1].isupper():
                     self.found.append((node.lineno, "constant", v))
         for target in node.targets:
-            if self.in_handler and _is_r_params_slot(target):
+            if _is_r_params_slot(target):
                 for text in _literal_texts(node.value):
                     if " " in text.strip() or text[:1].isupper():
                         self.found.append((node.lineno, "r_params-text", text))
@@ -693,10 +693,10 @@ class _PythonVisitor(ast.NodeVisitor):
         self.in_class_body = old
 
 
-def python_texts(src: str, in_handler: bool = True):
+def python_texts(src: str):
     """Return the (line, kind, text) of the Python source that reach
     the admin without gettext."""
-    visitor = _PythonVisitor(in_handler)
+    visitor = _PythonVisitor()
     visitor.visit(ast.parse(src))
     return visitor.found
 
@@ -805,7 +805,7 @@ def raw_findings(rel: str) -> list[tuple[int, str, str]]:
     """Return the findings of the static checks for one file, before
     the allow-list."""
     if rel.endswith(".py"):
-        return python_texts(read(rel), rel.startswith("handlers/"))
+        return python_texts(read(rel))
     if rel.endswith(".js"):
         return script_texts(rel)
     return template_texts(read(rel))

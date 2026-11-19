@@ -245,6 +245,20 @@ def test_the_guard_catches_what_it_promises(tmp_path, monkeypatch):
             ("r_params-text", "Bare %s params")]
 
 
+def test_raised_texts_are_checked_outside_the_handlers(monkeypatch):
+    # Scenario "A new untranslated text" (aws-language): the jobs and
+    # helpers raise the texts that the handlers show, so their bare
+    # raised and asserted texts are found like those of a handler.
+    source = ('def f(x):\n    assert x, "Bare assert text"\n'
+              '    raise ValueError("Bare raised text")\n')
+    monkeypatch.setattr(lint, "read", lambda rel: source)
+
+    for rel in ("exportjobs.py", "handlers/base.py"):
+        assert [(kind, text) for _, kind, text in lint.raw_findings(rel)] \
+            == [("assert-text", "Bare assert text"),
+                ("exception-text", "Bare raised text")]
+
+
 def test_every_script_is_checked():
     # The templates and Python files are found on disk; the scripts are
     # listed, so a new one must be added to SCRIPT_FILES. The vendored
