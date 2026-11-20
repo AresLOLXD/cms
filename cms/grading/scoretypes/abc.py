@@ -30,6 +30,7 @@ task.
 
 """
 
+import functools
 import logging
 import re
 from typing import TypedDict, NotRequired
@@ -86,6 +87,11 @@ def without_dependency_messages(subtask: dict) -> dict:
     return hidden
 
 
+@functools.lru_cache(maxsize=None)
+def _compile_template(template: str) -> Template:
+    return GLOBAL_ENVIRONMENT.from_string(template)
+
+
 class ScoreType(metaclass=ABCMeta):
     """Base class for all score types, that must implement all methods
     defined here.
@@ -123,7 +129,7 @@ class ScoreType(metaclass=ABCMeta):
                 "values for the score type parameters): %s." % e
             )
 
-        self.template: Template = GLOBAL_ENVIRONMENT.from_string(self.TEMPLATE)
+        self.template: Template = _compile_template(self.TEMPLATE)
 
     @staticmethod
     def format_score(

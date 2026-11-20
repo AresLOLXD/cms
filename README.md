@@ -116,3 +116,23 @@ dependencies — are opt-in, so grading behaves identically to upstream unless
 
 If you used CMS for a contest and want to appear on the testimonials list,
 see <http://cms-dev.github.io/testimonials.html>.
+
+---
+
+## Security
+
+If you (or your agent) believe that you found a security vulnerability
+in CMS, please follow these steps:
+
+1) Ensure that the security issue can actually be reproduced.
+2) Check that the vulnerability is compatible with CMS's threat model.
+   In particular:
+
+   - A "vulnerability" caused by a configuration key that explicitly
+     mentions needing modification is not a vulnerability.
+   - CMS assumes that the network that services will use for RPCs
+     is trusted. Anything that can be triggered by sending RPCs only
+     is not a vulnerability.
+
+3) If you did (1) and (2), please open a GitHub Security Advisory under
+   the "Security" tab.

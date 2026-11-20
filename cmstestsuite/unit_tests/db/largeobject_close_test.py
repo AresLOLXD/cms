@@ -15,24 +15,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Tests that LargeObject closes the connection it opens (issue #64).
+"""Tests that LargeObject returns the connection it checks out (issue #64).
 
-Every LargeObject owns a non-pooled psycopg2 connection. CPython frees
-it when the object dies, but not while something still references the
-object (an exception traceback, a stored lobject, a greenlet frame). A
-spy records each connection fsobject opens and keeps it alive, so these
-tests only pass if the code closes the connection explicitly.
+Every LargeObject owns a connection of the SQLAlchemy pool. CPython
+frees it when the object dies, but not while something still references
+the object (an exception traceback, a stored lobject, a greenlet frame),
+and the pool would then run dry. A spy records each connection fsobject
+checks out and keeps it alive, so these tests only pass if the code
+returns the connection explicitly.
 
 """
 
 import os
-import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from sqlalchemy import text
-
-from cms.db import LargeObject, custom_psycopg2_connection
+from cms.db import LargeObject, engine
 from cms.db.filecacher import FileCacher
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 
@@ -41,39 +40,30 @@ class LargeObjectCloseTest(DatabaseMixin, unittest.TestCase):
 
     def setUp(self):
         super().setUp()
-        # (connection, backend pid) of every connection fsobject opened.
+        # Every pooled connection fsobject checked out.
         self.opened = []
+        raw_connection = engine.raw_connection
 
-        def spy(**kwargs):
-            conn = custom_psycopg2_connection(**kwargs)
-            self.opened.append((conn, conn.info.backend_pid))
+        def spy():
+            conn = raw_connection()
+            self.opened.append(conn)
             return conn
 
-        patcher = patch("cms.db.fsobject.custom_psycopg2_connection", spy)
+        # Patch the name fsobject uses: patching the engine itself would
+        # also record the connections of every session.
+        patcher = patch("cms.db.fsobject.engine",
+                        SimpleNamespace(raw_connection=spy))
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def assert_all_closed(self):
-        """Check the recorded connections are closed, client and server side.
+        """Check the recorded connections went back to the pool.
 
         """
         self.assertTrue(self.opened, "No connection was recorded.")
-        for conn, _ in self.opened:
-            self.assertNotEqual(conn.closed, 0)
-
-        # The test database server is shared, so look only at our pids.
-        pids = [pid for _, pid in self.opened]
-        deadline = time.monotonic() + 2
-        while True:
-            alive = self.session.execute(
-                text("SELECT pid FROM pg_stat_activity WHERE pid = ANY(:pids)"),
-                {"pids": pids}).all()
-            # pg_stat_activity is a snapshot per transaction.
-            self.session.rollback()
-            if not alive or time.monotonic() > deadline:
-                break
-            time.sleep(0.05)
-        self.assertEqual(alive, [])
+        for conn in self.opened:
+            # A checked-in pool proxy has let go of its DB-API connection.
+            self.assertIsNone(conn.dbapi_connection)
 
     def test_close_releases_connection(self):
         lobject = LargeObject(0, "wb")
