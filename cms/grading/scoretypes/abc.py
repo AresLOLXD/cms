@@ -89,6 +89,17 @@ def without_dependency_messages(subtask: dict) -> dict:
 
 @functools.lru_cache(maxsize=None)
 def _compile_template(template: str) -> Template:
+    """Return the compiled form of a score type's template.
+
+    Compiling is expensive and every ScoreType instance of a class uses
+    the same TEMPLATE, so each distinct string is compiled once. A
+    Template can be rendered by many threads at the same time.
+
+    template: the text of the Jinja2 template.
+
+    return: the compiled template.
+
+    """
     return GLOBAL_ENVIRONMENT.from_string(template)
 
 

@@ -317,34 +317,41 @@ class DBBackend(FileCacherBackend):
         """See FileCacherBackend.get_file().
 
         """
+        # A LargeObject takes its own connection from the pool, so it
+        # must be opened only after the session gave its one back:
+        # holding both while waiting for the second one can deadlock
+        # the pool.
         with SessionGen() as session:
             fso = FSObject.get_from_digest(digest, session)
 
             if fso is None:
                 raise KeyError("File not found.")
 
-            return fso.get_lobject(mode='rb')
+            loid = fso.loid
+
+        return LargeObject(loid, mode='rb')
 
     def create_file(self, digest):
         """See FileCacherBackend.create_file().
 
         """
+        # See get_file() on why the LargeObject is opened outside the
+        # session.
         with SessionGen() as session:
             fso = FSObject.get_from_digest(digest, session)
+            exists = fso is not None
 
-            # Check digest uniqueness
-            if fso is not None:
-                logger.debug("File %s already stored on database, not "
-                             "sending it again.", digest)
-                session.rollback()
-                return None
+        # Check digest uniqueness
+        if exists:
+            logger.debug("File %s already stored on database, not "
+                         "sending it again.", digest)
+            return None
 
-            # If it is not already present, copy the file into the
-            # lobject
-            else:
-                # Create the large object first. This should be populated
-                # and committed before putting it into the FSObjects table.
-                return LargeObject(0, mode='wb')
+        # If it is not already present, copy the file into the
+        # lobject. Create the large object first. This should be
+        # populated and committed before putting it into the FSObjects
+        # table.
+        return LargeObject(0, mode='wb')
 
     def commit_file(self, fobj, digest, desc=""):
         """See FileCacherBackend.commit_file().
@@ -395,14 +402,18 @@ class DBBackend(FileCacherBackend):
         """
         # TODO - The business logic may be moved in FSObject, for
         # better generality
+        # See get_file() on why the LargeObject is opened outside the
+        # session.
         with SessionGen() as session:
             fso = FSObject.get_from_digest(digest, session)
 
             if fso is None:
                 raise KeyError("File not found.")
 
-            with fso.get_lobject(mode='rb') as lobj:
-                return lobj.seek(0, io.SEEK_END)
+            loid = fso.loid
+
+        with LargeObject(loid, mode='rb') as lobj:
+            return lobj.seek(0, io.SEEK_END)
 
     def delete(self, digest):
         """See FileCacherBackend.delete().

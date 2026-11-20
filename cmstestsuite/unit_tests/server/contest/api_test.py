@@ -18,13 +18,16 @@
 
 """Unit tests for submission details API handlers."""
 
+import json
 import unittest
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from cms import FEEDBACK_LEVEL_RESTRICTED, FEEDBACK_LEVEL_FULL
 from cms.grading.scoretypes.GroupMin import GroupMin
 from cms.grading.steps.evaluation import EVALUATION_MESSAGES
 from cms.server.contest.handlers.api import (
+    ApiTaskListHandler,
     ApiSubmitHandler,
     ApiSubmissionDetailsHandler,
     ApiSubmissionFullDetailsHandler,
@@ -94,6 +97,62 @@ class BaseApiHandlerTest(unittest.TestCase):
         handler.get_task = fake_get_task
         handler.get_submission = fake_get_submission
         return handler
+
+
+class TestApiTaskListHandler(BaseApiHandlerTest):
+
+    EXPECTED_KEYS = {
+        "name", "title", "statements", "primary_statements", "attachments",
+        "submission_format", "allowed_languages", "task_type", "time_limit",
+        "memory_limit", "max_score", "max_public_score", "score_precision",
+        "score_mode", "max_submission_number", "min_submission_interval"}
+
+    def get_task_list(self, min_submission_interval):
+        self.task.title = "My task"
+        self.task.statements = {"en": MagicMock(), "es": MagicMock()}
+        self.task.primary_statements = ["es"]
+        self.task.attachments = {"data.zip": MagicMock()}
+        self.task.submission_format = ["my_task.%l"]
+        self.task.get_allowed_languages.return_value = ["C++20 / g++"]
+        self.task.score_precision = 2
+        self.task.score_mode = "max_subtask"
+        self.task.max_submission_number = 30
+        self.task.min_submission_interval = min_submission_interval
+        self.dataset.task_type = "Batch"
+        self.dataset.time_limit = 1.5
+        self.dataset.memory_limit = 256 * 1024 * 1024
+        self.score_type.max_score = 100.0
+        self.score_type.max_public_score = 40.0
+        handler = self.create_handler(ApiTaskListHandler)
+        handler.contest.tasks = [self.task]
+        handler.get()
+        self.assertEqual(handler.status_code, 200)
+        # It has to be serializable as is.
+        (task,) = json.loads(json.dumps(handler.json_data))["tasks"]
+        self.assertEqual(set(task), self.EXPECTED_KEYS)
+        return task
+
+    def test_task_list_metadata(self):
+        task = self.get_task_list(timedelta(seconds=90))
+        self.assertEqual(task["name"], "my_task")
+        self.assertEqual(task["title"], "My task")
+        self.assertEqual(task["statements"], ["en", "es"])
+        self.assertEqual(task["primary_statements"], ["es"])
+        self.assertEqual(task["attachments"], ["data.zip"])
+        self.assertEqual(task["allowed_languages"], ["C++20 / g++"])
+        self.assertEqual(task["task_type"], "Batch")
+        self.assertEqual(task["time_limit"], 1.5)
+        self.assertEqual(task["memory_limit"], 256 * 1024 * 1024)
+        self.assertEqual(task["max_score"], 100.0)
+        self.assertEqual(task["max_public_score"], 40.0)
+        self.assertEqual(task["score_mode"], "max_subtask")
+        self.assertEqual(task["max_submission_number"], 30)
+        # In seconds, as a number.
+        self.assertEqual(task["min_submission_interval"], 90.0)
+
+    def test_task_list_without_submission_interval(self):
+        task = self.get_task_list(None)
+        self.assertIsNone(task["min_submission_interval"])
 
 
 class TestApiSubmissionDetailsHandler(BaseApiHandlerTest):

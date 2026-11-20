@@ -42,16 +42,18 @@ class LargeObject(io.RawIOBase, typing.BinaryIO):
 
     """Present a PostgreSQL large object as a Python file-object.
 
-    A LargeObject creates and maintains (i.e. closes when done) its
-    own connection to the database. This approach is preferred over
-    using one of the connections pooled by SQLAlchemy (for example by
-    "borrowing" the one of the Session of the FSObject that created the
-    LO instance, if any!) to make these objects independent from the
-    Session (in particular, to allow them to live longer) and to avoid
-    polluting the connections in the SQLAlchemy pool (because executing
-    queries on the underlying DB API driver connection means kind of
-    "abusing" the SQLAlchemy API, and also because we don't want to
-    interfere with the life-cycle of these connections).
+    A LargeObject takes a connection from the SQLAlchemy pool when it
+    is created and gives it back when it is closed. It does not borrow
+    the connection of any Session (for example the one of the FSObject
+    that created it), so that it is independent from the Session and
+    can live longer. A caller must, however, not hold a
+    Session (that is, a pool connection) while it opens a LargeObject:
+    many threads doing so wait for each other's second connection and
+    the pool deadlocks until its timeout. Read the loid inside the
+    session, close the session, then open the LargeObject. Queries are
+    executed on the underlying DB API connection, which kind of
+    "abuses" the SQLAlchemy API: the connection is returned to the pool
+    only by closing the LargeObject.
 
     We cannot use the lobject interface provided by psycopg2 because
     it's incompatible with asynchronous connections and thus coroutine
@@ -422,6 +424,9 @@ class FSObject(Base):
         """Delete this file.
 
         """
+        # shortcut: this takes a second pool connection while the caller's
+        # session holds one, so it is safe only for a few concurrent
+        # deletions (admin actions); batch it if that changes.
         LargeObject.unlink(self.loid)
         self.sa_session.delete(self)
 
