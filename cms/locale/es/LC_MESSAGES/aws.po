@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-19 12:03-0600\n"
+"POT-Creation-Date: 2026-11-21 08:36-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -1113,13 +1113,6 @@ msgstr "Error: %(error)s"
 msgid "Administration"
 msgstr "Administración"
 
-#, python-format
-msgid "Hello, <a href=\"%(admins_url)s\">%(name)s</a>."
-msgstr "Hola, <a href=\"%(admins_url)s\">%(name)s</a>."
-
-msgid "Logout"
-msgstr "Cerrar sesión"
-
 msgid "Change secret_key in cms.toml!"
 msgstr "¡Cambia secret_key en cms.toml!"
 
@@ -1890,6 +1883,16 @@ msgstr "lista"
 
 msgid "failed"
 msgstr "falló"
+
+msgid "Settings"
+msgstr "Ajustes"
+
+#, python-format
+msgid "Hello, <a href=\"%(admins_url)s\">%(name)s</a>."
+msgstr "Hola, <a href=\"%(admins_url)s\">%(name)s</a>."
+
+msgid "Logout"
+msgstr "Cerrar sesión"
 
 msgid "No datasets exist for this task."
 msgstr "No hay datasets para este problema."

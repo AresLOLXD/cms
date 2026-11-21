@@ -1,0 +1,22 @@
+{# The corner menu: the greeting and log out (only when an admin is logged in),
+   the theme switch and the language selector. controls_menu.js closes it on
+   Escape and on a click outside; the icon is drawn here, no file. #}
+<details class="controls_menu">
+  <summary aria-label="{{ _("Settings") }}">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+      <circle cx="12" cy="12" r="6"/>
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>
+      <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>
+    </svg>
+  </summary>
+  <div class="controls_panel">
+{% if admin is defined %}
+    <div class="login_greeting">
+      {% trans admins_url=url("admins"), name=admin.name %}Hello, <a href="{{ admins_url }}">{{ name }}</a>.{% endtrans %}
+      <form class="inline" action="{{ url("logout") }}" method="POST">{{ xsrf_form_html|safe }}<input type="submit" value="{{ _("Logout") }}"></form>
+    </div>
+{% endif %}
+    {% include "fragments/theme_switch.html" %}
+    {% include "fragments/lang_switch.html" %}
+  </div>
+</details>
