@@ -91,7 +91,7 @@ FROZEN_ROUTES = {
     "submissions": "forbid", "subchanges": "forbid",
     # The static files.
     "Ranking.html": "pass", "Ranking.css": "pass", "Ranking.js": "pass",
-    "theme.js": "pass", "i18n.js": "pass",
+    "theme.js": "pass", "controls_menu.js": "pass", "i18n.js": "pass",
     "Chart.js": "pass", "Config.js": "pass", "DataStore.js": "pass",
     "HistoryStore.js": "pass", "Overview.js": "pass",
     "Scoreboard.js": "pass", "TeamSearch.js": "pass",
