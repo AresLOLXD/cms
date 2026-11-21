@@ -517,11 +517,11 @@ ul.normal_list {
 
 #subpage_popup {
     position: fixed;
-    top: 0;
-    bottom: 0;
+    top: 48px;  /* below the corner menu (.controls_menu: top 8px + 32px) */
+    bottom: 1em;
     box-sizing: border-box;
     max-width: min(100% - 2em, 1000px);
-    max-height: calc(100% - 2em);
+    max-height: calc(100% - 48px - 1em);
     margin-right: 1em;
     overflow-y: scroll;
 }

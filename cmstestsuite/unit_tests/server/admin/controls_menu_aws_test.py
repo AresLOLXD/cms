@@ -151,6 +151,21 @@ class TestMenuStylesheet(unittest.TestCase):
         self.assertIsNone(re.search(r"login_notice", css))
         self.assertRegex(css, r"\.controls_menu\s*\{[^}]*position:\s*fixed")
 
+    def test_the_corner_menu_does_not_cover_the_subpage_popup(self):
+        # The popup is a fixed dialog against the right edge, as the menu is:
+        # its top (with its scrollbar and close button) must start below the
+        # menu icon, or the icon covers them.
+        css = AWS_CSS.read_text(encoding="utf-8")
+
+        def px(selector: str, prop: str) -> int:
+            rule = re.search(r"(?m)^%s \{([^}]*)\}" % re.escape(selector), css)
+            return int(re.search(r"\b%s:\s*(\d+)(?:px)?" % prop,
+                                 rule.group(1)).group(1))
+
+        menu_bottom = px(".controls_menu", "top") \
+            + px(".controls_menu summary", "height")
+        self.assertGreaterEqual(px("#subpage_popup", "top"), menu_bottom)
+
 
 if __name__ == "__main__":
     unittest.main()
