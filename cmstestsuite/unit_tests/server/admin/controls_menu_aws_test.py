@@ -55,12 +55,15 @@ class TestMenuOnThePages(unittest.TestCase):
 
     def test_logged_in_page_has_the_menu_with_all_controls(self):
         # Scenario: A logged in AWS page
+        # Scenario: Choosing a theme in the menu (the select is in the panel)
+        # Scenario: Choosing a language in the menu (the select is in the
+        # panel; lang_switch_test.py checks what it does)
         menu = the_menu(render_page("base.html", **sidebar()))
 
         self.assertRegex(menu, r'<summary aria-label="Settings">\s*<svg ')
         self.assertIn('Hello, <a href="/admins">root</a>.', menu)
-        form = re.search(r'<form[^>]*action="/logout"[^>]*>(.*?)</form>',
-                         menu, re.S)
+        form = re.search(r'<form[^>]*action="/logout"[^>]*method="POST"[^>]*>'
+                         r'(.*?)</form>', menu, re.S)
         self.assertIsNotNone(form)
         self.assertIn('value="Logout"', form.group(1))
         self.assertIn('<select id="theme"', menu)
@@ -70,11 +73,13 @@ class TestMenuOnThePages(unittest.TestCase):
                          r'id="theme".*id="lang"')
 
     def test_the_xsrf_field_stays_in_the_logout_form(self):
+        # Scenario: Logging out from the menu
         field = '<input type="hidden" name="_xsrf" value="tok">'
         menu = the_menu(render_page("base.html", xsrf_form_html=field,
                                     **sidebar()))
 
-        form = re.search(r'<form[^>]*logout[^>]*>(.*?)</form>', menu, re.S)
+        form = re.search(r'<form[^>]*logout[^>]*method="POST"[^>]*>(.*?)</form>',
+                         menu, re.S)
         self.assertIn(field, form.group(1))
 
     def test_sidebar_header_has_no_controls(self):
@@ -97,7 +102,7 @@ class TestMenuOnThePages(unittest.TestCase):
             self.assertNotIn("Hello", menu, name)
 
     def test_the_icon_has_an_accessible_name_in_both_languages(self):
-        # Scenario: The icon is named in the page language
+        # Scenario: The icon has a name in the page language
         english = the_menu(render_page("base.html", **sidebar()))
         in_spanish = the_menu(spanish("base.html", **sidebar()))
 
@@ -109,7 +114,7 @@ class TestMenuOnThePages(unittest.TestCase):
                          r'<svg[^>]*aria-hidden="true"[^>]*focusable="false"')
 
     def test_the_controls_appear_only_once(self):
-        # Scenario: no other copy of the controls on the page
+        # Requirement: the controls are in the menu and nowhere else
         pages = dict(sidebar_pages(), error=error_page())
         for name, html in pages.items():
             self.assertEqual(html.count('id="theme"'), 1, name)
@@ -118,6 +123,15 @@ class TestMenuOnThePages(unittest.TestCase):
             self.assertEqual(html.count("function switchLanguage"), 1, name)
         self.assertEqual(
             sidebar_pages()["base logged in"].count('action="/logout"'), 1)
+
+    def test_the_menu_is_a_plain_details_that_needs_no_script(self):
+        # Scenario: Open and close without scripts
+        for name, html in dict(sidebar_pages(), error=error_page()).items():
+            menu = MENU.search(html).group(0)
+            self.assertRegex(menu, r'^<details class="controls_menu">\s*'
+                             r'<summary ', name)
+            self.assertNotRegex(menu, r"(?<=\s)hidden(?=[\s>/])", name)
+            self.assertNotIn("onclick", menu, name)
 
     def test_the_script_is_loaded(self):
         pages = dict(sidebar_pages(), error=error_page())
@@ -148,6 +162,8 @@ class TestMenuStylesheet(unittest.TestCase):
         self.css = AWS_CSS.read_text(encoding="utf-8")
 
     def test_the_old_container_rules_are_gone(self):
+        # Scenario: The menu does not move the page (the menu is fixed and the
+        # panel absolute)
         css = self.css
 
         self.assertIsNone(re.search(r"theme_switch", css))
@@ -195,13 +211,16 @@ class TestMenuStylesheet(unittest.TestCase):
         # that wraps at the page edge runs under the fixed menu: its width is
         # capped by the window, with #core's left margin and padding.
         rule = re.search(r"(?m)^#core h1 \{([^}]*)\}", self.css).group(1)
-        cap = re.search(r"max-width:\s*calc\(100vw - (\d+)px - 2em\)", rule)
+        cap = re.search(r"max-width:\s*calc\(100vw - (\d+)px - 2rem\)", rule)
         self.assertIsNotNone(cap)
         self.assertEqual(int(cap.group(1)), self.px("#core", "margin-left"))
         self.assertIn("box-sizing: border-box", rule)
-        # #core's padding is 0 1em, the 2em of the cap
+        # The cap leaves #core's padding on both sides: 0 1em of the body,
+        # that is 1rem (the root font size is 100%), twice. Not em: inside
+        # this rule it would be the h1's own 2.5em.
         self.assertRegex(re.search(r"(?m)^#core \{([^}]*)\}",
                                    self.css).group(1), r"padding:\s*0 1em;")
+        self.assertRegex(self.css, r"(?m)^html \{[^}]*font-size:\s*100%")
 
     def test_the_panel_has_no_space_above_its_first_control(self):
         # The selects carry a top margin to separate them; the first child of

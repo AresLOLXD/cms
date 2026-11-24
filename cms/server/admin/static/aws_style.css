@@ -523,8 +523,8 @@ body {
     box-sizing: border-box;
     /* The page is at least 960px wide, so in a narrower window the title would
        wrap beyond the window, under the corner menu: wrap at the window edge
-       (#core's 270px margin and 1em padding on both sides). */
-    max-width: calc(100vw - 270px - 2em);
+       (#core's 270px margin and 1em = 1rem padding on both sides). */
+    max-width: calc(100vw - 270px - 2rem);
     font-size: 2.5em;
     line-height: 1.8em;
     margin-bottom: 0.6em;
