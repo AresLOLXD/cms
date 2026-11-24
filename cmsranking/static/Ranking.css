@@ -1383,19 +1383,65 @@ abbr {
 
 /* Style for the network status indicator */
 
-/* The theme switch (theme.js) and the language switch (i18n.js), in the top
-   bar next to the status. */
-#theme,
-#language {
+/* The corner menu of the top bar, next to the status: a gear that opens a
+   panel with the theme switch (theme.js) and the language switch (i18n.js).
+   The panel opens downwards and to the left, over the page, without moving
+   it. controls_menu.js closes it on Escape and on a click outside. */
+.controls_menu {
+    position: relative;
     float: right;
+    margin: calc(1.5em - 16px) 0.5em;
+}
+
+.controls_menu summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
     box-sizing: border-box;
+    border: 1px solid var(--button-border);
+    border-radius: 50%;
+    background-color: var(--mid-bg);
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+}
+
+.controls_menu summary::-webkit-details-marker {
+    display: none;
+}
+
+.controls_menu summary:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+}
+
+.controls_panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    box-sizing: border-box;
+    width: 220px;
+    padding: 10px;
+    border: 1px solid var(--button-border);
+    border-radius: 6px;
+    background-color: var(--dialog-bg);
+    color: var(--text);
+    box-shadow: 0 0 4px var(--shadow);
+}
+
+.controls_panel select {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
     height: calc(1.8em + 2px);
-    margin: 0.5em 0;
+    margin: 0 0 8px;
     font: inherit;
 }
 
-#language {
-    margin-right: 0.5em;
+.controls_panel select:last-child {
+    margin-bottom: 0;
 }
 
 #ConnectionStatus_box {

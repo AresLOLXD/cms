@@ -295,16 +295,18 @@ class TestRankingPage(unittest.TestCase):
         # Scenario: The switch is on the ranking page
         panel = re.search(r'<div id="UpperPanel">(.*?)<div id="TimeView">',
                           self.html, re.S).group(1)
+        menu = re.search(r'<details class="controls_menu">(.*?)</details>',
+                         panel, re.S).group(1)
         select = re.findall(r'<select id="language"[^>]*>(.*?)</select>',
-                            panel, re.S)
+                            menu, re.S)
         self.assertEqual(len(select), 1)
         self.assertEqual(
             re.findall(r'<option value="(\w+)"(?: lang="\w+")?>(\w+)</option>',
                        select[0]),
             [("es", "Español"), ("en", "English")])
         self.assertEqual(self.html.count('id="language"'), 1)
-        self.assertLess(panel.index('id="theme"'),
-                        panel.index('id="language"'))
+        self.assertLess(menu.index('id="theme"'),
+                        menu.index('id="language"'))
         # the page is lang="en" and the labels are Spanish
         self.assertRegex(self.html, r'<select id="language"[^>]* lang="es"')
         # the English label is read in English by screen readers
