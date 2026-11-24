@@ -45,7 +45,7 @@ MEDIA_SCOPE = ":where(%s)" % DARK_MEDIA
 ATTRIBUTE_SCOPE = ":where(%s)" % DARK_ATTRIBUTE
 
 
-def render_page(page: str, languages: int = 1, **params) -> str:
+def render_page(template: str, languages: int = 1, **params) -> str:
     handler = MagicMock()
     handler.get_argument.side_effect = lambda name, default=None: default
     translation = SimpleNamespace(identifier="en", name="English")
@@ -66,7 +66,7 @@ def render_page(page: str, languages: int = 1, **params) -> str:
     params.setdefault("automatic_translation", translation)
     params.setdefault("gettext", lambda text: text)
     params.setdefault("ngettext", lambda one, many, n: one if n == 1 else many)
-    return CWS_ENVIRONMENT.get_template(page).render(**params)
+    return CWS_ENVIRONMENT.get_template(template).render(**params)
 
 
 def contest_list_page() -> str:
