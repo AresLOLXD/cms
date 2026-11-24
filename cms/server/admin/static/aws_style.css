@@ -408,7 +408,13 @@ ul.normal_list {
 
 /* The corner menu (fragments/controls_menu.html): fixed at the top right over
    the page, the panel opens downwards and to the left without moving the
-   content. */
+   content. The room is its footprint: 12px right + 32px icon + 4px gap; what
+   sits at the top right of the page (titles, notifications) keeps clear of it
+   with that much right padding, and the sub-page popup starts below it. */
+body {
+    --corner-menu-room: 48px;
+}
+
 .controls_menu {
     position: fixed;
     top: 8px;
@@ -462,6 +468,10 @@ ul.normal_list {
     margin-top: 8px;
 }
 
+.controls_panel > :first-child {
+    margin-top: 0;
+}
+
 .cr_notice {
     font-size: 0.6em;
     line-height: 1.125em;
@@ -509,6 +519,12 @@ ul.normal_list {
 }
 
 #core h1 {
+    padding-right: var(--corner-menu-room);
+    box-sizing: border-box;
+    /* The page is at least 960px wide, so in a narrower window the title would
+       wrap beyond the window, under the corner menu: wrap at the window edge
+       (#core's 270px margin and 1em padding on both sides). */
+    max-width: calc(100vw - 270px - 2em);
     font-size: 2.5em;
     line-height: 1.8em;
     margin-bottom: 0.6em;
@@ -697,6 +713,7 @@ th .column-sort {
 #notifications {
     margin: 0 auto;
     padding: 1em 0 0.5em;
+    padding-right: var(--corner-menu-room);
 }
 
 #notifications .notification {

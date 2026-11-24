@@ -144,27 +144,70 @@ class TestMenuOnThePages(unittest.TestCase):
 
 class TestMenuStylesheet(unittest.TestCase):
 
+    def setUp(self):
+        self.css = AWS_CSS.read_text(encoding="utf-8")
+
     def test_the_old_container_rules_are_gone(self):
-        css = AWS_CSS.read_text(encoding="utf-8")
+        css = self.css
 
         self.assertIsNone(re.search(r"theme_switch", css))
         self.assertIsNone(re.search(r"login_notice", css))
         self.assertRegex(css, r"\.controls_menu\s*\{[^}]*position:\s*fixed")
 
+    def px(self, selector: str, prop: str) -> int:
+        """Return the px value of a declaration (a var() is resolved)."""
+        rule = re.search(r"(?m)^%s \{([^}]*)\}" % re.escape(selector),
+                         self.css)
+        assert rule is not None, selector
+        # (?<![\w-]) so that "top" does not match "margin-top"
+        value = re.search(r"(?<![\w-])%s:\s*([^;]+);" % prop,
+                          rule.group(1))
+        assert value is not None, (selector, prop)
+        value = value.group(1).strip()
+        variable = re.fullmatch(r"var\((--[\w-]+)\)", value)
+        if variable:
+            value = re.search(r"%s:\s*([^;]+);" % variable.group(1),
+                              self.css).group(1)
+        return int(re.fullmatch(r"(\d+)(?:px)?", value.strip()).group(1))
+
+    def footprint(self) -> int:
+        return self.px(".controls_menu", "right") \
+            + self.px(".controls_menu summary", "width")
+
     def test_the_corner_menu_does_not_cover_the_subpage_popup(self):
         # The popup is a fixed dialog against the right edge, as the menu is:
         # its top (with its scrollbar and close button) must start below the
         # menu icon, or the icon covers them.
-        css = AWS_CSS.read_text(encoding="utf-8")
+        menu_bottom = self.px(".controls_menu", "top") \
+            + self.px(".controls_menu summary", "height")
+        self.assertGreaterEqual(self.px("#subpage_popup", "top"), menu_bottom)
 
-        def px(selector: str, prop: str) -> int:
-            rule = re.search(r"(?m)^%s \{([^}]*)\}" % re.escape(selector), css)
-            return int(re.search(r"\b%s:\s*(\d+)(?:px)?" % prop,
-                                 rule.group(1)).group(1))
+    def test_the_titles_and_notifications_keep_clear_of_the_corner_menu(self):
+        # A notification runs to the right edge of the page (its dismiss
+        # button) and a long title wraps in a narrow window: both must end
+        # before the icon.
+        for selector in ("#notifications", "#core h1"):
+            self.assertGreaterEqual(self.px(selector, "padding-right"),
+                                    self.footprint(), selector)
 
-        menu_bottom = px(".controls_menu", "top") \
-            + px(".controls_menu summary", "height")
-        self.assertGreaterEqual(px("#subpage_popup", "top"), menu_bottom)
+    def test_a_title_wraps_at_the_window_edge_when_the_page_is_wider(self):
+        # The page is at least 960px wide, so in a narrower window a title
+        # that wraps at the page edge runs under the fixed menu: its width is
+        # capped by the window, with #core's left margin and padding.
+        rule = re.search(r"(?m)^#core h1 \{([^}]*)\}", self.css).group(1)
+        cap = re.search(r"max-width:\s*calc\(100vw - (\d+)px - 2em\)", rule)
+        self.assertIsNotNone(cap)
+        self.assertEqual(int(cap.group(1)), self.px("#core", "margin-left"))
+        self.assertIn("box-sizing: border-box", rule)
+        # #core's padding is 0 1em, the 2em of the cap
+        self.assertRegex(re.search(r"(?m)^#core \{([^}]*)\}",
+                                   self.css).group(1), r"padding:\s*0 1em;")
+
+    def test_the_panel_has_no_space_above_its_first_control(self):
+        # The selects carry a top margin to separate them; the first child of
+        # the panel (the greeting or the theme select) must not.
+        self.assertEqual(self.px(".controls_panel > :first-child",
+                                 "margin-top"), 0)
 
 
 if __name__ == "__main__":
