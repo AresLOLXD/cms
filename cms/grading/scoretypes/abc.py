@@ -30,6 +30,7 @@ task.
 
 """
 
+import functools
 import logging
 import re
 from typing import TypedDict, NotRequired
@@ -86,6 +87,22 @@ def without_dependency_messages(subtask: dict) -> dict:
     return hidden
 
 
+@functools.lru_cache(maxsize=None)
+def _compile_template(template: str) -> Template:
+    """Return the compiled form of a score type's template.
+
+    Compiling is expensive and every ScoreType instance of a class uses
+    the same TEMPLATE, so each distinct string is compiled once. A
+    Template can be rendered by many threads at the same time.
+
+    template: the text of the Jinja2 template.
+
+    return: the compiled template.
+
+    """
+    return GLOBAL_ENVIRONMENT.from_string(template)
+
+
 class ScoreType(metaclass=ABCMeta):
     """Base class for all score types, that must implement all methods
     defined here.
@@ -123,7 +140,7 @@ class ScoreType(metaclass=ABCMeta):
                 "values for the score type parameters): %s." % e
             )
 
-        self.template: Template = GLOBAL_ENVIRONMENT.from_string(self.TEMPLATE)
+        self.template: Template = _compile_template(self.TEMPLATE)
 
     @staticmethod
     def format_score(

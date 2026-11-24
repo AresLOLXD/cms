@@ -10,6 +10,10 @@ Running CMS
    services run on Python's asyncio instead of gevent; the Worker and the
    Ranking Web Server still use gevent.
 
+.. warning::
+
+   Make sure to read the :ref:`introduction_security-considerations` before running CMS!
+
 Configuring the DB
 ==================
 

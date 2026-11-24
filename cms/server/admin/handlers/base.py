@@ -82,7 +82,11 @@ logger = logging.getLogger(__name__)
 # SQLAlchemy pool has 5 connections plus an overflow of 10, 15 in all:
 # 10 requests leave 5 connections to the RPC handlers and the
 # background jobs. The requests over the limit wait on the event loop,
-# holding no connection.
+# holding no connection. A FileCacher operation inside a request takes
+# one more connection at a time, never two: first the one of the
+# session that looks the file up, and only after that session is closed
+# the one of the LargeObject. So it never needs a third connection while
+# holding two, and the 5 spare ones let the waiting operations finish.
 MAX_IN_FLIGHT_REQUESTS = 10
 
 # How long (in seconds) a request waits for a slot before giving up with
