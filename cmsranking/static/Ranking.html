@@ -6,6 +6,7 @@
         <link rel="shortcut icon" href="img/favicon.ico" />
         <script src="theme.js"></script>
         <script src="i18n.js"></script>
+        <script src="controls_menu.js" defer></script>
         <link rel='stylesheet' href='Ranking.css'>
         <script src="//ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
         <script>
@@ -42,15 +43,26 @@ if (!("EventSource" in window)) {
                     <div id="ConnectionStatus_label" data-i18n="label.status">Status</div>
                     <div id="ConnectionStatus_text"></div>
                 </div>
-                <select id="theme" lang="es" title="Tema" aria-label="Tema">
-                    <option value="system">Sistema</option>
-                    <option value="light">Claro</option>
-                    <option value="dark">Oscuro</option>
-                </select>
-                <select id="language" lang="es" title="Idioma" aria-label="Idioma">
-                    <option value="es">Español</option>
-                    <option value="en" lang="en">English</option>
-                </select>
+                <details class="controls_menu">
+                    <summary aria-label="Settings" data-i18n-attr="aria-label:label.settings">
+                        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                            <circle cx="12" cy="12" r="6"/>
+                            <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>
+                            <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>
+                        </svg>
+                    </summary>
+                    <div class="controls_panel">
+                        <select id="theme" lang="es" title="Tema" aria-label="Tema">
+                            <option value="system">Sistema</option>
+                            <option value="light">Claro</option>
+                            <option value="dark">Oscuro</option>
+                        </select>
+                        <select id="language" lang="es" title="Idioma" aria-label="Idioma">
+                            <option value="es">Español</option>
+                            <option value="en" lang="en">English</option>
+                        </select>
+                    </div>
+                </details>
             </div>
             <div id="TimeView">
                 <div id="TimeView_name"></div>

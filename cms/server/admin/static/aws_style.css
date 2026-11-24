@@ -406,20 +406,70 @@ ul.normal_list {
     color: var(--danger);
 }
 
-.login_notice {
+/* The corner menu (fragments/controls_menu.html): fixed at the top right over
+   the page, the panel opens downwards and to the left without moving the
+   content. The room is its footprint: 12px right + 32px icon + 4px gap; what
+   sits at the top right of the page (titles, notifications) keeps clear of it
+   with that much right padding, and the sub-page popup starts below it. */
+body {
+    --corner-menu-room: 48px;
+}
+
+.controls_menu {
+    position: fixed;
+    top: 8px;
+    right: 12px;
+    z-index: 1000;
+}
+
+.controls_menu summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    background-color: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+}
+
+.controls_menu summary::-webkit-details-marker {
+    display: none;
+}
+
+.controls_menu summary:focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+}
+
+.controls_panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    box-sizing: border-box;
+    width: 220px;
+    padding: 10px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background-color: var(--surface);
+    color: var(--text);
+    box-shadow: 0 2px 8px var(--shadow);
     font-size: 0.8em;
     line-height: 1.125em;
     text-align: left;
-    width: 200px;
-    margin-left: 15px;
-    margin-top: 15px;
 }
 
-.theme_switch {
-    font-size: 0.8em;
-    text-align: left;
-    margin-left: 15px;
+.controls_panel select {
+    display: block;
+    width: 100%;
     margin-top: 8px;
+}
+
+.controls_panel > :first-child {
+    margin-top: 0;
 }
 
 .cr_notice {
@@ -427,7 +477,8 @@ ul.normal_list {
     line-height: 1.125em;
     text-align: center;
     position: fixed;
-    bottom: 1.5em;
+    bottom: 0;
+    padding-bottom: 1.5em;  /* covers the strip below the text, where entries peeked */
     width: 234px;
     margin-left: 0;
     background-color: inherit;  /* same as #sidebar, so nothing shows through */
@@ -468,6 +519,12 @@ ul.normal_list {
 }
 
 #core h1 {
+    padding-right: var(--corner-menu-room);
+    box-sizing: border-box;
+    /* The page is at least 960px wide, so in a narrower window the title would
+       wrap beyond the window, under the corner menu: wrap at the window edge
+       (#core's 270px margin and 1em = 1rem padding on both sides). */
+    max-width: calc(100vw - 270px - 2rem);
     font-size: 2.5em;
     line-height: 1.8em;
     margin-bottom: 0.6em;
@@ -476,11 +533,11 @@ ul.normal_list {
 
 #subpage_popup {
     position: fixed;
-    top: 0;
-    bottom: 0;
+    top: 48px;  /* below the corner menu (.controls_menu: top 8px + 32px) */
+    bottom: 1em;
     box-sizing: border-box;
     max-width: min(100% - 2em, 1000px);
-    max-height: calc(100% - 2em);
+    max-height: calc(100% - 48px - 1em);
     margin-right: 1em;
     overflow-y: scroll;
 }
@@ -656,6 +713,7 @@ th .column-sort {
 #notifications {
     margin: 0 auto;
     padding: 1em 0 0.5em;
+    padding-right: var(--corner-menu-room);
 }
 
 #notifications .notification {

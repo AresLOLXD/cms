@@ -1,13 +1,11 @@
 {# The language selector. The choice is kept in the aws_language cookie; the
    function is inline because the login page does not load aws_utils.js. #}
-<div class="theme_switch">
-  <select id="lang" title="{{ _("Language") }}" aria-label="{{ _("Language") }}" onchange="switchLanguage(this.value)">
-    <option value=""{% if cookie_translation is none %} selected{% endif %}>{% trans lang=automatic_translation.name %}Automatic ({{ lang }}){% endtrans %}</option>
-    {% for lang_code, t in available_translations|dictsort(by="key") %}
-    <option value="{{ lang_code }}"{% if t == cookie_translation %} selected{% endif %}>{{ t.name }}</option>
-    {% endfor %}
-  </select>
-</div>
+<select id="lang" title="{{ _("Language") }}" aria-label="{{ _("Language") }}" onchange="switchLanguage(this.value)">
+  <option value=""{% if cookie_translation is none %} selected{% endif %}>{% trans lang=automatic_translation.name %}Automatic ({{ lang }}){% endtrans %}</option>
+  {% for lang_code, t in available_translations|dictsort(by="key") %}
+  <option value="{{ lang_code }}"{% if t == cookie_translation %} selected{% endif %}>{{ t.name }}</option>
+  {% endfor %}
+</select>
 <script>
 function switchLanguage(lang) {
     if (lang === "") {

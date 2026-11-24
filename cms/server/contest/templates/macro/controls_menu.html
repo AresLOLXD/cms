@@ -1,0 +1,32 @@
+{# The corner menu. Included with in_navbar set by the contest navbar, which
+   adds the language selector (with several languages) and the log out form
+   (when logged in); the corner of the pages without that navbar holds only the
+   theme switch. controls_menu.js closes it on Escape and on a click outside;
+   the icon is drawn here, no file. #}
+{% set in_navbar = in_navbar|default(false) %}
+<details class="controls_menu">
+    <summary aria-label="{% trans %}Settings{% endtrans %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <circle cx="12" cy="12" r="6"/>
+            <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>
+            <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>
+        </svg>
+    </summary>
+    <div class="controls_panel">
+        {% include "macro/theme_switch.html" %}
+{% if in_navbar and available_translations|length > 1 %}
+        <select id="lang" class="form-control btn btn-info" onchange="utils.switch_lang()">
+            <option value=""{% if cookie_translation is none %} selected{% endif %}>{% trans lang=automatic_translation.name %}Automatic ({{ lang }}){% endtrans %}</option>
+        {% for lang_code, t in available_translations|dictsort(by="key") %}
+            <option value="{{ lang_code }}"{% if t == cookie_translation %} selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+        </select>
+{% endif %}
+{% if in_navbar and participation is defined %}
+        <form action="{{ contest_url("logout") }}" method="POST">
+            {{ xsrf_form_html|safe }}
+            <button type="submit" class="btn btn-warning">{% trans %}Logout{% endtrans %}</button>
+        </form>
+{% endif %}
+    </div>
+</details>

@@ -3,6 +3,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <script src="{{ static_url("static", "theme.js") }}"></script>
+    <script src="{{ static_url("static", "controls_menu.js") }}" defer></script>
     <link rel="shortcut icon" href="{{ static_url("static", "favicon.ico") }}" />
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "reset.css") }}">
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "aws_style.css") }}">
@@ -104,23 +105,16 @@ $(document).ready(init);
     "error": _("Error: %(error)s"),
   } %}
   <body class="admin" data-messages="{{ aws_messages|tojson|forceescape }}">
+    {% include "fragments/controls_menu.html" %}
     <div id="global">
       <div id="sidebar">
         <div id="clock"></div>
 {% if admin is undefined %}
         <div id="sidebar_header">
-          {% include "fragments/theme_switch.html" %}
-          {% include "fragments/lang_switch.html" %}
           <h1 class="parent">{% trans %}Administration{% endtrans %}</h1>
         </div>
 {% else %}
         <div id="sidebar_header">
-          <div class="login_notice">
-            {% trans admins_url=url("admins"), name=admin.name %}Hello, <a href="{{ admins_url }}">{{ name }}</a>.{% endtrans %}
-              <form class="inline" action="{{ url("logout") }}" method="POST">{{ xsrf_form_html|safe }}<input type="submit" value="{{ _("Logout") }}"></form>
-          </div>
-          {% include "fragments/theme_switch.html" %}
-          {% include "fragments/lang_switch.html" %}
           {% if contest is none %}
           <h1 class="parent">{% trans %}Administration{% endtrans %}</h1>
           {% else %}

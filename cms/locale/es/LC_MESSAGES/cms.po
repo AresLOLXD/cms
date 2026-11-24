@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-04 16:49-0600\n"
+"POT-Creation-Date: 2026-11-21 08:47-0600\n"
 "PO-Revision-Date: 2025-06-06 09:35+0000\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es_ES\n"
@@ -456,13 +456,6 @@ msgid "Messages"
 msgstr "Mensajes"
 
 #, python-format
-msgid "Automatic (%(lang)s)"
-msgstr "Automático (%(lang)s)"
-
-msgid "Logout"
-msgstr "Salir"
-
-#, python-format
 msgid "Logged in as <strong>%(first_name)s %(last_name)s</strong> <em>(%(username)s)</em>"
 msgstr "Acceso permitido a <strong>%(first_name)s %(last_name)s</strong> <em>(%(username)s)</em>"
 
@@ -581,6 +574,16 @@ msgstr "Notar que cualquier intento de afectar el funcionamiento del sistema (co
 
 msgid "If you encountered this error during normal usage, please notify the contest administrators."
 msgstr "Si encuentra este error durante el uso normal del sistema, por favor contacte a un administrador."
+
+msgid "Settings"
+msgstr "Ajustes"
+
+#, python-format
+msgid "Automatic (%(lang)s)"
+msgstr "Automático (%(lang)s)"
+
+msgid "Logout"
+msgstr "Salir"
 
 msgid "Public score"
 msgstr "Puntaje público"

@@ -8,6 +8,7 @@
 
         {# Blocking, before the stylesheets: the saved theme is set before the first paint #}
         <script src="{{ static_url("static", "theme.js") }}"></script>
+        <script src="{{ static_url("static", "controls_menu.js") }}" defer></script>
         <link rel="shortcut icon" href="{{ static_url("static", "favicon.ico") }}" />
         <link rel="stylesheet" href="{{ static_url("static", "css", "bootstrap.css") }}">
         <link rel="stylesheet" href="{{ static_url("static", "cws_style.css") }}">
@@ -22,8 +23,8 @@
         {% block js %}{% endblock js %}
     </head>
     <body>
-        {# Pages without the contest navbar (contest.html empties this block) get the switch in a corner #}
-        {% block theme_switch %}<div class="theme_switch_corner">{% include "macro/theme_switch.html" %}</div>{% endblock theme_switch %}
+        {# Pages without the contest navbar (contest.html empties this block) get the menu in a corner #}
+        {% block corner_menu %}{% include "macro/controls_menu.html" %}{% endblock corner_menu %}
         {% block body %}{% endblock body %}
     </body>
 </html>

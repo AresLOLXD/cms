@@ -68,8 +68,10 @@ class TestRwsPage(unittest.TestCase):
         # Scenario: The switch is on every page
         panel = re.search(r'<div id="UpperPanel">(.*?)<div id="TimeView">',
                           self.html, re.S).group(1)
+        menu = re.search(r'<details class="controls_menu">(.*?)</details>',
+                         panel, re.S).group(1)
         select = re.findall(r'<select id="theme"[^>]*>(.*?)</select>',
-                            panel, re.S)
+                            menu, re.S)
         self.assertEqual(len(select), 1)
         self.assertEqual(
             re.findall(r'<option value="(\w+)">(\w+)</option>', select[0]),

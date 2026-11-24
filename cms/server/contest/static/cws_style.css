@@ -1227,11 +1227,6 @@ td.token_rules p:last-child {
     margin: 0 auto 12px;
 }
 
-#lang,
-#theme {
-    width: auto;
-}
-
 /* Contest selection page */
 
 .contest-list {
@@ -1268,14 +1263,84 @@ td.token_rules p:last-child {
     color: var(--ended-link);
 }
 
-/* Theme switch on the pages without the contest navbar */
+/* The corner menu (macro/controls_menu.html). In the contest navbar it is an
+   item of the bar; on the pages without the navbar it sits in the top right
+   corner of the page. Either way the panel opens downwards and to the left,
+   over the content, without moving it. */
 
-.theme_switch_corner {
+.controls_menu {
+    position: relative;
+}
+
+.navbar .controls_menu {
+    margin: 4px 0 0 10px;  /* centered in the 40px bar, apart from the text */
+}
+
+body > .controls_menu {
     position: absolute;
     top: 8px;
     right: 12px;
+    z-index: 1000;
 }
 
-.theme_switch_corner #theme {
+.controls_menu summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    box-sizing: border-box;
+    border: 1px solid var(--muted);
+    border-radius: 50%;
+    background-color: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+}
+
+.controls_menu summary::-webkit-details-marker {
+    display: none;
+}
+
+.controls_menu summary:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+}
+
+.controls_panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1000;
+    box-sizing: border-box;
+    width: 220px;
+    padding: 10px;
+    border: 1px solid var(--muted);
+    border-radius: 6px;
+    background-color: var(--surface);
+    color: var(--text);
+    line-height: 20px;
+    text-align: left;
+}
+
+.controls_panel select {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+/* .controls_panel .btn is as specific as Bootstrap's ".navbar .btn" (which
+   gives the buttons of the navbar their own margins) and comes after it. */
+.controls_panel select,
+.controls_panel .btn {
+    margin: 0 0 8px;
+}
+
+.controls_panel > :last-child,
+.controls_panel form .btn {
     margin-bottom: 0;
+}
+
+.controls_panel form {
+    margin: 0;
 }
