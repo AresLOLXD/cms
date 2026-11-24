@@ -125,6 +125,7 @@ class TestAwsContrast(unittest.TestCase):
 
     def test_every_pair_passes_in_both_themes(self):
         # Scenario: Contrast in every theme (AWS)
+        # Scenario: Contrast of the icon and the menu (text on surface)
         failures = []
         for theme, tokens in self.sets.items():
             for foreground, background, what in AWS_PAIRS:
@@ -221,6 +222,7 @@ class TestCwsContrast(unittest.TestCase):
 
     def test_every_pair_passes_in_both_themes(self):
         # Scenario: Contrast in every theme (CWS)
+        # Scenario: Contrast of the icon and the menu (text on surface)
         failures = []
 
         def check(theme, what, foreground, background):

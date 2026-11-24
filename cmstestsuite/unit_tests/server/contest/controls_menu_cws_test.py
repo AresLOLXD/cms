@@ -68,7 +68,11 @@ def logged_in_page(languages: int = 2, **params) -> str:
 class TestMenuOnThePages(unittest.TestCase):
 
     def test_contest_page_menu_holds_theme_language_and_logout(self):
-        # Scenario: A logged in CWS page
+        # Scenario: A contest page of CWS
+        # Scenario: Choosing a theme in the menu (the select is in the panel)
+        # Scenario: Choosing a language in the menu (the select is in the
+        # panel and switches the language as before)
+        # Scenario: Logging out from the menu (the same protected POST)
         html = logged_in_page()
         menu = the_menu(html)
 
@@ -76,8 +80,8 @@ class TestMenuOnThePages(unittest.TestCase):
         self.assertRegex(menu, r'(?s)<div class="controls_panel">.*'
                          r'id="theme".*id="lang".*action="/c/logout"')
         self.assertIn('onchange="utils.switch_lang()"', menu)
-        form = re.search(r'<form[^>]*action="/c/logout"[^>]*>(.*?)</form>',
-                         menu, re.S)
+        form = re.search(r'<form[^>]*action="/c/logout"[^>]*method="POST"[^>]*>'
+                         r'(.*?)</form>', menu, re.S)
         self.assertIn(XSRF, form.group(1))
         self.assertIn(">Logout</button>", form.group(1))
         # the menu is the last pull-right item of the navbar, so the
@@ -86,7 +90,7 @@ class TestMenuOnThePages(unittest.TestCase):
                         navbar(html).index("Logged in as"))
 
     def test_logged_in_as_stays_in_the_navbar(self):
-        # Scenario: A logged in CWS page
+        # Scenario: A contest page of CWS
         html = logged_in_page()
 
         self.assertIn("Logged in as", navbar(html))
@@ -94,7 +98,7 @@ class TestMenuOnThePages(unittest.TestCase):
         self.assertIn("<strong>Ada Lovelace</strong>", navbar(html))
 
     def test_the_language_selector_is_absent_with_one_language(self):
-        # Scenario: CWS with a single language
+        # Scenario: One language on CWS
         menu = the_menu(logged_in_page(languages=1))
 
         self.assertNotIn('id="lang"', menu)
@@ -102,7 +106,8 @@ class TestMenuOnThePages(unittest.TestCase):
         self.assertIn('action="/c/logout"', menu)
 
     def test_the_login_page_menu_has_no_logout(self):
-        # Scenario: The CWS login page
+        # Requirement: the menu holds the controls the page already had (the
+        # login page has no log out)
         html = render_page("contest.html", languages=2)
         menu = the_menu(html)
 
@@ -112,7 +117,7 @@ class TestMenuOnThePages(unittest.TestCase):
         self.assertNotIn("Logout", html)
 
     def test_a_page_without_the_navbar_has_the_menu_with_only_the_theme(self):
-        # Scenario: A page without the contest navbar
+        # Scenario: A CWS page without the contest navbar
         # (it has no language selector nor log out today, so it gains none,
         # even when the contest has several languages)
         for name, html in pages().items():
@@ -131,7 +136,7 @@ class TestMenuOnThePages(unittest.TestCase):
                                      invalid_body=False, languages=2))
 
     def test_the_controls_appear_only_once(self):
-        # Scenario: no other copy of the controls on the page
+        # Requirement: the controls are in the menu and nowhere else
         every_page = dict(pages(), contest=logged_in_page(),
                           list=contest_list_page())
         for name, html in every_page.items():
@@ -143,7 +148,7 @@ class TestMenuOnThePages(unittest.TestCase):
         self.assertEqual(every_page["contest"].count('id="lang"'), 1)
 
     def test_the_icon_has_an_accessible_name(self):
-        # Scenario: The icon is named in the page language
+        # Scenario: The icon has a name in the page language
         english = the_menu(logged_in_page())
         in_spanish = the_menu(logged_in_page(
             translation=CMS_SPANISH, gettext=CMS_SPANISH.gettext))
@@ -155,6 +160,15 @@ class TestMenuOnThePages(unittest.TestCase):
         self.assertRegex(english,
                          r'<svg[^>]*aria-hidden="true"[^>]*focusable="false"')
 
+    def test_the_menu_is_a_plain_details_that_needs_no_script(self):
+        # Scenario: Open and close without scripts
+        for name, html in dict(pages(), contest=logged_in_page()).items():
+            menu = MENU.search(html).group(0)
+            self.assertRegex(menu, r'^<details class="controls_menu">\s*'
+                             r'<summary ', name)
+            self.assertNotRegex(menu, r"(?<=\s)hidden(?=[\s>/])", name)
+            self.assertNotIn("onclick", menu, name)
+
     def test_the_script_is_loaded(self):
         for name, html in dict(pages(), contest=logged_in_page()).items():
             head = html[:html.index("</head>")]
@@ -165,6 +179,7 @@ class TestMenuOnThePages(unittest.TestCase):
 class TestMenuStylesheet(unittest.TestCase):
 
     def test_the_old_container_rules_are_gone(self):
+        # Scenario: The menu does not move the page (the panel is absolute)
         css = CWS_CSS.read_text(encoding="utf-8")
 
         self.assertNotIn("theme_switch_corner", css)

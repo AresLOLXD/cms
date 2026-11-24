@@ -58,6 +58,9 @@ class TestMenuOnThePage(unittest.TestCase):
 
     def test_the_upper_panel_has_one_menu_with_both_selects(self):
         # Scenario: The ranking page (the controls leave the top panel)
+        # Scenario: Choosing a theme in the menu (the select is in the panel)
+        # Scenario: Choosing a language in the menu (the select is in the
+        # panel; test_i18n_rws.py checks what it does)
         panel = upper_panel(self.html)
         menus = MENU.findall(panel)
         self.assertEqual(len(menus), 1)
@@ -77,7 +80,7 @@ class TestMenuOnThePage(unittest.TestCase):
 
     @unittest.skipIf(shutil.which("node") is None, "node is not installed")
     def test_the_summary_label_is_translated_in_both_languages(self):
-        # Scenario: The icon is named in the page language
+        # Scenario: The icon has a name in the page language
         summary = re.search(r"<summary([^>]*)>", self.html).group(1)
         attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', summary))
         self.assertEqual(attrs["aria-label"], "Settings")
@@ -87,6 +90,14 @@ class TestMenuOnThePage(unittest.TestCase):
                                  (["es-MX"], "Ajustes")):
             out = run_script(languages=languages, elements=[element])
             self.assertEqual(out["filled"][0]["attrs"]["aria-label"], label)
+
+    def test_the_menu_is_a_plain_details_that_needs_no_script(self):
+        # Scenario: Open and close without scripts
+        menu = MENU.search(self.html).group(0)
+        self.assertRegex(menu, r'^<details class="controls_menu">\s*'
+                         r'<summary ')
+        self.assertNotRegex(menu, r"(?<=\s)hidden(?=[\s>/])")
+        self.assertNotIn("onclick", menu)
 
     def test_the_script_loads_and_is_in_frozen_routes(self):
         # Scenario: The ranking page (the script closes the menu)
@@ -99,7 +110,7 @@ class TestMenuOnThePage(unittest.TestCase):
 class TestMenuStylesheet(unittest.TestCase):
 
     def test_the_icon_contrasts_in_both_themes(self):
-        # Scenario: The icon and the panel keep their contrast in both themes
+        # Scenario: Contrast of the icon and the menu
         css = CSS.read_text(encoding="utf-8")
         sets = (light_set(css), dark_set(css))
         for selector in (r"\.controls_menu summary", r"\.controls_panel"):

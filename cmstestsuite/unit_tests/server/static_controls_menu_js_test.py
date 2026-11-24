@@ -114,7 +114,7 @@ class TestControlsMenuScript(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_escape_closes_the_open_menu_and_focuses_the_summary(self):
-        # Scenario: Escape closes the menu
+        # Scenario: Close with Escape
         out = self.run_script(events=["escape"])
         self.assertFalse(out["menu_open"])
         self.assertEqual(out["focused"], "summary")
@@ -125,17 +125,17 @@ class TestControlsMenuScript(unittest.TestCase):
         self.assertIsNone(out["focused"])
 
     def test_a_click_outside_closes_it(self):
-        # Scenario: A click outside closes the menu
+        # Scenario: Close by clicking outside
         out = self.run_script(events=["click_outside"])
         self.assertFalse(out["menu_open"])
 
     def test_a_click_inside_the_panel_keeps_it_open(self):
-        # Scenario: Using a control keeps the menu open
+        # Requirement: choosing a theme leaves the menu open (a click inside)
         out = self.run_script(events=["click_panel"])
         self.assertTrue(out["menu_open"])
 
     def test_a_click_on_the_summary_is_left_to_the_browser(self):
-        # Scenario: The icon opens and closes the menu
+        # Scenario: Open and close with the icon
         # (the browser toggles `open`; the script must not touch it)
         out = self.run_script(events=["click_summary"])
         self.assertTrue(out["menu_open"])
@@ -143,7 +143,7 @@ class TestControlsMenuScript(unittest.TestCase):
         self.assertFalse(out["menu_open"])
 
     def test_other_details_are_never_closed(self):
-        # Scenario: Other disclosure widgets are untouched
+        # Requirement: only the controls menu is closed, other details stay
         out = self.run_script(events=["escape", "click_outside",
                                       "click_other"])
         self.assertFalse(out["menu_open"])
