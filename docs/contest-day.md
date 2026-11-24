@@ -146,11 +146,12 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 ### Screens and the color theme
 
 Each server has a switch with three options: **System**, **Light** and
-**Dark**, shown as «Sistema», «Claro» and «Oscuro». It is in the navbar of the
-Contest Web Server, in the sidebar of the Admin Web Server and in the top bar
-of the Ranking Web Server. The default is System, which follows the color
-scheme of the operating system. The hidden-ranking notice and the staff login
-pages follow the choice saved in the browser.
+**Dark**, shown as «Sistema», «Claro» and «Oscuro». It is in the settings menu
+of each server, which opens with the gear icon («Ajustes») at the top right
+corner of the page and closes with Escape or a click outside it. The default
+is System, which follows the color scheme of the operating system. The
+hidden-ranking notice and the staff login pages follow the choice saved in the
+browser.
 
 | Option | Label | Result |
 |--------|-------|--------|
@@ -165,11 +166,11 @@ starts again from System. The charts stay on a light panel in the dark theme.
 
 ### Ranking language
 
-The Ranking Web Server also has a language switch with the options «Español» and «English», next to the theme switch in its top bar. With no saved choice, the page uses the browser's first preferred language: Spanish if it starts with `es`, English otherwise. The choice is kept in each browser, separately for each ranking address, and is never sent to the server, so a projector's browser needs it set once, before the contest, as with the theme. The hidden-ranking notice, the staff login and the banners follow the same choice. Names of contests, tasks, teams and users come from the data and are not translated.
+The Ranking Web Server also has a language switch with the options «Español» and «English», next to the theme switch in the settings menu. With no saved choice, the page uses the browser's first preferred language: Spanish if it starts with `es`, English otherwise. The choice is kept in each browser, separately for each ranking address, and is never sent to the server, so a projector's browser needs it set once, before the contest, as with the theme. The hidden-ranking notice, the staff login and the banners follow the same choice. Names of contests, tasks, teams and users come from the data and are not translated.
 
 ### AWS language
 
-The Admin Web Server (AWS) has a language selector in the sidebar and on the login page, with an automatic option and one option for each available language. With no saved choice, it follows the browser language: Spanish if the browser prefers it, English otherwise. The choice is kept in a cookie of the browser, separately for each AWS address. Every admin page follows it, including the Overview and Resources pages. Names that come from the data (contests, tasks, users, teams), the names of task types, score types and programming languages and their parameters, and the values that a page posts to the server stay as they are. Notifications, and the errors of an import or export job, are written in the language of the admin who started them, so another admin who follows the same job reads them in that language.
+The Admin Web Server (AWS) has a language selector in the settings menu, which the login page also has, with an automatic option and one option for each available language. With no saved choice, it follows the browser language: Spanish if the browser prefers it, English otherwise. The choice is kept in a cookie of the browser, separately for each AWS address. Every admin page follows it, including the Overview and Resources pages. Names that come from the data (contests, tasks, users, teams), the names of task types, score types and programming languages and their parameters, and the values that a page posts to the server stay as they are. Notifications, and the errors of an import or export job, are written in the language of the admin who started them, so another admin who follows the same job reads them in that language.
 
 ## During the contest
 
