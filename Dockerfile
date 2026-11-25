@@ -70,7 +70,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         wait-for-it
         zip
     )
-    apt-get install -y "${PACKAGES[@]}"
+    apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 EOF
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
