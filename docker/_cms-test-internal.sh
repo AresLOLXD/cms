@@ -61,6 +61,8 @@ timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
     docker/test_backup_lib.py docker/test_backup_sh.py \
     docker/test_verify_backup_sh.py
 UNIT_DOCKER=$?
+# docker/_lib.sh (up.sh, restart.sh) has a plain bash test of its own.
+bash docker/test_lib.sh || UNIT_DOCKER=1
 
 IGNORE_ARGS="--ignore=cmstestsuite/unit_tests/cmscontrib --ignore=cmstestsuite/unit_tests/cmsranking --ignore=cmstestsuite/unit_tests/db/rankinggroup_test.py"
 for f in $GEVENT_SERVICE_FILES; do

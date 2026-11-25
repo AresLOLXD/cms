@@ -81,6 +81,15 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    # Without a healthcheck "up --wait" only means "running", so a ranking
+    # that crashes in a loop would pass it (./up.sh choice 8 relies on this).
+    # The image has python3 and no curl; "/" is public.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${CMS_RWS_HTTP_PORT:-8890}/', timeout=4)"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     volumes:
       - cms-ranking-data:/home/cmsuser/cms/lib/ranking
