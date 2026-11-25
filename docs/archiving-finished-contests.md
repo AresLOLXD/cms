@@ -8,6 +8,21 @@ uses any more.
 Use it only for contests that are over and whose results are published. Do it
 outside the contest hours, never on a contest day.
 
+> **Warning:** This procedure needs the version `omi.18` of the fork or newer
+> (`version` in `pyproject.toml` of the deployed commit). That release is the
+> first where `cmsCleanFiles` keeps the files of the tasks that belong to no
+> contest and the sandbox archives of the results. On an older version,
+> `cmsCleanFiles` deletes them: do **not** run it there.
+
+> **Warning:** Removing a contest also deletes **its tasks**, with their
+> statements, attachments, datasets, testcases and managers, as well as its
+> announcements, messages, questions, groups and participations. Users, teams
+> and the other contests stay. To keep a task, remove it from the contest
+> first (Admin Web Server, the contest, **Tasks**): it becomes a task without
+> a contest and `cmsCleanFiles` keeps its files. Its submissions are still
+> deleted with the participations of the contest. Do this **before** step 0,
+> so that part C of the measurement counts its files as kept.
+
 Run the commands in the project root. `PROJECT` is `CMS_PROJECT_NAME` from
 `.env` (`cms-prod` if it is unset):
 
@@ -20,9 +35,10 @@ PROJECT=cms-prod
 - Every file of CMS (statements, testcases, submission sources, executables,
   user test files, and the archives of the sandboxes) is a PostgreSQL large
   object, in the database.
-- `cmsRemoveContest` deletes the rows of the contest (its submissions,
-  results, evaluations, participations and the participant activity log). It
-  does not delete any file: the large objects stay, nobody uses them.
+- `cmsRemoveContest` deletes the rows of the contest: its tasks (with their
+  datasets and testcases), submissions, results, evaluations, participations
+  and the participant activity log. It does not delete any file: the large
+  objects stay, nobody uses them.
 - `cmsCleanFiles` deletes the files that no row uses. A file shared with
   another contest stays.
 - The space returns to the operating system only after `VACUUM FULL` (step 4).
@@ -34,9 +50,10 @@ PROJECT=cms-prod
 
 - The ranking group of the contest, if you archive it first (step 2): the
   public ranking keeps the final scoreboard.
-- Everything else, in the cold backup of step 1: the contest, its users, the
-  submissions, the ranking groups, the participant activity log and the admin
-  accounts.
+- Everything else, in the cold backup of step 1: the contest with its tasks,
+  its participations, the submissions, the ranking groups, the participant
+  activity log and the admin accounts. The users and the teams are not lost:
+  they stay in the live database, and the backup has them too.
 
 ## 0. Measure first
 
@@ -56,9 +73,11 @@ The script has two parts:
   the role of CMS, the script prints part A and then stops with `permission
   denied for table pg_largeobject`.
 
-> **Warning:** Parts B and C read every page of every large object once. On a
-> large database this takes minutes and loads the disk. Run them off-peak,
-> never on a contest day.
+> **Warning:** The script is not light. Part A3 reads `evaluations` and
+> `submission_results` once per contest, and parts B and C read the whole
+> `pg_largeobject` twice (the size table and B2). On a large database this
+> takes minutes and loads the disk. Run all of it off-peak, never on a contest
+> day.
 
 Run it from the project root. To run only part A, with the role of CMS (the
 `cms` container reads `CMS_DB_URL`, without `+psycopg2`):
@@ -118,7 +137,9 @@ only way back.
 
 > **Warning:** The backup has the password hashes of every user and every
 > admin. Store it encrypted and off the server. For example, on your machine,
-> after the copy and the check, encrypt it and delete the plain copy:
+> after the copy and the check, encrypt it and delete the plain copy on your
+> machine (the plain copy on the server stays, readable only by root, until
+> you delete it with `sudo`):
 >
 > ```bash
 > tar -cf - <backup dir> | gpg --symmetric --cipher-algo AES256 -o <backup dir>.tar.gpg
@@ -137,7 +158,8 @@ group" in [Running several contests at once](multi-contest.md)):
 
 1. Open **Ranking groups** and the group.
 2. Check that every contest of the group is over: an archived group stops
-   receiving anything.
+   receiving anything. If the group is hidden or frozen now, archiving shows
+   its ranking in full to the public (the page asks you to confirm).
 3. Press **Archivar ahora** (or wait for the **Archive at** time).
 
 An archived group gets nothing more from ProxyService, so removing its
@@ -154,12 +176,18 @@ contests later does not change its public ranking.
 Do this when no contest is running, nobody submits, and nobody uploads files
 in the Admin Web Server (for example, a task or a dataset that is being
 imported). A file that was uploaded but is not yet saved in a row looks
-unused, and `cmsCleanFiles` deletes it.
+unused, and `cmsCleanFiles` deletes it. In **Overview** of the Admin Web
+Server, check that the queue of the Evaluation Service is empty: an
+evaluation in progress can still add files.
+
+If the system serves a single contest (`CMS_CONTEST_ID=<id>` in `.env`), do
+not remove the contest that `CMS_CONTEST_ID` names.
 
 1. Remove each contest. The command shows the name of the contest and asks
    you to confirm with `y`, so run it in an interactive terminal (do not add
-   `-T`, which takes away the terminal that the prompt needs). It deletes the contest and all its
-   related data, including submissions and the activity log:
+   `-T`, which takes away the terminal that the prompt needs). It deletes the
+   contest and all its related data, including its tasks, submissions and the
+   activity log:
    ```bash
    docker compose -f docker/docker-compose.prod.yml --env-file .env \
        -p "$PROJECT" exec cms cmsRemoveContest -c <contest id>
@@ -173,9 +201,14 @@ unused, and `cmsCleanFiles` deletes it.
    docker compose -f docker/docker-compose.prod.yml --env-file .env \
        -p "$PROJECT" exec cms cmsCleanFiles -n
    ```
-   Check that the number of orphans and their size are what you expect from
-   part C of the measurement.
-3. Delete them:
+   The orphan bytes must equal the sum of `freed_if_removed` (part C) of the
+   contests you removed, plus the first line of B2 (both measured before step
+   3). A file that only the removed contests share is in no
+   `freed_if_removed`, so the dry run can be a little larger when you remove
+   several contests that share files. If it is larger by more than you can
+   explain, **stop**: do not run step 3 and look for what the extra files
+   are.
+3. Delete them (only on `omi.18` or newer, see the warning at the top):
    ```bash
    docker compose -f docker/docker-compose.prod.yml --env-file .env \
        -p "$PROJECT" exec cms cmsCleanFiles
@@ -201,7 +234,8 @@ writes a full new copy of it.
 
 Do it only if the **disk** is the problem, not the size of the backups, and
 only with the system stopped. Check first that the disk has free space for a
-copy of `pg_largeobject` (A1 and A2 of the measurement show its size). Never
+copy of `pg_largeobject` plus about as much for the WAL that the copy writes
+(A1 and A2 of the measurement show its size). Never
 use `down`: it recreates the Docker network.
 
 `VACUUM FULL` of `pg_largeobject` needs a superuser. The commands below are
@@ -230,16 +264,29 @@ Restore the cold backup into a **scratch** database, and look at the contest
 there. Do not import a single-contest dump into the live database (see
 "Why not `cmsDumpExporter`").
 
-1. If the backup is encrypted, decrypt it and run `./verify-backup.sh` on it
-   again.
+1. Copy the backup back to the server (`backups/` belongs to root, so copy
+   it with `sudo`), decrypt it if it is encrypted, and run
+   `sudo ./verify-backup.sh` on it again.
 2. Follow "Preflight" and "Restore into a new database" of "Restoring a
    backup" in the [Docker Scripts Guide](docker-scripts.md), and **stop before
    "Switch"**. That creates `${DB}_restore` next to the live database and
    leaves the live one as it is. The server must not be older than the one
    that made the backup.
-3. Read it with the Admin Web Server of a separate CMS configuration whose
-   database URL points to that database. Do not start ProxyService, the
-   Evaluation Service or the Contest Web Server on it.
+3. Read it with `psql` on `${DB}_restore` (for example, with the queries of
+   the measurement). If you need the Admin Web Server, run **only** it, on
+   your own machine and not in the live `cms` container, with its own
+   `cms.toml`: a copy of `config/cms.sample.toml` where the database `url`
+   points to the scratch database, every address of `[services]` is a port
+   where nothing listens (for example `["127.0.0.1", 1]`) and `rankings = []`
+   in `[proxy_service]`. Do not copy the configuration of the live system:
+   an Admin Web Server connects to the Evaluation Service, the Scoring
+   Service and ProxyService at the addresses of its configuration, and an
+   action such as re-evaluate or **Regenerate** would reach the live services
+   with the ids of the scratch database. In Docker, use a separate project
+   (another `-p` name, so another network and other volumes), a copy of
+   `.env` with other ports and without the address of the live ranking
+   (`CMS_RWS_HOST`), and start only `cmsAdminWebServer`, never the whole `cms`
+   container: it starts every service.
 4. When you finish, drop the scratch database:
    ```bash
    pgc psql -X -d postgres -c "DROP DATABASE ${DB}_restore"
@@ -257,8 +304,9 @@ It looks like an archive per contest, but today it is not one:
 - **It exports more than the contest.** With `-c`, it also exports the other
   contests of the users that took part in the contest. A dump of one contest
   holds all the contests that share its users.
-- **It did not import back.** In the test, `cmsDumpImporter` of that dump into
-  the same database failed with a duplicate contest name (and a user that
+- **It did not import back.** In an experiment on a scratch database with a
+  small synthetic contest, `cmsDumpImporter` of that dump into the same
+  database failed with a duplicate contest name (and a user that
   already exists fails the same way). It rolled back and nothing changed, but
   the dump is no way back.
 - **It leaves out data.** It has neither the ranking groups nor the

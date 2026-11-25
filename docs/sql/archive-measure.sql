@@ -3,8 +3,9 @@
 -- Run: psql "<url>" -X -f measure.sql   (one transaction, nothing written)
 -- Part A needs only the cms role. Parts B and C read pg_largeobject, which
 -- needs a superuser or a member of pg_read_all_data (PostgreSQL 14+);
--- they scan every large object page once (minutes on many GB): run them
--- off-peak or on a restored copy.
+-- they scan pg_largeobject twice (lo_size and B2), and A3 reads
+-- evaluations and submission_results once per contest (minutes on many
+-- GB): run all of it off-peak or on a restored copy.
 BEGIN;
 SET LOCAL statement_timeout = 0;
 
@@ -83,7 +84,7 @@ SELECT 'fsobject without any reference' AS what, count(*) AS files,
        pg_size_pretty(coalesce(sum(bytes), 0)) AS logical_size
 FROM lo_size WHERE digest NOT IN (SELECT digest FROM refs)
 UNION ALL
-SELECT 'large object without fsobject', count(*),
+SELECT 'large object without fsobject', count(DISTINCT l.loid),
        pg_size_pretty(coalesce(sum(octet_length(l.data)), 0))
 FROM pg_largeobject l WHERE l.loid NOT IN (SELECT loid FROM fsobjects);
 
