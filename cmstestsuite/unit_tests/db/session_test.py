@@ -27,9 +27,11 @@ from cms.db.session import custom_psycopg2_connection
 
 
 # custom_psycopg2_connection() adds the connection defaults (#39) under
-# the URL's own query.
+# the URL's own query, and the lock bound in options (with no PGOPTIONS:
+# the tests below clear it).
 DEFAULTS = {**connect_options.LIBPQ_DEFAULTS,
-            "fallback_application_name": connect_options.PROGRAM_NAME}
+            "fallback_application_name": connect_options.PROGRAM_NAME,
+            "options": "-c lock_timeout=%d" % connect_options.LOCK_TIMEOUT_MS}
 
 
 def _patch_db(s):
@@ -37,6 +39,7 @@ def _patch_db(s):
     return patch.object(config.database, "url", s)
 
 
+@patch.dict("os.environ", {"PGOPTIONS": ""})
 @patch("psycopg2.connect")
 class TestCustomPsycopg2Connect(unittest.TestCase):
     """Tests for the function custom_psycopg2_connect."""

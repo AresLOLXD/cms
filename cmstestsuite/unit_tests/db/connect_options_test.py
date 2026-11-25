@@ -223,6 +223,7 @@ class TestWithConnectionDefaults(unittest.TestCase):
         self.assertEqual(url.password, "p@ss:w/d%")
 
     def test_pgoptions_and_the_users_options_come_after_the_default(self):
+        # Scenario: The URL's options beat PGOPTIONS and the default
         # PostgreSQL applies the -c switches in order: the last one wins.
         os.environ["PGOPTIONS"] = "-c lock_timeout=7s -c geqo=off"
         query = self._query("postgresql+psycopg2://u@h/db"
@@ -239,6 +240,7 @@ class TestWithConnectionDefaults(unittest.TestCase):
         self.assertEqual(query["application_name"], "mine")
 
     def test_the_kill_switch_merges_into_a_url_with_a_query(self):
+        # Scenario: lock_timeout=0 in the URL switches the bound off
         query = self._query(with_kill_switch(
             "postgresql+psycopg2://u@h/db?sslmode=require"))
         self.assertEqual(query, {
