@@ -380,6 +380,32 @@ def test_compilation_limit_invalid_exits(monkeypatch, capsys, value):
     assert "CMS_COMPILATION_MAX_TIME_S" in capsys.readouterr().err
 
 
+def test_manual_url_unset_or_empty_writes_nothing(monkeypatch):
+    # Scenario: Variable unset
+    # The default lives in cms/conf.py only; an empty line in .env is "unset"
+    # like for every other variable.
+    for extra in ({}, {"CMS_MANUAL_URL": ""}):
+        _set(monkeypatch, extra)
+        if not extra:
+            monkeypatch.delenv("CMS_MANUAL_URL", raising=False)
+        assert "manual_url" not in tomllib.loads(
+            gc.generate_cms_toml())["admin_web_server"]
+
+
+def test_manual_url_set_is_written(monkeypatch):
+    # Scenario: Variable set
+    _set(monkeypatch, {"CMS_MANUAL_URL": "https://m.example/{language}/"})
+    aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
+    assert aws["manual_url"] == "https://m.example/{language}/"
+
+
+def test_manual_url_off_hides_the_entry(monkeypatch):
+    # Scenario: Variable off
+    _set(monkeypatch, {"CMS_MANUAL_URL": "off"})
+    aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
+    assert aws["manual_url"] == ""
+
+
 def test_supervisord_no_telegram_by_default(monkeypatch):
     _set(monkeypatch)
     conf = gc.generate_supervisord_conf()

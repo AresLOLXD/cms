@@ -198,6 +198,12 @@ cookie_duration = 36000
 # a proxy, you will likely want to set this value to 1.
 num_proxies_used = 0
 
+# Address of the manual that the AWS sidebar links to (the entry opens it in
+# a new tab). "{language}" is replaced by "es" on a Spanish page and by
+# "en" on any other page; an address without it is used as written. Set to
+# an empty string to hide the entry. This is the default:
+#manual_url = "https://cms-omi.readthedocs.io/{language}/latest/"
+
 
 [proxy_service]
 # List of URLs (with embedded username and password) of the RWSs where

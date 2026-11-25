@@ -113,6 +113,23 @@ def _get_request_slots() -> asyncio.Semaphore:
     return _request_slots
 
 
+def manual_url(template: str, identifier: str) -> str:
+    """Return the address of the manual for the language of the page.
+
+    template: the configured address, "{language}" stands for the
+        language; empty to hide the link.
+    identifier: the identifier of the language of the page ("es", ...).
+
+    return: the address, empty if the link is hidden.
+
+    """
+    # shortcut: the manual exists in Spanish and English only, so any
+    # other language gets the English one; extend when one is published.
+    language = "es" if identifier.split("-")[0] == "es" else "en"
+    # Not str.format: an address with other braces must not raise.
+    return template.replace("{language}", language)
+
+
 def argument_reader(
     func: Callable[[str, Callable[[str], str]], typing.Any],
     empty: object = None,
@@ -631,6 +648,8 @@ class BaseHandler(CommonRequestHandler):
 
         """
         params = self._base_render_params(self.contest)
+        params["manual_url"] = manual_url(
+            config.admin_web_server.manual_url, self.translation.identifier)
         if self.current_user is not None:
             params["admin"] = self.current_user
         if self.contest is not None:

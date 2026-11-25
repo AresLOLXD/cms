@@ -183,6 +183,14 @@ def generate_cms_toml() -> str:
         '\nTelegramBot = [["localhost", 27000]]' if telegram_configured else ""
     )
 
+    # Unset or empty keeps the default of cms/conf.py; "off" hides the link
+    # (an empty value cannot mean that, an empty variable is "unset").
+    manual_url = _get("CMS_MANUAL_URL", "")
+    manual_url_line = ""
+    if manual_url:
+        shown = "" if manual_url == "off" else manual_url
+        manual_url_line = f'manual_url = "{_toml_str(shown)}"\n'
+
     worker_entries = ", ".join(f'["localhost", {26000 + i}]' for i in range(worker_count))
     cws_entries = ", ".join(f'["localhost", {cws_rpc_port + i}]' for i in range(cws_count))
     cws_ports = "[" + ", ".join(str(cws_http_port + i) for i in range(cws_count)) + "]"
@@ -227,7 +235,7 @@ request_time_header = "{_toml_str(request_time_header)}"
 listen_address = "{listen_addr}"
 listen_port = {aws_http_port}
 num_proxies_used = {num_proxies}
-
+{manual_url_line}
 [proxy_service]
 rankings = ["http://{_url_quote(rws_username, safe="")}:{_url_quote(rws_password, safe="")}@{rws_host}:{rws_http_port}/"]
 """
