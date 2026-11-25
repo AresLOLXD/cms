@@ -75,6 +75,10 @@ TelegramBot = []
 # keepalives_count=3, tcp_user_timeout=60000 (milliseconds, not
 # seconds), and fallback_application_name, the program's name. For
 # example, "...?keepalives_idle=60" changes only that one.
+# They also get options=-c lock_timeout=30000 (a statement waits at most
+# 30 s for a lock), followed by the PGOPTIONS environment variable and
+# the URL's own options, which win: "...?options=-c%20lock_timeout%3D0"
+# switches the lock limit off.
 url = "postgresql+psycopg2://cmsuser:your_password_here@localhost:5432/cmsdb"
 
 # Whether SQLAlchemy prints DB queries on stdout.
