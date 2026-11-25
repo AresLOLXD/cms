@@ -230,7 +230,9 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
     def _hold(self, statement: str) -> None:
         self.holder.cursor().execute(statement)
 
-    def _apply_fork_sql_timed(self, sql: str, tables: str) -> float:
+    def _apply_fork_sql_timed(self, sql: str, tables: str,
+                              session_lock_timeouts: list | None = None
+                              ) -> float:
         """Run apply_fork_sql, which must give up; return its lock wait.
 
         The wait is timed from the moment the connection is open, so it
@@ -240,6 +242,8 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
 
         sql: the statements to apply.
         tables: the tables they lock, for the error message.
+        session_lock_timeouts: if given, gets the session lock_timeout
+            of the connection, before apply_fork_sql's SET LOCAL.
 
         return: the seconds from the open connection to the exception.
 
@@ -251,7 +255,11 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
             # Session level: autocommit keeps this SET out of the
             # transaction that apply_fork_sql starts.
             conn.autocommit = True
-            conn.cursor().execute("SET statement_timeout = '30s'")
+            cursor = conn.cursor()
+            cursor.execute("SET statement_timeout = '30s'")
+            if session_lock_timeouts is not None:
+                cursor.execute("SHOW lock_timeout")
+                session_lock_timeouts.append(cursor.fetchone()[0])
             conn.autocommit = False
             opened_at.append(time.monotonic())
             return conn
@@ -283,10 +291,13 @@ class TestSchemaLockTimeout(DatabaseMixin, unittest.TestCase):
         return completed, time.monotonic() - started
 
     def test_apply_fork_sql_gives_up_after_5_seconds(self):
+        # Scenario: The 5 s DDL bound wins over the 30 s session default
         self._hold("SELECT 1 FROM contests LIMIT 1")
+        session_lock_timeouts = []
         wait = self._apply_fork_sql_timed(
             "ALTER TABLE public.contests ALTER COLUMN active DROP DEFAULT",
-            "contests")
+            "contests", session_lock_timeouts)
+        self.assertEqual(session_lock_timeouts, ["30s"])
         self.assertGreaterEqual(wait, 5)
         self.assertLess(wait, 8)
 

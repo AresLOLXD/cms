@@ -28,9 +28,10 @@ from types import SimpleNamespace
 import gevent
 import psycopg2
 from psycopg2 import extensions
+from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
 
-from cms.db import custom_psycopg2_connection
+from cms.db import custom_psycopg2_connection, engine
 from cms.db.connect_options import with_connection_defaults
 from cms.io.PsycoGevent import connect_deadline, is_psycopg_green, \
     make_psycopg_green
@@ -172,6 +173,19 @@ class TestQueriesHaveNoDeadline(unittest.TestCase):
             self.assertGreaterEqual(time.monotonic() - started, 3)
         finally:
             connection.close()
+
+
+class TestGreenConnectionLockTimeout(unittest.TestCase):
+
+    def test_a_green_engine_connection(self):
+        # Scenario: Every connection path starts with a 30 s lock timeout
+        # As a Worker connects: the sync engine, green.
+        make_psycopg_green()
+        engine.dispose()
+        self.addCleanup(engine.dispose)
+        with engine.connect() as connection:
+            self.assertEqual(connection.execute(
+                text("SHOW lock_timeout")).scalar_one(), "30s")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ import asyncio
 import os
 import socket
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -37,13 +38,14 @@ from cms.db.async_session import _async_database_url, async_engine
 from cms.db.connect_options import LIBPQ_DEFAULTS, PROGRAM_NAME, \
     describe_error, is_disconnect, program_name, sqlstate, \
     with_connection_defaults
+from cms.db.fsobject import LargeObject
 
 
 # The suffix of the runbook (docs/contest-day.md, "Switching the
 # timeouts off"). Keep the two identical.
 KILL_SWITCH = ("?connect_timeout=0&keepalives_idle=7200"
                "&keepalives_interval=75&keepalives_count=9"
-               "&tcp_user_timeout=0")
+               "&tcp_user_timeout=0&options=-c%20lock_timeout%3D0")
 
 # SO_KEEPALIVE, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT and
 # TCP_USER_TIMEOUT of a connection's socket.
@@ -58,6 +60,7 @@ EXPECTED_DEFAULTS = {
     "keepalives_count": "3",
     "tcp_user_timeout": "60000",
     "fallback_application_name": PROGRAM_NAME,
+    "options": "-c lock_timeout=30000",
 }
 
 
@@ -73,6 +76,34 @@ def with_kill_switch(url: str) -> str:
     if "?" in url:
         return url + "&" + KILL_SWITCH[1:]
     return url + KILL_SWITCH
+
+
+def _without_pgoptions(test: unittest.TestCase) -> None:
+    """Unset PGOPTIONS for the rest of test; it is put back after it."""
+    patcher = patch.dict(os.environ)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    os.environ.pop("PGOPTIONS", None)
+
+
+def _show(connection, *names: str) -> list[str]:
+    """Return the values of the settings names on a DB-API connection."""
+    cursor = connection.cursor()
+    values = []
+    for name in names:
+        cursor.execute("SHOW " + name)
+        values.append(cursor.fetchone()[0])
+    cursor.close()
+    return values
+
+
+def _custom_connection_settings(*names: str) -> list[str]:
+    """Return settings of a new custom_psycopg2_connection()."""
+    connection = custom_psycopg2_connection()
+    try:
+        return _show(connection, *names)
+    finally:
+        connection.close()
 
 
 def _database_over_tcp() -> bool:
@@ -153,6 +184,9 @@ def _sqlalchemy_error(error_class: type, orig: Exception,
 
 class TestWithConnectionDefaults(unittest.TestCase):
 
+    def setUp(self):
+        _without_pgoptions(self)
+
     @staticmethod
     def _query(url: str) -> dict:
         return dict(with_connection_defaults(make_url(url)).query)
@@ -188,12 +222,14 @@ class TestWithConnectionDefaults(unittest.TestCase):
         self.assertEqual(url.username, "us@r")
         self.assertEqual(url.password, "p@ss:w/d%")
 
-    def test_options_is_never_added_and_a_users_options_is_kept(self):
-        self.assertNotIn("options",
-                         self._query("postgresql+psycopg2://u@h/db"))
+    def test_pgoptions_and_the_users_options_come_after_the_default(self):
+        # PostgreSQL applies the -c switches in order: the last one wins.
+        os.environ["PGOPTIONS"] = "-c lock_timeout=7s -c geqo=off"
         query = self._query("postgresql+psycopg2://u@h/db"
                             "?options=-c%20lock_timeout%3D5s")
-        self.assertEqual(query["options"], "-c lock_timeout=5s")
+        self.assertEqual(query["options"],
+                         "-c lock_timeout=30000 -c lock_timeout=7s "
+                         "-c geqo=off -c lock_timeout=5s")
 
     def test_a_users_application_name_is_kept(self):
         # libpq uses fallback_application_name only when no
@@ -209,7 +245,8 @@ class TestWithConnectionDefaults(unittest.TestCase):
             **EXPECTED_DEFAULTS, "sslmode": "require",
             "connect_timeout": "0", "keepalives_idle": "7200",
             "keepalives_interval": "75", "keepalives_count": "9",
-            "tcp_user_timeout": "0"})
+            "tcp_user_timeout": "0",
+            "options": "-c lock_timeout=30000 -c lock_timeout=0"})
 
 
 class TestProgramName(unittest.TestCase):
@@ -327,16 +364,21 @@ class TestConnectionPaths(unittest.TestCase):
                          (DEFAULT_SOCKET, PROGRAM_NAME))
 
     def test_the_kill_switch(self):
+        # Scenario: lock_timeout=0 in the URL switches the bound off
         switched_url = with_kill_switch(config.database.url)
         with patch.object(config.database, "url", switched_url):
             switched = create_engine(
                 with_connection_defaults(make_url(config.database.url)))
             custom_state = _custom_connection_state()
+            custom_lock_timeout = _custom_connection_settings("lock_timeout")
         self.addCleanup(switched.dispose)
         with switched.connect() as connection:
             fileno = connection.connection.dbapi_connection.fileno()
             self.assertEqual(_socket_options(fileno), KILL_SWITCH_SOCKET)
+            self.assertEqual(connection.execute(
+                text("SHOW lock_timeout")).scalar_one(), "0")
         self.assertEqual(custom_state[0], KILL_SWITCH_SOCKET)
+        self.assertEqual(custom_lock_timeout, ["0"])
 
 
 @unittest.skipUnless(_database_over_tcp(),
@@ -352,6 +394,7 @@ class TestAsyncConnectionPath(unittest.IsolatedAsyncioTestCase):
                          (DEFAULT_SOCKET, PROGRAM_NAME))
 
     async def test_the_kill_switch(self):
+        # Scenario: lock_timeout=0 in the URL switches the bound off
         switched_url = with_kill_switch(config.database.url)
         with patch.object(config.database, "url", switched_url):
             switched = create_async_engine(
@@ -359,6 +402,98 @@ class TestAsyncConnectionPath(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(switched.dispose)
         socket_options, _ = await _async_engine_state(switched)
         self.assertEqual(socket_options, KILL_SWITCH_SOCKET)
+        async with switched.connect() as connection:
+            self.assertEqual((await connection.execute(
+                text("SHOW lock_timeout"))).scalar_one(), "0")
+
+
+class TestLockTimeoutOnEveryPath(unittest.IsolatedAsyncioTestCase):
+    """Every connection path waits at most 30 s for a lock (#39 stage
+    2a). The green path is in cmstestsuite/unit_tests/io/psycogevent_test.py.
+    The engines were built at import: a PGOPTIONS of the test run that
+    sets lock_timeout would fail these.
+
+    """
+
+    async def asyncTearDown(self):
+        await async_engine.dispose()
+
+    def test_the_sync_engine(self):
+        # Scenario: Every connection path starts with a 30 s lock timeout
+        with engine.connect() as connection:
+            self.assertEqual(connection.execute(
+                text("SHOW lock_timeout")).scalar_one(), "30s")
+
+    async def test_the_async_engine(self):
+        # Scenario: Every connection path starts with a 30 s lock timeout
+        async with async_engine.connect() as connection:
+            self.assertEqual((await connection.execute(
+                text("SHOW lock_timeout"))).scalar_one(), "30s")
+
+    def test_custom_psycopg2_connection(self):
+        # Scenario: Every connection path starts with a 30 s lock timeout
+        _without_pgoptions(self)
+        self.assertEqual(_custom_connection_settings("lock_timeout"),
+                         ["30s"])
+
+    def test_a_pooled_large_object_connection(self):
+        # Scenario: Every connection path starts with a 30 s lock timeout
+        large_object = LargeObject(0, "wb")
+        try:
+            self.assertEqual(_show(large_object._conn, "lock_timeout"),
+                             ["30s"])
+        finally:
+            large_object.close()
+            LargeObject.unlink(large_object.loid)
+
+
+class TestLockTimeoutOverrides(unittest.TestCase):
+    """PGOPTIONS and the URL's options reach the server, merged."""
+
+    def setUp(self):
+        _without_pgoptions(self)
+
+    def test_pgoptions_is_merged(self):
+        # Scenario: PGOPTIONS is merged, not dropped
+        os.environ["PGOPTIONS"] = \
+            "-c idle_in_transaction_session_timeout=5000"
+        self.assertEqual(
+            _custom_connection_settings(
+                "lock_timeout", "idle_in_transaction_session_timeout"),
+            ["30s", "5s"])
+
+    def test_the_urls_options_beat_pgoptions_and_the_default(self):
+        # Scenario: The URL's options beat PGOPTIONS and the default
+        os.environ["PGOPTIONS"] = "-c lock_timeout=7000"
+        url = make_url(config.database.url).update_query_dict(
+            {"options": "-c lock_timeout=9000"})
+        with patch.object(config.database, "url",
+                          url.render_as_string(hide_password=False)):
+            self.assertEqual(_custom_connection_settings("lock_timeout"),
+                             ["9s"])
+
+
+class TestTheLockTimeoutFires(unittest.TestCase):
+
+    def test_a_longer_lock_wait_fails_with_55p03(self):
+        # Scenario: A lock wait longer than the bound fails with SQLSTATE 55P03
+        holder = custom_psycopg2_connection()
+        self.addCleanup(holder.close)
+        holder.autocommit = True
+        holder.cursor().execute("SELECT pg_advisory_lock(3939)")
+        url = make_url(config.database.url).update_query_dict(
+            {"options": "-c lock_timeout=1000"})
+        waiter = create_engine(with_connection_defaults(url))
+        self.addCleanup(waiter.dispose)
+        with waiter.connect() as connection:
+            started = time.monotonic()
+            with self.assertRaises(OperationalError) as caught:
+                connection.execute(text("SELECT pg_advisory_lock(3939)"))
+            elapsed = time.monotonic() - started
+        self.assertEqual(sqlstate(caught.exception.orig), "55P03")
+        self.assertFalse(is_disconnect(caught.exception))
+        self.assertGreaterEqual(elapsed, 1)
+        self.assertLess(elapsed, 3)
 
 
 if __name__ == "__main__":
