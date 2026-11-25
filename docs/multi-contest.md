@@ -525,7 +525,13 @@ format of the windows):
 
 ### Deployment
 
-Update RankingWebServer **first**, then the rest:
+Update RankingWebServer **first**, then the rest. `./up.sh` does it in one
+run: choose **Ranking, then CMS (safe order)**. It builds the ranking, CMS and
+`db-init` images first (a build that fails leaves the deployment as it was),
+starts only the ranking container and waits for it to be healthy, and only
+then starts the rest. If the ranking does not come up, it prints `ERROR: the
+ranking did not come up; the CMS was not touched.` and stops. These are the
+same two steps by hand, which is also why the order matters:
 
 1. `./up.sh` and choose **Ranking only**. It rebuilds and restarts only the
    ranking container and returns once it is up; the other services are left
@@ -537,7 +543,7 @@ Update RankingWebServer **first**, then the rest:
    them), and restarts AWS and ProxyService. A group that was hidden with the
    old **Hide ranking from the public** checkbox gets **Hide from** set to the
    time of this step, so it stays hidden.
-3. Check the ProxyService log (`./logs.sh`) for "rejected the visibility".
+3. Either way, check the ProxyService log (`./logs.sh`) for "rejected the visibility".
    There should be none. If there is, see "Failure mode" above.
 
 Don't rebuild both at once (**All services**). The two containers then

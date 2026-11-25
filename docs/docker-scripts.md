@@ -29,10 +29,11 @@ Follow these steps to start the contest system for the first time:
    - Answer **`y`** if you want these scripts to manage the database (most common for new setups).
    - Answer **`n`** only if you already have a PostgreSQL database running somewhere else.
 
-4. **Answer the second question:** `Rebuild?` is a menu from 1 to 7.
+4. **Answer the second question:** `Rebuild?` is a menu from 1 to 8.
    - Choose **`1`** (No, the default and the fastest) on the first run or when nothing has changed.
-   - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`3`** and then **`4`**, see below.
-   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update, see [Running several contests at once](multi-contest.md).
+   - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`8`** (Ranking, then CMS), see below.
+   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update done by hand, see [Running several contests at once](multi-contest.md).
+   - Choose **`8`** (Ranking, then CMS) to update a multi-contest deployment in the right order in one run. It builds the ranking, CMS and db-init images first, starts the ranking and waits until it is healthy, and only then starts the rest. If the ranking does not come up, it stops before touching the CMS.
 
 5. **Wait for startup.** You'll see output like:
    ```
