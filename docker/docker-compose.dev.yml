@@ -1,13 +1,17 @@
 services:
   devdb:
-    image: docker.io/postgres:15
+    image: docker.io/postgres:19.0
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
-      - "../.dev/postgres-data:/var/lib/postgresql/data"
+      - "../.dev/postgres19-data:/var/lib/postgresql"
 
   devcms:
-    build: ..
+    # noble's pg_dump (16) refuses the newer database server used here.
+    build:
+      context: ..
+      args:
+        PG_CLIENT_MAJOR: "19"
     depends_on:
       - "devdb"
     environment:

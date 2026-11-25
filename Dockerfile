@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Supported base images: ubuntu:noble, debian:bookworm.
+# Supported base images: ubuntu:noble, debian:trixie.
 ARG BASE_IMAGE=ubuntu:noble
 
 # ─── Stage 1: Build rekarel compiler (Node.js) and C++ interpreter ────────────
@@ -25,10 +25,11 @@ RUN npm install -g @rekarel/cli
 # Build the C++ Karel interpreter from source (no pre-built binaries for v2.3.2).
 # The binary is statically linked (-static flag in the Makefile), so it has
 # no runtime library dependencies and copies cleanly to the runtime stage.
+# shortcut: -Werror trips on an expat call trixie deprecates; drop CFLAGS once a release replaces it.
 RUN mkdir -p /build && \
     curl -fsSL "https://github.com/kishtarn555/rekarel-cpp-interpreter/archive/refs/tags/v2.3.2.tar.gz" \
         | tar xz --strip-components=1 -C /build && \
-    cd /build && mkdir -p bin && make karel && \
+    cd /build && mkdir -p bin && make karel CFLAGS="-Werror -Wall -fno-exceptions -Wno-error=deprecated-declarations" && \
     ldd bin/karel 2>&1 | grep -q "not a dynamic executable" || \
         { echo "ERROR: karel binary is not statically linked"; exit 1; }
 
@@ -92,10 +93,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     sed -i 's@^cg_root .*@cg_root = /sys/fs/cgroup@' /etc/isolate
 EOF
 
-# Optional newer PostgreSQL client, only for the test image: the distro
-# pg_dump (15 on bookworm, 16 on noble) refuses a newer server, and neither
-# distro ships a 19 client. Empty by default, so the production image does
-# not change. Declared here so that a value does not invalidate earlier
+# Optional newer PostgreSQL client, for the test and development stacks: the
+# distro pg_dump (16 on noble, 17 on trixie) refuses a newer server, and
+# neither distro ships a 19 client. Empty by default, and the production image
+# does not set it. Declared here so that a value does not invalidate earlier
 # layers; the empty value still re-runs the layers after this line once, on the
 # first production rebuild.
 ARG PG_CLIENT_MAJOR=

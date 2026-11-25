@@ -23,7 +23,7 @@ dependencies. We also provide:
      such as download task statements and submitting solutions.
 
 * :gh_blob:`docker/cms-dev.sh`: This file uses :gh_blob:`docker/docker-compose.dev.yml` to
-     spawn a database (**persisted** in the local ``.dev/postgres-data`` folder
+     spawn a database (**persisted** in the local ``.dev/postgres19-data`` folder
      within the repository) as well as a CMS container that only runs ``bash``,
      leaving you with a shell from where you can start cms services. Changes
      made in the repository are also reflected directly inside the container
@@ -154,5 +154,6 @@ the database is persisted on disk on the host machine. Even manually destroying
 and recreating the database container will retain the same data. If for some
 reason you need to reset the database, we recommend using the ``dropdb -h devdb
 -U postgres cmsdb`` command inside the container. To remove any trace of the
-database data, you can delete the ``.dev/postgres-data`` folder within the git
-repository.
+database data, you can delete the ``.dev/postgres19-data`` folder within the git
+repository. Data in the old ``.dev/postgres-data`` folder (PostgreSQL 15) is not
+migrated and is left as it is.

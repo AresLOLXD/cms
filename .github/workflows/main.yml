@@ -24,9 +24,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
-    # Two jobs, as before: the newest PostgreSQL major (the production one) on
-    # noble, whose client is older than the server, and the oldest supported
-    # major on bookworm. The 19 server needs a 19 pg_dump (PG_CLIENT_MAJOR).
+    # Two jobs: the newest PostgreSQL major on noble, whose own client is older
+    # than the server, so it needs a PGDG 19 pg_dump (PG_CLIENT_MAJOR), and the
+    # minimum supported major (17) on trixie with Debian's own client, in the
+    # same alpine variant as the bundled localdb.
     env:
       TEST_PG_VERSION: ${{ matrix.pg_version }}
 
@@ -39,8 +40,8 @@ jobs:
           - base_image: "ubuntu:noble"
             pg_version: "19.0"
             pg_client_major: "19"
-          - base_image: "debian:bookworm"
-            pg_version: "15.20"
+          - base_image: "debian:trixie"
+            pg_version: "17.12-alpine"
             pg_client_major: ""
 
     steps:
