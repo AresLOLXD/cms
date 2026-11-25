@@ -30,7 +30,8 @@ from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
 from cmstestsuite.unit_tests.testidgenerator import unique_digest, \
     unique_unicode_id
 
-from cms.db import Digest, UserTestExecutable
+from cms.db import Attachment, Digest, SubmissionResult, Testcase, \
+    UserTestExecutable, UserTestResult
 from cms.db.util import enumerate_files, get_submission_results, \
     get_submissions
 
@@ -142,6 +143,50 @@ class TestEnumerateFiles(DatabaseMixin, unittest.TestCase):
         self.assertNotIn(Digest.TOMBSTONE, result)
         self.assertEqual(
             result, digests | ({manager.digest} - {Digest.TOMBSTONE}))
+
+    def test_keeps_files_of_tasks_without_contest(self):
+        # Safety: cmsCleanFiles deletes whatever is not enumerated here,
+        # and Task.contest_id is nullable.
+        task = self.add_task()
+        statement = self.add_statement(task=task)
+        attachment = Attachment(
+            task=task, filename=unique_unicode_id(), digest=unique_digest())
+        self.session.add(attachment)
+        dataset = self.add_dataset(task=task)
+        manager = self.add_manager(dataset=dataset)
+        testcase = self.add_testcase(dataset=dataset)
+        contest, digests, _ = self._populate_contest()
+        self.session.commit()
+
+        result = enumerate_files(self.session)
+
+        self.assertEqual(result, digests | {
+            statement.digest, attachment.digest, manager.digest,
+            testcase.input, testcase.output})
+        # A contest filter still ignores the contest-less task.
+        self.assertEqual(enumerate_files(self.session, contest), digests)
+
+    def test_keeps_sandbox_archives_of_results(self):
+        # The admin links these from the submission page, so they are
+        # references. Only the whole-database scan returns them: the
+        # dump importer compares its file set with the exported one.
+        contest, digests, _ = self._populate_contest()
+        sandbox_digests = {unique_digest() for _ in range(4)}
+        c1, c2, e1, e2 = sorted(sandbox_digests)
+        submission_result = self.session.query(SubmissionResult).one()
+        submission_result.compilation_sandbox_digests = [c1]
+        user_test_result = self.session.query(UserTestResult).one()
+        user_test_result.compilation_sandbox_digests = [c2]
+        user_test_result.evaluation_sandbox_digests = [e2]
+        testcase = self.session.query(Testcase).one()
+        self.add_evaluation(
+            submission_result=submission_result, testcase=testcase,
+            evaluation_sandbox_digests=[e1])
+        self.session.commit()
+
+        self.assertEqual(
+            enumerate_files(self.session), digests | sandbox_digests)
+        self.assertEqual(enumerate_files(self.session, contest), digests)
 
 
 class TestGetSubmissionsNoFilters(DatabaseMixin, unittest.TestCase):
