@@ -19,15 +19,6 @@ Copyright: 2021 OpenJS Foundation and other contributors, http://jquery.org/
 License: Expat
 Comment: See http://jquery.org/license
 
-Files: cmsranking/static/lib/explorercanvas.js
-Copyright: 2006 Google Inc., http://code.google.com/p/explorercanvas/
-License: Apache-2.0
-
-Files: cmsranking/static/lib/eventsource.js
-Copyright: 2012 Remy Sharp, http://remysharp.com
-License: Expat
-Comment: See http://rem.mit-license.org/
-
 Files: cmsranking/static/lib/raphael.js
 Copyright: 2008-2016 Dmitry Baranovskiy (http://raphaeljs.com)
            2008-2016 Sencha Labs (http://sencha.com)
@@ -35,7 +26,7 @@ Copyright: 2008-2016 Dmitry Baranovskiy (http://raphaeljs.com)
 License: Expat and Apache-2.0
 Comment: See https://dmitrybaranovskiy.github.io/raphael/license.html
 
-Files: cms/server/static/jq/jquery-3.6.0.min.js
+Files: cms/server/static/jq/jquery-3.7.1.min.js
        cms/server/static/jq/jquery-migrate-3.3.2.min.js
 Copyright: 2021 OpenJS Foundation and other contributors, http://jquery.org/
 License: Expat
