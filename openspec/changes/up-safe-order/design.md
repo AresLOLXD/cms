@@ -11,7 +11,7 @@
 - A failed build must not leave a half-updated deployment.
 
 **Non-Goals:**
-- No no-cache variant, no separate script, no change to choices 1 to 7.
+- No no-cache variant, no separate script, no change to the commands of choices 1 to 7.
 - No backup, `git pull` or post-deploy checks inside `up.sh`.
 
 ## Decisions
@@ -24,7 +24,9 @@
 
 ## Risks / Trade-offs
 
-- Choices 3 and 6 now wait for the ranking healthcheck as well → their wait is still bounded by the existing 90 s.
-- A ranking that loads a very large data set and needs more than 90 s to listen would make choice 8 stop with the error → the ranking is then already running the new code; re-run `./up.sh` and choose 4 once it is healthy. The ranking's startup is a few seconds today.
+- Every start that includes the ranking now waits for its healthcheck, not only choices 3 and 6: the plain `up -d --wait` of choices 1, 2, 4, 5 and 7 and of the second step of choice 8 as well → a crash-looping or unhealthy ranking makes a CMS-only deploy exit 1 after the CMS was started (it was exit 0 before). That is more honest, but new; the CMS is not rolled back.
+- The first `./up.sh` or `./restart.sh` after this release recreates the ranking whatever the choice (the service configuration changed) → deploy outside a contest; the scoreboard is down for a few seconds.
+- The real deadline for the ranking is its healthcheck, about 55 s (start period 30 s plus 5 retries of 5 s); the 90 s `--wait-timeout` is only the outer bound.
+- A ranking that loads a very large data set and needs more than about 55 s to listen would make choice 8 stop with the error → the ranking is then already running the new code; re-run `./up.sh` and choose 4 once it is healthy. The ranking's startup is a few seconds today.
 - The first deploy after this change recreates the ranking container (its configuration changed) → same as any ranking update.
-- The wait covers "healthy within 90 s", not "stays healthy"; a ranking that dies later is handled by `restart: unless-stopped` and the watchdog, as before.
+- The wait covers "healthy within about 55 s", not "stays healthy"; a ranking that dies later is handled by `restart: unless-stopped` and the watchdog, as before.

@@ -187,13 +187,25 @@ fi
 # Scenario: The ranking does not come up
 DOCKER_FAIL_ON=" --no-deps " run_do_up n 8
 if [[ "$DO_UP_RC" -ne 0 ]] \
-    && [[ "$DO_UP_ERR" == *"ERROR: the ranking did not come up; the CMS was not touched."* ]] \
+    && [[ "$DO_UP_ERR" == *"ERROR: the ranking did not come up; the CMS was not rebuilt or started by this run."* ]] \
     && [[ "$(grep -cE ' up ' "$TMP_ROOT/calls")" -eq 1 ]] \
     && ! grep -qE ' up -d --wait --wait-timeout 90$' "$TMP_ROOT/calls"; then
   check "_do_up choice 8 stops with an error when the ranking does not come up" "ok"
 else
   check "_do_up choice 8 stops with an error when the ranking does not come up" "rc=$DO_UP_RC err: $DO_UP_ERR calls: $(tr '\n' '|' < "$TMP_ROOT/calls")"
 fi
+
+# Scenario: A plain start with an unhealthy ranking
+# The plain "up --wait" now waits for the ranking too; when that up fails the
+# script must exit non-zero (the CMS side was started by the same command).
+for choice in 1 2 4 5 7; do
+  DOCKER_FAIL_ON=" up " run_do_up n "$choice"
+  if [[ "$DO_UP_RC" -ne 0 ]]; then
+    check "_do_up choice $choice exits non-zero when the up fails (unhealthy ranking)" "ok"
+  else
+    check "_do_up choice $choice exits non-zero when the up fails (unhealthy ranking)" "rc=$DO_UP_RC"
+  fi
+done
 
 # Scenario: A crash-looping ranking counts as not up
 # "up --wait" only fails for a crash loop when the service has a healthcheck

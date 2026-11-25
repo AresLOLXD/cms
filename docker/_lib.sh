@@ -118,7 +118,7 @@ _do_up() {
       # The new ProxyService needs the new ranking: start it alone and stop here
       # if it does not come up, before the CMS is touched.
       "${up_cmd[@]}" up -d --no-deps --wait --wait-timeout 90 ranking || {
-        echo "ERROR: the ranking did not come up; the CMS was not touched." >&2
+        echo "ERROR: the ranking did not come up; the CMS was not rebuilt or started by this run." >&2
         exit 1
       } ;;
   esac

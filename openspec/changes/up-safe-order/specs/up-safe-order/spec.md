@@ -7,7 +7,7 @@ Lets the operator update a deployment that has a ranking server and a CMS in the
 ## ADDED Requirements
 
 ### Requirement: The rebuild menu offers a safe-order choice
-The rebuild menu of `./up.sh` SHALL list the choice `8) Ranking, then CMS (safe order)` and SHALL accept 1 to 8. Choices 1 to 7 SHALL keep the commands they run today, in the same order.
+The rebuild menu of `./up.sh` SHALL list the choice `8) Ranking, then CMS (safe order)` and SHALL accept 1 to 8. Choices 1 to 7 SHALL keep the commands they run today, in the same order (what they wait for changes only through the ranking healthcheck, see below).
 
 #### Scenario: The menu lists the new choice
 - **WHEN** the operator runs `./up.sh` and reaches the rebuild question
@@ -29,7 +29,7 @@ Choice 8 SHALL build the ranking, CMS and db-init images before it starts or rec
 - **THEN** the script exits non-zero and no container is started or recreated
 
 ### Requirement: The CMS is not started when the ranking does not come up
-Choice 8 SHALL start the CMS side only after the ranking container is healthy. When the ranking does not become healthy, the script SHALL print `ERROR: the ranking did not come up; the CMS was not touched.` to standard error, exit non-zero and neither start nor recreate any other service.
+Choice 8 SHALL start the CMS side only after the ranking container is healthy. When the ranking does not become healthy, the script SHALL print `ERROR: the ranking did not come up; the CMS was not rebuilt or started by this run.` to standard error, exit non-zero and neither start nor recreate any other service.
 
 #### Scenario: The ranking does not come up
 - **WHEN** the operator picks choice 8 and starting the ranking fails or times out
@@ -49,3 +49,10 @@ Choice 8 SHALL use one image revision label and the operator's local database an
 #### Scenario: The local database applies to both steps
 - **WHEN** the operator answers yes to the local PostgreSQL question and picks choice 8
 - **THEN** every compose command of that run carries the local database profile
+
+### Requirement: Starting waits for a healthy ranking
+Every start that includes the ranking (choices 1, 2, 4, 5 and 7, and the second step of choice 8) SHALL also wait for the ranking container to be healthy, and SHALL exit non-zero when it is not. Choices 3 and 6 SHALL wait for the same healthcheck.
+
+#### Scenario: A plain start with an unhealthy ranking
+- **WHEN** the operator picks choice 1, 2, 4, 5 or 7 and the start fails because the ranking is not healthy
+- **THEN** the script exits non-zero, even though the CMS side was started by that same command

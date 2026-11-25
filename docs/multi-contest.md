@@ -530,7 +530,7 @@ run: choose **Ranking, then CMS (safe order)**. It builds the ranking, CMS and
 `db-init` images first (a build that fails leaves the deployment as it was),
 starts only the ranking container and waits for it to be healthy, and only
 then starts the rest. If the ranking does not come up, it prints `ERROR: the
-ranking did not come up; the CMS was not touched.` and stops. These are the
+ranking did not come up; the CMS was not rebuilt or started by this run.` and stops. These are the
 same two steps by hand, which is also why the order matters:
 
 1. `./up.sh` and choose **Ranking only**. It rebuilds and restarts only the
