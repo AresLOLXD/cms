@@ -593,6 +593,14 @@ msgstr ""
 "Los archivos del respaldo pertenecen a root y nadie más puede "
 "leerlos. El respaldo no incluye ni `.env` ni los volúmenes de Docker."
 
+msgid ""
+"To free space after contests ended, take a backup first and follow "
+"[Archiving finished contests](archiving-finished-contests.md)."
+msgstr ""
+"Para liberar espacio cuando las competencias ya terminaron, haz primero "
+"un respaldo y sigue [Archivar competencias terminadas]"
+"(archiving-finished-contests.md)."
+
 msgid "verify-backup.sh"
 msgstr "verify-backup.sh"
 

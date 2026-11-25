@@ -252,6 +252,9 @@ yours and run `rsync` on that copy.
 The files of the backup belong to root and nobody else can read them. The
 backup has neither `.env` nor the Docker volumes.
 
+To free space after contests ended, take a backup first and follow
+[Archiving finished contests](archiving-finished-contests.md).
+
 ### verify-backup.sh
 
 Proves that a backup made by `backup.sh` restores, before you need it. It

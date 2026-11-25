@@ -37,6 +37,7 @@ users from the Admin Web Server.
 
    contest-day
    participant-activity
+   archiving-finished-contests
    Running CMS
    Troubleshooting
 

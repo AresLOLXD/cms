@@ -26,7 +26,7 @@
 import sys
 import logging
 
-from sqlalchemy import select, text, union, Select
+from sqlalchemy import func, select, text, union, Select
 from sqlalchemy.exc import OperationalError
 
 from cms import ConfigError
@@ -44,6 +44,7 @@ from . import (
     Submission,
     File,
     SubmissionResult,
+    Evaluation,
     Executable,
     UserTest,
     UserTestFile,
@@ -309,19 +310,28 @@ def enumerate_files(
     skip_users=False,
     skip_generated=False,
 ) -> set[str]:
-    """Enumerate all the files (by digest) referenced by the
-    contest.
+    """Enumerate the files (by digest) referenced by a contest or by
+    the whole database.
 
-    return: the digests of the file referenced in the contest.
+    With a contest, return the files that contest references (the
+    sandbox archives of its results are left out, since the dump
+    importer expects exactly the files the exporter wrote). Without a
+    contest, return every file referenced anywhere in the database,
+    including the tasks that belong to no contest and the sandbox
+    archives of the results: this is what cmsCleanFiles keeps, so
+    anything missing here gets deleted.
+
+    return: the digests of the files referenced by the contest, or by
+        the whole database if no contest is given.
 
     """
-    contest_q = select(Contest)
+    # Task.contest_id is nullable: start from the tasks, not the contests.
+    task_q = select(Task)
     if contest is not None:
-        contest_q = contest_q.filter(Contest.id == contest.id)
+        task_q = task_q.filter(Task.contest_id == contest.id)
 
     queries = list()
 
-    task_q = contest_q.join(Contest.tasks)
     queries.append(task_q.join(Task.statements).with_only_columns(Statement.digest))
     queries.append(task_q.join(Task.attachments)
                    .with_only_columns(Attachment.digest))
@@ -359,6 +369,13 @@ def enumerate_files(
             queries.append(user_test_result_q
                            .filter(UserTestResult.output != None)
                            .with_only_columns(UserTestResult.output))
+
+    if contest is None:
+        for column in (SubmissionResult.compilation_sandbox_digests,
+                       Evaluation.evaluation_sandbox_digests,
+                       UserTestResult.compilation_sandbox_digests,
+                       UserTestResult.evaluation_sandbox_digests):
+            queries.append(select(func.unnest(column)))
 
     # union(...).execute() would be executed outside of the session.
     digests = set(r[0] for r in session.execute(union(*queries)))
