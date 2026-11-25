@@ -201,13 +201,13 @@ not remove the contest that `CMS_CONTEST_ID` names.
    docker compose -f docker/docker-compose.prod.yml --env-file .env \
        -p "$PROJECT" exec cms cmsCleanFiles -n
    ```
-   The orphan bytes must equal the sum of `freed_if_removed` (part C) of the
-   contests you removed, plus the first line of B2 (both measured before step
-   3). A file that only the removed contests share is in no
-   `freed_if_removed`, so the dry run can be a little larger when you remove
-   several contests that share files. If it is larger by more than you can
-   explain, **stop**: do not run step 3 and look for what the extra files
-   are.
+   The orphan bytes should match the sum of `freed_if_removed` (part C) of
+   the contests you removed, plus the first line of B2 (both measured before
+   step 3), to the unit shown: the sizes of the measurement are rounded. A file
+   that only the removed contests share is in no `freed_if_removed`, so the
+   dry run can be a little larger when you remove several contests that share
+   files. If it is clearly larger, **stop**: do not run step 3 and look for
+   what the extra files are.
 3. Delete them (only on `omi.18` or newer, see the warning at the top):
    ```bash
    docker compose -f docker/docker-compose.prod.yml --env-file .env \
@@ -274,19 +274,18 @@ there. Do not import a single-contest dump into the live database (see
    that made the backup.
 3. Read it with `psql` on `${DB}_restore` (for example, with the queries of
    the measurement). If you need the Admin Web Server, run **only** it, on
-   your own machine and not in the live `cms` container, with its own
-   `cms.toml`: a copy of `config/cms.sample.toml` where the database `url`
-   points to the scratch database, every address of `[services]` is a port
-   where nothing listens (for example `["127.0.0.1", 1]`) and `rankings = []`
-   in `[proxy_service]`. Do not copy the configuration of the live system:
-   an Admin Web Server connects to the Evaluation Service, the Scoring
-   Service and ProxyService at the addresses of its configuration, and an
-   action such as re-evaluate or **Regenerate** would reach the live services
-   with the ids of the scratch database. In Docker, use a separate project
-   (another `-p` name, so another network and other volumes), a copy of
-   `.env` with other ports and without the address of the live ranking
-   (`CMS_RWS_HOST`), and start only `cmsAdminWebServer`, never the whole `cms`
-   container: it starts every service.
+   your own machine, with its own `cms.toml`: a copy of
+   `config/cms.sample.toml` where the database `url` points to the scratch
+   database, every address of `[services]` is a port where nothing listens
+   (for example `["127.0.0.1", 1]`) and `rankings = []` in `[proxy_service]`.
+   Start it with `CMS_CONFIG=<path of that file> cmsAdminWebServer 0`. Do not
+   copy the configuration of the live system: an Admin Web Server connects to
+   the Evaluation Service, the Scoring Service and ProxyService at the
+   addresses of its configuration, and an action such as re-evaluate or
+   **Regenerate** would reach the live services with the ids of the scratch
+   database. The scripts of the project cannot start only the Admin Web Server
+   in Docker (the `cms` container starts every service), so do not use that
+   container for this.
 4. When you finish, drop the scratch database:
    ```bash
    pgc psql -X -d postgres -c "DROP DATABASE ${DB}_restore"
