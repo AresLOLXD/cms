@@ -43,10 +43,10 @@ services:
   # exits. The main cms service waits for this to complete before starting.
   # Re-running it on an existing database is safe (uses CREATE TABLE IF NOT EXISTS).
   db-init:
-    build:
-      context: ..
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
+    # The same image as cms (built once, under cms), never pulled: its name
+    # exists in no registry, and a missing image must fail instead of fetching.
+    image: ${CMS_PROJECT_NAME:-cms-prod}-cms
+    pull_policy: never
     env_file:
       - path: ../.env
         required: false
@@ -101,6 +101,10 @@ services:
 
   # ── CMS (all services managed by supervisord) ─────────────────────────────
   cms:
+    # Named explicitly (it is the name Compose would give it) so that db-init
+    # can use the same image.
+    image: ${CMS_PROJECT_NAME:-cms-prod}-cms
+    pull_policy: never
     build:
       context: ..
       args:

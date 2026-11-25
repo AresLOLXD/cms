@@ -24,3 +24,4 @@ backups/
 cmstestsuite/loadtest/out/
 cmstestsuite/loadtest/run/
 **/__pycache__/
+graphify-out/

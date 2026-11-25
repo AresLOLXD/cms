@@ -188,7 +188,8 @@ def test_db_connection_from_env_external_url(run, repo):
 
 
 @pytest.mark.parametrize("version_num, major", [
-    ("160015", "17"), ("170002", "17"), ("180001", "18"), ("90624", "17")])
+    ("160015", "17"), ("170002", "17"), ("180001", "18"), ("190000", "19"),
+    ("190001", "19"), ("90624", "17")])
 def test_pick_pg_major(run, version_num, major):
     result = run('pick_pg_major "$VERSION"', VERSION=version_num)
     assert result.returncode == 0, result.stderr

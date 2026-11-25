@@ -263,6 +263,15 @@ msgstr ""
 "varias competencias usa, en cambio, `8) Ranking, then CMS (safe order)`, "
 "consulta [Ejecutar varias competencias a la vez](multi-contest.md)."
 
+msgid ""
+"CI tests the CMS against PostgreSQL 15 (the oldest supported major) and "
+"19 (the production major); the bundled `localdb` container runs "
+"PostgreSQL 17."
+msgstr ""
+"La CI prueba CMS con PostgreSQL 15 (la versión mayor más antigua "
+"soportada) y 19 (la versión mayor de producción); el contenedor `localdb` "
+"incluido ejecuta PostgreSQL 17."
+
 msgid "Step 4 — Import a contest and set it as active"
 msgstr "Paso 4 — Importa una competencia y defínela como activa"
 
