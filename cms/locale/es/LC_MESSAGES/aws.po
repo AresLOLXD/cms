@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Contest Management System 1.6.dev0+omi.15\n"
 "Report-Msgid-Bugs-To: contestms@googlegroups.com\n"
-"POT-Creation-Date: 2026-11-24 19:09-0600\n"
+"POT-Creation-Date: 2026-11-24 22:32-0600\n"
 "PO-Revision-Date: 2026-11-04 22:14-0600\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: es\n"
@@ -286,6 +286,10 @@ msgstr "No se indicó el nombre del concurso."
 
 msgid "Unknown ranking group."
 msgstr "Grupo de ranking desconocido."
+
+#, python-format
+msgid "Ranking group %r is archived: unarchive it before moving a contest out of it."
+msgstr "El grupo de ranking %r está archivado: desarchívalo antes de sacarle un concurso."
 
 #, python-format
 msgid "Ranking group %r is archived: unarchive it before assigning a contest to it."

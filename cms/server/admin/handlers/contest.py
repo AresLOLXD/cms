@@ -132,21 +132,34 @@ class ContestHandler(SimpleContestHandler("contest.html")):
             if "ranking_group_id" in ranking_group_form:
                 ranking_group_id = ranking_group_form["ranking_group_id"]
                 if ranking_group_id is None:
-                    attrs["ranking_group"] = None
+                    new_group = None
                 else:
-                    ranking_group = RankingGroup.get_from_id(
+                    new_group = RankingGroup.get_from_id(
                         ranking_group_id, self.sql_session)
-                    if ranking_group is None:
+                    if new_group is None:
                         raise ValueError(self._("Unknown ranking group."))
-                    # An archived group is not sent: the contest would
-                    # reach no public ranking. Staying in it is fine.
-                    if ranking_group != contest.ranking_group \
-                            and ranking_group.is_archived_at(make_datetime()):
+                # An archived group is not sent: a contest assigned to
+                # it would reach no public ranking, and one that leaves
+                # it would leave its data in the group's ranking with
+                # nothing to update it. Staying in it is fine.
+                # shortcut: the group is read without a row lock, so an
+                # Archive or Unarchive pressed in the same second can
+                # slip through; Regenerate fixes the ranking.
+                if new_group != contest.ranking_group:
+                    now = make_datetime()
+                    if contest.ranking_group is not None \
+                            and contest.ranking_group.is_archived_at(now):
+                        raise ValueError(self._(
+                            "Ranking group %r is archived: unarchive it "
+                            "before moving a contest out of it.")
+                            % contest.ranking_group.name)
+                    if new_group is not None \
+                            and new_group.is_archived_at(now):
                         raise ValueError(self._(
                             "Ranking group %r is archived: unarchive it "
                             "before assigning a contest to it.")
-                            % ranking_group.name)
-                    attrs["ranking_group"] = ranking_group
+                            % new_group.name)
+                attrs["ranking_group"] = new_group
 
             self.get_string(attrs, "token_mode")
             self.get_int(attrs, "token_max_number")

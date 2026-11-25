@@ -1472,6 +1472,34 @@ class TestRankingGroupTemplates(unittest.TestCase):
         self.assert_no_stored_password(html)
 
 
+class TestRankingGroupListArchiveColumn(unittest.TestCase):
+
+    def archive_cells(self, **archive) -> list[str]:
+        """Return the cells of the Archive column of one group's row."""
+        group = make_group(1, "olim", **archive)
+        html = render_core_block(
+            "ranking_groups.html", ranking_group_list=[group],
+            contest_list=[], views={1: visibility_view(group, NOW)})
+        self.assertIn("<th>Archive</th>", html)
+        row = re.search(r"<tr>\s*<td>\s*<input type=\"radio\".*?</tr>",
+                        html, re.S).group(0)
+        return re.findall(r"<td>(.*?)</td>", row, re.S)[-2]
+
+    def test_an_archived_group_in_the_list(self):
+        # Scenario: An archived group in the list
+        cell = self.archive_cells(archive_at=NOW - timedelta(hours=1))
+        self.assertTrue(cell.startswith("archived since"), cell)
+
+    def test_a_group_that_will_be_archived_in_the_list(self):
+        # Scenario: A group that will be archived in the list
+        cell = self.archive_cells(archive_at=NOW + timedelta(hours=1))
+        self.assertTrue(cell.startswith("will be archived on"), cell)
+
+    def test_a_group_with_no_archive_at_in_the_list(self):
+        # Scenario: A group with no archive_at in the list
+        self.assertEqual(self.archive_cells(), "never archived")
+
+
 class TestRankingGroupPagesInTwoLanguages(unittest.TestCase):
     """The ranking group pages and messages in English and in Spanish.
 
