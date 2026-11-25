@@ -19,10 +19,12 @@
 
 import re
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from cms.conf import AWSConfig
 from cms.server.admin.handlers.base import BaseHandler, manual_url
+from cms.server.admin.handlers.main import LoginHandler
 from cmstestsuite.unit_tests.server.admin.aws_catalog import SPANISH
 from cmstestsuite.unit_tests.server.admin.lang_switch_test import \
     error_page, login_page
@@ -69,17 +71,23 @@ class TestAddress(unittest.TestCase):
         self.assertEqual(manual_url("", "es"), "")
 
 
+def a_handler(handler_class=BaseHandler):
+    handler = handler_class.__new__(handler_class)
+    handler.application = MagicMock()
+    handler.sql_session = MagicMock()
+    handler._current_user = None
+    handler.contest = None
+    handler.url = handler.static_url_helper = MagicMock()
+    handler.translation = BaseHandler.translation
+    return handler
+
+
 class TestHandler(unittest.TestCase):
 
     def test_the_handler_gives_the_page_its_address(self):
         # Scenario: Default address (the real handler, the real option)
         # Scenario: Language of the page
-        handler = BaseHandler.__new__(BaseHandler)
-        handler.application = MagicMock()
-        handler.sql_session = MagicMock()
-        handler._current_user = None
-        handler.contest = None
-        handler.url = handler.static_url_helper = MagicMock()
+        handler = a_handler()
         for translation, language in ((SPANISH, "es"),
                                       (BaseHandler.translation, "en")):
             handler.translation = translation
@@ -88,6 +96,16 @@ class TestHandler(unittest.TestCase):
             self.assertEqual(params["manual_url"],
                              f"https://cms-omi.readthedocs.io/{language}"
                              "/latest/")
+
+    def test_the_login_and_error_params_have_no_address(self):
+        # Scenario: The login and error pages (the params are what keeps
+        # the entry out: base.html draws the sidebar whenever there is an
+        # admin, and an error page may have one)
+        with patch.object(BaseHandler, "xsrf_form_html", return_value=""):
+            self.assertNotIn("manual_url",
+                             a_handler().error_render_params())
+            self.assertNotIn("manual_url",
+                             a_handler(LoginHandler).render_params())
 
 
 class TestSidebar(unittest.TestCase):
@@ -113,9 +131,12 @@ class TestSidebar(unittest.TestCase):
 
     def test_login_and_error_pages_have_no_entry(self):
         # Scenario: The login and error pages
-        for html in (login_page(manual_url=ADDRESS),
-                     error_page(manual_url=ADDRESS)):
+        # An error page of a logged in admin has the sidebar, but no address.
+        admin = SimpleNamespace(name="root", permission_all=True)
+        for html in (login_page(), error_page(),
+                     error_page(admin=admin)):
             self.assertEqual(the_links(html), [])
+        self.assertIn(">Resource usage</a>", error_page(admin=admin))
 
     def test_entry_in_spanish(self):
         # Scenario: A Spanish page

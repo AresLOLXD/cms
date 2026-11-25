@@ -397,6 +397,11 @@ def test_manual_url_set_is_written(monkeypatch):
     _set(monkeypatch, {"CMS_MANUAL_URL": "https://m.example/{language}/"})
     aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
     assert aws["manual_url"] == "https://m.example/{language}/"
+    # quotes, backslashes and # survive the round trip through TOML
+    tricky = 'https://m.example/a"b\\c#d/{language}/'
+    _set(monkeypatch, {"CMS_MANUAL_URL": tricky})
+    aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
+    assert aws["manual_url"] == tricky
 
 
 def test_manual_url_off_hides_the_entry(monkeypatch):
