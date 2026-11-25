@@ -221,6 +221,13 @@ the script with Ctrl+C, or it fails, it removes the `.partial` directory. If
 the script is killed with `kill -9` or the machine crashes, the `.partial`
 directory stays; it belongs to root, so remove it with `sudo rm -rf`.
 
+While the dump runs, on a terminal the script rewrites one line every 2
+seconds, for example `3.1G written, about 17% of the database size, 02:10`.
+The dump is compressed and has no indexes, which the size of the database
+counts, so the percentage usually stops well under 100%: the written size
+and the time tell you whether the dump is moving. When the output is not a
+terminal (a pipe, `nohup`, a log file) the script prints nothing of this.
+
 Inside the backup:
 
 - The dump, in the directory format of `pg_dump` compressed with zstd.
