@@ -47,9 +47,11 @@ def split_schema(schema: str) -> list[list[str]]:
             or line.startswith("--")
             or line.startswith("\\restrict")
             or line.startswith("\\unrestrict")
-            # Some PostgreSQL servers expose an internal per-column option
-            # (pg_attver) that newer pg_dump clients print for every column;
-            # it is not part of the schema we want to compare.
+            # Some server minors (15.20, 19.0; not 15.19, 17.11, 18.4) store an
+            # internal per-column option (pg_attver) in attoptions. A pg_dump
+            # client older than that server minor (noble's 16.15) prints it for
+            # every column; PGDG clients 15.20/16.16 and later hide it. It is
+            # not part of the schema we want to compare.
             or (line.startswith("ALTER TABLE ") and " SET (pg_attver=" in line)
         ):
             continue
