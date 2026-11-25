@@ -542,6 +542,24 @@ def test_ranking_credentials_match_the_proxy_service_url(
     assert ranking["password"] == unquote(proxy_url.password)
 
 
+@pytest.mark.parametrize("compose_file, db_service, cms_services", [
+    ("docker-compose.test.yml", "testdb", ("testcms", "stresstestcms")),
+    ("docker-compose.dev.yml", "devdb", ("devcms",)),
+])
+def test_cms_containers_have_a_client_for_the_default_database(
+        compose_file, db_service, cms_services):
+    # pg_dump refuses a server newer than itself, and noble's own client (16)
+    # is older than the default test and development servers.
+    with open(os.path.join(os.path.dirname(__file__), compose_file)) as f:
+        services = yaml.safe_load(f)["services"]
+    server = int(re.search(r"postgres:(?:\$\{TEST_PG_VERSION:-)?(\d+)\.",
+                           services[db_service]["image"]).group(1))
+
+    assert server >= 17
+    for name in cms_services:
+        assert int(services[name]["build"]["args"]["PG_CLIENT_MAJOR"]) >= server
+
+
 def test_supervisord_every_program_stops_as_a_group_and_retries(
         monkeypatch):
     # stopasgroup and killasgroup: stopping a program also ends what it
