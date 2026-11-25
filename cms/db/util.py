@@ -310,17 +310,19 @@ def enumerate_files(
     skip_users=False,
     skip_generated=False,
 ) -> set[str]:
-    """Enumerate all the files (by digest) referenced by the
-    contest.
+    """Enumerate the files (by digest) referenced by a contest or by
+    the whole database.
 
-    Without a contest, enumerate everything the database references,
+    With a contest, return the files that contest references (the
+    sandbox archives of its results are left out, since the dump
+    importer expects exactly the files the exporter wrote). Without a
+    contest, return every file referenced anywhere in the database,
     including the tasks that belong to no contest and the sandbox
     archives of the results: this is what cmsCleanFiles keeps, so
-    anything missing here gets deleted. With a contest, the sandbox
-    archives are left out (the dump importer expects exactly the files
-    the exporter wrote).
+    anything missing here gets deleted.
 
-    return: the digests of the file referenced in the contest.
+    return: the digests of the files referenced by the contest, or by
+        the whole database if no contest is given.
 
     """
     # Task.contest_id is nullable: start from the tasks, not the contests.

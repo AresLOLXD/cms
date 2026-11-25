@@ -52,14 +52,30 @@ class TestCleanFiles(DatabaseMixin, unittest.TestCase):
             contest=self.add_contest())).digest
         # Task.contest_id is nullable: such a task is not an orphan.
         no_contest = self.add_statement(task=self.add_task()).digest
+        testcase = self.add_testcase(dataset=self.add_dataset(
+            task=self.add_task()))
         orphan = unique_digest()
         self.session.commit()
+        kept = {in_contest, no_contest, testcase.input, testcase.output}
 
-        store = self._run({in_contest, no_contest, orphan}, dry_run=True)
-        self.assertEqual(store, {in_contest, no_contest, orphan})
+        store = self._run(kept | {orphan}, dry_run=True)
+        self.assertEqual(store, kept | {orphan})
 
         store = self._run(store, dry_run=False)
-        self.assertEqual(store, {in_contest, no_contest})
+        self.assertEqual(store, kept)
+
+    def test_keeps_submission_files_of_a_task_without_contest(self):
+        task = self.add_task(contest=self.add_contest())
+        participation = self.add_participation(contest=task.contest)
+        file_ = self.add_file(submission=self.add_submission(
+            task=task, participation=participation))
+        self.session.commit()
+        task.contest = None
+        self.session.commit()
+
+        store = self._run({file_.digest, unique_digest()}, dry_run=False)
+
+        self.assertEqual(store, {file_.digest})
 
 
 if __name__ == "__main__":
