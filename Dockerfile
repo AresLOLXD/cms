@@ -47,6 +47,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         build-essential
         cppreference-doc-en-html
         default-jdk-headless
+        file
         fp-compiler
         ghc
         git
