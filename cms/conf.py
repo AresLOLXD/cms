@@ -148,6 +148,9 @@ class AWSConfig:
     listen_port: int = 8889
     cookie_duration: int = 10 * 60 * 60  # 10 hours
     num_proxies_used: int = 0
+    # Address of the manual linked from the sidebar, "{language}" is
+    # replaced by the page language; empty hides the link.
+    manual_url: str = "https://cms-omi.readthedocs.io/{language}/latest/"
 
 
 @dataclass()

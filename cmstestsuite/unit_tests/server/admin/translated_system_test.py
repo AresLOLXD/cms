@@ -227,7 +227,8 @@ class TestRankingGroupRemovePage(unittest.TestCase):
         list_page = render_core(
             "ranking_groups.html", SPANISH, ranking_group_list=[self.GROUP],
             contest_list=[], views={2: SimpleNamespace(
-                hidden_now=False, summary="visible", next_change=None)})
+                hidden_now=False, summary="visible", next_change=None,
+                archive_summary="never archived")})
 
         self.assertIn('value="Remove"', list_page)
         self.assertIn(">Borrar grupo</button>", list_page)
