@@ -94,7 +94,9 @@ EOF
 # Optional newer PostgreSQL client, only for the test image: the distro
 # pg_dump (15 on bookworm, 16 on noble) refuses a newer server, and neither
 # distro ships a 19 client. Empty by default, so the production image does
-# not change. Declared here so that a value does not invalidate earlier layers.
+# not change. Declared here so that a value does not invalidate earlier
+# layers; the empty value still re-runs the layers after this line once, on the
+# first production rebuild.
 ARG PG_CLIENT_MAJOR=
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF

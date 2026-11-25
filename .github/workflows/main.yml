@@ -31,6 +31,9 @@ jobs:
       TEST_PG_VERSION: ${{ matrix.pg_version }}
 
     strategy:
+      # A red job must not cancel the other one: it shows whether the failure
+      # is specific to the PostgreSQL major (or to the PGDG fetch).
+      fail-fast: false
       matrix:
         include:
           - base_image: "ubuntu:noble"
