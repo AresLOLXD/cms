@@ -4,6 +4,12 @@
 # (see main.yml and cms-test.sh): cmsuser's sudo is limited to isolate, so
 # nothing in here can chown it.
 
+# The exact server and client builds, so that a CI log says what was tested.
+psql --host=testdb --username=postgres --no-psqlrc --tuples-only \
+    --command='select version()'
+pg_dump --version
+python -c 'import psycopg2; print("psycopg2", psycopg2.__version__, "libpq", psycopg2.__libpq_version__)'
+
 dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting
 createdb --host=testdb --username=postgres cmsdbfortesting
 cmsInitDB

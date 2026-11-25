@@ -1,6 +1,8 @@
 services:
   testdb:
-    image: docker.io/postgres:15
+    # An exact minor, never a floating tag: a minor release changes what the
+    # server exposes (pg_attver) and broke CI once. CI sets it from the matrix.
+    image: docker.io/postgres:${TEST_PG_VERSION:-15.20}
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
 

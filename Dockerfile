@@ -91,6 +91,27 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     sed -i 's@^cg_root .*@cg_root = /sys/fs/cgroup@' /etc/isolate
 EOF
 
+# Optional newer PostgreSQL client, only for the test image: the distro
+# pg_dump (15 on bookworm, 16 on noble) refuses a newer server, and neither
+# distro ships a 19 client. Empty by default, so the production image does
+# not change. Declared here so that a value does not invalidate earlier layers.
+ARG PG_CLIENT_MAJOR=
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOF
+#!/bin/bash -ex
+    [ -n "$PG_CLIENT_MAJOR" ] || exit 0
+    export DEBIAN_FRONTEND=noninteractive
+    CODENAME=$(source /etc/os-release; echo $VERSION_CODENAME)
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        >/etc/apt/keyrings/pgdg.asc
+    echo "deb [signed-by=/etc/apt/keyrings/pgdg.asc]" \
+        "https://apt.postgresql.org/pub/repos/apt ${CODENAME}-pgdg main" \
+        >/etc/apt/sources.list.d/pgdg.list
+    apt-get update
+    apt-get install -y "postgresql-client-${PG_CLIENT_MAJOR}"
+EOF
+
 # Create cmsuser (uid 2000). Sudo is scoped to /usr/bin/isolate only.
 RUN <<EOF
 #!/bin/bash -ex
