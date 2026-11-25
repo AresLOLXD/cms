@@ -140,3 +140,22 @@ manifest_compare() {
     }' <(printf '%s\n' "$1") <(printf '%s\n' "$2") | LC_ALL=C sort)"
   [[ -z "$differences" ]] || { echo "$differences"; return 1; }
 }
+
+# format_elapsed SECONDS — print SECONDS as mm:ss.
+format_elapsed() {
+  printf '%02d:%02d' $(( $1 / 60 )) $(( $1 % 60 ))
+}
+
+# progress_line WRITTEN_BYTES DB_SIZE ELAPSED_SECONDS — the line backup.sh
+# shows while pg_dump runs. The dump is compressed and holds no indexes, which
+# pg_database_size counts, so the percentage is "about" and never reaches 100.
+progress_line() {
+  local written="$1" db_size="$2" line percent
+  line="$(numfmt --to=iec "$written") written"
+  if (( db_size > 0 )); then
+    percent=$(( written * 100 / db_size ))
+    if (( percent > 99 )); then percent=99; fi
+    line+=", about ${percent}% of the database size"
+  fi
+  printf '%s, %s' "$line" "$(format_elapsed "$3")"
+}

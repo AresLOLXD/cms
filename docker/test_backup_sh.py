@@ -19,6 +19,7 @@
 """Tests for backup.sh, run with a fake docker and df on PATH."""
 
 import os
+import pty
 import re
 import shutil
 import signal
@@ -123,6 +124,7 @@ FAKE_DOCKER = textwrap.dedent(r"""
           echo blob >"$dir/blob_$oid.dat.zst"
           echo "$oid blob_$oid.dat.zst"
         done >"$dir/blobs_3003.toc"
+        if [[ -n "${FAKE_DUMP_DELAY:-}" ]]; then sleep "$FAKE_DUMP_DELAY"; fi
         if [[ -n "${FAKE_DUMP_SLEEP:-}" ]]; then
           exec sleep "$FAKE_DUMP_SLEEP"
         fi
@@ -176,7 +178,7 @@ def backup(repo, tmp_path):
         (bin_dir / name).write_text(text)
         (bin_dir / name).chmod(0o755)
 
-    def start(*args: str, **env: str) -> subprocess.Popen:
+    def start(*args: str, tty: bool = False, **env: str) -> subprocess.Popen:
         environment = {"PATH": "%s:%s" % (bin_dir, os.environ["PATH"]),
                        "HOME": str(tmp_path),
                        "FAKE_LOG": str(tmp_path / "docker.log"),
@@ -184,13 +186,41 @@ def backup(repo, tmp_path):
                        "CMS_PROJECT_NAME": "cms-prod",
                        "CMS_USE_LOCALDB": "false",
                        "CMS_DB_URL": DB_URL, **env}
+        # With tty, stdout is a pseudo-terminal; read it from process.tty.
+        if tty:
+            environment["TERM"] = "xterm"
+            master, slave = pty.openpty()
+            os.set_blocking(master, False)
         # A session of its own, so a test can Ctrl+C the whole group.
-        return subprocess.Popen(
+        process = subprocess.Popen(
             ["bash", str(repo / "backup.sh"), *args], cwd=repo,
-            env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            env=environment, stdin=subprocess.PIPE,
+            stdout=slave if tty else subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, start_new_session=True)
+        if tty:
+            os.close(slave)
+            process.tty = TtyOutput(master)
+        return process
 
     return start
+
+
+class TtyOutput:
+    """What a script wrote to its pseudo-terminal, read as it comes."""
+
+    def __init__(self, master: int) -> None:
+        self.master = master
+        self.text = ""
+
+    def read(self) -> str:
+        while True:
+            try:
+                data = os.read(self.master, 4096)
+            except (BlockingIOError, OSError):  # nothing yet, or closed
+                return self.text
+            if not data:
+                return self.text
+            self.text += data.decode()
 
 
 def finish(process: subprocess.Popen, answer: Optional[str] = "y\n"
@@ -322,6 +352,79 @@ def wait_for(condition, what: str) -> None:
     while not condition():
         assert time.monotonic() < deadline, what
         time.sleep(0.05)
+
+
+# Scenarios of the progress line: a dump on a terminal shows the size written
+# and an about percentage; without a terminal nothing changes.
+
+PROGRESS = re.compile(r"\x1b\[K\S+ written, about \d+% of the database size, \d\d:\d\d")
+
+
+def test_on_a_terminal_the_dump_shows_the_size_written_and_an_about_percentage(
+        backup, repo, tmp_path):
+    process = backup(tty=True, FAKE_DB_SIZE="100", FAKE_DUMP_DELAY="1")
+    result = finish(process)
+    assert result.returncode == 0, result.stderr
+    shown = process.tty.read()
+    assert "Dumping with 4 workers..." in shown
+    assert PROGRESS.search(shown)
+    # The line is erased before the next message, and the dump is untouched.
+    assert shown.index("\r\x1b[K", shown.index("written")) < shown.index("Verifying")
+    assert "pg_dump --snapshot=%s -Fd -j 4 --compress=zstd:3" % SNAPSHOT_ID \
+        in dump_line(tmp_path)
+
+
+def test_without_a_terminal_there_is_no_progress_output(backup):
+    result = finish(backup(FAKE_DB_SIZE="100", FAKE_DUMP_DELAY="1"))
+    assert result.returncode == 0, result.stderr
+    assert "\r" not in result.stdout and "\x1b" not in result.stdout
+    assert "written" not in result.stdout
+
+
+def test_ctrl_c_on_a_terminal_stops_the_progress_and_cleans_up(
+        backup, repo, tmp_path):
+    process = backup(tty=True, FAKE_DUMP_SLEEP="30")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: "written" in process.tty.read(), "no progress line")
+    os.killpg(process.pid, signal.SIGINT)
+    result = finish(process, answer=None)
+    assert result.returncode == 130
+    assert_nothing_left(repo, tmp_path, result)
+    assert process.tty.read().endswith("\r\x1b[K")
+
+    def session_gone():
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return True
+        return False
+    wait_for(session_gone, "a process of the session is still running")
+
+
+def test_a_hung_up_terminal_does_not_stop_the_cleanup(
+        backup, repo, tmp_path):
+    # An ssh drop: the terminal is gone, so writing the erase sequence fails.
+    process = backup(tty=True, FAKE_DUMP_SLEEP="30")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: "written" in process.tty.read(), "no progress line")
+    os.close(process.tty.master)
+    os.killpg(process.pid, signal.SIGHUP)
+    result = finish(process, answer=None)
+    assert result.returncode == 129
+    assert_nothing_left(repo, tmp_path, result)
+
+
+def test_a_failing_pg_dump_on_a_terminal_ends_the_progress_line_first(
+        backup, repo, tmp_path):
+    process = backup(tty=True, FAKE_DUMP_RC="1", FAKE_DUMP_DELAY="1")
+    result = finish(process)
+    assert result.returncode == 1
+    assert_nothing_left(repo, tmp_path, result)
+    assert "pg_dump failed" in result.stderr
+    shown = process.tty.read()
+    assert "written" in shown and shown.endswith("\r\x1b[K")
 
 
 def test_a_second_ctrl_c_does_not_stop_the_cleanup(backup, repo, tmp_path):

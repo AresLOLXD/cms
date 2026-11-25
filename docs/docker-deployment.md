@@ -59,7 +59,7 @@ without it no CMS service starts, not even the Admin interface.
 
 The script asks two questions:
 - **Use local PostgreSQL container?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly. The answer is saved in `.env` as `CMS_USE_LOCALDB` and becomes the default the next time a script asks.
-- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment follows the two steps in [Running several contests at once](multi-contest.md) instead.
+- **Rebuild?** — a menu from 1 to 8. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment uses `8) Ranking, then CMS (safe order)` instead, see [Running several contests at once](multi-contest.md).
 
 ## Step 4 — Import a contest and set it as active
 
@@ -581,10 +581,11 @@ state). It keeps its name and its contents, so nothing is lost.
 
 After updating to this version you **must rebuild the CMS image**. For a
 single-contest deployment run `./up.sh` and choose `4) CMS only` (or `2) All
-services`). For a multi-contest deployment follow the two steps of "Deployment"
-in [Running several contests at once](multi-contest.md): `./up.sh` and `3) Ranking
+services`). For a multi-contest deployment run `./up.sh` and choose `8) Ranking, then CMS (safe
+order)`; it does the two steps of "Deployment" in
+[Running several contests at once](multi-contest.md) in order: `3) Ranking
 only` first (it starts only the ranking container, so `cms` is not recreated
-from its old image), then `./up.sh` and `4) CMS only`. Never start this version
+from its old image), then `4) CMS only`. Never start this version
 with an old image, which is also what `1) No` does (the default in `./up.sh`,
 `./restart.sh` and `./contest.sh`): the old
 image does not know the new `data_dir`, so submission and user-test copies go to
