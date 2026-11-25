@@ -31,9 +31,7 @@ Dependencies and available compilers
 
 These are our requirements (in particular we highlight those that are not usually installed by default) - previous versions may or may not work:
 
-* `PostgreSQL <http://www.postgresql.org/>`_ >= 9.4;
-
-  .. We need 9.4 because of the JSONB data type.
+* `PostgreSQL <http://www.postgresql.org/>`_ >= 17;
 
 * `GNU compiler collection <https://gcc.gnu.org/>`_ (in particular the C compiler ``gcc``);
 
@@ -66,6 +64,8 @@ All dependencies can be installed automatically on most Linux distributions.
 
 Ubuntu
 ------
+
+Ubuntu 24.04's own ``postgresql`` package is version 16, below the minimum that CMS requires. PostgreSQL 17 or newer must come from the `PostgreSQL apt repository <https://www.postgresql.org/download/linux/ubuntu/>`_: set it up before running the script below.
 
 On Ubuntu 24.04, one will need to run the following script as root to satisfy all dependencies:
 

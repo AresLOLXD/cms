@@ -62,7 +62,7 @@ The script asks two questions:
 - **Use local PostgreSQL container?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly. The answer is saved in `.env` as `CMS_USE_LOCALDB` and becomes the default the next time a script asks.
 - **Rebuild?** — a menu from 1 to 8. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment uses `8) Ranking, then CMS (safe order)` instead, see [Running several contests at once](multi-contest.md).
 
-CI tests the CMS against PostgreSQL 15 (the oldest supported major) and 19 (the production major); the bundled `localdb` container runs PostgreSQL 17.
+CMS needs PostgreSQL 17 or newer. CI tests it with PostgreSQL 17 (the minimum, on Debian trixie) and 19 (on Ubuntu noble); the bundled `localdb` container runs PostgreSQL 17.
 
 ## Step 4 — Import a contest and set it as active
 
