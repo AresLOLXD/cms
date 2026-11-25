@@ -25,10 +25,11 @@ RUN npm install -g @rekarel/cli
 # Build the C++ Karel interpreter from source (no pre-built binaries for v2.3.2).
 # The binary is statically linked (-static flag in the Makefile), so it has
 # no runtime library dependencies and copies cleanly to the runtime stage.
+# shortcut: -Werror trips on an expat call trixie deprecates; drop CFLAGS once a release replaces it.
 RUN mkdir -p /build && \
     curl -fsSL "https://github.com/kishtarn555/rekarel-cpp-interpreter/archive/refs/tags/v2.3.2.tar.gz" \
         | tar xz --strip-components=1 -C /build && \
-    cd /build && mkdir -p bin && make karel && \
+    cd /build && mkdir -p bin && make karel CFLAGS="-Werror -Wall -fno-exceptions -Wno-error=deprecated-declarations" && \
     ldd bin/karel 2>&1 | grep -q "not a dynamic executable" || \
         { echo "ERROR: karel binary is not statically linked"; exit 1; }
 
