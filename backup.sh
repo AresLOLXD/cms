@@ -41,13 +41,15 @@ partial=""
 progress_pid=""
 
 # Stop the progress line, if one runs, and erase it so that the next message
-# starts on a clean line.
+# starts on a clean line. The terminal may be gone (an ssh drop): the write
+# must not fail, because errexit also applies inside the EXIT trap and would
+# stop the cleanup.
 stop_progress() {
   [[ -n "$progress_pid" ]] || return 0
   kill "$progress_pid" 2>/dev/null || true
   wait "$progress_pid" 2>/dev/null || true
   progress_pid=""
-  printf '\r\033[K'
+  printf '\r\033[K' 2>/dev/null || true
 }
 
 # Removing both tool containers also ends the snapshot session.
@@ -192,7 +194,7 @@ if [[ -t 1 && "${TERM:-dumb}" != dumb ]]; then
     # Ends by itself if the script is killed and cannot stop it.
     while kill -0 $$ 2>/dev/null; do
       written=$(du -sb "$partial" 2>/dev/null | cut -f1) || true
-      printf '\r\033[K%s' "$(progress_line "${written:-0}" "$db_size" $(( SECONDS - start )))"
+      printf '\r\033[K%s' "$(progress_line "${written:-0}" "$db_size" $(( SECONDS - start )))" 2>/dev/null || break
       # A builtin wait: no sleep process to outlive the reporter.
       read -rt 2 <> <(:) || true
     done

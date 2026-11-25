@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Lets the operator update a deployment that has a ranking server and a CMS in the order the software needs (ranking first), with one menu choice, and stops before touching the CMS when the ranking does not come up.
+Lets the operator update a deployment that has a ranking server and a CMS in the order the software needs (ranking first), with one menu choice, and stops without rebuilding or starting the CMS when the ranking does not come up.
 
 ## ADDED Requirements
 

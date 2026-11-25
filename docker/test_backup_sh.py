@@ -402,10 +402,25 @@ def test_ctrl_c_on_a_terminal_stops_the_progress_and_cleans_up(
     wait_for(session_gone, "a process of the session is still running")
 
 
+def test_a_hung_up_terminal_does_not_stop_the_cleanup(
+        backup, repo, tmp_path):
+    # An ssh drop: the terminal is gone, so writing the erase sequence fails.
+    process = backup(tty=True, FAKE_DUMP_SLEEP="30")
+    process.stdin.write("y\n")
+    process.stdin.flush()
+    wait_for(lambda: "written" in process.tty.read(), "no progress line")
+    os.close(process.tty.master)
+    os.killpg(process.pid, signal.SIGHUP)
+    result = finish(process, answer=None)
+    assert result.returncode == 129
+    assert_nothing_left(repo, tmp_path, result)
+
+
 def test_a_failing_pg_dump_on_a_terminal_ends_the_progress_line_first(
         backup, repo, tmp_path):
     process = backup(tty=True, FAKE_DUMP_RC="1", FAKE_DUMP_DELAY="1")
     result = finish(process)
+    assert result.returncode == 1
     assert_nothing_left(repo, tmp_path, result)
     assert "pg_dump failed" in result.stderr
     shown = process.tty.read()
