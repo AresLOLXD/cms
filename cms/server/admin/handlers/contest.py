@@ -142,9 +142,12 @@ class ContestHandler(SimpleContestHandler("contest.html")):
                 # it would reach no public ranking, and one that leaves
                 # it would leave its data in the group's ranking with
                 # nothing to update it. Staying in it is fine.
-                # shortcut: the group is read without a row lock, so an
-                # Archive or Unarchive pressed in the same second can
-                # slip through; Regenerate fixes the ranking.
+                # shortcut: the state is read once, with no row lock. A
+                # move that commits just as the group becomes archived
+                # (Archive now, or archive_at passing on its own; a lock
+                # would not help with that) leaves the contest's data in
+                # the archived ranking, and Regenerate refuses there:
+                # recover with Unarchive (it regenerates), then Archive now.
                 if new_group != contest.ranking_group:
                     now = make_datetime()
                     if contest.ranking_group is not None \

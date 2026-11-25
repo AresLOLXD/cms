@@ -15,7 +15,8 @@
 - **Own "Archive" column, computed in the template from `views[g.id].archive_summary`.** The State cell already holds the summary and a "next:" text. A stored flag would duplicate `archive_at <= now` and go stale, as nothing flips it at that instant.
 - **The refusal sits next to the existing one**, in the same `try` of `_post_sync`, with the same "Invalid field(s)" path and one translated message. It compares the contest's current group with the new one (`None` included), so the check covers both a move and a clear. A contest in no group, or in a group that is not archived, is not affected.
 - **Deleting a contest of an archived group stays allowed.** The documented order (archive the group, then remove its contests) needs it.
-- **No lock.** The group state is read without a row lock, like the existing refusal. An operator pressing Archive or Unarchive in the same second can slip through; the result is a stale namespace that Regenerate fixes. `shortcut:` comment in the code.
+- **No lock.** The group state is read once, like the existing refusal. A move that commits just as the group becomes archived (Archive now, or `archive_at` passing on its own, which a row lock would not prevent) leaves the moved contest's data in the archived ranking. Regenerate refuses on an archived group, so the recovery is Unarchive (which regenerates) and then Archive now. `shortcut:` comment in the code.
+- **Known limit: archived to archived.** Moving a contest from an archived group to another archived group shows only the "moving out" message; the second refusal would apply after the first is solved.
 
 ## Risks / Trade-offs
 
