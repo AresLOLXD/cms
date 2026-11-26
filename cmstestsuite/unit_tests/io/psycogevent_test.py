@@ -28,9 +28,10 @@ from types import SimpleNamespace
 import gevent
 import psycopg2
 from psycopg2 import extensions
+from sqlalchemy import text
 from sqlalchemy.engine.url import make_url
 
-from cms.db import custom_psycopg2_connection
+from cms.db import custom_psycopg2_connection, engine
 from cms.db.connect_options import with_connection_defaults
 from cms.io.PsycoGevent import connect_deadline, is_psycopg_green, \
     make_psycopg_green
@@ -140,6 +141,18 @@ class TestGreenConnect(unittest.TestCase):
             with gevent.Timeout(3.5):
                 self._connect(**url.query)
 
+    def test_the_kill_switch_wins_over_the_urls_connect_timeout(self):
+        # Scenario: The kill switch wins over a key the URL already sets
+        url = with_connection_defaults(make_url(with_kill_switch(
+            "postgresql+psycopg2://cms@127.0.0.1:%d/cms?connect_timeout=2"
+            % self.port)))
+        dsn = extensions.make_dsn(**url.query)
+        # A tuple of both values would give no deadline either, so check
+        # the value itself.
+        self.assertEqual(extensions.parse_dsn(dsn)["connect_timeout"], "0")
+        self.assertIsNone(connect_deadline(SimpleNamespace(
+            status=extensions.STATUS_SETUP, dsn=dsn)))
+
     def test_timed_out_connects_leave_no_file_descriptor(self):
         # The first timed wait of a thread creates its gevent hub's own
         # descriptors (eventpoll, eventfd): count after it.
@@ -172,6 +185,19 @@ class TestQueriesHaveNoDeadline(unittest.TestCase):
             self.assertGreaterEqual(time.monotonic() - started, 3)
         finally:
             connection.close()
+
+
+class TestGreenConnectionLockTimeout(unittest.TestCase):
+
+    def test_a_green_engine_connection(self):
+        # Scenario: Every connection path starts with a 30 s lock timeout
+        # As a Worker connects: the sync engine, green.
+        make_psycopg_green()
+        engine.dispose()
+        self.addCleanup(engine.dispose)
+        with engine.connect() as connection:
+            self.assertEqual(connection.execute(
+                text("SHOW lock_timeout")).scalar_one(), "30s")
 
 
 if __name__ == "__main__":

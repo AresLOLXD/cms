@@ -246,6 +246,17 @@ connection that died fails within about a minute, with
 show an error instead of hanging, and every service reconnects by itself
 once PostgreSQL answers again.
 
+CMS does not wait forever for a lock either. A statement that waits more
+than 30 seconds for a row or table that another session holds fails with
+`canceling statement due to lock timeout`: the page shows an error, an AWS
+action says it failed, and grading retries by itself (the log says
+"Lock timeout while writing the results of …"). Elsewhere, for example in
+the activity flush ("Could not store the activity of …") or another
+periodic flush or sweep, it is an ERROR with a traceback, and the next
+flush or sweep retries it; a command such as `cmsDropDB` or `cmsInitDB`
+fails and can be run again. If it repeats, find the session that holds
+the lock with the holder query (below) and end it.
+
 The driver's error text is in `./logs.sh --tail 2000 cms`. The **Logs**
 table on **Overview** shows only the message of each line, not the error
 text that follows it.
@@ -316,13 +327,20 @@ add this suffix to `CMS_DB_URL` in `.env`, with `&` instead of its `?` if
 the URL already has a `?`:
 
 ```text
-?connect_timeout=0&keepalives_idle=7200&keepalives_interval=75&keepalives_count=9&tcp_user_timeout=0
+?connect_timeout=0&keepalives_idle=7200&keepalives_interval=75&keepalives_count=9&tcp_user_timeout=0&options=-c%20lock_timeout%3D0
 ```
 
 Then run `./up.sh` and choose no rebuild (1): it recreates the
-containers, so every service restarts. CMS then waits for PostgreSQL
-without a short limit again, as before. The suffix does not switch off the
+containers, so every service restarts. CMS then waits for PostgreSQL,
+and for locks, without a short limit again, as before. The suffix does not switch off the
 5-second lock limit of `cmsSetupDB` (see "Before the start").
+
+If after a deploy every service fails to connect with a `FATAL` error that
+names `options` or an unrecognized parameter (a connection pooler or proxy
+that rejects that startup parameter), the suffix cannot help, because it
+still sends `options`: redeploy the previous `omi-*` tag. A deploy shows
+this first as `db-init` stopping with that `FATAL` (`./logs.sh db-init`
+shows it), and the new `cms` container then does not start.
 
 ### Checking the settings after a deploy
 
@@ -330,11 +348,12 @@ A new connection must get these settings. In the `cms` container:
 
 ```bash
 docker compose -f docker/docker-compose.prod.yml --env-file .env -p <project> \
-    exec -T cms python3 -c 'import os, socket; from cms.db import custom_psycopg2_connection; c = custom_psycopg2_connection(); s = socket.socket(fileno=os.dup(c.fileno())); print("TCP_USER_TIMEOUT", s.getsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT)); s.close(); k = c.cursor(); k.execute("SHOW application_name"); print("application_name", k.fetchone()[0])'
+    exec -T cms python3 -c 'import os, socket; from cms.db import custom_psycopg2_connection; c = custom_psycopg2_connection(); s = socket.socket(fileno=os.dup(c.fileno())); print("TCP_USER_TIMEOUT", s.getsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT)); s.close(); k = c.cursor(); k.execute("SHOW application_name"); print("application_name", k.fetchone()[0]); k.execute("SHOW lock_timeout"); print("lock_timeout", k.fetchone()[0])'
 ```
 
 It must print `TCP_USER_TIMEOUT 60000` (or the value that `CMS_DB_URL`
-sets) and a non-empty `application_name`: here `-c`, the name of a
+sets), `lock_timeout 30s` (`0` with the suffix above) and a non-empty
+`application_name`: here `-c`, the name of a
 `python3 -c` program. Then
 `./logs.sh --tail 2000 cms | grep -E 'timeout expired|closed the connection|Lost the database|Connection timed out|could not receive data from server'`
 must print nothing.
@@ -632,6 +651,7 @@ AWS says so.
 | The logs say "No pending request with id … found." | An answer came for a call that was never sent or that was already answered, which should not happen, except after a stall of more than 4096 abandoned calls: keep the lines around it for the developers. It is not a late answer: those are logged at DEBUG as "Late answer to …, the caller gave up.", and many of them at once only mean that a stuck service answered after a stall (the caller logged its timeout when it gave up) | "During the contest" (above) |
 | Pages show an error after about 10 seconds, and the logs say `timeout expired` | A new database connection got no answer: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | The logs say `server closed the connection unexpectedly`, `could not receive data from server`, `Connection timed out`, `Lost the database connection before the session's rollback` or `Lost the database connection while writing worker results` | Once, from one service: nothing, it reconnects by itself. From several services at once: follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
+| The logs say `canceling statement due to lock timeout` (SQLSTATE 55P03) | A session held a lock that CMS needed for more than 30 seconds. Find who holds it with the holder query, and with `log_lock_waits` on, in the PostgreSQL log; end that session if it is stuck. Switch the timeouts off only as a last resort | "When the database misbehaves" (above) |
 | A deploy stops at `db-init`, and `./logs.sh db-init` shows `cmsSetupDB could not lock … within 5 s` | Find the session with the holder query, end it, then run `./up.sh` again | "When the database misbehaves" (above) |
 | The logs say `Finalized result … (a write was cut)` | Nothing: the Evaluation Service completed a result whose outcome write was cut. If it repeats for many results, follow "PostgreSQL does not answer" | "When the database misbehaves" (above) |
 | `Watchdog: … held by H…` in the logs or in the **Logs** table | Follow the row of that hold in "The holds" | "When the watchdog alerts" (above) |

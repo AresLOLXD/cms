@@ -1319,7 +1319,9 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
         object_result: the DB object for the result referred to all the
             ESOperations.
         operation_results: all the operations and corresponding worker
-            results we have received for the given object_result
+            results we have received for the given object_result.
+            A lock timeout (SQLSTATE 55P03) on one of them skips the
+            rest, with a WARNING; the sweeper redoes them.
 
         raise (sqlalchemy.exc.DBAPIError): on a lost connection (see
             cms.db.connect_options.is_disconnect), which stops the loop.
@@ -1344,6 +1346,16 @@ class EvaluationService(AsyncTriggeredService[ESOperation, EvaluationExecutor]):
                 if is_disconnect(error) \
                         or isinstance(error, PendingRollbackError):
                     raise
+                # Another session holds this object's rows longer than
+                # lock_timeout: its other rows would wait for the same
+                # lock, so skip them and keep the batch.
+                if sqlstate(getattr(error, "orig", None)) == "55P03":
+                    logger.warning(
+                        "Lock timeout while writing the results of %s (%s); "
+                        "skipping its other results, the sweeper will redo "
+                        "them within about 2 minutes.",
+                        operation, describe_error(error))
+                    return
                 # Defend against any exception. A poisonous results that fails
                 # here is attempted again without limits, thus can enter in
                 # all batches to write. Without the catch-all, it will prevent

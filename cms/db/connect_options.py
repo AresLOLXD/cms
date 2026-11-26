@@ -23,9 +23,10 @@ Every connection to PostgreSQL (the sync engine, the async engine and
 custom_psycopg2_connection) gets the libpq keywords of LIBPQ_DEFAULTS
 and a fallback_application_name, merged under the query of the
 configured URL, where the user's keys win. They bound how long a
-connect, or a call on a dead connection, can wait (#39). No "options"
-keyword is ever added, so a user's options and PGOPTIONS behave as
-before.
+connect, or a call on a dead connection, can wait (#39). It also gets
+an "options" keyword that bounds lock waits (LOCK_TIMEOUT_MS), followed
+by PGOPTIONS and the URL's own options, so that both still apply and
+win over it.
 
 This module imports only SQLAlchemy and the standard library: the
 cms.db package imports it before it creates its engines.
@@ -56,6 +57,12 @@ LIBPQ_DEFAULTS: dict[str, str] = {
     # Milliseconds, unlike the others: "60" would mean 60 ms.
     "tcp_user_timeout": "60000",
 }
+
+
+# Milliseconds a statement waits for a lock before it fails with
+# SQLSTATE 55P03 (#39 stage 2a). A transaction's SET LOCAL lock_timeout
+# (the fork's 5 s schema updates) still wins over it.
+LOCK_TIMEOUT_MS = 30000
 
 
 # Seconds a session waits for a free pooled connection before it fails
@@ -92,10 +99,17 @@ def with_connection_defaults(url: URL) -> URL:
     """Return url with the CMS connection defaults under its query.
 
     The defaults are LIBPQ_DEFAULTS and fallback_application_name set
-    to PROGRAM_NAME. A key of url's query wins over its default, and
-    the rest of the query (host=/socket/dir, sslmode, ...) passes
-    through. It works on URL objects, because str(url) would mask the
-    password.
+    to PROGRAM_NAME. A key of url's query wins over its default; if
+    the query repeats such a key (the kill switch added to a URL that
+    already sets it), its last value counts, as in libpq. The rest of
+    the query (host=/socket/dir, sslmode, ...) passes through, repeated
+    keys included. options is the exception: it becomes "-c
+    lock_timeout=LOCK_TIMEOUT_MS", then the PGOPTIONS environment
+    variable, then url's own options, joined by spaces. Libpq ignores
+    PGOPTIONS once options is given, and PostgreSQL applies the -c
+    switches in order, so both still apply and the last one wins:
+    options=-c lock_timeout=0 in the URL switches the bound off. It
+    works on URL objects, because str(url) would mask the password.
 
     url: the configured database URL.
 
@@ -103,7 +117,18 @@ def with_connection_defaults(url: URL) -> URL:
 
     """
     defaults = {**LIBPQ_DEFAULTS, "fallback_application_name": PROGRAM_NAME}
-    return url.set(query={**defaults, **url.query})
+    # A repeated key is a tuple in url.query; normalized_query has a
+    # tuple for every key. The drivers cannot take one for these keys,
+    # but SQLAlchemy needs it for repeated host and port.
+    last_values = {key: values[-1]
+                   for key, values in url.normalized_query.items()
+                   if key in defaults}
+    options = " ".join(filter(None, (
+        "-c lock_timeout=%d" % LOCK_TIMEOUT_MS,
+        os.environ.get("PGOPTIONS"),
+        *url.normalized_query.get("options", ()))))
+    return url.set(query={**defaults, **url.query, **last_values,
+                          "options": options})
 
 
 def sqlstate(error: BaseException | None) -> str | None:

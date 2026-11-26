@@ -55,6 +55,12 @@ class DeadlockDetected(Exception):
     pgcode = "40P01"
 
 
+class LockNotAvailable(Exception):
+    """A driver error with the SQLSTATE of a lock timeout (55P03)."""
+
+    pgcode = "55P03"
+
+
 class EvaluationServiceDatabaseTestCase(
     ServiceLoggingIsolationMixin, DatabaseMixin,
     unittest.IsolatedAsyncioTestCase,
@@ -248,6 +254,39 @@ class TestWriteResultsOnALostConnection(EvaluationServiceDatabaseTestCase):
             with self.assertRaises(OperationalError) as raised:
                 await self.service.write_results(self._evaluation_items())
         self.assertIs(raised.exception, deadlock)
+
+
+class TestWriteResultsOnALockTimeout(EvaluationServiceDatabaseTestCase):
+
+    async def test_a_lock_timeout_skips_the_object_and_keeps_the_batch(self):
+        # Scenario: A lock timeout on a result row is a warning, not a traceback
+        other, _ = self.add_submission_with_results(
+            self.submission.task, self.submission.participation, True)
+        self.session.commit()
+        items = self._evaluation_items() + [
+            (ESOperation(ESOperation.EVALUATION, other.id, self.dataset.id,
+                         testcase.codename), Result(MagicMock(), True))
+            for testcase in self.testcases]
+        lock_timeout = OperationalError("INSERT", {}, LockNotAvailable(
+            "canceling statement due to lock timeout"))
+        attempted = []
+
+        def write_row(session, object_result, operation, result):
+            attempted.append(operation.object_id)
+            if operation.object_id == self.submission.id:
+                raise lock_timeout
+
+        with patch.object(self.service, "write_results_one_row",
+                          side_effect=write_row), \
+                self.assertLogs("cms.service.EvaluationService",
+                                "WARNING") as logs:
+            await self.service.write_results(items)
+        self.assertEqual(attempted.count(self.submission.id), 1)
+        self.assertEqual(attempted.count(other.id), self.TESTCASES)
+        self.assertEqual([(record.levelname, record.exc_info)
+                          for record in logs.records],
+                         [("WARNING", None)])
+        self.assertIn("lock timeout", logs.records[0].getMessage())
 
 
 class TestPlainSweepFinalizesCutResults(EvaluationServiceDatabaseTestCase):
