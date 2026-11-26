@@ -42,6 +42,7 @@ in the values marked `CHANGE_ME`:
 | `CMS_CWS_COOKIE_DURATION` | Contestant session lifetime in seconds (default `18000` = 5 hours). Every authenticated request renews the session cookie, including background polls (notifications, submission status), so the session only expires after this long without any request. Must be a positive integer. An open contest page keeps its session alive, so on shared computers contestants must log out and close the tab. |
 | `CMS_CWS_REQUEST_TIME_HEADER` | Optional, empty by default (off). The header in which your reverse proxy writes when it received each request, so that a busy server still accepts the submissions sent before the contest stop. Set it only as explained in "Submissions at the contest stop" below. |
 | `CMS_COMPILATION_MAX_TIME_S` | Optional, unset by default (the built-in 20 seconds). The CPU seconds a submission may use to compile, a positive number such as `30` or `12.5`; any other value stops the container at startup. The wall-clock limit is 2 x this value + 1, so the CPU limit is the one that bites. |
+| `CMS_MANUAL_URL` | Optional, unset by default. The address that the "Manual" entry of the Admin Web Server sidebar opens in a new tab; `{language}` in it becomes `es` on a Spanish page and `en` on any other. Unset or empty keeps the published manual of the fork (`https://cms-omi.readthedocs.io/{language}/latest/`); `off` hides the entry. Outside Docker, set `manual_url` in the `[admin_web_server]` section of `cms.toml` (an empty string hides the entry). |
 
 Everything else has a sensible default and can be left as-is on the first try.
 
@@ -59,7 +60,9 @@ without it no CMS service starts, not even the Admin interface.
 
 The script asks two questions:
 - **Use local PostgreSQL container?** — answer `y` if you want Docker to manage PostgreSQL for you (recommended for a single server). Answer `n` if you have an existing PostgreSQL server and already set `CMS_DB_URL` accordingly. The answer is saved in `.env` as `CMS_USE_LOCALDB` and becomes the default the next time a script asks.
-- **Rebuild?** — a menu from 1 to 7. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment follows the two steps in [Running several contests at once](multi-contest.md) instead.
+- **Rebuild?** — a menu from 1 to 8. Choose `1) No` on the first run (Docker builds the images that do not exist yet) or when nothing has changed. After updating the code of a single-contest deployment, choose `2) All services`, which rebuilds both images (`4) CMS only` leaves the ranking on its old image). A multi-contest deployment uses `8) Ranking, then CMS (safe order)` instead, see [Running several contests at once](multi-contest.md).
+
+CMS needs PostgreSQL 17 or newer. CI tests it with PostgreSQL 17 (the minimum, on Debian trixie) and 19 (on Ubuntu noble); the bundled `localdb` container runs PostgreSQL 17.
 
 ## Step 4 — Import a contest and set it as active
 
@@ -581,10 +584,11 @@ state). It keeps its name and its contents, so nothing is lost.
 
 After updating to this version you **must rebuild the CMS image**. For a
 single-contest deployment run `./up.sh` and choose `4) CMS only` (or `2) All
-services`). For a multi-contest deployment follow the two steps of "Deployment"
-in [Running several contests at once](multi-contest.md): `./up.sh` and `3) Ranking
+services`). For a multi-contest deployment run `./up.sh` and choose `8) Ranking, then CMS (safe
+order)`; it does the two steps of "Deployment" in
+[Running several contests at once](multi-contest.md) in order: `3) Ranking
 only` first (it starts only the ranking container, so `cms` is not recreated
-from its old image), then `./up.sh` and `4) CMS only`. Never start this version
+from its old image), then `4) CMS only`. Never start this version
 with an old image, which is also what `1) No` does (the default in `./up.sh`,
 `./restart.sh` and `./contest.sh`): the old
 image does not know the new `data_dir`, so submission and user-test copies go to

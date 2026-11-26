@@ -9,7 +9,7 @@
     <link rel="stylesheet" type="text/css" href="{{ static_url("static", "aws_style.css") }}">
     <script src="{{ static_url("static", "web_rpc.js") }}"></script>
     <script src="{{ static_url("static", "aws_utils.js") }}"></script>
-    <script src="{{ static_url("static", "jq", "jquery-3.6.0.min.js") }}"></script>
+    <script src="{{ static_url("static", "jq", "jquery-3.7.1.min.js") }}"></script>
     <script src="{{ static_url("static", "jq", "jquery.jqplot.min.js") }}"></script>
     <script src="{{ static_url("static", "jq", "jqplot.dateAxisRenderer.min.js") }}"></script>
     <script src="{{ static_url("static", "jq", "jqplot.enhancedLegendRenderer.min.js") }}"></script>
@@ -140,6 +140,9 @@ $(document).ready(init);
           <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "overview") }}">{% trans %}Overview{% endtrans %}</a></li>
           <li class="menu_entry"><a class="menu_link" href="{{ url("contest", contest.id, "resourceslist") }}">{% trans %}Resource usage{% endtrans %}</a></li>
         {% endif %}
+{% if manual_url is defined and manual_url %}
+          <li class="menu_entry"><a class="menu_link" href="{{ manual_url }}" target="_blank" rel="noopener noreferrer" title="{{ _("Opens in a new tab") }}">{% trans %}Manual{% endtrans %}<span aria-hidden="true"> ↗</span></a></li>
+{% endif %}
         </ul>
         <div class="hr"></div>
 

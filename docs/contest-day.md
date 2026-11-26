@@ -148,10 +148,13 @@ Changes to `.env` apply when the containers are recreated (`./up.sh`).
 Each server has a switch with three options: **System**, **Light** and
 **Dark**, shown as «Sistema», «Claro» and «Oscuro». It is in the settings menu
 of each server, which opens with the gear icon («Ajustes») at the top right
-corner of the page and closes with Escape or a click outside it. The default
-is System, which follows the color scheme of the operating system. The
-hidden-ranking notice and the staff login pages follow the choice saved in the
-browser.
+corner of the page and closes with Escape or a click outside it. The same menu
+holds the other personal controls of the server: the language selector, the
+log out button («Cerrar sesión») of the Admin Web Server and of the Contest Web
+Server, and, in the Admin Web Server, the greeting with the name of the admin
+(«Hola, …»). The default is System, which follows the color scheme of the
+operating system. The hidden-ranking notice and the staff login pages follow
+the choice saved in the browser.
 
 | Option | Label | Result |
 |--------|-------|--------|

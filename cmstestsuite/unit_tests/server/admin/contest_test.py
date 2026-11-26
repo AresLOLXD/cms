@@ -27,7 +27,7 @@ contest's ranking group unchanged, like any other omitted field.
 """
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 from cmstestsuite.unit_tests.databasemixin import DatabaseMixin
@@ -204,6 +204,51 @@ class TestContestHandlerRankingGroup(DatabaseMixin, unittest.TestCase):
                 contest = self._reload_contest()
                 self.assertEqual(contest.name, "after")
                 self.assertEqual(contest.ranking_group_id, self.group_id)
+
+    def assert_refused_to_leave(self, handler):
+        self.assertEqual(self._notifications(handler), ["Invalid field(s)."])
+        self.assertIn("before moving a contest out of it",
+                      handler.service.add_notification.call_args.args[2])
+        handler.schedule_rpc.assert_not_called()
+        contest = self._reload_contest()
+        self.assertEqual(contest.name, "before")
+        self.assertEqual(contest.ranking_group_id, self.group_id)
+
+    def test_moving_a_contest_out_of_an_archived_group_is_refused(self):
+        # Scenario: Moving a contest out of an archived group
+        self.archive(self.group_id)
+
+        self.assert_refused_to_leave(
+            self._post(ranking_group_id=str(self.other_group_id)))
+
+    def test_clearing_the_group_of_a_contest_in_an_archived_group_is_refused(
+            self):
+        # Scenario: Clearing the group of a contest in an archived group
+        self.archive(self.group_id)
+
+        self.assert_refused_to_leave(self._post(ranking_group_id=""))
+
+    def test_moving_a_contest_between_groups_that_are_not_archived(self):
+        # Scenario: Moving a contest between groups that are not archived
+        # A group whose archive_at is still in the future is not archived:
+        # ProxyService gives most groups with contests such a default.
+        for archive_at in (None, datetime.utcnow() + timedelta(hours=1)):
+            self.session.get(RankingGroup, self.group_id).archive_at = \
+                archive_at
+            self.session.commit()
+            for form, expected in (
+                    ({"ranking_group_id": str(self.other_group_id)},
+                     self.other_group_id),
+                    ({"ranking_group_id": ""}, None)):
+                with self.subTest(archive_at=archive_at, form=form):
+                    handler = self._post(**form)
+
+                    self.assertEqual(self._notifications(handler),
+                                     ["Operation successful."])
+                    self.assertEqual(self._reload_contest().ranking_group_id,
+                                     expected)
+                    self.contest.ranking_group_id = self.group_id
+                    self.session.commit()
 
     def test_bad_timezone_is_rejected_without_commit(self):
         for name in ("America/Mexico_City/", "Foo/Bar", "America"):

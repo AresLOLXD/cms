@@ -380,6 +380,37 @@ def test_compilation_limit_invalid_exits(monkeypatch, capsys, value):
     assert "CMS_COMPILATION_MAX_TIME_S" in capsys.readouterr().err
 
 
+def test_manual_url_unset_or_empty_writes_nothing(monkeypatch):
+    # Scenario: Variable unset
+    # The default lives in cms/conf.py only; an empty line in .env is "unset"
+    # like for every other variable.
+    for extra in ({}, {"CMS_MANUAL_URL": ""}):
+        _set(monkeypatch, extra)
+        if not extra:
+            monkeypatch.delenv("CMS_MANUAL_URL", raising=False)
+        assert "manual_url" not in tomllib.loads(
+            gc.generate_cms_toml())["admin_web_server"]
+
+
+def test_manual_url_set_is_written(monkeypatch):
+    # Scenario: Variable set
+    _set(monkeypatch, {"CMS_MANUAL_URL": "https://m.example/{language}/"})
+    aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
+    assert aws["manual_url"] == "https://m.example/{language}/"
+    # quotes, backslashes and # survive the round trip through TOML
+    tricky = 'https://m.example/a"b\\c#d/{language}/'
+    _set(monkeypatch, {"CMS_MANUAL_URL": tricky})
+    aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
+    assert aws["manual_url"] == tricky
+
+
+def test_manual_url_off_hides_the_entry(monkeypatch):
+    # Scenario: Variable off
+    _set(monkeypatch, {"CMS_MANUAL_URL": "off"})
+    aws = tomllib.loads(gc.generate_cms_toml())["admin_web_server"]
+    assert aws["manual_url"] == ""
+
+
 def test_supervisord_no_telegram_by_default(monkeypatch):
     _set(monkeypatch)
     conf = gc.generate_supervisord_conf()
@@ -509,6 +540,24 @@ def test_ranking_credentials_match_the_proxy_service_url(
 
     assert ranking["username"] == unquote(proxy_url.username)
     assert ranking["password"] == unquote(proxy_url.password)
+
+
+@pytest.mark.parametrize("compose_file, db_service, cms_services", [
+    ("docker-compose.test.yml", "testdb", ("testcms", "stresstestcms")),
+    ("docker-compose.dev.yml", "devdb", ("devcms",)),
+])
+def test_cms_containers_have_a_client_for_the_default_database(
+        compose_file, db_service, cms_services):
+    # pg_dump refuses a server newer than itself, and noble's own client (16)
+    # is older than the default test and development servers.
+    with open(os.path.join(os.path.dirname(__file__), compose_file)) as f:
+        services = yaml.safe_load(f)["services"]
+    server = int(re.search(r"postgres:(?:\$\{TEST_PG_VERSION:-)?(\d+)\.",
+                           services[db_service]["image"]).group(1))
+
+    assert server >= 17
+    for name in cms_services:
+        assert int(services[name]["build"]["args"]["PG_CLIENT_MAJOR"]) >= server
 
 
 def test_supervisord_every_program_stops_as_a_group_and_retries(

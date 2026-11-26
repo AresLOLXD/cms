@@ -92,6 +92,7 @@ quotes "Cuando un ranking está mal: Regenerate" (`multi-contest`);
 | `Task types` | Task types | Tipos de problema |
 | `Task versioning` | Task versioning | Versionado de problemas |
 | `Troubleshooting` | Troubleshooting | Solución de problemas |
+| `archiving-finished-contests` | Archiving finished contests | Archivar competencias terminadas |
 | `contest-day` | Contest day | Día de la competencia |
 | `docker-deployment` | Docker deployment | Despliegue con Docker |
 | `docker-scripts` | Docker Scripts Guide | Guía de scripts de Docker |

@@ -188,7 +188,8 @@ def test_db_connection_from_env_external_url(run, repo):
 
 
 @pytest.mark.parametrize("version_num, major", [
-    ("160015", "17"), ("170002", "17"), ("180001", "18"), ("90624", "17")])
+    ("160015", "17"), ("170002", "17"), ("180001", "18"), ("190000", "19"),
+    ("190001", "19"), ("90624", "17")])
 def test_pick_pg_major(run, version_num, major):
     result = run('pick_pg_major "$VERSION"', VERSION=version_num)
     assert result.returncode == 0, result.stderr
@@ -217,6 +218,28 @@ def test_backup_name_rejects_a_bad_label(run, label):
     assert result.returncode != 0
     assert result.stdout == ""
     assert "ERROR" in result.stderr
+
+
+def test_progress_line_reports_written_size_and_a_percentage_of_the_database(run):
+    result = run("progress_line $((1024 ** 3)) $((4 * 1024 ** 3)) 130")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1.0G written, about 25% of the database size, 02:10"
+
+
+def test_progress_line_never_shows_more_than_99_percent(run):
+    result = run("progress_line 5000 100 1")
+    assert "about 99% of" in result.stdout
+
+
+def test_progress_line_survives_a_zero_database_size(run):
+    result = run("progress_line 5000 0 1")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "4.9K written, 00:01"
+
+
+def test_format_elapsed_pads_seconds(run):
+    assert run("format_elapsed 65").stdout == "01:05"
+    assert run("format_elapsed 3725").stdout == "62:05"
 
 
 def test_manifest_compare_equal_and_different(run):

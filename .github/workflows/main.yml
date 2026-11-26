@@ -24,9 +24,25 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
+    # Two jobs: the newest PostgreSQL major on noble, whose own client is older
+    # than the server, so it needs a PGDG 19 pg_dump (PG_CLIENT_MAJOR), and the
+    # minimum supported major (17) on trixie with Debian's own client, in the
+    # same alpine variant as the bundled localdb.
+    env:
+      TEST_PG_VERSION: ${{ matrix.pg_version }}
+
     strategy:
+      # A red job must not cancel the other one: it shows whether the failure
+      # is specific to the PostgreSQL major (or to the PGDG fetch).
+      fail-fast: false
       matrix:
-        base_image: ["ubuntu:noble", "debian:bookworm"]
+        include:
+          - base_image: "ubuntu:noble"
+            pg_version: "19.0"
+            pg_client_major: "19"
+          - base_image: "debian:trixie"
+            pg_version: "17.12-alpine"
+            pg_client_major: ""
 
     steps:
       - uses: actions/checkout@v5
@@ -38,7 +54,8 @@ jobs:
       - name: Build docker image
         run: |
           docker compose -p cms -f docker/docker-compose.test.yml build \
-              --build-arg BASE_IMAGE=${{ matrix.base_image }} testcms
+              --build-arg BASE_IMAGE=${{ matrix.base_image }} \
+              --build-arg PG_CLIENT_MAJOR=${{ matrix.pg_client_major }} testcms
 
       # The container's cmsuser (uid 2000) writes the test reports into the
       # bind-mounted codecov/ but can't chown it (its sudo is limited to

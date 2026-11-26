@@ -4,6 +4,12 @@
 # (see main.yml and cms-test.sh): cmsuser's sudo is limited to isolate, so
 # nothing in here can chown it.
 
+# The exact server and client builds, so that a CI log says what was tested.
+psql --host=testdb --username=postgres --no-psqlrc --tuples-only \
+    --command='select version()'
+pg_dump --version
+python -c 'import psycopg2; print("psycopg2", psycopg2.__version__, "libpq", psycopg2.__libpq_version__)'
+
 dropdb --if-exists --host=testdb --username=postgres cmsdbfortesting
 createdb --host=testdb --username=postgres cmsdbfortesting
 cmsInitDB
@@ -61,6 +67,8 @@ timeout --foreground --signal=ABRT $UNIT_TIMEOUT \
     docker/test_backup_lib.py docker/test_backup_sh.py \
     docker/test_verify_backup_sh.py
 UNIT_DOCKER=$?
+# docker/_lib.sh (up.sh, restart.sh) has a plain bash test of its own.
+bash docker/test_lib.sh || UNIT_DOCKER=1
 
 IGNORE_ARGS="--ignore=cmstestsuite/unit_tests/cmscontrib --ignore=cmstestsuite/unit_tests/cmsranking --ignore=cmstestsuite/unit_tests/db/rankinggroup_test.py"
 for f in $GEVENT_SERVICE_FILES; do

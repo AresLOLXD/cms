@@ -100,8 +100,8 @@ _do_up() {
   fi
 
   local choice
-  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only (starts only the ranking container)\n  4) CMS only\n  5) CMS only (no cache)\n  6) Ranking only (no cache; starts only the ranking container)\n  7) All services (no cache)\n"
-  read -r -p "Choice [1-7]: " choice
+  printf "Rebuild?\n  1) No  (default)\n  2) All services\n  3) Ranking only (starts only the ranking container)\n  4) CMS only\n  5) CMS only (no cache)\n  6) Ranking only (no cache; starts only the ranking container)\n  7) All services (no cache)\n  8) Ranking, then CMS (safe order)\n"
+  read -r -p "Choice [1-8]: " choice
   choice="${choice:-1}"
 
   local ranking_only=false
@@ -112,6 +112,15 @@ _do_up() {
     5) "${up_cmd[@]}" build --no-cache cms db-init ;;
     6) "${up_cmd[@]}" build --no-cache ranking; ranking_only=true ;;
     7) "${up_cmd[@]}" build --no-cache ;;
+    8)
+      # Build everything first, so a failed build leaves the deployment untouched.
+      "${up_cmd[@]}" build ranking cms db-init
+      # The new ProxyService needs the new ranking: start it alone and stop here
+      # if it does not come up, before the CMS is touched.
+      "${up_cmd[@]}" up -d --no-deps --wait --wait-timeout 90 ranking || {
+        echo "ERROR: the ranking did not come up; the CMS was not rebuilt or started by this run." >&2
+        exit 1
+      } ;;
   esac
 
   if [[ "$ranking_only" == true ]]; then

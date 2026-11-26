@@ -29,10 +29,12 @@ Follow these steps to start the contest system for the first time:
    - Answer **`y`** if you want these scripts to manage the database (most common for new setups).
    - Answer **`n`** only if you already have a PostgreSQL database running somewhere else.
 
-4. **Answer the second question:** `Rebuild?` is a menu from 1 to 7.
+4. **Answer the second question:** `Rebuild?` is a menu from 1 to 8.
    - Choose **`1`** (No, the default and the fastest) on the first run or when nothing has changed.
-   - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`3`** and then **`4`**, see below.
-   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update, see [Running several contests at once](multi-contest.md).
+   - After updating the code of a single-contest deployment, choose **`2`** (all services); **`4`** (CMS only) leaves the ranking container on its old image. A multi-contest deployment uses **`8`** (Ranking, then CMS), see below.
+   - Choose **`3`** (Ranking only) to rebuild and start only the ranking container: the other services are not touched. It is the first step of a multi-contest update done by hand, see [Running several contests at once](multi-contest.md).
+   - Choose **`8`** (Ranking, then CMS) to update a multi-contest deployment in the right order in one run. It builds the ranking, CMS and db-init images first, starts the ranking and waits until it is healthy, and only then starts the rest. If the ranking does not come up, it stops without rebuilding or starting the CMS.
+   - Since the ranking container has a health check, every start that includes it waits until the ranking is healthy: the first `./up.sh` or `./restart.sh` after this change recreates the ranking whatever you choose (its scoreboard is down for a few seconds, so do it outside a contest), and a ranking that crashes makes the script exit with an error after the other services were started.
 
 5. **Wait for startup.** You'll see output like:
    ```
@@ -219,6 +221,13 @@ the script with Ctrl+C, or it fails, it removes the `.partial` directory. If
 the script is killed with `kill -9` or the machine crashes, the `.partial`
 directory stays; it belongs to root, so remove it with `sudo rm -rf`.
 
+While the dump runs, on a terminal the script rewrites one line every 2
+seconds, for example `3.1G written, about 17% of the database size, 02:10`.
+The dump is compressed and has no indexes, which the size of the database
+counts, so the percentage usually stops well under 100%: the written size
+and the time tell you whether the dump is moving. When the output is not a
+terminal (a pipe, `nohup`, a log file) the script prints nothing of this.
+
 Inside the backup:
 
 - The dump, in the directory format of `pg_dump` compressed with zstd.
@@ -251,6 +260,9 @@ yours and run `rsync` on that copy.
 
 The files of the backup belong to root and nobody else can read them. The
 backup has neither `.env` nor the Docker volumes.
+
+To free space after contests ended, take a backup first and follow
+[Archiving finished contests](archiving-finished-contests.md).
 
 ### verify-backup.sh
 

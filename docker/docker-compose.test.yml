@@ -1,11 +1,17 @@
 services:
   testdb:
-    image: docker.io/postgres:15
+    # An exact minor, never a floating tag: a minor release changes what the
+    # server exposes (pg_attver) and broke CI once. CI sets it from the matrix.
+    image: docker.io/postgres:${TEST_PG_VERSION:-19.0}
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
 
   testcms:
-    build: ..
+    # noble's pg_dump (16) refuses the newer database server used here.
+    build:
+      context: ..
+      args:
+        PG_CLIENT_MAJOR: "19"
     depends_on:
       - "testdb"
     environment:
@@ -32,7 +38,11 @@ services:
     command: wait-for-it testdb:5432 -- docker/_cms-test-internal.sh
 
   stresstestcms:
-    build: ..
+    # noble's pg_dump (16) refuses the newer database server used here.
+    build:
+      context: ..
+      args:
+        PG_CLIENT_MAJOR: "19"
     depends_on:
       - "testdb"
     environment:

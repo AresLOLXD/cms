@@ -38,12 +38,26 @@ name="$(backup_name "$label")"
 backups="$REPO_ROOT/backups"
 snapshot_container="cms-pgtool-$$-snapshot"
 partial=""
+progress_pid=""
+
+# Stop the progress line, if one runs, and erase it so that the next message
+# starts on a clean line. The terminal may be gone (an ssh drop): the write
+# must not fail, because errexit also applies inside the EXIT trap and would
+# stop the cleanup.
+stop_progress() {
+  [[ -n "$progress_pid" ]] || return 0
+  kill "$progress_pid" 2>/dev/null || true
+  wait "$progress_pid" 2>/dev/null || true
+  progress_pid=""
+  printf '\r\033[K' 2>/dev/null || true
+}
 
 # Removing both tool containers also ends the snapshot session.
 cleanup() {
   local status=$?
   # A second Ctrl+C must not stop the cleanup half way.
   trap '' INT TERM HUP
+  stop_progress
   # A docker run stopped while the daemon creates its container ends at once,
   # and the container appears just after (up to 0.6 s with Docker 29), in the
   # Created state that --rm never removes: give it time to appear.
@@ -172,8 +186,26 @@ echo "Dumping with $workers workers..."
     --compress=zstd:3 -f "/backups/$name.partial"
 ) &
 dump_pid=$!
+# On a terminal, rewrite one line every 2 s with the size written so far.
+# shortcut: du -sb every 2 s is fine for thousands of blob files; poll slower
+# if a database ever holds millions.
+if [[ -t 1 && "${TERM:-dumb}" != dumb ]]; then
+  (
+    # Ends by itself if the script is killed and cannot stop it.
+    while kill -0 $$ 2>/dev/null; do
+      written=$(du -sb "$partial" 2>/dev/null | cut -f1) || true
+      printf '\r\033[K%s' "$(progress_line "${written:-0}" "$db_size" $(( SECONDS - start )))" 2>/dev/null || break
+      # A builtin wait: no sleep process to outlive the reporter.
+      read -rt 2 <> <(:) || true
+    done
+  ) &
+  progress_pid=$!
+fi
 # Unlike a foreground command, wait lets the INT and TERM traps run at once.
-wait "$dump_pid" || die "pg_dump failed"
+dump_status=0
+wait "$dump_pid" || dump_status=$?
+stop_progress
+(( dump_status == 0 )) || die "pg_dump failed"
 # The container's umask is 022: keep every file of the backup to root.
 chmod -R go= "$partial"
 

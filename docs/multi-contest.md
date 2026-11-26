@@ -525,7 +525,13 @@ format of the windows):
 
 ### Deployment
 
-Update RankingWebServer **first**, then the rest:
+Update RankingWebServer **first**, then the rest. `./up.sh` does it in one
+run: choose **Ranking, then CMS (safe order)**. It builds the ranking, CMS and
+`db-init` images first (a build that fails leaves the deployment as it was),
+starts only the ranking container and waits for it to be healthy, and only
+then starts the rest. If the ranking does not come up, it prints `ERROR: the
+ranking did not come up; the CMS was not rebuilt or started by this run.` and stops. These are the
+same two steps by hand, which is also why the order matters:
 
 1. `./up.sh` and choose **Ranking only**. It rebuilds and restarts only the
    ranking container and returns once it is up; the other services are left
@@ -537,7 +543,7 @@ Update RankingWebServer **first**, then the rest:
    them), and restarts AWS and ProxyService. A group that was hidden with the
    old **Hide ranking from the public** checkbox gets **Hide from** set to the
    time of this step, so it stays hidden.
-3. Check the ProxyService log (`./logs.sh`) for "rejected the visibility".
+3. Either way, check the ProxyService log (`./logs.sh`) for "rejected the visibility".
    There should be none. If there is, see "Failure mode" above.
 
 Don't rebuild both at once (**All services**). The two containers then
@@ -719,7 +725,8 @@ uses:
 - "archivado desde …" (archived since …) once it has passed.
 
 The two dated states show the time in UTC and in the local time, as the other
-times of the page do.
+times of the page do. The list of ranking groups has an **Archive** column with
+the same wording for every group.
 
 Below it, the **Archive at (UTC)** field works like the other time fields:
 type `YYYY-MM-DD HH:MM:SS`, or clear it to remove the time. A time that is not
@@ -756,6 +763,8 @@ notification that names the group:
 - Assigning a contest to an archived group. Unarchive the group first, then
   assign the contest. A contest that is already in an archived group can still
   be saved, as long as its group does not change.
+- Moving a contest out of an archived group, to another group or to none.
+  Unarchive the group first, then move the contest.
 - Renaming an archived group. Unarchive it first. A save that unarchives and
   renames a group at once is refused too, so do the two in separate saves.
 
@@ -770,8 +779,9 @@ ranking group pages, show none either; the group page shows the state itself.
 
 ### Known limits
 
-- Moving a contest out of an archived group is allowed, and its data stays in
-  that group's public ranking.
+- AWS does not refuse to delete a contest of an archived group, because the
+  order "archive the group, then remove its contests" needs it. The data of the
+  deleted contest stays in that group's public ranking.
 - AWS does not refuse to delete an archived group. Deleting it removes the
   group as usual (see "Removing an old scoreboard").
 - There is no static snapshot of an archived group yet: its public ranking is
