@@ -21,6 +21,6 @@
 ## Workflow follow-up
 
 - Review by the controller (fresh code-reviewer), then merge and archive the change in the same merge.
-- Deploy together with the previous, not yet deployed release (omi.18), in a low-traffic hour, with a backup first (owner's decision, 2026-11-26: no contest-free window can be assumed), after the server-side ops steps.
-- Before deploying, run the connection check with the `options` parameter against the real database path; do not deploy if it fails.
-- Rollback: the kill-switch suffix (no help if the parameter itself is rejected), or build the omi.18 commit `4d93b8b8` (no schema change in either release).
+- Deploy together with the previous release (omi.18), in a low-traffic hour, with a backup first, after the server-side ops steps; the plan does not assume a contest-free window.
+- Before deploying, run the connection check with the `options` parameter against the real database path, with both drivers; do not deploy if it fails.
+- Rollback: the kill-switch suffix (no help if the parameter itself is rejected), or redeploy the previous `omi-*` tag, `omi-2026.11.24` (omi.17); the database schema does not change from that tag to this release.

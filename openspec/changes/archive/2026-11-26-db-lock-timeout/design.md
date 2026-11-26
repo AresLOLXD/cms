@@ -13,8 +13,7 @@ green wait callback, which does not touch startup parameters. Stage 1 never
 added `options`, on purpose: libpq ignores `PGOPTIONS` as soon as `options` is
 given (measured on PostgreSQL 18.7 by the panel). The fork's schema updates
 (`cmscontrib/updaters/fork_ddl.py`) and the AWS import apply already use
-`SET LOCAL lock_timeout` per transaction. Details and measurements: the panel
-note `D1-db-timeouts-stage2.md` and
+`SET LOCAL lock_timeout` per transaction. Details and measurements:
 `docs/superpowers/specs/2026-10-08-db-transport-timeouts-design.md`.
 
 ## Goals / Non-Goals
@@ -82,20 +81,21 @@ note `D1-db-timeouts-stage2.md` and
 
 ## Migration Plan
 
-The owner decided on 2026-11-26 that no contest-free window can be assumed, so
-this change does not get a release of its own: it ships together with the
-previous, not yet deployed release (omi.18), in a low-traffic hour, with a
-backup first.
+This change ships together with the previous release (omi.18), in a
+low-traffic hour, with a backup first. The plan does not assume a contest-free
+window.
 
 **Before** deploying, run a read-only connection check against the real database
-path: from the running application container, which still has the old code,
-connect with the same `options` value this change sends and read
-`SHOW lock_timeout`. It must print `30s`. If the check fails, do not deploy.
+path: from the running application container, which still runs the previous
+code, connect with each driver (psycopg2 and psycopg 3) and the `options` value
+this change sends, and read `SHOW lock_timeout`. It must print `30s` on both.
+If the check fails, do not deploy.
 
 After the deploy, `SHOW lock_timeout` from the `cms` container must print
 `30s`.
 
 Rollback: the kill-switch suffix plus `./up.sh` choice 1. The suffix does not
-help if the `options` parameter itself is rejected, because it still sends it;
-then build the omi.18 commit `4d93b8b8`. Neither omi.18 nor this change changes
-the database schema, so no database step is needed.
+help if the `options` parameter itself is rejected, because it still sends it.
+By code, redeploy the previous `omi-*` tag, `omi-2026.11.24` (omi.17), as
+`docs/contest-day.md` says. The database schema does not change from that tag to
+this release, so no database step is needed.

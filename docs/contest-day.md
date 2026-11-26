@@ -338,7 +338,9 @@ and for locks, without a short limit again, as before. The suffix does not switc
 If after a deploy every service fails to connect with a `FATAL` error that
 names `options` or an unrecognized parameter (a connection pooler or proxy
 that rejects that startup parameter), the suffix cannot help, because it
-still sends `options`: redeploy the previous `omi-*` tag.
+still sends `options`: redeploy the previous `omi-*` tag. A deploy shows
+this first as `db-init` stopping with that `FATAL` (`./logs.sh db-init`
+shows it), and the new `cms` container then does not start.
 
 ### Checking the settings after a deploy
 
