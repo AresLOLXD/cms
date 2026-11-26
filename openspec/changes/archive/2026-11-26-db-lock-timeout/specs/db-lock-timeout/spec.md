@@ -46,11 +46,19 @@ dropped because CMS sets options of its own.
 ### Requirement: lock_timeout=0 in the URL switches the bound off
 Adding `options=-c lock_timeout=0` (percent-encoded in the URL) to the database
 URL SHALL switch the lock bound off for every connection path, so that CMS
-waits for locks without a limit, as before this change.
+waits for locks without a limit, as before this change. When the URL repeats
+a parameter that CMS sets by default, as when the suffix is appended to a URL
+that already sets it, CMS SHALL use its last value.
 
 #### Scenario: lock_timeout=0 in the URL switches the bound off
 - **WHEN** the database URL carries the runbook's kill-switch suffix, which includes `options=-c%20lock_timeout%3D0`
 - **THEN** `SHOW lock_timeout` returns `0` on the sync engine, the async engine and a standalone psycopg2 connection
+
+#### Scenario: The kill switch wins over a key the URL already sets
+- **GIVEN** a database URL that already sets another parameter of the kill-switch suffix, such as `keepalives_idle=60`
+- **WHEN** the suffix is appended to it with `&`
+- **THEN** the sync engine, the async engine and a standalone psycopg2 connection connect with the suffix's value of that parameter
+- **AND** `SHOW lock_timeout` returns `0`
 
 ### Requirement: The fork's schema updates keep their 5-second lock bound
 A transaction that sets its own `lock_timeout` with `SET LOCAL` SHALL keep that

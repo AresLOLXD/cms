@@ -99,9 +99,11 @@ def with_connection_defaults(url: URL) -> URL:
     """Return url with the CMS connection defaults under its query.
 
     The defaults are LIBPQ_DEFAULTS and fallback_application_name set
-    to PROGRAM_NAME. A key of url's query wins over its default, and
-    the rest of the query (host=/socket/dir, sslmode, ...) passes
-    through. options is the exception: it becomes "-c
+    to PROGRAM_NAME. A key of url's query wins over its default; if
+    the query repeats such a key (the kill switch added to a URL that
+    already sets it), its last value counts, as in libpq. The rest of
+    the query (host=/socket/dir, sslmode, ...) passes through, repeated
+    keys included. options is the exception: it becomes "-c
     lock_timeout=LOCK_TIMEOUT_MS", then the PGOPTIONS environment
     variable, then url's own options, joined by spaces. Libpq ignores
     PGOPTIONS once options is given, and PostgreSQL applies the -c
@@ -115,13 +117,18 @@ def with_connection_defaults(url: URL) -> URL:
 
     """
     defaults = {**LIBPQ_DEFAULTS, "fallback_application_name": PROGRAM_NAME}
-    # normalized_query: a repeated key (the kill switch added to a URL
-    # that already has options) is a tuple in query, a str otherwise.
+    # A repeated key is a tuple in url.query; normalized_query has a
+    # tuple for every key. The drivers cannot take one for these keys,
+    # but SQLAlchemy needs it for repeated host and port.
+    last_values = {key: values[-1]
+                   for key, values in url.normalized_query.items()
+                   if key in defaults}
     options = " ".join(filter(None, (
         "-c lock_timeout=%d" % LOCK_TIMEOUT_MS,
         os.environ.get("PGOPTIONS"),
         *url.normalized_query.get("options", ()))))
-    return url.set(query={**defaults, **url.query, "options": options})
+    return url.set(query={**defaults, **url.query, **last_values,
+                          "options": options})
 
 
 def sqlstate(error: BaseException | None) -> str | None:

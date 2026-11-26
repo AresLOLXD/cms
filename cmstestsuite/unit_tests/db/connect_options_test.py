@@ -78,6 +78,15 @@ def with_kill_switch(url: str) -> str:
     return url + KILL_SWITCH
 
 
+def _url_that_sets_a_suffix_key() -> str:
+    """Return the test database URL with ?keepalives_idle=60, a key
+    that KILL_SWITCH sets too.
+
+    """
+    return make_url(config.database.url).update_query_dict(
+        {"keepalives_idle": "60"}).render_as_string(hide_password=False)
+
+
 def _without_pgoptions(test: unittest.TestCase) -> None:
     """Unset PGOPTIONS for the rest of test; it is put back after it."""
     patcher = patch.dict(os.environ)
@@ -241,6 +250,29 @@ class TestWithConnectionDefaults(unittest.TestCase):
                          "-c lock_timeout=30000 -c geqo=off "
                          "-c lock_timeout=0")
 
+    def test_a_repeated_managed_key_takes_its_last_value(self):
+        # Scenario: The kill switch wins over a key the URL already sets
+        # As in libpq. SQLAlchemy would pass a tuple on to the driver.
+        query = self._query(with_kill_switch(
+            "postgresql+psycopg2://u@h/db?connect_timeout=5&keepalives_idle=60"
+            "&keepalives_interval=1&keepalives_count=1&tcp_user_timeout=5"
+            "&keepalives=0&keepalives=1"
+            "&fallback_application_name=a&fallback_application_name=b"))
+        self.assertEqual(query, {
+            "connect_timeout": "0", "keepalives": "1",
+            "keepalives_idle": "7200", "keepalives_interval": "75",
+            "keepalives_count": "9", "tcp_user_timeout": "0",
+            "fallback_application_name": "b",
+            "options": "-c lock_timeout=30000 -c lock_timeout=0"})
+
+    def test_other_repeated_keys_pass_through(self):
+        # SQLAlchemy reads repeated host and port keys as several hosts.
+        query = self._query("postgresql+psycopg2://u@/db?host=a&host=b"
+                            "&port=5432&port=5433&sslmode=allow&sslmode=require")
+        self.assertEqual(query, {
+            **EXPECTED_DEFAULTS, "host": ("a", "b"),
+            "port": ("5432", "5433"), "sslmode": ("allow", "require")})
+
     def test_a_users_application_name_is_kept(self):
         # libpq uses fallback_application_name only when no
         # application_name is given.
@@ -376,7 +408,14 @@ class TestConnectionPaths(unittest.TestCase):
 
     def test_the_kill_switch(self):
         # Scenario: lock_timeout=0 in the URL switches the bound off
-        switched_url = with_kill_switch(config.database.url)
+        self._check_the_kill_switch(config.database.url)
+
+    def test_the_kill_switch_over_a_key_the_url_sets(self):
+        # Scenario: The kill switch wins over a key the URL already sets
+        self._check_the_kill_switch(_url_that_sets_a_suffix_key())
+
+    def _check_the_kill_switch(self, url: str) -> None:
+        switched_url = with_kill_switch(url)
         with patch.object(config.database, "url", switched_url):
             switched = create_engine(
                 with_connection_defaults(make_url(config.database.url)))
@@ -406,7 +445,14 @@ class TestAsyncConnectionPath(unittest.IsolatedAsyncioTestCase):
 
     async def test_the_kill_switch(self):
         # Scenario: lock_timeout=0 in the URL switches the bound off
-        switched_url = with_kill_switch(config.database.url)
+        await self._check_the_kill_switch(config.database.url)
+
+    async def test_the_kill_switch_over_a_key_the_url_sets(self):
+        # Scenario: The kill switch wins over a key the URL already sets
+        await self._check_the_kill_switch(_url_that_sets_a_suffix_key())
+
+    async def _check_the_kill_switch(self, url: str) -> None:
+        switched_url = with_kill_switch(url)
         with patch.object(config.database, "url", switched_url):
             switched = create_async_engine(
                 with_connection_defaults(_async_database_url()))

@@ -141,6 +141,18 @@ class TestGreenConnect(unittest.TestCase):
             with gevent.Timeout(3.5):
                 self._connect(**url.query)
 
+    def test_the_kill_switch_wins_over_the_urls_connect_timeout(self):
+        # Scenario: The kill switch wins over a key the URL already sets
+        url = with_connection_defaults(make_url(with_kill_switch(
+            "postgresql+psycopg2://cms@127.0.0.1:%d/cms?connect_timeout=2"
+            % self.port)))
+        dsn = extensions.make_dsn(**url.query)
+        # A tuple of both values would give no deadline either, so check
+        # the value itself.
+        self.assertEqual(extensions.parse_dsn(dsn)["connect_timeout"], "0")
+        self.assertIsNone(connect_deadline(SimpleNamespace(
+            status=extensions.STATUS_SETUP, dsn=dsn)))
+
     def test_timed_out_connects_leave_no_file_descriptor(self):
         # The first timed wait of a thread creates its gevent hub's own
         # descriptors (eventpoll, eventfd): count after it.

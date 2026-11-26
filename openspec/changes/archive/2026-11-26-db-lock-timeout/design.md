@@ -46,8 +46,13 @@ note `D1-db-timeouts-stage2.md` and
   code default. Joining preserves `PGOPTIONS` escapes (`\ `) untouched.
   `PGOPTIONS` is read when the URL is built (import time for the two engines,
   each call for `custom_psycopg2_connection`), which is when libpq would have
-  read it for the process anyway. A repeated `options` key in the URL (the kill
-  switch appended to a URL that already has one) is joined in the URL's order.
+  read it for the process anyway.
+- **Repeated keys.** The kill switch appended to a URL that already sets one of
+  its keys repeats that key, which SQLAlchemy turns into a tuple that no driver
+  accepts. Repeated `options` are joined in the URL's order; a repeated key of
+  the CMS defaults (the rest of the suffix) takes its last value, as in libpq.
+  Other keys pass through: SQLAlchemy needs the repeated `host` and `port` of a
+  multi-host URL.
 - **Kill switch in the URL, appended to the stage-1 suffix.** One documented
   suffix switches off every client-side bound; `options=-c%20lock_timeout%3D0`
   becomes its last item. It needs a restart of every service, as in stage 1.
