@@ -58,5 +58,6 @@ None.
   `service/evaluationservice_disconnect_test.py`.
 - Docs: `docs/contest-day.md` and its Spanish catalog, `config/cms.sample.toml`.
 - Operations: a connection pooler or proxy that rejects the `options` startup
-  parameter would refuse every CMS connection; deploy in its own release, off
-  a contest day, with the kill switch at hand.
+  parameter would refuse every CMS connection; check the real database path
+  with that parameter before deploying, and keep the kill switch at hand (see
+  the Migration Plan in `design.md`).

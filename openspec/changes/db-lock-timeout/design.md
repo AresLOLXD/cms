@@ -46,7 +46,8 @@ note `D1-db-timeouts-stage2.md` and
   code default. Joining preserves `PGOPTIONS` escapes (`\ `) untouched.
   `PGOPTIONS` is read when the URL is built (import time for the two engines,
   each call for `custom_psycopg2_connection`), which is when libpq would have
-  read it for the process anyway.
+  read it for the process anyway. A repeated `options` key in the URL (the kill
+  switch appended to a URL that already has one) is joined in the URL's order.
 - **Kill switch in the URL, appended to the stage-1 suffix.** One documented
   suffix switches off every client-side bound; `options=-c%20lock_timeout%3D0`
   becomes its last item. It needs a restart of every service, as in stage 1.
@@ -62,7 +63,8 @@ note `D1-db-timeouts-stage2.md` and
 
 - [A pooler or proxy rejects the `options` startup parameter, or an unknown GUC
   is FATAL] → every connection fails at once, loudly. `lock_timeout` exists on
-  every supported major (15-19); deploy in its own release, off a contest day;
+  every supported major; the connection check before the deploy (see the
+  Migration Plan) catches a rejected parameter while the old code still runs;
   the kill switch removes the `-c` effect but not the parameter itself, so a
   pooler that rejects `options` needs a rollback of the release.
 - [A false fire under extreme load] → loud and retried: ES skips and the
@@ -75,7 +77,20 @@ note `D1-db-timeouts-stage2.md` and
 
 ## Migration Plan
 
-Deploy in its own release (off a contest day, with a backup). After the deploy,
-`SHOW lock_timeout` from the `cms` container must print `30s`. Rollback: the
-kill-switch suffix plus `./up.sh` choice 1; if the connection itself is
-refused, redeploy the previous tag.
+The owner decided on 2026-11-26 that no contest-free window can be assumed, so
+this change does not get a release of its own: it ships together with the
+previous, not yet deployed release (omi.18), in a low-traffic hour, with a
+backup first.
+
+**Before** deploying, run a read-only connection check against the real database
+path: from the running application container, which still has the old code,
+connect with the same `options` value this change sends and read
+`SHOW lock_timeout`. It must print `30s`. If the check fails, do not deploy.
+
+After the deploy, `SHOW lock_timeout` from the `cms` container must print
+`30s`.
+
+Rollback: the kill-switch suffix plus `./up.sh` choice 1. The suffix does not
+help if the `options` parameter itself is rejected, because it still sends it;
+then build the omi.18 commit `4d93b8b8`. Neither omi.18 nor this change changes
+the database schema, so no database step is needed.
