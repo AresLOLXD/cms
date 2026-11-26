@@ -115,10 +115,12 @@ def with_connection_defaults(url: URL) -> URL:
 
     """
     defaults = {**LIBPQ_DEFAULTS, "fallback_application_name": PROGRAM_NAME}
+    # normalized_query: a repeated key (the kill switch added to a URL
+    # that already has options) is a tuple in query, a str otherwise.
     options = " ".join(filter(None, (
         "-c lock_timeout=%d" % LOCK_TIMEOUT_MS,
         os.environ.get("PGOPTIONS"),
-        url.query.get("options"))))
+        *url.normalized_query.get("options", ()))))
     return url.set(query={**defaults, **url.query, "options": options})
 
 

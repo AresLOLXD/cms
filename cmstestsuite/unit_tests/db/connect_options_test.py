@@ -232,6 +232,15 @@ class TestWithConnectionDefaults(unittest.TestCase):
                          "-c lock_timeout=30000 -c lock_timeout=7s "
                          "-c geqo=off -c lock_timeout=5s")
 
+    def test_a_url_with_options_takes_the_kill_switch(self):
+        # Scenario: lock_timeout=0 in the URL switches the bound off
+        # The suffix adds a second "options" key to such a URL.
+        query = self._query(with_kill_switch(
+            "postgresql+psycopg2://u@h/db?options=-c%20geqo%3Doff"))
+        self.assertEqual(query["options"],
+                         "-c lock_timeout=30000 -c geqo=off "
+                         "-c lock_timeout=0")
+
     def test_a_users_application_name_is_kept(self):
         # libpq uses fallback_application_name only when no
         # application_name is given.
